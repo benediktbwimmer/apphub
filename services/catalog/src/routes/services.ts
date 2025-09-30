@@ -34,6 +34,7 @@ import {
   updatePlaceholderSummaries
 } from '../serviceManifestHelpers';
 import { getServiceHealthSnapshot, getServiceHealthSnapshots } from '../serviceRegistry';
+import { schemaRef } from '../openapi/definitions';
 import type { WorkflowStepDefinition, WorkflowTriggerDefinition } from '../db/types';
 
 const SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? '';
@@ -175,6 +176,19 @@ async function upsertModuleWorkflows(
 
 const serviceStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
 
+function jsonResponse(schemaName: string, description: string) {
+  return {
+    description,
+    content: {
+      'application/json': {
+        schema: schemaRef(schemaName)
+      }
+    }
+  } as const;
+}
+
+const errorResponse = (description: string) => jsonResponse('ErrorResponse', description);
+
 export const serviceRegistrationSchema = z
   .object({
     slug: z.string().min(1),
@@ -202,6 +216,19 @@ export const servicePatchSchema = z
       .optional()
   })
   .strict();
+
+const servicePatchRequestOpenApiSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    baseUrl: { type: 'string', format: 'uri' },
+    status: { type: 'string', enum: ['unknown', 'healthy', 'degraded', 'unreachable'] },
+    statusMessage: { type: 'string', nullable: true },
+    capabilities: schemaRef('JsonValue'),
+    metadata: schemaRef('ServiceMetadata'),
+    lastHealthyAt: { type: 'string', format: 'date-time', nullable: true }
+  }
+} as const;
 
 const gitShaSchema = z
   .string()
@@ -296,15 +323,15 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
         continue;
       }
       headers.set(key, String(value));
+    }
+    return headers;
   }
-  return headers;
-}
 
-async function processServiceManifestImport(request: FastifyRequest, reply: FastifyReply) {
-  const parseBody = serviceConfigImportSchema.safeParse(request.body ?? {});
-  if (!parseBody.success) {
-    reply.status(400);
-    return { error: parseBody.error.flatten() };
+  async function processServiceManifestImport(request: FastifyRequest, reply: FastifyReply) {
+    const parseBody = serviceConfigImportSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
     }
 
     const payload = parseBody.data;
@@ -485,70 +512,103 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
     }
   }
 
-  app.get('/services', async () => {
-    const services = await listServices();
-    const healthSnapshots = await getServiceHealthSnapshots(services.map((service) => service.slug));
-    const healthyCount = services.filter((service) => service.status === 'healthy').length;
-    const unhealthyCount = services.length - healthyCount;
-    return {
-      data: services.map((service) =>
-        serializeService(service, healthSnapshots.get(service.slug) ?? null)
-      ),
-      meta: {
-        total: services.length,
-        healthyCount,
-        unhealthyCount
+  app.get(
+    '/services',
+    {
+      schema: {
+        tags: ['Services'],
+        summary: 'List registered services',
+        response: {
+          200: jsonResponse('ServiceListResponse', 'Service inventory and health summary.')
+        }
       }
-    };
-  });
+    },
+    async () => {
+      const services = await listServices();
+      const healthSnapshots = await getServiceHealthSnapshots(services.map((service) => service.slug));
+      const healthyCount = services.filter((service) => service.status === 'healthy').length;
+      const unhealthyCount = services.length - healthyCount;
+      return {
+        data: services.map((service) =>
+          serializeService(service, healthSnapshots.get(service.slug) ?? null)
+        ),
+        meta: {
+          total: services.length,
+          healthyCount,
+          unhealthyCount
+        }
+      };
+    }
+  );
 
   app.get('/services/:slug/preview', handleServicePreviewProxy);
   app.get('/services/:slug/preview/*', handleServicePreviewProxy);
 
-  app.post('/services', async (request, reply) => {
-    if (!ensureServiceRegistryAuthorized(request, reply)) {
-      return { error: 'service registry disabled' };
-    }
+  app.post(
+    '/services',
+    {
+      schema: {
+        tags: ['Services'],
+        summary: 'Register or update a service',
+        description:
+          'Adds a new service entry or updates the metadata for an existing service. Requires the service registry bearer token.',
+        security: [{ ServiceRegistryToken: [] }],
+        body: schemaRef('ServiceRegistrationRequest'),
+        response: {
+          201: jsonResponse('ServiceResponse', 'A new service was registered.'),
+          200: jsonResponse('ServiceResponse', 'The service metadata was updated.'),
+          400: errorResponse('The service payload failed validation.'),
+          401: errorResponse('Authorization header was missing.'),
+          403: errorResponse('Authorization header was rejected.'),
+          503: errorResponse('Service registry support is disabled on this deployment.')
+        }
+      }
+    },
+    async (request, reply) => {
+      if (!ensureServiceRegistryAuthorized(request, reply)) {
+        return { error: 'service registry disabled' };
+      }
 
-    const parseBody = serviceRegistrationSchema.safeParse(request.body ?? {});
-    if (!parseBody.success) {
-      request.log.warn(
-        { resourceType: 'service', issues: parseBody.error.flatten() },
-        'service registration validation failed'
-      );
-      reply.status(400);
-      return { error: parseBody.error.flatten() };
-    }
+      const parseBody = serviceRegistrationSchema.safeParse(request.body ?? {});
+      if (!parseBody.success) {
+        request.log.warn(
+          { resourceType: 'service', issues: parseBody.error.flatten() },
+          'service registration validation failed'
+        );
+        reply.status(400);
+        return { error: parseBody.error.flatten() };
+      }
 
-    const payload = parseBody.data;
-    const existing = await getServiceBySlug(payload.slug);
-    const metadataUpdate = mergeServiceMetadata(existing?.metadata ?? null, payload.metadata);
+      const payload = parseBody.data;
+      const existing = await getServiceBySlug(payload.slug);
+      const metadataUpdate = mergeServiceMetadata(existing?.metadata ?? null, payload.metadata);
 
-    const upsertPayload: ServiceUpsertInput = {
-      slug: payload.slug,
-      displayName: payload.displayName,
-      kind: payload.kind,
-      baseUrl: payload.baseUrl,
-      metadata: metadataUpdate
-    };
+      const upsertPayload: ServiceUpsertInput = {
+        slug: payload.slug,
+        displayName: payload.displayName,
+        kind: payload.kind,
+        baseUrl: payload.baseUrl,
+        metadata: metadataUpdate
+      };
 
-    if (payload.status !== undefined) {
-      upsertPayload.status = payload.status;
-    }
-    if (payload.statusMessage !== undefined) {
-      upsertPayload.statusMessage = payload.statusMessage;
-    }
-    if (payload.capabilities !== undefined) {
-      upsertPayload.capabilities = payload.capabilities as JsonValue;
-    }
+      if (payload.status !== undefined) {
+        upsertPayload.status = payload.status;
+      }
+      if (payload.statusMessage !== undefined) {
+        upsertPayload.statusMessage = payload.statusMessage;
+      }
+      if (payload.capabilities !== undefined) {
+        upsertPayload.capabilities = payload.capabilities as JsonValue;
+      }
 
-    const record = await upsertService(upsertPayload);
-    if (!existing) {
-      reply.status(201);
+      const record = await upsertService(upsertPayload);
+      if (!existing) {
+        reply.status(201);
+      }
+      const healthSnapshot = await getServiceHealthSnapshot(record.slug);
+      return { data: serializeService(record, healthSnapshot) };
     }
-    const healthSnapshot = await getServiceHealthSnapshot(record.slug);
-    return { data: serializeService(record, healthSnapshot) };
-  });
+  );
 
   app.post('/service-config/import', async (request, reply) => {
     if (!ensureServiceRegistryAuthorized(request, reply)) {
@@ -564,68 +624,96 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
     return processServiceManifestImport(request, reply);
   });
 
-  app.patch('/services/:slug', async (request, reply) => {
-    if (!ensureServiceRegistryAuthorized(request, reply)) {
-      return { error: 'service registry disabled' };
-    }
+  app.patch(
+    '/services/:slug',
+    {
+      schema: {
+        tags: ['Services'],
+        summary: 'Update a registered service',
+        description: 'Updates metadata for an existing service entry. Requires the service registry bearer token.',
+        security: [{ ServiceRegistryToken: [] }],
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['slug'],
+          properties: {
+            slug: { type: 'string', description: 'Service slug.' }
+          }
+        },
+        body: servicePatchRequestOpenApiSchema,
+        response: {
+          200: jsonResponse('ServiceResponse', 'Updated service metadata.'),
+          400: errorResponse('The service payload failed validation.'),
+          401: errorResponse('Authorization header was missing.'),
+          403: errorResponse('Authorization header was rejected.'),
+          404: errorResponse('Service not found.'),
+          500: errorResponse('Failed to update service.'),
+          503: errorResponse('Service registry support is disabled on this deployment.')
+        }
+      }
+    },
+    async (request, reply) => {
+      if (!ensureServiceRegistryAuthorized(request, reply)) {
+        return { error: 'service registry disabled' };
+      }
 
-    const paramsSchema = z.object({ slug: z.string().min(1) });
-    const parseParams = paramsSchema.safeParse(request.params);
-    if (!parseParams.success) {
-      reply.status(400);
-      return { error: parseParams.error.flatten() };
-    }
+      const parseParams = z.object({ slug: z.string().min(1) }).safeParse(request.params);
+      if (!parseParams.success) {
+        reply.status(400);
+        return { error: parseParams.error.flatten() };
+      }
 
-    const slug = parseParams.data.slug;
-    const existing = await getServiceBySlug(slug);
-    if (!existing) {
-      reply.status(404);
-      return { error: 'service not found' };
-    }
+      const slug = parseParams.data.slug;
+      const existing = await getServiceBySlug(slug);
+      if (!existing) {
+        reply.status(404);
+        return { error: 'service not found' };
+      }
 
-    const parseBody = servicePatchSchema.safeParse(request.body ?? {});
-    if (!parseBody.success) {
-      request.log.warn(
-        { resourceType: 'service', slug, issues: parseBody.error.flatten() },
-        'service update validation failed'
-      );
-      reply.status(400);
-      return { error: parseBody.error.flatten() };
-    }
+      const parseBody = servicePatchSchema.safeParse(request.body ?? {});
+      if (!parseBody.success) {
+        request.log.warn(
+          { resourceType: 'service', slug, issues: parseBody.error.flatten() },
+          'service update validation failed'
+        );
+        reply.status(400);
+        return { error: parseBody.error.flatten() };
+      }
 
-    const payload = parseBody.data;
-    const hasMetadata = Object.prototype.hasOwnProperty.call(payload, 'metadata');
-    const metadataUpdate = hasMetadata
-      ? mergeServiceMetadata(existing.metadata, payload.metadata)
-      : undefined;
+      const payload = parseBody.data;
+      const hasMetadata = Object.prototype.hasOwnProperty.call(payload, 'metadata');
+      const metadataUpdate = hasMetadata
+        ? mergeServiceMetadata(existing.metadata, payload.metadata)
+        : undefined;
 
-    const update: ServiceStatusUpdate = {};
-    if (payload.baseUrl) {
-      update.baseUrl = payload.baseUrl;
-    }
-    if (payload.status !== undefined) {
-      update.status = payload.status;
-    }
-    if (payload.statusMessage !== undefined) {
-      update.statusMessage = payload.statusMessage;
-    }
-    if (payload.capabilities !== undefined) {
-      update.capabilities = payload.capabilities as JsonValue;
-    }
-    if (hasMetadata) {
-      update.metadata = metadataUpdate ?? null;
-    }
-    if (payload.lastHealthyAt !== undefined) {
-      update.lastHealthyAt = payload.lastHealthyAt;
-    }
+      const update: ServiceStatusUpdate = {};
+      if (payload.baseUrl) {
+        update.baseUrl = payload.baseUrl;
+      }
+      if (payload.status !== undefined) {
+        update.status = payload.status;
+      }
+      if (payload.statusMessage !== undefined) {
+        update.statusMessage = payload.statusMessage;
+      }
+      if (payload.capabilities !== undefined) {
+        update.capabilities = payload.capabilities as JsonValue;
+      }
+      if (hasMetadata) {
+        update.metadata = metadataUpdate ?? null;
+      }
+      if (payload.lastHealthyAt !== undefined) {
+        update.lastHealthyAt = payload.lastHealthyAt;
+      }
 
-    const updated = await setServiceStatus(slug, update);
-    if (!updated) {
-      reply.status(500);
-      return { error: 'failed to update service' };
-    }
+      const updated = await setServiceStatus(slug, update);
+      if (!updated) {
+        reply.status(500);
+        return { error: 'failed to update service' };
+      }
 
-    const healthSnapshot = await getServiceHealthSnapshot(updated.slug);
-    return { data: serializeService(updated, healthSnapshot) };
-  });
+      const healthSnapshot = await getServiceHealthSnapshot(updated.slug);
+      return { data: serializeService(updated, healthSnapshot) };
+    }
+  );
 }

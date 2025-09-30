@@ -2,8 +2,6 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import websocket from '@fastify/websocket';
-import swagger from '@fastify/swagger';
-import swaggerUI from '@fastify/swagger-ui';
 import { initializeServiceRegistry } from './serviceRegistry';
 import { registerDefaultServices } from './startup/registerDefaultServices';
 import { stopAnalyticsSnapshots, verifyEventBusConnectivity } from './events';
@@ -19,7 +17,7 @@ import { registerAssetRoutes } from './routes/assets';
 import { registerServiceRoutes } from './routes/services';
 import { registerRepositoryRoutes } from './routes/repositories';
 import { registerAdminRoutes } from './routes/admin';
-import { openApiDocument } from './openapi/document';
+import { registerOpenApi } from './openapi/plugin';
 import { registerServiceProxyRoutes } from './routes/serviceProxy';
 import { registerSavedSearchRoutes } from './routes/savedSearches';
 import { registerEventSavedViewRoutes } from './routes/eventSavedViews';
@@ -46,21 +44,7 @@ export async function buildServer() {
     }
   });
 
-  await app.register(swagger, {
-    mode: 'static',
-    specification: {
-      document: openApiDocument
-    }
-  });
-
-  await app.register(swaggerUI, {
-    routePrefix: '/docs',
-    staticCSP: true,
-    uiConfig: {
-      docExpansion: 'list',
-      deepLinking: true
-    }
-  });
+  await registerOpenApi(app);
 
   await registerDefaultServices(app.log);
 
@@ -104,9 +88,6 @@ export async function buildServer() {
     registry.stop();
     stopAnalyticsSnapshots();
   });
-
-  app.get('/openapi.json', async () => openApiDocument);
-
   await app.register(async (instance) => registerCoreRoutes(instance));
   await app.register(async (instance) => registerAuthRoutes(instance));
   await app.register(async (instance) => registerJobRoutes(instance));

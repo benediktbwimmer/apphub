@@ -96,6 +96,25 @@ import { WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
 import { registerWorkflowTriggerRoutes } from './workflows/triggers';
 import { registerWorkflowGraphRoute } from './workflows/graph';
 import { getWorkflowDefaultParameters } from '../bootstrap';
+import { schemaRef } from '../openapi/definitions';
+
+function jsonResponse(schemaName: string, description: string) {
+  return {
+    description,
+    content: {
+      'application/json': {
+        schema: schemaRef(schemaName)
+      }
+    }
+  } as const;
+}
+
+const errorResponse = (description: string) => jsonResponse('ErrorResponse', description);
+const workflowDefinitionListResponse = jsonResponse.bind(
+  null,
+  'WorkflowDefinitionListResponse'
+);
+const workflowDefinitionResponse = jsonResponse.bind(null, 'WorkflowDefinitionResponse');
 
 type WorkflowJobStepInput = Extract<WorkflowStepInput, { jobSlug: string }>;
 type WorkflowJobTemplateInput = Extract<WorkflowFanOutTemplateInput, { jobSlug: string }>;
@@ -858,6 +877,31 @@ const workflowRunListQuerySchema = z
   })
   .partial();
 
+const workflowRunListQueryOpenApiSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    limit: { type: 'integer', minimum: 1, maximum: 50 },
+    offset: { type: 'integer', minimum: 0 },
+    status: {
+      type: 'string',
+      description: 'Comma-separated workflow run statuses to filter.'
+    },
+    workflow: {
+      type: 'string',
+      description: 'Comma-separated workflow slugs to filter.'
+    },
+    trigger: {
+      type: 'string',
+      description: 'Comma-separated trigger identifiers to filter.'
+    },
+    partition: { type: 'string', maxLength: 200 },
+    search: { type: 'string', maxLength: 200 },
+    from: { type: 'string', format: 'date-time' },
+    to: { type: 'string', format: 'date-time' }
+  }
+} as const;
+
 const workflowActivityListQuerySchema = z
   .object({
     limit: z
@@ -948,16 +992,29 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
   await registerWorkflowTriggerRoutes(app);
   await registerWorkflowGraphRoute(app);
 
-  app.get('/workflows', async (_request, reply) => {
-    try {
-      const workflows = await listWorkflowDefinitions();
-      reply.status(200);
-      return { data: workflows.map((workflow) => serializeWorkflowDefinition(workflow)) };
-    } catch (err) {
-      reply.status(500);
-      return { error: 'Failed to list workflows' };
+  app.get(
+    '/workflows',
+    {
+      schema: {
+        tags: ['Workflows'],
+        summary: 'List workflow definitions',
+        response: {
+          200: workflowDefinitionListResponse('Workflow definitions currently available.'),
+          500: errorResponse('The server failed to fetch workflow definitions.')
+        }
+      }
+    },
+    async (_request, reply) => {
+      try {
+        const workflows = await listWorkflowDefinitions();
+        reply.status(200);
+        return { data: workflows.map((workflow) => serializeWorkflowDefinition(workflow)) };
+      } catch (err) {
+        reply.status(500);
+        return { error: 'Failed to list workflows' };
+      }
     }
-  });
+  );
 
   app.get('/workflow-schedules', async (request, reply) => {
     try {
@@ -1093,91 +1150,123 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     };
   });
 
-  app.post('/workflows', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'workflows.create',
-      resource: 'workflows',
-      requiredScopes: WORKFLOW_WRITE_SCOPES
-    });
-    if (!authResult.ok) {
-      return { error: authResult.error };
-    }
-
-    const parseBody = workflowDefinitionCreateSchema.safeParse(request.body ?? {});
-    if (!parseBody.success) {
-      reply.status(400);
-      await authResult.auth.log('failed', { reason: 'invalid_payload', details: parseBody.error.flatten() });
-      return { error: parseBody.error.flatten() };
-    }
-
-    const payload = parseBody.data;
-    const moduleDefaults = getWorkflowDefaultParameters(payload.slug);
-    if (moduleDefaults) {
-      const existingDefaults =
-        payload.defaultParameters && typeof payload.defaultParameters === 'object' && !Array.isArray(payload.defaultParameters)
-          ? { ...(payload.defaultParameters as Record<string, JsonValue>) }
-          : {};
-      for (const [key, value] of Object.entries(moduleDefaults)) {
-        existingDefaults[key] = value;
+  app.post(
+    '/workflows',
+    {
+      schema: {
+        tags: ['Workflows'],
+        summary: 'Create a workflow definition',
+        description:
+          'Creates a workflow by composing job and service steps. Requires the workflows:write operator scope.',
+        security: [{ OperatorToken: [] }],
+        body: schemaRef('WorkflowDefinitionCreateRequest'),
+        response: {
+          201: workflowDefinitionResponse('Workflow definition created successfully.'),
+          400: errorResponse('The workflow payload failed validation or the DAG is invalid.'),
+          401: errorResponse('The request lacked an operator token.'),
+          403: errorResponse('The operator token is missing required scopes.'),
+          409: errorResponse('A workflow with the provided slug already exists.'),
+          500: errorResponse('The server failed to create the workflow.')
+        }
       }
-      payload.defaultParameters = existingDefaults;
-    }
-    const normalizedSteps = await normalizeWorkflowSteps(payload.steps);
-    const triggers = normalizeWorkflowTriggers(payload.triggers);
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
+        action: 'workflows.create',
+        resource: 'workflows',
+        requiredScopes: WORKFLOW_WRITE_SCOPES
+      });
+      if (!authResult.ok) {
+        return { error: authResult.error };
+      }
 
-    let dagMetadata: ReturnType<typeof buildWorkflowDagMetadata>;
-    let stepsWithDag: WorkflowStepDefinition[];
-    try {
-      dagMetadata = buildWorkflowDagMetadata(normalizedSteps);
-      stepsWithDag = applyDagMetadataToSteps(normalizedSteps, dagMetadata) as WorkflowStepDefinition[];
-    } catch (err) {
-      if (err instanceof WorkflowDagValidationError) {
+      const parseBody = workflowDefinitionCreateSchema.safeParse(request.body ?? {});
+      if (!parseBody.success) {
         reply.status(400);
         await authResult.auth.log('failed', {
-          reason: 'invalid_dag',
-          message: err.message,
-          detail: err.detail
+          reason: 'invalid_payload',
+          details: parseBody.error.flatten()
         });
-        return {
-          error: {
-            message: err.message,
-            reason: err.reason,
-            detail: err.detail
-          }
-        };
+        return { error: parseBody.error.flatten() };
       }
-      throw err;
-    }
 
-    try {
-      const workflow = await createWorkflowDefinition({
-        slug: payload.slug,
-        name: payload.name,
-        version: payload.version,
-        description: payload.description ?? null,
-        steps: stepsWithDag,
-        triggers,
-        parametersSchema: payload.parametersSchema ?? {},
-        defaultParameters: payload.defaultParameters ?? {},
-        metadata: payload.metadata ?? null,
-        dag: dagMetadata
-      });
-      reply.status(201);
-      await authResult.auth.log('succeeded', { workflowSlug: workflow.slug, workflowId: workflow.id });
-      return { data: serializeWorkflowDefinition(workflow) };
-    } catch (err) {
-      if (err instanceof Error && /already exists/i.test(err.message)) {
-        reply.status(409);
-        await authResult.auth.log('failed', { reason: 'duplicate_workflow', message: err.message });
-        return { error: err.message };
+      const payload = parseBody.data;
+      const moduleDefaults = getWorkflowDefaultParameters(payload.slug);
+      if (moduleDefaults) {
+        const existingDefaults =
+          payload.defaultParameters &&
+          typeof payload.defaultParameters === 'object' &&
+          !Array.isArray(payload.defaultParameters)
+            ? { ...(payload.defaultParameters as Record<string, JsonValue>) }
+            : {};
+        for (const [key, value] of Object.entries(moduleDefaults)) {
+          existingDefaults[key] = value;
+        }
+        payload.defaultParameters = existingDefaults;
       }
-      request.log.error({ err }, 'Failed to create workflow definition');
-      reply.status(500);
-      const message = err instanceof Error ? err.message : 'Failed to create workflow definition';
-      await authResult.auth.log('failed', { reason: 'exception', message });
-      return { error: 'Failed to create workflow definition' };
+      const normalizedSteps = await normalizeWorkflowSteps(payload.steps);
+      const triggers = normalizeWorkflowTriggers(payload.triggers);
+
+      let dagMetadata: ReturnType<typeof buildWorkflowDagMetadata>;
+      let stepsWithDag: WorkflowStepDefinition[];
+      try {
+        dagMetadata = buildWorkflowDagMetadata(normalizedSteps);
+        stepsWithDag = applyDagMetadataToSteps(normalizedSteps, dagMetadata) as WorkflowStepDefinition[];
+      } catch (err) {
+        if (err instanceof WorkflowDagValidationError) {
+          reply.status(400);
+          await authResult.auth.log('failed', {
+            reason: 'invalid_dag',
+            message: err.message,
+            detail: err.detail
+          });
+          return {
+            error: {
+              message: err.message,
+              reason: err.reason,
+              detail: err.detail
+            }
+          };
+        }
+        throw err;
+      }
+
+      try {
+        const workflow = await createWorkflowDefinition({
+          slug: payload.slug,
+          name: payload.name,
+          version: payload.version,
+          description: payload.description ?? null,
+          steps: stepsWithDag,
+          triggers,
+          parametersSchema: payload.parametersSchema ?? {},
+          defaultParameters: payload.defaultParameters ?? {},
+          metadata: payload.metadata ?? null,
+          dag: dagMetadata
+        });
+        reply.status(201);
+        await authResult.auth.log('succeeded', {
+          workflowSlug: workflow.slug,
+          workflowId: workflow.id
+        });
+        return { data: serializeWorkflowDefinition(workflow) };
+      } catch (err) {
+        if (err instanceof Error && /already exists/i.test(err.message)) {
+          reply.status(409);
+          await authResult.auth.log('failed', {
+            reason: 'duplicate_workflow',
+            message: err.message
+          });
+          return { error: err.message };
+        }
+        request.log.error({ err }, 'Failed to create workflow definition');
+        reply.status(500);
+        const message = err instanceof Error ? err.message : 'Failed to create workflow definition';
+        await authResult.auth.log('failed', { reason: 'exception', message });
+        return { error: 'Failed to create workflow definition' };
+      }
     }
-  });
+  );
 
   app.post('/workflows/:slug/schedules', async (request, reply) => {
     const authResult = await requireOperatorScopes(request, reply, {
@@ -1652,69 +1741,97 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     };
   });
 
-  app.get('/workflows/:slug/auto-materialize', async (request, reply) => {
-    const parseParams = workflowSlugParamSchema.safeParse(request.params);
-    if (!parseParams.success) {
-      reply.status(400);
-      return { error: parseParams.error.flatten() };
-    }
-
-    const parseQuery = workflowRunListQuerySchema.safeParse(request.query ?? {});
-    if (!parseQuery.success) {
-      reply.status(400);
-      return { error: parseQuery.error.flatten() };
-    }
-
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
-    if (!workflow) {
-      reply.status(404);
-      return { error: 'workflow not found' };
-    }
-
-    const limit = Math.max(1, Math.min(parseQuery.data.limit ?? 20, 50));
-    const offset = Math.max(0, parseQuery.data.offset ?? 0);
-
-    const [runs, claim, failureState] = await Promise.all([
-      listWorkflowAutoRunsForDefinition(workflow.id, { limit, offset }),
-      getWorkflowAutoRunClaim(workflow.id),
-      getAutoMaterializeFailureState(workflow.id)
-    ]);
-
-    reply.status(200);
-    return {
-      data: {
-        runs: runs.map((run) => serializeWorkflowRun(run)),
-        inFlight: claim
-          ? {
-              workflowRunId: claim.workflowRunId,
-              reason: claim.reason,
-              assetId: claim.assetId,
-              partitionKey: claim.partitionKey,
-              requestedAt: claim.requestedAt,
-              claimedAt: claim.claimedAt,
-              claimOwner: claim.claimOwner,
-              context: claim.context ?? null
-            }
-          : null,
-        cooldown: failureState
-          ? {
-              failures: failureState.failures,
-              nextEligibleAt: failureState.nextEligibleAt
-            }
-          : null,
-        updatedAt: new Date().toISOString()
-      },
-      meta: {
-        workflow: {
-          id: workflow.id,
-          slug: workflow.slug,
-          name: workflow.name
+  app.get(
+    '/workflows/:slug/auto-materialize',
+    {
+      schema: {
+        tags: ['Workflows'],
+        summary: 'Inspect auto materialize status',
+        description:
+          'Provides recent auto-materialize runs, in-flight claims, and cooldown status for the specified workflow.',
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['slug'],
+          properties: {
+            slug: { type: 'string', description: 'Workflow slug to inspect.' }
+          }
         },
-        limit,
-        offset
+        querystring: workflowRunListQueryOpenApiSchema,
+        response: {
+          200: jsonResponse(
+            'WorkflowAutoMaterializeOpsResponse',
+            'Auto-materialize status for the workflow.'
+          ),
+          400: errorResponse('The request parameters or query failed validation.'),
+          404: errorResponse('Workflow not found.')
+        }
       }
-    };
-  });
+    },
+    async (request, reply) => {
+      const parseParams = workflowSlugParamSchema.safeParse(request.params);
+      if (!parseParams.success) {
+        reply.status(400);
+        return { error: parseParams.error.flatten() };
+      }
+
+      const parseQuery = workflowRunListQuerySchema.safeParse(request.query ?? {});
+      if (!parseQuery.success) {
+        reply.status(400);
+        return { error: parseQuery.error.flatten() };
+      }
+
+      const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+      if (!workflow) {
+        reply.status(404);
+        return { error: 'workflow not found' };
+      }
+
+      const limit = Math.max(1, Math.min(parseQuery.data.limit ?? 20, 50));
+      const offset = Math.max(0, parseQuery.data.offset ?? 0);
+
+      const [runs, claim, failureState] = await Promise.all([
+        listWorkflowAutoRunsForDefinition(workflow.id, { limit, offset }),
+        getWorkflowAutoRunClaim(workflow.id),
+        getAutoMaterializeFailureState(workflow.id)
+      ]);
+
+      reply.status(200);
+      return {
+        data: {
+          runs: runs.map((run) => serializeWorkflowRun(run)),
+          inFlight: claim
+            ? {
+                workflowRunId: claim.workflowRunId,
+                reason: claim.reason,
+                assetId: claim.assetId,
+                partitionKey: claim.partitionKey,
+                requestedAt: claim.requestedAt,
+                claimedAt: claim.claimedAt,
+                claimOwner: claim.claimOwner,
+                context: claim.context ?? null
+              }
+            : null,
+          cooldown: failureState
+            ? {
+                failures: failureState.failures,
+                nextEligibleAt: failureState.nextEligibleAt
+              }
+            : null,
+          updatedAt: new Date().toISOString()
+        },
+        meta: {
+          workflow: {
+            id: workflow.id,
+            slug: workflow.slug,
+            name: workflow.name
+          },
+          limit,
+          offset
+        }
+      };
+    }
+  );
 
   app.patch('/workflow-schedules/:scheduleId', async (request, reply) => {
     const authResult = await requireOperatorScopes(request, reply, {

@@ -4,7 +4,8 @@ import { requireOperatorScopes } from './shared/operatorAuth';
 import { getAuthConfig } from '../config/auth';
 import {
   encodeLoginStateCookie,
-  decodeLoginStateCookie
+  decodeLoginStateCookie,
+  decodeSessionCookie
 } from '../auth/cookies';
 import {
   createSession,
@@ -23,15 +24,13 @@ import {
   type ApiKeyRecord
 } from '../db/apiKeys';
 import {
-  decodeSessionCookie
-} from '../auth/cookies';
-import {
   loadSessionWithAccess,
   deleteSession
 } from '../db/sessions';
 import { hashSha256 } from '../auth/crypto';
 import { recordAuditLog } from '../db/audit';
 import { OPERATOR_SCOPES, type OperatorScope } from '../auth/tokens';
+import { schemaRef } from '../openapi/definitions';
 
 const loginQuerySchema = z.object({
   redirectTo: z.string().optional()
@@ -47,6 +46,24 @@ const createApiKeySchema = z.object({
   scopes: z.array(z.string().min(1)).optional(),
   expiresAt: z.string().datetime().optional()
 });
+
+const apiKeyCreateRequestSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 120 },
+    scopes: { type: 'array', items: { type: 'string', minLength: 1 } },
+    expiresAt: { type: 'string', format: 'date-time' }
+  }
+} as const;
+
+const optionalApiKeyCreateRequestSchema = {
+  anyOf: [
+    apiKeyCreateRequestSchema,
+    { type: 'null' },
+    { type: 'object', additionalProperties: false, properties: {} }
+  ]
+} as const;
 
 function sanitizeRedirect(input: string | undefined): string | undefined {
   if (!input) {
@@ -73,6 +90,25 @@ function getRequestCookies(request: FastifyRequest): Record<string, string> {
   return candidate ?? {};
 }
 
+function jsonResponse(schemaName: string, description: string) {
+  return {
+    description,
+    content: {
+      'application/json': {
+        schema: schemaRef(schemaName)
+      }
+    }
+  } as const;
+}
+
+const errorResponse = (description: string) => jsonResponse('ErrorResponse', description);
+
+const identityResponse = jsonResponse.bind(null, 'IdentityResponse');
+
+const apiKeyListResponse = jsonResponse.bind(null, 'ApiKeyListResponse');
+
+const apiKeyCreateResponse = jsonResponse.bind(null, 'ApiKeyCreateResponse');
+
 function serializeApiKey(record: ApiKeyRecord) {
   return {
     id: record.id,
@@ -88,7 +124,33 @@ function serializeApiKey(record: ApiKeyRecord) {
 }
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/auth/login', async (request, reply) => {
+  app.get(
+    '/auth/login',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Initiate OIDC login',
+        description:
+          'Generates an OAuth authorization request and redirects the browser to the configured identity provider.',
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            redirectTo: {
+              type: 'string',
+              description: 'Optional relative path to redirect to after successful authentication.'
+            }
+          }
+        },
+        response: {
+          302: { description: 'Redirect to the external identity provider.' },
+          400: errorResponse('The request query parameters were invalid.'),
+          503: errorResponse('Single sign-on is not enabled on this instance.'),
+          500: errorResponse('The identity provider request failed.')
+        }
+      }
+    },
+    async (request, reply) => {
     const config = getAuthConfig();
     if (!config.enabled) {
       reply.status(503);
@@ -143,9 +205,36 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       reply.status(500);
       return { error: 'oidc_unavailable' };
     }
-  });
+    }
+  );
 
-  app.get('/auth/callback', async (request, reply) => {
+  app.get(
+    '/auth/callback',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'OIDC login callback',
+        description:
+          'Handles the OAuth authorization response, issues a secure session cookie, and redirects back to the application.',
+        querystring: {
+          type: 'object',
+          required: ['state', 'code'],
+          additionalProperties: false,
+          properties: {
+            state: { type: 'string', description: 'Opaque login state value issued during the authorization request.' },
+            code: { type: 'string', description: 'Authorization code returned by the identity provider.' }
+          }
+        },
+        response: {
+          302: { description: 'User is redirected to the requested application page.' },
+          400: errorResponse('The login state or authorization payload was invalid.'),
+          403: errorResponse('The authenticated identity is not allowed to access the platform.'),
+          500: errorResponse('The identity provider request failed.'),
+          503: errorResponse('Single sign-on is not enabled on this instance.')
+        }
+      }
+    },
+    async (request, reply) => {
     const config = getAuthConfig();
     if (!config.enabled) {
       reply.status(503);
@@ -267,9 +356,23 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       reply.status(500);
       return { error: 'oidc_callback_failed' };
     }
-  });
+    }
+  );
 
-  app.post('/auth/logout', async (request, reply) => {
+  app.post(
+    '/auth/logout',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Terminate current session',
+        description: "Revokes the caller's active session and clears the session cookie.",
+        security: [{ OperatorToken: [] }],
+        response: {
+          204: { description: 'The session was terminated.' }
+        }
+      }
+    },
+    async (request, reply) => {
     const config = getAuthConfig();
     if (!config.enabled) {
       reply.setCookie(
@@ -313,9 +416,26 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     );
     reply.status(204);
     return reply;
-  });
+    }
+  );
 
-  app.get('/auth/identity', async (request, reply) => {
+  app.get(
+    '/auth/identity',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Retrieve authenticated identity',
+        description:
+          'Returns the subject, scopes, and metadata for the active session, API key, or operator token.',
+        security: [{ OperatorToken: [] }],
+        response: {
+          200: identityResponse('Identity details.'),
+          401: errorResponse('No valid session or authorization token was provided.'),
+          403: errorResponse('The caller did not have permission to inspect identity information.')
+        }
+      }
+    },
+    async (request, reply) => {
     const result = await requireOperatorScopes(request, reply, {
       action: 'auth.identity.read',
       resource: 'identity',
@@ -342,9 +462,26 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         roles: identity.roles ?? []
       }
     };
-  });
+    }
+  );
 
-  app.get('/auth/api-keys', async (request, reply) => {
+  app.get(
+    '/auth/api-keys',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'List API keys',
+        description: 'Returns the API keys owned by the authenticated user.',
+        security: [{ OperatorToken: [] }],
+        response: {
+          200: apiKeyListResponse('API keys for the current user.'),
+          401: errorResponse('No valid session or authorization token was provided.'),
+          403: errorResponse('The caller is not authorized to list API keys.'),
+          503: errorResponse('Authentication is disabled on this instance.')
+        }
+      }
+    },
+    async (request, reply) => {
     const config = getAuthConfig();
     if (!config.enabled) {
       reply.status(200);
@@ -376,9 +513,28 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         keys: keys.map((key) => serializeApiKey(key))
       }
     };
-  });
+    }
+  );
 
-  app.post('/auth/api-keys', async (request, reply) => {
+  app.post(
+    '/auth/api-keys',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Create API key',
+        description: 'Mints a new API key scoped to the authenticated user.',
+        security: [{ OperatorToken: [] }],
+        body: optionalApiKeyCreateRequestSchema,
+        response: {
+          201: apiKeyCreateResponse('API key created successfully.'),
+          400: errorResponse('The API key request payload was invalid.'),
+          401: errorResponse('No valid session or authorization token was provided.'),
+          403: errorResponse('The caller is not authorized to create API keys.'),
+          503: errorResponse('Authentication is disabled on this instance.')
+        }
+      }
+    },
+    async (request, reply) => {
     const config = getAuthConfig();
     if (!config.enabled) {
       reply.status(503);
@@ -448,9 +604,36 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         token
       }
     };
-  });
+    }
+  );
 
-  app.delete('/auth/api-keys/:id', async (request, reply) => {
+  app.delete(
+    '/auth/api-keys/:id',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Revoke API key',
+        description: 'Revokes an API key owned by the authenticated user.',
+        security: [{ OperatorToken: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string', description: 'Unique identifier of the API key to revoke.' }
+          }
+        },
+        response: {
+          204: { description: 'The API key was revoked.' },
+          401: errorResponse('No valid session or authorization token was provided.'),
+          400: errorResponse('The API key identifier was invalid.'),
+          403: errorResponse('The caller is not authorized to revoke API keys.'),
+          404: errorResponse('No API key matched the supplied identifier.'),
+          503: errorResponse('Authentication is disabled on this instance.')
+        }
+      }
+    },
+    async (request, reply) => {
     const config = getAuthConfig();
     if (!config.enabled) {
       reply.status(503);
@@ -488,5 +671,6 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     reply.status(204);
     return reply;
-  });
+    }
+  );
 }

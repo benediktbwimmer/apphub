@@ -1,5 +1,13 @@
 import type { OpenAPIV3 } from 'openapi-types';
 
+const SCHEMA_NAMESPACE = 'https://catalog.apphub/schemas';
+
+export const schemaId = (name: string): string => `${SCHEMA_NAMESPACE}/${name}.json`;
+
+export const schemaRef = (name: string): OpenAPIV3.ReferenceObject => ({
+  $ref: schemaId(name)
+});
+
 const stringSchema = (format?: string): OpenAPIV3.SchemaObject =>
   format ? { type: 'string', format } : { type: 'string' };
 
@@ -12,8 +20,8 @@ const nullable = (schema: OpenAPIV3.SchemaObject): OpenAPIV3.SchemaObject => ({
   nullable: true
 });
 
-const nullableRef = (ref: string): OpenAPIV3.SchemaObject => ({
-  allOf: [{ $ref: ref }],
+const nullableRef = (name: string): OpenAPIV3.SchemaObject => ({
+  allOf: [schemaRef(name)],
   nullable: true
 });
 
@@ -25,10 +33,10 @@ const jsonValueSchema: OpenAPIV3.SchemaObject = {
     { type: 'number' },
     { type: 'integer' },
     { type: 'boolean' },
-    { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } },
+    { type: 'array', items: schemaRef('JsonValue') },
     {
       type: 'object',
-      additionalProperties: { $ref: '#/components/schemas/JsonValue' }
+      additionalProperties: schemaRef('JsonValue')
     }
   ]
 };
@@ -231,8 +239,8 @@ const repositorySchema: OpenAPIV3.SchemaObject = {
     },
     ingestError: nullable(stringSchema()),
     ingestAttempts: { type: 'integer' },
-    latestBuild: nullableRef('#/components/schemas/Build'),
-    latestLaunch: nullableRef('#/components/schemas/Launch'),
+    latestBuild: nullableRef('Build'),
+    latestLaunch: nullableRef('Launch'),
     previewTiles: {
       type: 'array',
       items: repositoryPreviewSchema
@@ -246,7 +254,7 @@ const repositorySchema: OpenAPIV3.SchemaObject = {
       description: 'Template environment variables suggested when launching the app.',
       items: launchEnvVarSchema
     },
-    relevance: nullableRef('#/components/schemas/RepositoryRelevance')
+    relevance: nullableRef('RepositoryRelevance')
   }
 };
 
@@ -601,7 +609,7 @@ const identityResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['data'],
   properties: {
-    data: { $ref: '#/components/schemas/OperatorIdentity' }
+    data: schemaRef('OperatorIdentity')
   }
 };
 
@@ -635,7 +643,7 @@ const apiKeyListResponseSchema: OpenAPIV3.SchemaObject = {
       properties: {
         keys: {
           type: 'array',
-          items: { $ref: '#/components/schemas/ApiKey' }
+          items: schemaRef('ApiKey')
         }
       }
     }
@@ -650,7 +658,7 @@ const apiKeyCreateResponseSchema: OpenAPIV3.SchemaObject = {
       type: 'object',
       required: ['key', 'token'],
       properties: {
-        key: { $ref: '#/components/schemas/ApiKey' },
+        key: schemaRef('ApiKey'),
         token: {
           type: 'string',
           description: 'Full API key token. This value is only returned once at creation time.'
@@ -763,7 +771,7 @@ const serviceMetadataSchema: OpenAPIV3.SchemaObject = {
     },
     manifest: {
       nullable: true,
-      allOf: [{ $ref: '#/components/schemas/ServiceManifestMetadata' }]
+      allOf: [schemaRef('ServiceManifestMetadata')]
     },
     config: {
       nullable: true,
@@ -772,7 +780,7 @@ const serviceMetadataSchema: OpenAPIV3.SchemaObject = {
     },
     runtime: {
       nullable: true,
-      allOf: [{ $ref: '#/components/schemas/ServiceRuntimeMetadata' }]
+      allOf: [schemaRef('ServiceRuntimeMetadata')]
     },
     linkedApps: {
       type: 'array',
@@ -864,7 +872,7 @@ const serviceRegistrationRequestSchema: OpenAPIV3.SchemaObject = {
     capabilities: jsonValueSchema,
     metadata: {
       nullable: true,
-      allOf: [{ $ref: '#/components/schemas/ServiceMetadata' }],
+      allOf: [schemaRef('ServiceMetadata')],
       description: 'Optional metadata describing manifest provenance, linked apps, and runtime expectations.'
     }
   }
@@ -962,6 +970,262 @@ const jobDefinitionResponseSchema: OpenAPIV3.SchemaObject = {
   required: ['data'],
   properties: {
     data: jobDefinitionSchema
+  }
+};
+
+const jobDefinitionUpdateRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    name: { type: 'string', minLength: 1 },
+    version: { type: 'integer', minimum: 1 },
+    type: { type: 'string', enum: ['batch', 'service-triggered', 'manual'] },
+    runtime: { type: 'string', enum: ['node', 'python', 'docker'] },
+    entryPoint: { type: 'string' },
+    timeoutMs: { type: 'integer', minimum: 1000, maximum: 86_400_000 },
+    retryPolicy: jobRetryPolicySchema,
+    parametersSchema: {
+      type: 'object',
+      additionalProperties: jsonValueSchema
+    },
+    defaultParameters: {
+      type: 'object',
+      additionalProperties: jsonValueSchema
+    },
+    outputSchema: {
+      type: 'object',
+      additionalProperties: jsonValueSchema
+    },
+    metadata: jsonValueSchema
+  }
+};
+
+const jobRunSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'id',
+    'jobDefinitionId',
+    'status',
+    'parameters',
+    'result',
+    'context',
+    'metrics',
+    'attempt',
+    'createdAt',
+    'updatedAt'
+  ],
+  properties: {
+    id: { type: 'string' },
+    jobDefinitionId: { type: 'string' },
+    status: {
+      type: 'string',
+      enum: ['pending', 'running', 'succeeded', 'failed', 'canceled', 'expired']
+    },
+    parameters: schemaRef('JsonValue'),
+    result: schemaRef('JsonValue'),
+    errorMessage: { type: 'string', nullable: true },
+    logsUrl: { type: 'string', format: 'uri', nullable: true },
+    metrics: schemaRef('JsonValue'),
+    context: schemaRef('JsonValue'),
+    timeoutMs: { type: 'integer', nullable: true, minimum: 0 },
+    attempt: { type: 'integer', minimum: 1 },
+    maxAttempts: { type: 'integer', nullable: true, minimum: 1 },
+    durationMs: { type: 'integer', nullable: true, minimum: 0 },
+    scheduledAt: { type: 'string', format: 'date-time', nullable: true },
+    startedAt: { type: 'string', format: 'date-time', nullable: true },
+    completedAt: { type: 'string', format: 'date-time', nullable: true },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' }
+  }
+};
+
+const jobRunWithDefinitionSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['run', 'job'],
+  properties: {
+    run: jobRunSchema,
+    job: {
+      type: 'object',
+      required: ['id', 'slug', 'name', 'version', 'type', 'runtime'],
+      properties: {
+        id: { type: 'string' },
+        slug: { type: 'string' },
+        name: { type: 'string' },
+        version: { type: 'integer', minimum: 1 },
+        type: { type: 'string', enum: ['batch', 'service-triggered', 'manual'] },
+        runtime: { type: 'string', enum: ['node', 'python', 'docker'] }
+      }
+    }
+  }
+};
+
+const jobRunListResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data', 'meta'],
+  properties: {
+    data: { type: 'array', items: jobRunWithDefinitionSchema },
+    meta: {
+      type: 'object',
+      required: ['limit', 'offset', 'hasMore', 'nextOffset'],
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+        offset: { type: 'integer', minimum: 0 },
+        hasMore: { type: 'boolean' },
+        nextOffset: { type: 'integer', nullable: true, minimum: 0 }
+      }
+    }
+  }
+};
+
+const jobDetailResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data', 'meta'],
+  properties: {
+    data: {
+      type: 'object',
+      required: ['job', 'runs'],
+      properties: {
+        job: jobDefinitionSchema,
+        runs: { type: 'array', items: jobRunSchema }
+      }
+    },
+    meta: {
+      type: 'object',
+      required: ['limit', 'offset'],
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+        offset: { type: 'integer', minimum: 0 }
+      }
+    }
+  }
+};
+
+const runtimeReadinessSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['runtime', 'ready', 'reason', 'checkedAt', 'details'],
+  properties: {
+    runtime: { type: 'string', enum: ['node', 'python', 'docker'] },
+    ready: { type: 'boolean' },
+    reason: { type: 'string', nullable: true },
+    checkedAt: { type: 'string', format: 'date-time' },
+    details: schemaRef('JsonValue')
+  }
+};
+
+const runtimeReadinessListResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: runtimeReadinessSchema }
+  }
+};
+
+const jobSchemaPreviewSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['parametersSchema', 'outputSchema', 'parametersSource', 'outputSource'],
+  properties: {
+    parametersSchema: schemaRef('JsonValue'),
+    outputSchema: schemaRef('JsonValue'),
+    parametersSource: { type: 'string', nullable: true },
+    outputSource: { type: 'string', nullable: true }
+  }
+};
+
+const jobSchemaPreviewResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: jobSchemaPreviewSchema
+  }
+};
+
+const pythonSnippetPreviewSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['handlerName', 'handlerIsAsync', 'inputModel', 'outputModel'],
+  properties: {
+    handlerName: { type: 'string' },
+    handlerIsAsync: { type: 'boolean' },
+    inputModel: {
+      type: 'object',
+      required: ['name', 'schema'],
+      properties: {
+        name: { type: 'string' },
+        schema: schemaRef('JsonValue')
+      }
+    },
+    outputModel: {
+      type: 'object',
+      required: ['name', 'schema'],
+      properties: {
+        name: { type: 'string' },
+        schema: schemaRef('JsonValue')
+      }
+    }
+  }
+};
+
+const pythonSnippetCreateResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'object',
+      required: ['job', 'analysis', 'bundle'],
+      properties: {
+        job: jobDefinitionSchema,
+        analysis: pythonSnippetPreviewSchema,
+        bundle: {
+          type: 'object',
+          required: ['slug', 'version'],
+          properties: {
+            slug: { type: 'string' },
+            version: { type: 'string' }
+          }
+        }
+      }
+    }
+  }
+};
+
+const bundleRegenerateRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['entryPoint', 'manifestPath', 'files'],
+  properties: {
+    entryPoint: { type: 'string', minLength: 1, maxLength: 256 },
+    manifestPath: { type: 'string', minLength: 1, maxLength: 512 },
+    manifest: schemaRef('JsonValue'),
+    files: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['path', 'contents'],
+        properties: {
+          path: { type: 'string', minLength: 1, maxLength: 512 },
+          contents: { type: 'string' },
+          encoding: { type: 'string', enum: ['utf8', 'base64'] },
+          executable: { type: 'boolean' }
+        }
+      }
+    },
+    capabilityFlags: { type: 'array', items: { type: 'string', minLength: 1 } },
+    metadata: schemaRef('JsonValue'),
+    description: { type: 'string', maxLength: 512, nullable: true },
+    displayName: { type: 'string', maxLength: 256, nullable: true },
+    version: { type: 'string', maxLength: 100 }
+  }
+};
+
+const jobRunRequestBodySchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    parameters: schemaRef('JsonValue'),
+    timeoutMs: { type: 'integer', minimum: 1_000, maximum: 86_400_000 },
+    maxAttempts: { type: 'integer', minimum: 1 },
+    context: schemaRef('JsonValue')
   }
 };
 
@@ -1084,7 +1348,7 @@ const bundleEditorStateSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['job', 'binding', 'bundle', 'editor', 'aiBuilder', 'history', 'suggestionSource', 'availableVersions'],
   properties: {
-    job: { $ref: '#/components/schemas/JobDefinition' },
+    job: schemaRef('JobDefinition'),
     binding: bundleEditorBindingSchema,
     bundle: jobBundleVersionSchema,
     editor: {
@@ -1919,9 +2183,9 @@ const workflowAutoMaterializeOpsResponseSchema: OpenAPIV3.SchemaObject = {
       type: 'object',
       required: ['runs', 'inFlight', 'cooldown', 'updatedAt'],
       properties: {
-        runs: { type: 'array', items: { $ref: '#/components/schemas/WorkflowRun' } },
-        inFlight: nullableRef('#/components/schemas/WorkflowAutoMaterializeInFlight'),
-        cooldown: nullableRef('#/components/schemas/WorkflowAutoMaterializeCooldown'),
+        runs: { type: 'array', items: schemaRef('WorkflowRun') },
+        inFlight: nullableRef('WorkflowAutoMaterializeInFlight'),
+        cooldown: nullableRef('WorkflowAutoMaterializeCooldown'),
         updatedAt: stringSchema('date-time')
       }
     },
@@ -2173,12 +2437,23 @@ const components: OpenAPIV3.ComponentsObject = {
     JobRetryPolicy: jobRetryPolicySchema,
     JobDefinition: jobDefinitionSchema,
     JobDefinitionCreateRequest: jobDefinitionCreateRequestSchema,
+    JobDefinitionUpdateRequest: jobDefinitionUpdateRequestSchema,
     JobDefinitionResponse: jobDefinitionResponseSchema,
     JobDefinitionListResponse: jobDefinitionListResponseSchema,
+    JobRun: jobRunSchema,
+    JobRunWithDefinition: jobRunWithDefinitionSchema,
+    JobRunListResponse: jobRunListResponseSchema,
+    JobDetailResponse: jobDetailResponseSchema,
+    RuntimeReadiness: runtimeReadinessSchema,
+    RuntimeReadinessListResponse: runtimeReadinessListResponseSchema,
+    JobSchemaPreview: jobSchemaPreviewSchema,
+    JobSchemaPreviewResponse: jobSchemaPreviewResponseSchema,
     JobBundleFile: jobBundleFileSchema,
     JobBundleVersion: jobBundleVersionSchema,
     BundleEditorResponse: bundleEditorResponseSchema,
     AiBundleEditRequest: aiBundleEditRequestSchema,
+    BundleRegenerateRequest: bundleRegenerateRequestSchema,
+    JobRunRequest: jobRunRequestBodySchema,
     WorkflowTrigger: workflowTriggerSchema,
     WorkflowJobStep: workflowJobStepSchema,
     WorkflowServiceStep: workflowServiceStepSchema,
@@ -2195,6 +2470,8 @@ const components: OpenAPIV3.ComponentsObject = {
     ApiKey: apiKeySchema,
     ApiKeyListResponse: apiKeyListResponseSchema,
     ApiKeyCreateResponse: apiKeyCreateResponseSchema,
+    PythonSnippetPreview: pythonSnippetPreviewSchema,
+    PythonSnippetCreateResponse: pythonSnippetCreateResponseSchema,
     AssetGraphProducer: assetGraphProducerSchema,
     AssetGraphConsumer: assetGraphConsumerSchema,
     AssetGraphMaterialization: assetGraphMaterializationSchema,
@@ -2228,1673 +2505,30 @@ const components: OpenAPIV3.ComponentsObject = {
   }
 };
 
-export const openApiDocument: OpenAPIV3.Document = {
-  openapi: '3.0.3',
-  info: {
-    title: 'Apphub Catalog API',
-    version: '1.0.0',
-    description:
-      'HTTP API for indexing repositories, registering runtime services, and orchestrating automated jobs and workflows.'
-  },
-  servers: [
-    {
-      url: 'http://127.0.0.1:4000',
-      description: 'Local development server'
-    }
-  ],
-  tags: [
-    { name: 'System', description: 'Service health and operational endpoints.' },
-    { name: 'Auth', description: 'Authentication, session management, and identity inspection.' },
-    { name: 'Apps', description: 'Search and management of ingested repositories.' },
-    { name: 'Services', description: 'Runtime services discovered and managed by Apphub.' },
-    { name: 'Jobs', description: 'Reusable job definitions executed by the platform.' },
-    { name: 'Workflows', description: 'Multi-step workflow orchestration definitions.' },
-    { name: 'Saved Searches', description: 'Manage reusable catalog search definitions.' },
-    { name: 'Events', description: 'Events explorer health overlays and saved views.' }
-  ],
-  components,
-  paths: {
-    '/auth/login': {
-      get: {
-        tags: ['Auth'],
-        summary: 'Initiate OIDC login',
-        description: 'Generates an OAuth authorization request and redirects the browser to the configured identity provider.',
-        parameters: [
-          {
-            name: 'redirectTo',
-            in: 'query',
-            schema: { type: 'string' },
-            description: 'Optional relative path to redirect to after successful authentication.'
-          }
-        ],
-        responses: {
-          '302': { description: 'Redirect to the external identity provider.' },
-          '400': {
-            description: 'The request query parameters were invalid.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '503': {
-            description: 'Single sign-on is not enabled on this instance.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/auth/callback': {
-      get: {
-        tags: ['Auth'],
-        summary: 'OIDC login callback',
-        description: 'Handles the OAuth authorization response, issues a secure session cookie, and redirects back to the application.',
-        parameters: [
-          { name: 'state', in: 'query', schema: { type: 'string' }, required: true },
-          { name: 'code', in: 'query', schema: { type: 'string' }, required: true }
-        ],
-        responses: {
-          '302': { description: 'User is redirected to the requested application page.' },
-          '400': {
-            description: 'The login state or authorization payload was invalid.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The authenticated identity is not allowed to access the platform.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '500': {
-            description: 'The identity provider request failed.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/auth/logout': {
-      post: {
-        tags: ['Auth'],
-        summary: 'Terminate current session',
-        description: 'Revokes the caller\'s active session and clears the session cookie.',
-        security: [{ OperatorToken: [] }],
-        responses: {
-          '204': { description: 'The session was terminated.' }
-        }
-      }
-    },
-    '/auth/identity': {
-      get: {
-        tags: ['Auth'],
-        summary: 'Retrieve authenticated identity',
-        description: 'Returns the subject, scopes, and metadata for the active session, API key, or operator token.',
-        security: [{ OperatorToken: [] }],
-        responses: {
-          '200': {
-            description: 'Identity details.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/IdentityResponse' } }
-            }
-          },
-          '401': {
-            description: 'No valid session or authorization token was provided.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller did not have permission to inspect identity information.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/auth/api-keys': {
-      get: {
-        tags: ['Auth'],
-        summary: 'List API keys',
-        description: 'Returns the API keys owned by the authenticated user.',
-        security: [{ OperatorToken: [] }],
-        responses: {
-          '200': {
-            description: 'API keys for the current user.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ApiKeyListResponse' } }
-            }
-          },
-          '401': {
-            description: 'No valid session or authorization token was provided.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      },
-      post: {
-        tags: ['Auth'],
-        summary: 'Create API key',
-        description: 'Mints a new API key scoped to the authenticated user.',
-        security: [{ OperatorToken: [] }],
-        requestBody: {
-          required: false,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  scopes: { type: 'array', items: { type: 'string' } },
-                  expiresAt: stringSchema('date-time')
-                }
-              }
-            }
-          }
-        },
-        responses: {
-          '201': {
-            description: 'API key created successfully.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ApiKeyCreateResponse' } }
-            }
-          },
-          '400': {
-            description: 'The API key request payload was invalid.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '401': {
-            description: 'No valid session or authorization token was provided.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/auth/api-keys/{id}': {
-      delete: {
-        tags: ['Auth'],
-        summary: 'Revoke API key',
-        description: 'Revokes an API key owned by the authenticated user.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'id',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        responses: {
-          '204': { description: 'The API key was revoked.' },
-          '401': {
-            description: 'No valid session or authorization token was provided.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'No API key matched the supplied identifier.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/health': {
-      get: {
-        tags: ['System'],
-        summary: 'Readiness probe',
-        description: 'Returns a simple status payload when the API is healthy.',
-        responses: {
-          '200': {
-            description: 'The API is healthy.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/HealthResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/openapi.json': {
-      get: {
-        tags: ['System'],
-        summary: 'OpenAPI specification',
-        description: 'Returns the OpenAPI document that describes the catalog API.',
-        responses: {
-          '200': {
-            description: 'OpenAPI document in JSON format.',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object'
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/apps': {
-      get: {
-        tags: ['Apps'],
-        summary: 'Search repositories',
-        description:
-          'Retrieves repositories matching text, tag, and ingest-status filters. Results include aggregated facets and relevance metadata.',
-        parameters: [
-          {
-            name: 'q',
-            in: 'query',
-            schema: { type: 'string' },
-            description: 'Free-text query matched against repository name, description, and tags.'
-          },
-          {
-            name: 'tags',
-            in: 'query',
-            schema: { type: 'string' },
-            description:
-              'Space or comma-delimited list of tag filters. Each token is matched against stored tag key/value pairs.'
-          },
-          {
-            name: 'status',
-            in: 'query',
-            schema: { type: 'string' },
-            description:
-              'Space or comma-delimited list of ingest statuses to include (seed, pending, processing, ready, failed).'
-          },
-          {
-            name: 'ingestedAfter',
-            in: 'query',
-            schema: { type: 'string', format: 'date-time' },
-            description: 'Only return repositories ingested on or after the provided ISO timestamp.'
-          },
-          {
-            name: 'ingestedBefore',
-            in: 'query',
-            schema: { type: 'string', format: 'date-time' },
-            description: 'Only return repositories ingested on or before the provided ISO timestamp.'
-          },
-          {
-            name: 'sort',
-            in: 'query',
-            schema: { type: 'string', enum: ['relevance', 'updated', 'name'] },
-            description: 'Sort order applied to search results.'
-          },
-          {
-            name: 'relevance',
-            in: 'query',
-            schema: { type: 'string' },
-            description:
-              'Optional JSON-encoded object overriding the name/description/tag relevance weights. All unspecified weights default to configured values.'
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Matching repositories were found.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/RepositoryListResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The supplied query parameters were invalid.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      },
-      post: {
-        tags: ['Apps'],
-        summary: 'Submit a repository for ingestion',
-        description:
-          'Queues a new repository for ingestion. The payload mirrors the information collected in the Apphub submission form.',
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/RepositoryCreateRequest' }
-            }
-          }
-        },
-        responses: {
-          '201': {
-            description: 'The repository was accepted for ingestion.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/RepositoryResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The submission payload failed validation.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/apps/{id}': {
-      get: {
-        tags: ['Apps'],
-        summary: 'Fetch a repository by identifier',
-        parameters: [
-          {
-            name: 'id',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' },
-            description: 'Repository identifier returned by the ingestion pipeline.'
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Repository details were found.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/RepositoryResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The repository identifier was invalid.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '404': {
-            description: 'The repository does not exist.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/saved-searches': {
-      get: {
-        tags: ['Saved Searches'],
-        summary: 'List saved catalog searches',
-        description: 'Returns saved catalog searches owned by the authenticated operator.',
-        security: [{ OperatorToken: [] }],
-        responses: {
-          '200': {
-            description: 'Saved searches available to the caller.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/SavedCatalogSearchListResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to access saved searches.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      },
-      post: {
-        tags: ['Saved Searches'],
-        summary: 'Create a saved catalog search',
-        description: 'Persists a reusable catalog search definition for the authenticated operator.',
-        security: [{ OperatorToken: [] }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/SavedCatalogSearchCreateRequest' }
-            }
-          }
-        },
-        responses: {
-          '201': {
-            description: 'Saved search created successfully.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The saved search payload failed validation.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to create saved searches.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '500': {
-            description: 'An unexpected error occurred while creating the saved search.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/saved-searches/{slug}': {
-      get: {
-        tags: ['Saved Searches'],
-        summary: 'Get a saved catalog search',
-        description: 'Retrieves a saved search owned by the authenticated operator.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Saved search details.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to inspect the requested saved search.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'No saved search matches the supplied slug for this operator.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      },
-      patch: {
-        tags: ['Saved Searches'],
-        summary: 'Update a saved catalog search',
-        description: 'Updates attributes of an existing saved search owned by the caller.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/SavedCatalogSearchUpdateRequest' }
-            }
-          }
-        },
-        responses: {
-          '200': {
-            description: 'Saved search updated.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The update payload was invalid.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to modify the saved search.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'The saved search does not exist for this operator.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      },
-      delete: {
-        tags: ['Saved Searches'],
-        summary: 'Delete a saved catalog search',
-        description: 'Removes a saved search owned by the authenticated operator.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        responses: {
-          '204': { description: 'Saved search deleted.' },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to delete the saved search.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'The saved search does not exist for this operator.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/saved-searches/{slug}/apply': {
-      post: {
-        tags: ['Saved Searches'],
-        summary: 'Record saved search application',
-        description: 'Increments usage metrics after applying a saved search.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Updated saved search metrics.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to update the saved search.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'The saved search does not exist for this operator.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/saved-searches/{slug}/share': {
-      post: {
-        tags: ['Saved Searches'],
-        summary: 'Record saved search share action',
-        description: 'Increments share metrics for a saved search.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Updated saved search metadata.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to update the saved search.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'The saved search does not exist for this operator.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/internal/events/publish': {
-      post: {
-        tags: ['Events'],
-        summary: 'Publish an event via HTTP proxy',
-        description:
-          'Validates and enqueues a workflow event using the catalog event pipeline. When proxy tokens are configured the caller must provide a matching bearer token or X-Apphub-Event-Token header.',
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/EventPublishRequest' }
-            }
-          }
-        },
-        responses: {
-          '202': {
-            description: 'Event accepted for ingestion.',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  required: ['data'],
-                  properties: {
-                    data: { $ref: '#/components/schemas/EventPublishResponse' }
-                  }
-                }
-              }
-            }
-          },
-          '400': {
-            description: 'The request payload failed validation.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '401': {
-            description: 'The caller did not provide a valid proxy token.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '502': {
-            description: 'The server was unable to enqueue the event.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/events/saved-views': {
-      get: {
-        tags: ['Events'],
-        summary: 'List saved event views',
-        description: 'Returns saved event views available to the authenticated operator, including shared presets.',
-        security: [{ OperatorToken: [] }],
-        responses: {
-          '200': {
-            description: 'Saved event views available to the caller.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/EventSavedViewListResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to view saved event overlays.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      },
-      post: {
-        tags: ['Events'],
-        summary: 'Create a saved event view',
-        description: 'Persists a reusable filter preset for the events explorer.',
-        security: [{ OperatorToken: [] }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/EventSavedViewCreateRequest' }
-            }
-          }
-        },
-        responses: {
-          '201': {
-            description: 'Saved event view created successfully.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The payload failed validation.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to create saved event views.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '500': {
-            description: 'The server failed to persist the saved event view.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/events/saved-views/{slug}': {
-      get: {
-        tags: ['Events'],
-        summary: 'Get a saved event view',
-        description: 'Retrieves a saved event view owned by the caller or shared across the organization.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Saved event view details.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to access the saved event view.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'No saved event view matches the provided slug.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      },
-      patch: {
-        tags: ['Events'],
-        summary: 'Update a saved event view',
-        description: 'Updates fields on a saved view owned by the caller.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/EventSavedViewUpdateRequest' }
-            }
-          }
-        },
-        responses: {
-          '200': {
-            description: 'Saved event view updated.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The update payload was invalid.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to modify the saved event view.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'The saved event view does not exist for this operator.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '500': {
-            description: 'The server failed to update the saved event view.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      },
-      delete: {
-        tags: ['Events'],
-        summary: 'Delete a saved event view',
-        description: 'Removes a saved event view owned by the caller.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        responses: {
-          '204': { description: 'Saved event view deleted.' },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to delete the saved event view.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'The saved event view was not found for the operator.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/events/saved-views/{slug}/apply': {
-      post: {
-        tags: ['Events'],
-        summary: 'Record saved event view usage',
-        description: 'Increments usage metrics for a saved event view.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Updated saved event view metadata.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to update saved event views.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'The saved event view does not exist.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/events/saved-views/{slug}/share': {
-      post: {
-        tags: ['Events'],
-        summary: 'Share a saved event view',
-        description: 'Marks a saved event view as shared and records share metrics.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' }
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Updated saved event view metadata.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The caller is unauthenticated.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '403': {
-            description: 'The caller is not authorized to share the saved event view.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          },
-          '404': {
-            description: 'The saved event view does not exist for the operator.',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
-            }
-          }
-        }
-      }
-    },
-    '/services': {
-      get: {
-        tags: ['Services'],
-        summary: 'List registered services',
-        responses: {
-          '200': {
-            description: 'Service inventory and health summary.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ServiceListResponse' }
-              }
-            }
-          }
-        }
-      },
-      post: {
-        tags: ['Services'],
-        summary: 'Register or update a service',
-        description:
-          'Adds a new service entry or updates the metadata for an existing service. Requires the service registry bearer token.',
-        security: [{ ServiceRegistryToken: [] }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/ServiceRegistrationRequest' }
-            }
-          }
-        },
-        responses: {
-          '201': {
-            description: 'A new service was registered.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ServiceResponse' }
-              }
-            }
-          },
-          '200': {
-            description: 'The service metadata was updated.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ServiceResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The service payload failed validation.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'Authorization header was missing.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '403': {
-            description: 'Authorization header was rejected.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '503': {
-            description: 'Service registry support is disabled on this deployment.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/jobs': {
-      get: {
-        tags: ['Jobs'],
-        summary: 'List job definitions',
-        responses: {
-          '200': {
-            description: 'Job definitions currently available to run.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/JobDefinitionListResponse' }
-              }
-            }
-          }
-        }
-      },
-      post: {
-        tags: ['Jobs'],
-        summary: 'Create a job definition',
-        description:
-          'Creates a new job definition. Only callers with the jobs:write scope may invoke this endpoint.',
-        security: [{ OperatorToken: [] }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/JobDefinitionCreateRequest' }
-            }
-          }
-        },
-        responses: {
-          '201': {
-            description: 'The job definition was created successfully.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/JobDefinitionResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The request payload failed validation.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '403': {
-            description: 'The operator token is missing required scopes.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '409': {
-            description: 'A job definition with the same slug already exists.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '500': {
-            description: 'The server failed to persist the job definition.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/jobs/{slug}/bundle-editor': {
-      get: {
-        tags: ['Jobs'],
-        summary: 'Fetch bundle editor context for a job',
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' },
-            description: 'Slug of the job definition to inspect.'
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Current bundle editor state for the requested job.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/BundleEditorResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The provided slug failed validation.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '404': {
-            description: 'No job or bundle editor snapshot was found for the provided slug.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '500': {
-            description: 'An unexpected error occurred while loading the bundle editor snapshot.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/jobs/{slug}/bundle/ai-edit': {
-      post: {
-        tags: ['Jobs'],
-        summary: 'Generate bundle edits with AI',
-        description:
-          'Runs an AI provider against the current job bundle and publishes a new version when the response is valid.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          {
-            name: 'slug',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' },
-            description: 'Slug of the job whose bundle should be regenerated.'
-          }
-        ],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/AiBundleEditRequest' }
-            }
-          }
-        },
-        responses: {
-          '201': {
-            description: 'A new bundle version was generated and bound to the job.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/BundleEditorResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'Request parameters or generated bundle payload were invalid.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The request lacked an operator token.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '403': {
-            description: 'The supplied operator token was missing required scopes.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '404': {
-            description: 'No job or bundle editor snapshot was found for the provided slug.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '409': {
-            description: 'The job is not bound to a bundle entry point or the generated version already exists.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '422': {
-            description: 'The AI response did not contain a valid bundle suggestion.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '502': {
-            description: 'The selected AI provider failed to generate a response.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '500': {
-            description: 'The server failed to publish the generated bundle.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/assets/graph': {
-      get: {
-        tags: ['Workflows'],
-        summary: 'Retrieve workflow asset dependency graph',
-        description:
-          'Returns producers, consumers, latest materializations, and stale partitions for all declared workflow assets.',
-        responses: {
-          '200': {
-            description: 'Asset dependency graph data.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/AssetGraphResponse' }
-              }
-            }
-          },
-          '500': {
-            description: 'The server failed to aggregate asset metadata.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/workflows/{slug}/assets/{assetId}/stale': {
-      post: {
-        tags: ['Workflows'],
-        summary: 'Mark a workflow asset partition as stale',
-        description:
-          'Flags a workflow asset or partition as stale so operators can track manual refresh requirements. Requires the workflows:run scope.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          { name: 'slug', in: 'path', required: true, schema: { type: 'string' } },
-          {
-            name: 'assetId',
-            in: 'path',
-            required: true,
-            schema: { type: 'string', pattern: '^[a-zA-Z0-9][a-zA-Z0-9._:-]*$', maxLength: 200 }
-          }
-        ],
-        requestBody: {
-          required: false,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/AssetMarkStaleRequest' }
-            }
-          }
-        },
-        responses: {
-          '204': { description: 'The asset partition was marked stale.' },
-          '400': {
-            description: 'The request parameters or partition key were invalid.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '403': {
-            description: 'The operator token lacks the required scope.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '404': {
-            description: 'The workflow or asset was not found.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      },
-      delete: {
-        tags: ['Workflows'],
-        summary: 'Clear a stale flag for a workflow asset partition',
-        description:
-          'Removes a stale flag previously recorded for a workflow asset or partition. Requires the workflows:run scope.',
-        security: [{ OperatorToken: [] }],
-        parameters: [
-          { name: 'slug', in: 'path', required: true, schema: { type: 'string' } },
-          {
-            name: 'assetId',
-            in: 'path',
-            required: true,
-            schema: { type: 'string', pattern: '^[a-zA-Z0-9][a-zA-Z0-9._:-]*$', maxLength: 200 }
-          },
-          {
-            name: 'partitionKey',
-            in: 'query',
-            required: false,
-            schema: { type: 'string', minLength: 1, maxLength: 200 },
-            description: 'Partition key to clear for partitioned assets.'
-          }
-        ],
-        responses: {
-          '204': { description: 'The stale flag was cleared.' },
-          '400': {
-            description: 'The supplied partition key was invalid.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '403': {
-            description: 'The operator token lacks the required scope.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '404': {
-            description: 'The workflow or asset was not found.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/workflows/{slug}/auto-materialize': {
-      get: {
-        tags: ['Workflows'],
-        summary: 'Inspect auto-materialization operations',
-        description:
-          'Returns recent auto-materialize runs, the current in-flight claim, and cooldown state for the specified workflow.',
-        parameters: [
-          { name: 'slug', in: 'path', required: true, schema: { type: 'string' } },
-          {
-            name: 'limit',
-            in: 'query',
-            required: false,
-            schema: { type: 'integer', minimum: 1, maximum: 50 },
-            description: 'Maximum number of auto-materialize runs to return. Defaults to 20.'
-          },
-          {
-            name: 'offset',
-            in: 'query',
-            required: false,
-            schema: { type: 'integer', minimum: 0 },
-            description: 'Number of runs to skip before returning results.'
-          }
-        ],
-        responses: {
-          '200': {
-            description: 'Auto-materialization operations for the requested workflow.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/WorkflowAutoMaterializeOpsResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The provided parameters were invalid.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '404': {
-            description: 'No workflow was found for the provided slug.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '500': {
-            description: 'The server failed to load auto-materialization activity.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/workflows/graph': {
-      get: {
-        tags: ['Workflows'],
-        summary: 'Retrieve workflow topology graph',
-        description:
-          'Returns the cached workflow topology graph used by the operations console. Requires the workflows:write operator scope.',
-        security: [{ OperatorToken: [] }],
-        responses: {
-          '200': {
-            description: 'Current workflow topology graph snapshot.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/WorkflowGraphResponse' }
-              }
-            }
-          },
-          '401': {
-            description: 'The request lacked an operator token.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '403': {
-            description: 'The supplied operator token did not include the workflows:write scope.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '500': {
-            description: 'The server failed to assemble the workflow topology graph.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/workflows': {
-      get: {
-        tags: ['Workflows'],
-        summary: 'List workflow definitions',
-        responses: {
-          '200': {
-            description: 'Workflow definitions currently available.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/WorkflowDefinitionListResponse' }
-              }
-            }
-          },
-          '500': {
-            description: 'The server failed to fetch workflow definitions.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      },
-      post: {
-        tags: ['Workflows'],
-        summary: 'Create a workflow definition',
-        description:
-          'Creates a workflow by composing job and service steps. Requires the workflows:write operator scope.',
-        security: [{ OperatorToken: [] }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/WorkflowDefinitionCreateRequest' }
-            }
-          }
-        },
-        responses: {
-          '201': {
-            description: 'Workflow definition created successfully.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/WorkflowDefinitionResponse' }
-              }
-            }
-          },
-          '400': {
-            description: 'The workflow payload failed validation or the DAG is invalid.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '403': {
-            description: 'The operator token is missing required scopes.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          },
-          '500': {
-            description: 'The server failed to create the workflow.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+
+export const openApiComponents: OpenAPIV3.ComponentsObject = components;
+
+export const openApiInfo: OpenAPIV3.InfoObject = {
+  title: 'Apphub Catalog API',
+  version: '1.0.0',
+  description:
+    'HTTP API for indexing repositories, registering runtime services, and orchestrating automated jobs and workflows.'
 };
+
+export const openApiServers: OpenAPIV3.ServerObject[] = [
+  {
+    url: 'http://127.0.0.1:4000',
+    description: 'Local development server'
+  }
+];
+
+export const openApiTags: OpenAPIV3.TagObject[] = [
+  { name: 'System', description: 'Service health and operational endpoints.' },
+  { name: 'Auth', description: 'Authentication, session management, and identity inspection.' },
+  { name: 'Apps', description: 'Search and management of ingested repositories.' },
+  { name: 'Services', description: 'Runtime services discovered and managed by Apphub.' },
+  { name: 'Jobs', description: 'Reusable job definitions executed by the platform.' },
+  { name: 'Workflows', description: 'Multi-step workflow orchestration definitions.' },
+  { name: 'Saved Searches', description: 'Manage reusable catalog search definitions.' },
+  { name: 'Events', description: 'Events explorer health overlays and saved views.' }
+];

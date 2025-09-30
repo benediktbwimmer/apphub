@@ -21,6 +21,22 @@ import type {
 } from '../db/types';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES } from './shared/scopes';
+import { schemaRef } from '../openapi/definitions';
+
+function jsonResponse(schemaName: string, description: string) {
+  return {
+    description,
+    content: {
+      'application/json': {
+        schema: schemaRef(schemaName)
+      }
+    }
+  } as const;
+}
+
+const errorResponse = (description: string) => jsonResponse('ErrorResponse', description);
+const assetGraphResponse = jsonResponse.bind(null, 'AssetGraphResponse');
+const assetMarkStaleRequest = schemaRef('AssetMarkStaleRequest');
 import { validatePartitionKey } from '../workflows/partitioning';
 import { canonicalAssetId, normalizeAssetId } from '../assets/identifiers';
 
@@ -49,6 +65,18 @@ const staleQuerySchema = z
     partitionKey: z.string().min(1).max(200).optional()
   })
   .partial();
+
+const assetStaleQueryOpenApiSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    partitionKey: {
+      type: 'string',
+      maxLength: 200,
+      description: 'Optional partition key to target a specific asset slice.'
+    }
+  }
+} as const;
 
 type StepMetadata = {
   name: string;
@@ -265,7 +293,7 @@ async function resolveWorkflowAsset(
       declarations: WorkflowAssetDeclarationRecord[];
       partitioning: WorkflowAssetPartitioning | null;
     }
-  | { ok: false; statusCode: number; error: string }
+  | { ok: false; statusCode: 404; error: string }
 > {
   const workflow = await getWorkflowDefinitionBySlug(slug);
   if (!workflow) {
@@ -292,302 +320,381 @@ async function resolveWorkflowAsset(
 }
 
 export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/assets/graph', async (_request, reply) => {
-    const workflows = await listWorkflowDefinitions();
-    const aggregates = new Map<string, AssetGraphNode>();
-    const edges: AssetGraphEdge[] = [];
-    const edgeKeys = new Set<string>();
-
-    for (const workflow of workflows) {
-      const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
-      const declarations = await listWorkflowAssetDeclarations(workflow.id);
-      const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id);
-      const stalePartitions = await listWorkflowAssetStalePartitions(workflow.id);
-      const rolesByStep = buildStepAssetRoles(declarations);
-
-      for (const declaration of declarations) {
-        const canonical = canonicalAssetId(declaration.assetId);
-        if (!canonical) {
-          continue;
-        }
-        const node = ensureAggregateNode(aggregates, canonical);
-        const stepMeta = stepMetadata.get(declaration.stepId);
-        const roleBase = {
-          workflowId: workflow.id,
-          workflowSlug: workflow.slug,
-          workflowName: workflow.name,
-          stepId: declaration.stepId,
-          stepName: stepMeta?.name ?? declaration.stepId,
-          stepType: stepMeta?.type ?? 'job'
-        };
-
-        if (declaration.direction === 'produces') {
-          node.producers.push({
-            ...roleBase,
-            partitioning: declaration.partitioning ?? null,
-            autoMaterialize: declaration.autoMaterialize ?? null,
-            freshness: declaration.freshness ?? null
-          });
-        } else {
-          node.consumers.push(roleBase);
+  app.get(
+    '/assets/graph',
+    {
+      schema: {
+        tags: ['Workflows'],
+        summary: 'Retrieve workflow asset graph',
+        description: 'Aggregates asset producers and consumers across all registered workflows.',
+        response: {
+          200: assetGraphResponse('Current asset graph snapshot.'),
+          500: errorResponse('Failed to build the workflow asset graph.')
         }
       }
+    },
+    async (_request, reply) => {
+      try {
+        const workflows = await listWorkflowDefinitions();
+        const aggregates = new Map<string, AssetGraphNode>();
+        const edges: AssetGraphEdge[] = [];
+        const edgeKeys = new Set<string>();
 
-      for (const snapshot of latestSnapshots) {
-        const canonical = canonicalAssetId(snapshot.asset.assetId);
-        if (!canonical) {
-          continue;
-        }
-        const node = ensureAggregateNode(aggregates, canonical);
-        node.latestMaterializations.push(
-          mapSnapshotToMaterialization(snapshot, workflow.id, workflow.slug, workflow.name, stepMetadata)
-        );
-      }
+        for (const workflow of workflows) {
+          const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
+          const declarations = await listWorkflowAssetDeclarations(workflow.id);
+          const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id);
+          const stalePartitions = await listWorkflowAssetStalePartitions(workflow.id);
+          const rolesByStep = buildStepAssetRoles(declarations);
 
-      for (const stale of stalePartitions) {
-        const canonical = canonicalAssetId(stale.assetId);
-        if (!canonical) {
-          continue;
-        }
-        const node = ensureAggregateNode(aggregates, canonical);
-        node.stalePartitions.push(mapStalePartition(stale, workflow.id, workflow.slug, workflow.name));
-      }
-
-      for (const [stepId, roles] of rolesByStep.entries()) {
-        if (roles.consumes.size === 0 || roles.produces.size === 0) {
-          continue;
-        }
-        const stepMeta = stepMetadata.get(stepId);
-        for (const from of roles.consumes) {
-          for (const to of roles.produces) {
-            if (from === to) {
+          for (const declaration of declarations) {
+            const canonical = canonicalAssetId(declaration.assetId);
+            if (!canonical) {
               continue;
             }
-            const edgeKey = `${from}->${to}@${workflow.id}:${stepId}`;
-            if (edgeKeys.has(edgeKey)) {
-              continue;
-            }
-            edgeKeys.add(edgeKey);
-            const fromNode = aggregates.get(from);
-            const toNode = aggregates.get(to);
-            edges.push({
-              fromAssetId: fromNode?.assetId ?? from,
-              fromAssetNormalizedId: from,
-              toAssetId: toNode?.assetId ?? to,
-              toAssetNormalizedId: to,
+            const node = ensureAggregateNode(aggregates, canonical);
+            const stepMeta = stepMetadata.get(declaration.stepId);
+            const roleBase = {
               workflowId: workflow.id,
               workflowSlug: workflow.slug,
               workflowName: workflow.name,
-              stepId,
-              stepName: stepMeta?.name ?? stepId,
+              stepId: declaration.stepId,
+              stepName: stepMeta?.name ?? declaration.stepId,
               stepType: stepMeta?.type ?? 'job'
-            });
+            };
+
+            if (declaration.direction === 'produces') {
+              node.producers.push({
+                ...roleBase,
+                partitioning: declaration.partitioning ?? null,
+                autoMaterialize: declaration.autoMaterialize ?? null,
+                freshness: declaration.freshness ?? null
+              });
+            } else {
+              node.consumers.push(roleBase);
+            }
+          }
+
+          for (const snapshot of latestSnapshots) {
+            const canonical = canonicalAssetId(snapshot.asset.assetId);
+            if (!canonical) {
+              continue;
+            }
+            const node = ensureAggregateNode(aggregates, canonical);
+            node.latestMaterializations.push(
+              mapSnapshotToMaterialization(snapshot, workflow.id, workflow.slug, workflow.name, stepMetadata)
+            );
+          }
+
+          for (const stale of stalePartitions) {
+            const canonical = canonicalAssetId(stale.assetId);
+            if (!canonical) {
+              continue;
+            }
+            const node = ensureAggregateNode(aggregates, canonical);
+            node.stalePartitions.push(mapStalePartition(stale, workflow.id, workflow.slug, workflow.name));
+          }
+
+          for (const [stepId, roles] of rolesByStep.entries()) {
+            if (roles.consumes.size === 0 || roles.produces.size === 0) {
+              continue;
+            }
+            const stepMeta = stepMetadata.get(stepId);
+            for (const from of roles.consumes) {
+              for (const to of roles.produces) {
+                if (from === to) {
+                  continue;
+                }
+                const edgeKey = `${from}->${to}@${workflow.id}:${stepId}`;
+                if (edgeKeys.has(edgeKey)) {
+                  continue;
+                }
+                edgeKeys.add(edgeKey);
+                const fromNode = aggregates.get(from);
+                const toNode = aggregates.get(to);
+                edges.push({
+                  fromAssetId: fromNode?.assetId ?? from,
+                  fromAssetNormalizedId: from,
+                  toAssetId: toNode?.assetId ?? to,
+                  toAssetNormalizedId: to,
+                  workflowId: workflow.id,
+                  workflowSlug: workflow.slug,
+                  workflowName: workflow.name,
+                  stepId,
+                  stepName: stepMeta?.name ?? stepId,
+                  stepType: stepMeta?.type ?? 'job'
+                });
+              }
+            }
           }
         }
+
+        const latestProducedAtByAsset = new Map<string, number | null>();
+        for (const node of aggregates.values()) {
+          latestProducedAtByAsset.set(node.normalizedAssetId, getLatestProducedAt(node.latestMaterializations));
+        }
+
+        const upstreamByAsset = new Map<string, Set<string>>();
+        for (const edge of edges) {
+          const upstream = upstreamByAsset.get(edge.toAssetNormalizedId);
+          if (upstream) {
+            upstream.add(edge.fromAssetNormalizedId);
+          } else {
+            upstreamByAsset.set(edge.toAssetNormalizedId, new Set([edge.fromAssetNormalizedId]));
+          }
+        }
+
+        const assets = Array.from(aggregates.values()).map((node) => {
+          const latestMaterializations = [...node.latestMaterializations].sort((a, b) => {
+            const aTime = Date.parse(a.producedAt);
+            const bTime = Date.parse(b.producedAt);
+            if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
+              return bTime - aTime;
+            }
+            if (!Number.isNaN(aTime)) {
+              return -1;
+            }
+            if (!Number.isNaN(bTime)) {
+              return 1;
+            }
+            return 0;
+          });
+
+          const upstreamSources = upstreamByAsset.get(node.normalizedAssetId);
+          const downstreamProducedAt = latestProducedAtByAsset.get(node.normalizedAssetId) ?? null;
+          const outdatedUpstreams = new Set<string>();
+
+          if (upstreamSources) {
+            for (const upstreamNormalizedId of upstreamSources) {
+              const upstreamNode = aggregates.get(upstreamNormalizedId);
+              if (!upstreamNode) {
+                continue;
+              }
+              const upstreamProducedAt = latestProducedAtByAsset.get(upstreamNormalizedId) ?? null;
+              if (upstreamProducedAt === null) {
+                continue;
+              }
+              if (downstreamProducedAt === null || upstreamProducedAt > downstreamProducedAt) {
+                outdatedUpstreams.add(upstreamNode.assetId);
+              }
+            }
+          }
+
+          const outdatedUpstreamAssetIds = Array.from(outdatedUpstreams).sort((a, b) => a.localeCompare(b));
+
+          return {
+            assetId: node.assetId,
+            normalizedAssetId: node.normalizedAssetId,
+            producers: node.producers,
+            consumers: node.consumers,
+            latestMaterializations,
+            stalePartitions: node.stalePartitions,
+            hasStalePartitions: node.stalePartitions.length > 0,
+            hasOutdatedUpstreams: outdatedUpstreamAssetIds.length > 0,
+            outdatedUpstreamAssetIds
+          };
+        });
+
+        assets.sort((a, b) => a.assetId.localeCompare(b.assetId));
+        edges.sort((a, b) => {
+          if (a.fromAssetNormalizedId === b.fromAssetNormalizedId) {
+            if (a.toAssetNormalizedId === b.toAssetNormalizedId) {
+              return a.workflowSlug.localeCompare(b.workflowSlug);
+            }
+            return a.toAssetNormalizedId.localeCompare(b.toAssetNormalizedId);
+          }
+          return a.fromAssetNormalizedId.localeCompare(b.fromAssetNormalizedId);
+        });
+
+        reply.status(200);
+        return { data: { assets, edges } };
+      } catch (err) {
+        app.log.error({ err }, 'Failed to build asset graph');
+        reply.status(500);
+        return { error: 'Failed to build workflow asset graph' };
       }
     }
+  );
 
-    const latestProducedAtByAsset = new Map<string, number | null>();
-    for (const node of aggregates.values()) {
-      latestProducedAtByAsset.set(node.normalizedAssetId, getLatestProducedAt(node.latestMaterializations));
-    }
-
-    const upstreamByAsset = new Map<string, Set<string>>();
-    for (const edge of edges) {
-      const upstream = upstreamByAsset.get(edge.toAssetNormalizedId);
-      if (upstream) {
-        upstream.add(edge.fromAssetNormalizedId);
-      } else {
-        upstreamByAsset.set(edge.toAssetNormalizedId, new Set([edge.fromAssetNormalizedId]));
+  app.post(
+    '/workflows/:slug/assets/:assetId/stale',
+    {
+      schema: {
+        tags: ['Workflows'],
+        summary: 'Mark workflow asset as stale',
+        description:
+          'Marks an asset or partition as stale so downstream workloads know to refresh dependent data.',
+        security: [{ OperatorToken: [] }],
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['slug', 'assetId'],
+          properties: {
+            slug: { type: 'string', description: 'Workflow slug containing the asset.' },
+            assetId: { type: 'string', description: 'Asset identifier declared by the workflow.' }
+          }
+        },
+        body: assetMarkStaleRequest,
+        response: {
+          204: { description: 'Marked the asset or partition as stale.' },
+          400: errorResponse('The request parameters or body failed validation.'),
+          401: errorResponse('The request lacked an operator token.'),
+          403: errorResponse('The operator token was missing required scopes.'),
+          404: errorResponse('Workflow asset not found.'),
+          500: errorResponse('Failed to mark the asset as stale.')
+        }
       }
-    }
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
+        action: 'workflows.assets.mark-stale',
+        resource: 'workflow:asset',
+        requiredScopes: WORKFLOW_RUN_SCOPES
+      });
+      if (!authResult.ok) {
+        return { error: authResult.error };
+      }
 
-    const assets = Array.from(aggregates.values()).map((node) => {
-      const latestMaterializations = [...node.latestMaterializations].sort((a, b) => {
-        const aTime = Date.parse(a.producedAt);
-        const bTime = Date.parse(b.producedAt);
-        if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
-          return bTime - aTime;
+      const parseParams = workflowAssetParamSchema.safeParse(request.params);
+      if (!parseParams.success) {
+        reply.status(400);
+        return { error: parseParams.error.flatten() };
+      }
+
+      const parseBody = staleRequestSchema.safeParse(request.body ?? {});
+      if (!parseBody.success) {
+        reply.status(400);
+        return { error: parseBody.error.flatten() };
+      }
+
+      const assetTarget = await resolveWorkflowAsset(parseParams.data.slug, parseParams.data.assetId);
+      if (!assetTarget.ok) {
+        reply.status(assetTarget.statusCode);
+        return { error: assetTarget.error };
+      }
+
+      const { workflow, partitioning } = assetTarget;
+      const suppliedKey = parseBody.data.partitionKey ?? null;
+      let partitionKey: string | null = null;
+
+      if (partitioning) {
+        if (!suppliedKey) {
+          reply.status(400);
+          return { error: 'partitionKey is required for partitioned assets' };
         }
-        if (!Number.isNaN(aTime)) {
-          return -1;
+        const validation = validatePartitionKey(partitioning, suppliedKey);
+        if (!validation.ok) {
+          reply.status(400);
+          return { error: validation.error };
         }
-        if (!Number.isNaN(bTime)) {
-          return 1;
-        }
-        return 0;
+        partitionKey = validation.key;
+      } else if (typeof suppliedKey === 'string' && suppliedKey.trim().length > 0) {
+        partitionKey = suppliedKey.trim();
+      }
+
+      await markWorkflowAssetPartitionStale(workflow.id, parseParams.data.assetId, partitionKey, {
+        requestedBy: authResult.auth.identity.subject,
+        note: parseBody.data.note
       });
 
-      const upstreamSources = upstreamByAsset.get(node.normalizedAssetId);
-      const downstreamProducedAt = latestProducedAtByAsset.get(node.normalizedAssetId) ?? null;
-      const outdatedUpstreams = new Set<string>();
+      await authResult.auth.log('succeeded', {
+        action: 'assets.mark_stale',
+        workflowSlug: workflow.slug,
+        assetId: parseParams.data.assetId,
+        partitionKey
+      });
 
-      if (upstreamSources) {
-        for (const upstreamNormalizedId of upstreamSources) {
-          const upstreamNode = aggregates.get(upstreamNormalizedId);
-          if (!upstreamNode) {
-            continue;
+      reply.status(204);
+      return null;
+    }
+  );
+
+  app.delete(
+    '/workflows/:slug/assets/:assetId/stale',
+    {
+      schema: {
+        tags: ['Workflows'],
+        summary: 'Clear stale asset status',
+        description: 'Clears the stale marker for an asset or partition so downstream jobs can resume.',
+        security: [{ OperatorToken: [] }],
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['slug', 'assetId'],
+          properties: {
+            slug: { type: 'string', description: 'Workflow slug containing the asset.' },
+            assetId: { type: 'string', description: 'Asset identifier declared by the workflow.' }
           }
-          const upstreamProducedAt = latestProducedAtByAsset.get(upstreamNormalizedId) ?? null;
-          if (upstreamProducedAt === null) {
-            continue;
-          }
-          if (downstreamProducedAt === null || upstreamProducedAt > downstreamProducedAt) {
-            outdatedUpstreams.add(upstreamNode.assetId);
-          }
+        },
+        querystring: assetStaleQueryOpenApiSchema,
+        response: {
+          204: { description: 'Cleared the stale marker for the asset or partition.' },
+          400: errorResponse('The request parameters or query failed validation.'),
+          401: errorResponse('The request lacked an operator token.'),
+          403: errorResponse('The operator token was missing required scopes.'),
+          404: errorResponse('Workflow asset not found.'),
+          500: errorResponse('Failed to clear the stale marker.')
         }
       }
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
+        action: 'workflows.assets.clear-stale',
+        resource: 'workflow:asset',
+        requiredScopes: WORKFLOW_RUN_SCOPES
+      });
+      if (!authResult.ok) {
+        return { error: authResult.error };
+      }
 
-      const outdatedUpstreamAssetIds = Array.from(outdatedUpstreams).sort((a, b) => a.localeCompare(b));
+      const parseParams = workflowAssetParamSchema.safeParse(request.params);
+      if (!parseParams.success) {
+        reply.status(400);
+        return { error: parseParams.error.flatten() };
+      }
 
-      return {
-        assetId: node.assetId,
-        normalizedAssetId: node.normalizedAssetId,
-        producers: node.producers,
-        consumers: node.consumers,
-        latestMaterializations,
-        stalePartitions: node.stalePartitions,
-        hasStalePartitions: node.stalePartitions.length > 0,
-        hasOutdatedUpstreams: outdatedUpstreamAssetIds.length > 0,
-        outdatedUpstreamAssetIds
-      };
-    });
+      const parseQuery = staleQuerySchema.safeParse(request.query ?? {});
+      if (!parseQuery.success) {
+        reply.status(400);
+        return { error: parseQuery.error.flatten() };
+      }
 
-    assets.sort((a, b) => a.assetId.localeCompare(b.assetId));
-    edges.sort((a, b) => {
-      if (a.fromAssetNormalizedId === b.fromAssetNormalizedId) {
-        if (a.toAssetNormalizedId === b.toAssetNormalizedId) {
-          return a.workflowSlug.localeCompare(b.workflowSlug);
+      const assetTarget = await resolveWorkflowAsset(parseParams.data.slug, parseParams.data.assetId);
+      if (!assetTarget.ok) {
+        reply.status(assetTarget.statusCode);
+        return { error: assetTarget.error };
+      }
+
+      const { workflow, partitioning } = assetTarget;
+      const suppliedKey = parseQuery.data.partitionKey ?? null;
+      let partitionKey: string | null = null;
+
+      if (partitioning) {
+        if (!suppliedKey) {
+          reply.status(400);
+          return { error: 'partitionKey is required for partitioned assets' };
         }
-        return a.toAssetNormalizedId.localeCompare(b.toAssetNormalizedId);
+        const validation = validatePartitionKey(partitioning, suppliedKey);
+        if (!validation.ok) {
+          reply.status(400);
+          return { error: validation.error };
+        }
+        partitionKey = validation.key;
+      } else if (typeof suppliedKey === 'string' && suppliedKey.trim().length > 0) {
+        partitionKey = suppliedKey.trim();
       }
-      return a.fromAssetNormalizedId.localeCompare(b.fromAssetNormalizedId);
-    });
 
-    reply.status(200);
-    return { data: { assets, edges } };
-  });
+      await clearWorkflowAssetPartitionStale(workflow.id, parseParams.data.assetId, partitionKey);
 
-  app.post('/workflows/:slug/assets/:assetId/stale', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'workflows.assets.mark-stale',
-      resource: 'workflow:asset',
-      requiredScopes: WORKFLOW_RUN_SCOPES
-    });
-    if (!authResult.ok) {
-      return { error: authResult.error };
+      await authResult.auth.log('succeeded', {
+        action: 'assets.clear_stale',
+        workflowSlug: workflow.slug,
+        assetId: parseParams.data.assetId,
+        partitionKey
+      });
+
+      reply.status(204);
+      return null;
     }
-
-    const parseParams = workflowAssetParamSchema.safeParse(request.params);
-    if (!parseParams.success) {
-      reply.status(400);
-      return { error: parseParams.error.flatten() };
-    }
-
-    const parseBody = staleRequestSchema.safeParse(request.body ?? {});
-    if (!parseBody.success) {
-      reply.status(400);
-      return { error: parseBody.error.flatten() };
-    }
-
-    const assetTarget = await resolveWorkflowAsset(parseParams.data.slug, parseParams.data.assetId);
-    if (!assetTarget.ok) {
-      reply.status(assetTarget.statusCode);
-      return { error: assetTarget.error };
-    }
-
-    const { workflow, partitioning } = assetTarget;
-    const suppliedKey = parseBody.data.partitionKey ?? null;
-    let partitionKey: string | null = null;
-
-    if (partitioning) {
-      if (!suppliedKey) {
-        reply.status(400);
-        return { error: 'partitionKey is required for partitioned assets' };
-      }
-      const validation = validatePartitionKey(partitioning, suppliedKey);
-      if (!validation.ok) {
-        reply.status(400);
-        return { error: validation.error };
-      }
-      partitionKey = validation.key;
-    } else if (typeof suppliedKey === 'string' && suppliedKey.trim().length > 0) {
-      partitionKey = suppliedKey.trim();
-    }
-
-    await markWorkflowAssetPartitionStale(workflow.id, parseParams.data.assetId, partitionKey, {
-      requestedBy: authResult.auth.identity.subject,
-      note: parseBody.data.note
-    });
-
-    await authResult.auth.log('succeeded', {
-      action: 'assets.mark_stale',
-      workflowSlug: workflow.slug,
-      assetId: parseParams.data.assetId,
-      partitionKey
-    });
-
-    reply.status(204);
-    return null;
-  });
-
-  app.delete('/workflows/:slug/assets/:assetId/stale', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'workflows.assets.clear-stale',
-      resource: 'workflow:asset',
-      requiredScopes: WORKFLOW_RUN_SCOPES
-    });
-    if (!authResult.ok) {
-      return { error: authResult.error };
-    }
-
-    const parseParams = workflowAssetParamSchema.safeParse(request.params);
-    if (!parseParams.success) {
-      reply.status(400);
-      return { error: parseParams.error.flatten() };
-    }
-
-    const parseQuery = staleQuerySchema.safeParse(request.query ?? {});
-    if (!parseQuery.success) {
-      reply.status(400);
-      return { error: parseQuery.error.flatten() };
-    }
-
-    const assetTarget = await resolveWorkflowAsset(parseParams.data.slug, parseParams.data.assetId);
-    if (!assetTarget.ok) {
-      reply.status(assetTarget.statusCode);
-      return { error: assetTarget.error };
-    }
-
-    const { workflow, partitioning } = assetTarget;
-    const suppliedKey = parseQuery.data.partitionKey ?? null;
-    let partitionKey: string | null = null;
-
-    if (partitioning) {
-      if (!suppliedKey) {
-        reply.status(400);
-        return { error: 'partitionKey is required for partitioned assets' };
-      }
-      const validation = validatePartitionKey(partitioning, suppliedKey);
-      if (!validation.ok) {
-        reply.status(400);
-        return { error: validation.error };
-      }
-      partitionKey = validation.key;
-    } else if (typeof suppliedKey === 'string' && suppliedKey.trim().length > 0) {
-      partitionKey = suppliedKey.trim();
-    }
-
-    await clearWorkflowAssetPartitionStale(workflow.id, parseParams.data.assetId, partitionKey);
-
-    await authResult.auth.log('succeeded', {
-      action: 'assets.clear_stale',
-      workflowSlug: workflow.slug,
-      assetId: parseParams.data.assetId,
-      partitionKey
-    });
-
-    reply.status(204);
-    return null;
-  });
+  );
 }

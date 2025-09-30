@@ -41,6 +41,7 @@ import { buildDockerRunCommand } from '../launchCommand';
 import { runLaunchStart, runLaunchStop } from '../launchRunner';
 import { resolveManifestEnvForRepository, resolveManifestPortForRepository } from '../serviceRegistry';
 import { serializeBuild, serializeLaunch, serializeRepository } from './shared/serializers';
+import { schemaRef } from '../openapi/definitions';
 import type { JsonValue } from './shared/serializers';
 import type { FastifyReply } from 'fastify';
 
@@ -90,6 +91,60 @@ const searchQuerySchema = z.object({
     .preprocess((val) => (typeof val === 'string' ? val : undefined), z.string().trim())
     .optional()
 });
+
+const appsSearchQueryOpenApiSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    q: {
+      type: 'string',
+      description: 'Free-text query matched against repository name, description, and tags.'
+    },
+    tags: {
+      type: 'string',
+      description:
+        'Space or comma-delimited list of tag filters. Each token is matched against stored tag key/value pairs.'
+    },
+    status: {
+      type: 'string',
+      description:
+        'Space or comma-delimited list of ingest statuses to include (seed, pending, processing, ready, failed).'
+    },
+    ingestedAfter: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Only return repositories ingested on or after the provided ISO timestamp.'
+    },
+    ingestedBefore: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Only return repositories ingested on or before the provided ISO timestamp.'
+    },
+    sort: {
+      type: 'string',
+      enum: ['relevance', 'updated', 'name'],
+      description: 'Sort order applied to search results.'
+    },
+    relevance: {
+      type: 'string',
+      description:
+        'Optional JSON-encoded object overriding relevance weights. Unspecified weights fall back to defaults.'
+    }
+  }
+} as const;
+
+function jsonResponse(schemaName: string, description: string) {
+  return {
+    description,
+    content: {
+      'application/json': {
+        schema: schemaRef(schemaName)
+      }
+    }
+  } as const;
+}
+
+const errorResponse = (description: string) => jsonResponse('ErrorResponse', description);
 
 const suggestQuerySchema = z.object({
   prefix: z
@@ -464,7 +519,22 @@ async function scheduleLaunch(options: {
 }
 
 export async function registerRepositoryRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/apps', async (request, reply) => {
+  app.get(
+    '/apps',
+    {
+      schema: {
+        tags: ['Apps'],
+        summary: 'Search repositories',
+        description:
+          'Retrieves repositories matching text, tag, and ingest-status filters. Results include aggregated facets and relevance metadata.',
+        querystring: appsSearchQueryOpenApiSchema,
+        response: {
+          200: jsonResponse('RepositoryListResponse', 'Matching repositories were found.'),
+          400: errorResponse('The supplied query parameters were invalid.')
+        }
+      }
+    },
+    async (request, reply) => {
     const parseResult = searchQuerySchema.safeParse(request.query);
     if (!parseResult.success) {
       reply.status(400);
@@ -503,9 +573,32 @@ export async function registerRepositoryRoutes(app: FastifyInstance): Promise<vo
       total: searchResult.total,
       meta: searchResult.meta satisfies RepositorySearchMeta
     };
-  });
+  }
+  );
 
-  app.get('/apps/:id', async (request, reply) => {
+  app.get(
+    '/apps/:id',
+    {
+      schema: {
+        tags: ['Apps'],
+        summary: 'Fetch a repository by identifier',
+        description: 'Returns repository metadata, ingest status, and latest build/launch information.',
+        params: {
+          type: 'object',
+          required: ['id'],
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string', description: 'Repository identifier.' }
+          }
+        },
+        response: {
+          200: jsonResponse('RepositoryResponse', 'Repository details.'),
+          400: errorResponse('The supplied identifier was invalid.'),
+          404: errorResponse('No repository matched the supplied identifier.')
+        }
+      }
+    },
+    async (request, reply) => {
     const paramsSchema = z.object({ id: z.string().min(1) });
     const parseResult = paramsSchema.safeParse(request.params);
     if (!parseResult.success) {
@@ -522,7 +615,8 @@ export async function registerRepositoryRoutes(app: FastifyInstance): Promise<vo
     return {
       data: serializeRepository(repository)
     };
-  });
+  }
+  );
 
   app.get('/apps/:id/history', async (request, reply) => {
     const paramsSchema = z.object({ id: z.string().min(1) });
@@ -874,7 +968,22 @@ export async function registerRepositoryRoutes(app: FastifyInstance): Promise<vo
     return { data: suggestions };
   });
 
-  app.post('/apps', async (request, reply) => {
+  app.post(
+    '/apps',
+    {
+      schema: {
+        tags: ['Apps'],
+        summary: 'Submit a repository for ingestion',
+        description:
+          'Queues a new repository for ingestion. The payload mirrors the information collected in the Apphub submission form.',
+        body: schemaRef('RepositoryCreateRequest'),
+        response: {
+          201: jsonResponse('RepositoryResponse', 'The repository was accepted for ingestion.'),
+          400: errorResponse('The submission payload failed validation.')
+        }
+      }
+    },
+    async (request, reply) => {
     const parseResult = createRepositorySchema.safeParse(request.body);
     if (!parseResult.success) {
       request.log.warn(
@@ -934,7 +1043,8 @@ export async function registerRepositoryRoutes(app: FastifyInstance): Promise<vo
 
     reply.status(201);
     return { data: serializeRepository(repository) };
-  });
+  }
+  );
 
   app.post('/apps/:id/retry', async (request, reply) => {
     const paramsSchema = z.object({ id: z.string().min(1) });

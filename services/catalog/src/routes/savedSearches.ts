@@ -15,6 +15,7 @@ import {
 } from '../db/savedSearches';
 import { jsonValueSchema } from '../workflows/zodSchemas';
 import { requireOperatorScopes, type OperatorAuthSuccess } from './shared/operatorAuth';
+import { schemaRef } from '../openapi/definitions';
 
 const stringArraySchema = z.preprocess((value) => {
   if (Array.isArray(value)) {
@@ -59,6 +60,42 @@ const savedSearchListQuerySchema = z
     category: z.string().min(1).max(100).optional()
   })
   .partial();
+
+const savedSearchListQueryOpenApiSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    category: {
+      type: 'string',
+      description: 'Optional category slug used to filter saved searches.'
+    }
+  }
+} as const;
+
+const savedSearchSlugParamsOpenApiSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['slug'],
+  properties: {
+    slug: {
+      type: 'string',
+      description: 'Saved search slug assigned when the record was created.'
+    }
+  }
+} as const;
+
+function jsonResponse(schemaName: string, description: string) {
+  return {
+    description,
+    content: {
+      'application/json': {
+        schema: schemaRef(schemaName)
+      }
+    }
+  } as const;
+}
+
+const errorResponse = (description: string) => jsonResponse('ErrorResponse', description);
 
 function resolveOwner(auth: OperatorAuthSuccess): SavedSearchOwner {
   const identity = auth.identity;
@@ -144,82 +181,137 @@ function toUpdateInput(payload: z.infer<typeof savedSearchUpdateSchema>): SavedS
 }
 
 export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/saved-searches', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'catalog.saved-searches.list',
-      resource: 'catalog/saved-searches',
-      requiredScopes: []
-    });
-    if (!authResult.ok) {
-      return { error: authResult.error };
-    }
-
-    const parseQuery = savedSearchListQuerySchema.safeParse(request.query ?? {});
-    if (!parseQuery.success) {
-      reply.status(400);
-      await authResult.auth.log('failed', {
+  app.get(
+    '/saved-searches',
+    {
+      schema: {
+        tags: ['Saved Searches'],
+        summary: 'List saved catalog searches',
+        description: 'Returns saved catalog searches owned by the authenticated operator.',
+        security: [{ OperatorToken: [] }],
+        querystring: savedSearchListQueryOpenApiSchema,
+        response: {
+          200: jsonResponse('SavedCatalogSearchListResponse', 'Saved searches available to the caller.'),
+          400: errorResponse('The saved search filters were invalid.'),
+          401: errorResponse('The caller is unauthenticated.'),
+          403: errorResponse('The caller is not authorized to access saved searches.')
+        }
+      }
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
         action: 'catalog.saved-searches.list',
-        reason: 'invalid_query',
-        details: parseQuery.error.flatten()
+        resource: 'catalog/saved-searches',
+        requiredScopes: []
       });
-      return { error: parseQuery.error.flatten() };
-    }
+      if (!authResult.ok) {
+        return { error: authResult.error };
+      }
 
-    const owner = resolveOwner(authResult.auth);
-    const searches = await listSavedSearches(owner, { category: parseQuery.data.category });
-    reply.status(200);
-    return {
-      data: searches.map(serializeSavedSearch)
-    };
-  });
+      const parseQuery = savedSearchListQuerySchema.safeParse(request.query ?? {});
+      if (!parseQuery.success) {
+        reply.status(400);
+        await authResult.auth.log('failed', {
+          action: 'catalog.saved-searches.list',
+          reason: 'invalid_query',
+          details: parseQuery.error.flatten()
+        });
+        return { error: parseQuery.error.flatten() };
+      }
 
-  app.post('/saved-searches', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'catalog.saved-searches.create',
-      resource: 'catalog/saved-searches',
-      requiredScopes: []
-    });
-    if (!authResult.ok) {
-      return { error: authResult.error };
-    }
-
-    const parse = savedSearchCreateSchema.safeParse(request.body ?? {});
-    if (!parse.success) {
-      reply.status(400);
-      await authResult.auth.log('failed', {
-        reason: 'invalid_payload',
-        details: parse.error.flatten()
-      });
-      return { error: parse.error.flatten() };
-    }
-
-    try {
       const owner = resolveOwner(authResult.auth);
-      const record = await createSavedSearch(owner, toCreateInput(parse.data));
-      reply.status(201);
-      await authResult.auth.log('succeeded', {
-        action: 'catalog.saved-searches.create',
-        slug: record.slug,
-        category: record.category
-      });
-      return { data: serializeSavedSearch(record) };
-    } catch (err) {
-      request.log.error({ err }, 'Failed to create saved search');
-      reply.status(500);
-      await authResult.auth.log('failed', {
-        reason: 'exception',
-        message: err instanceof Error ? err.message : 'unknown_error'
-      });
-      return { error: 'failed_to_create_saved_search' };
+      const searches = await listSavedSearches(owner, { category: parseQuery.data.category });
+      reply.status(200);
+      return {
+        data: searches.map(serializeSavedSearch)
+      };
     }
-  });
+  );
 
-  app.get('/saved-searches/:slug', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'catalog.saved-searches.get',
-      resource: 'catalog/saved-searches',
-      requiredScopes: []
-    });
+  app.post(
+    '/saved-searches',
+    {
+      schema: {
+        tags: ['Saved Searches'],
+        summary: 'Create a saved catalog search',
+        description: 'Persists a reusable catalog search definition for the authenticated operator.',
+        security: [{ OperatorToken: [] }],
+        body: schemaRef('SavedCatalogSearchCreateRequest'),
+        response: {
+          201: jsonResponse('SavedCatalogSearchResponse', 'Saved search created successfully.'),
+          400: errorResponse('The saved search payload failed validation.'),
+          401: errorResponse('The caller is unauthenticated.'),
+          403: errorResponse('The caller is not authorized to create saved searches.'),
+          500: errorResponse('An unexpected error occurred while creating the saved search.')
+        }
+      }
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
+        action: 'catalog.saved-searches.create',
+        resource: 'catalog/saved-searches',
+        requiredScopes: []
+      });
+      if (!authResult.ok) {
+        return { error: authResult.error };
+      }
+
+      const parse = savedSearchCreateSchema.safeParse(request.body ?? {});
+      if (!parse.success) {
+        reply.status(400);
+        await authResult.auth.log('failed', {
+          reason: 'invalid_payload',
+          details: parse.error.flatten()
+        });
+        return { error: parse.error.flatten() };
+      }
+
+      try {
+        const owner = resolveOwner(authResult.auth);
+        const record = await createSavedSearch(owner, toCreateInput(parse.data));
+        reply.status(201);
+        await authResult.auth.log('succeeded', {
+          action: 'catalog.saved-searches.create',
+          slug: record.slug,
+          category: record.category
+        });
+        return { data: serializeSavedSearch(record) };
+      } catch (err) {
+        request.log.error({ err }, 'Failed to create saved search');
+        reply.status(500);
+        await authResult.auth.log('failed', {
+          reason: 'exception',
+          message: err instanceof Error ? err.message : 'unknown_error'
+        });
+        return { error: 'failed_to_create_saved_search' };
+      }
+    }
+  );
+
+  app.get(
+    '/saved-searches/:slug',
+    {
+      schema: {
+        tags: ['Saved Searches'],
+        summary: 'Get a saved catalog search',
+        description: 'Retrieves a saved search owned by the authenticated operator.',
+        security: [{ OperatorToken: [] }],
+        params: savedSearchSlugParamsOpenApiSchema,
+        response: {
+          200: jsonResponse('SavedCatalogSearchResponse', 'Saved search details.'),
+          400: errorResponse('The saved search slug was invalid.'),
+          401: errorResponse('The caller is unauthenticated.'),
+          403: errorResponse('The caller is not authorized to inspect the saved search.'),
+          404: errorResponse('No saved search matches the supplied slug.')
+        }
+      }
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
+        action: 'catalog.saved-searches.get',
+        resource: 'catalog/saved-searches',
+        requiredScopes: []
+      });
     if (!authResult.ok) {
       return { error: authResult.error };
     }
@@ -239,14 +331,34 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
 
     reply.status(200);
     return { data: serializeSavedSearch(record) };
-  });
+  }
+  );
 
-  app.patch('/saved-searches/:slug', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'catalog.saved-searches.update',
-      resource: 'catalog/saved-searches',
-      requiredScopes: []
-    });
+  app.patch(
+    '/saved-searches/:slug',
+    {
+      schema: {
+        tags: ['Saved Searches'],
+        summary: 'Update a saved catalog search',
+        description: 'Updates attributes of an existing saved search owned by the caller.',
+        security: [{ OperatorToken: [] }],
+        params: savedSearchSlugParamsOpenApiSchema,
+        body: schemaRef('SavedCatalogSearchUpdateRequest'),
+        response: {
+          200: jsonResponse('SavedCatalogSearchResponse', 'Saved search updated.'),
+          400: errorResponse('The update payload was invalid.'),
+          401: errorResponse('The caller is unauthenticated.'),
+          403: errorResponse('The caller is not authorized to modify the saved search.'),
+          404: errorResponse('The saved search does not exist.')
+        }
+      }
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
+        action: 'catalog.saved-searches.update',
+        resource: 'catalog/saved-searches',
+        requiredScopes: []
+      });
     if (!authResult.ok) {
       return { error: authResult.error };
     }
@@ -282,14 +394,33 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
       category: record.category
     });
     return { data: serializeSavedSearch(record) };
-  });
+  }
+  );
 
-  app.delete('/saved-searches/:slug', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'catalog.saved-searches.delete',
-      resource: 'catalog/saved-searches',
-      requiredScopes: []
-    });
+  app.delete(
+    '/saved-searches/:slug',
+    {
+      schema: {
+        tags: ['Saved Searches'],
+        summary: 'Delete a saved catalog search',
+        description: 'Removes a saved search owned by the authenticated operator.',
+        security: [{ OperatorToken: [] }],
+        params: savedSearchSlugParamsOpenApiSchema,
+        response: {
+          204: { description: 'Saved search deleted.' },
+          400: errorResponse('The saved search slug was invalid.'),
+          401: errorResponse('The caller is unauthenticated.'),
+          403: errorResponse('The caller is not authorized to delete the saved search.'),
+          404: errorResponse('The saved search does not exist.')
+        }
+      }
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
+        action: 'catalog.saved-searches.delete',
+        resource: 'catalog/saved-searches',
+        requiredScopes: []
+      });
     if (!authResult.ok) {
       return { error: authResult.error };
     }
@@ -313,14 +444,33 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
       slug: parseParams.data.slug
     });
     return null;
-  });
+  }
+  );
 
-  app.post('/saved-searches/:slug/apply', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'catalog.saved-searches.apply',
-      resource: 'catalog/saved-searches',
-      requiredScopes: []
-    });
+  app.post(
+    '/saved-searches/:slug/apply',
+    {
+      schema: {
+        tags: ['Saved Searches'],
+        summary: 'Record saved search application',
+        description: 'Increments usage metrics after applying a saved search.',
+        security: [{ OperatorToken: [] }],
+        params: savedSearchSlugParamsOpenApiSchema,
+        response: {
+          200: jsonResponse('SavedCatalogSearchResponse', 'Updated saved search metrics.'),
+          400: errorResponse('The saved search slug was invalid.'),
+          401: errorResponse('The caller is unauthenticated.'),
+          403: errorResponse('The caller is not authorized to update the saved search.'),
+          404: errorResponse('The saved search does not exist.')
+        }
+      }
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
+        action: 'catalog.saved-searches.apply',
+        resource: 'catalog/saved-searches',
+        requiredScopes: []
+      });
     if (!authResult.ok) {
       return { error: authResult.error };
     }
@@ -340,14 +490,33 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
 
     reply.status(200);
     return { data: serializeSavedSearch(record) };
-  });
+  }
+  );
 
-  app.post('/saved-searches/:slug/share', async (request, reply) => {
-    const authResult = await requireOperatorScopes(request, reply, {
-      action: 'catalog.saved-searches.share',
-      resource: 'catalog/saved-searches',
-      requiredScopes: []
-    });
+  app.post(
+    '/saved-searches/:slug/share',
+    {
+      schema: {
+        tags: ['Saved Searches'],
+        summary: 'Record saved search share action',
+        description: 'Increments share metrics for a saved search.',
+        security: [{ OperatorToken: [] }],
+        params: savedSearchSlugParamsOpenApiSchema,
+        response: {
+          200: jsonResponse('SavedCatalogSearchResponse', 'Updated saved search metadata.'),
+          400: errorResponse('The saved search slug was invalid.'),
+          401: errorResponse('The caller is unauthenticated.'),
+          403: errorResponse('The caller is not authorized to update the saved search.'),
+          404: errorResponse('The saved search does not exist.')
+        }
+      }
+    },
+    async (request, reply) => {
+      const authResult = await requireOperatorScopes(request, reply, {
+        action: 'catalog.saved-searches.share',
+        resource: 'catalog/saved-searches',
+        requiredScopes: []
+      });
     if (!authResult.ok) {
       return { error: authResult.error };
     }
@@ -367,5 +536,6 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
 
     reply.status(200);
     return { data: serializeSavedSearch(record) };
-  });
+  }
+  );
 }

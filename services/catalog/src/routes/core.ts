@@ -33,6 +33,7 @@ import {
 } from '@apphub/shared/catalogEvents';
 import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 import { buildWorkflowEventView } from '../workflowEventInsights';
+import { schemaRef } from '../openapi/definitions';
 
 const LEGACY_EXAMPLE_DATA_ROOT = path.resolve(__dirname, '..', '..', 'data', 'example-bundles');
 const LEGACY_STATUS_DIR = path.join(LEGACY_EXAMPLE_DATA_ROOT, 'status');
@@ -251,13 +252,33 @@ export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/health', async () => {
-    const warnings = await detectLegacyExampleBundleData();
-    return {
-      status: warnings.length > 0 ? 'warn' : 'ok',
-      warnings
-    };
-  });
+  app.get(
+    '/health',
+    {
+      schema: {
+        tags: ['System'],
+        summary: 'Readiness probe',
+        description: 'Returns a simple status payload when the API is healthy.',
+        response: {
+          200: {
+            description: 'The API is healthy.',
+            content: {
+              'application/json': {
+                schema: schemaRef('HealthResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async () => {
+      const warnings = await detectLegacyExampleBundleData();
+      return {
+        status: warnings.length > 0 ? 'warn' : 'ok',
+        warnings
+      };
+    }
+  );
 
   app.get('/metrics', async (request, reply) => {
     try {
