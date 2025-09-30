@@ -135,6 +135,33 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
     }
   });
 
+  const originalSwagger = app.swagger.bind(app);
+  app.decorate('swagger', (opts?: unknown) => {
+    const document = originalSwagger(opts) as {
+      paths?: Record<string, Record<string, unknown>>;
+    };
+
+    const postWorkflows = document.paths?.['/workflows']?.post as
+      | {
+          requestBody?: unknown;
+        }
+      | undefined;
+    if (postWorkflows && !postWorkflows.requestBody) {
+      postWorkflows.requestBody = {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              $ref: schemaId('WorkflowDefinitionCreateRequest')
+            }
+          }
+        }
+      };
+    }
+
+    return document;
+  });
+
   await app.register(swaggerUI, {
     routePrefix: '/docs',
     staticCSP: true,

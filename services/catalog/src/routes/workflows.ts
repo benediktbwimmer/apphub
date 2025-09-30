@@ -1160,7 +1160,6 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         description:
           'Creates a workflow by composing job and service steps. Requires the workflows:write operator scope.',
         security: [{ OperatorToken: [] }],
-        body: schemaRef('WorkflowDefinitionCreateRequest'),
         response: {
           201: workflowDefinitionResponse('Workflow definition created successfully.'),
           400: errorResponse('The workflow payload failed validation or the DAG is invalid.'),
