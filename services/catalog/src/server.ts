@@ -27,6 +27,46 @@ import './queue';
 import { queueManager } from './queueManager';
 import { checkKubectlDiagnostics } from './kubernetes/toolingDiagnostics';
 
+type SerializablePrimitive = string | number | boolean | null;
+
+function sanitizePayload(value: unknown, depth = 0): unknown {
+  if (value === null) {
+    return null;
+  }
+
+  if (depth > 2) {
+    return '[Truncated]';
+  }
+
+  if (typeof value === 'string') {
+    return value.length > 2048 ? `${value.slice(0, 2048)}…` : value;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value as SerializablePrimitive;
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map((entry) => sanitizePayload(entry, depth + 1));
+  }
+
+  if (typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    let count = 0;
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = sanitizePayload(entry, depth + 1);
+      count += 1;
+      if (count >= 20) {
+        result['__truncated__'] = true;
+        break;
+      }
+    }
+    return result;
+  }
+
+  return '[Unserializable]';
+}
+
 export async function buildServer() {
   const app = Fastify();
 
@@ -130,6 +170,47 @@ export async function buildServer() {
   await app.register(async (instance) => registerEventProxyRoutes(instance));
   await app.register(async (instance) => registerAdminRoutes(instance));
   await app.register(async (instance) => registerObservatoryRoutes(instance));
+
+  app.setErrorHandler((error, request, reply) => {
+    const explicitStatus = (error as { statusCode?: number }).statusCode;
+    const derivedStatus = typeof explicitStatus === 'number' && explicitStatus >= 400 ? explicitStatus : reply.statusCode;
+    const statusCode = derivedStatus >= 400 ? derivedStatus : 500;
+
+    const logPayload = {
+      err: error,
+      request: {
+        id: request.id,
+        method: request.method,
+        url: request.url,
+        route: request.routeOptions?.url,
+        params: sanitizePayload(request.params),
+        query: sanitizePayload(request.query),
+        body: sanitizePayload(request.body)
+      }
+    };
+
+    if (statusCode >= 500) {
+      request.log.error(logPayload, 'Unhandled request error');
+    } else {
+      request.log.warn(logPayload, 'Request failed with handled error');
+    }
+
+    if (reply.raw.headersSent) {
+      return;
+    }
+
+    reply.status(statusCode);
+
+    if (statusCode >= 500) {
+      void reply.send({ error: 'Internal Server Error' });
+      return;
+    }
+
+    const message = typeof (error as { message?: string }).message === 'string' && (error as { message?: string }).message?.length
+      ? (error as { message: string }).message
+      : 'Request failed';
+    void reply.send({ error: message });
+  });
 
   return app;
 }
