@@ -13,6 +13,18 @@ try {
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 
+function waitForTermination() {
+  return new Promise((resolve) => {
+    const heartbeat = setInterval(() => {}, 2147483647);
+    const handle = (signal) => {
+      clearInterval(heartbeat);
+      resolve(signal);
+    };
+    process.once('SIGINT', handle);
+    process.once('SIGTERM', handle);
+  });
+}
+
 function resolveManifestPaths() {
   const cliArgs = process.argv.slice(2).filter(Boolean);
   const defaults = ['examples/environmental-observatory/service-manifests/service-manifest.json'];
@@ -116,6 +128,7 @@ async function main() {
 
   if (commands.length === 0) {
     console.log('[dev-services] No service dev commands defined in manifest.');
+    await waitForTermination();
     return;
   }
 
