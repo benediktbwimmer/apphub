@@ -899,6 +899,25 @@ export const openApiDocument: OpenAPIV3.Document = {
           }
         }
       }
+    },
+    '/openapi.json': {
+      get: {
+        tags: ['System'],
+        summary: 'OpenAPI specification',
+        operationId: 'getOpenApiDocument',
+        responses: {
+          '200': {
+            description: 'OpenAPI document',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object'
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   components: {

@@ -6,7 +6,9 @@
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -b",
+    "build": "npm run build:ts && npm run build:openapi",
+    "build:ts": "tsc -b",
+    "build:openapi": "tsx scripts/generateOpenApi.ts",
     "lint": "tsc -b --pretty false",
     "start": "node dist/server.js",
     "migrate": "tsx src/scripts/runMigrations.ts",

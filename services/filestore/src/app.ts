@@ -13,6 +13,7 @@ import { registerV1Routes } from './routes/v1/index';
 import { initializeRollupManager, shutdownRollupManager } from './rollup/manager';
 import { initializeReconciliationManager, shutdownReconciliationManager } from './reconciliation/manager';
 import { initializeFilestoreEvents, shutdownFilestoreEvents } from './events/publisher';
+import { registerOpenApi } from './openapi/plugin';
 
 export type BuildAppOptions = {
   config?: ServiceConfig;
@@ -28,6 +29,7 @@ export async function buildApp(options?: BuildAppOptions) {
   });
 
   await app.register(metricsPlugin, { enabled: config.metricsEnabled });
+  await registerOpenApi(app);
   await app.register(multipart, {
     attachFieldsToBody: false,
     limits: {

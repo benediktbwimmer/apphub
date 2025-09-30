@@ -61,6 +61,7 @@ import {
 import { ensureReconciliationManager } from '../../reconciliation/manager';
 import type { ReconciliationReason } from '../../reconciliation/types';
 import { getNodeDepth, normalizePath } from '../../utils/path';
+import { schemaRef } from '../../openapi/definitions';
 
 type ParsedChecksumHeader = {
   algorithm: 'sha256' | 'sha1' | 'md5';
@@ -870,162 +871,551 @@ function requireWriteScope(request: FastifyRequest, reply: FastifyReply): boolea
 }
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
-  app.get('/v1/backend-mounts', async (request, reply) => {
-    try {
-      const query = backendMountListQuerySchema.parse(request.query ?? {});
-      const result = await withConnection((client) =>
-        listBackendMounts(client, {
-          limit: query.limit,
-          offset: query.offset,
-          kinds: query.kinds,
-          states: query.states,
-          accessModes: query.accessModes,
-          search: query.search ?? null
-        })
-      );
-      const nextOffset = query.offset + result.mounts.length < result.total ? query.offset + query.limit : null;
-
-      const payload = filestoreBackendMountListEnvelopeSchema.parse({
-        data: {
-          mounts: result.mounts.map(serializeBackendMount),
-          pagination: {
-            total: result.total,
+  app.get(
+    '/v1/backend-mounts',
+    {
+      schema: {
+        tags: ['Backend Mounts'],
+        summary: 'List backend mounts',
+        description: 'Returns paginated backend mount records with optional filtering.',
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              description: 'Maximum number of mounts to return.'
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              description: 'Number of mounts to skip before collecting results.'
+            },
+            kinds: {
+              oneOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['local', 's3']
+                  }
+                },
+                {
+                  type: 'string',
+                  description: 'Comma-delimited backend kinds.'
+                }
+              ],
+              description: 'Limit results to specific backend implementations.'
+            },
+            states: {
+              oneOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['active', 'inactive', 'offline', 'degraded', 'error', 'unknown']
+                  }
+                },
+                {
+                  type: 'string',
+                  description: 'Comma-delimited backend states.'
+                }
+              ],
+              description: 'Filter mounts by lifecycle state.'
+            },
+            accessModes: {
+              oneOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['rw', 'ro']
+                  }
+                },
+                {
+                  type: 'string',
+                  description: 'Comma-delimited access modes.'
+                }
+              ],
+              description: 'Restrict mounts to specific access modes.'
+            },
+            search: {
+              type: 'string',
+              minLength: 1,
+              description: 'Full-text search applied to key, name, and description.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Backend mounts matching the supplied filters.',
+            content: {
+              'application/json': {
+                schema: schemaRef('BackendMountListEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The supplied filters were invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while listing backend mounts.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      try {
+        const query = backendMountListQuerySchema.parse(request.query ?? {});
+        const result = await withConnection((client) =>
+          listBackendMounts(client, {
             limit: query.limit,
             offset: query.offset,
-            nextOffset
+            kinds: query.kinds,
+            states: query.states,
+            accessModes: query.accessModes,
+            search: query.search ?? null
+          })
+        );
+        const nextOffset =
+          query.offset + result.mounts.length < result.total ? query.offset + query.limit : null;
+
+        const payload = filestoreBackendMountListEnvelopeSchema.parse({
+          data: {
+            mounts: result.mounts.map(serializeBackendMount),
+            pagination: {
+              total: result.total,
+              limit: query.limit,
+              offset: query.offset,
+              nextOffset
+            },
+            filters: {
+              search: query.search ?? null,
+              kinds: query.kinds ?? [],
+              states: query.states ?? [],
+              accessModes: query.accessModes ?? []
+            }
+          }
+        });
+        reply.send(payload);
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    }
+  );
+
+  app.get(
+    '/v1/backend-mounts/:id',
+    {
+      schema: {
+        tags: ['Backend Mounts'],
+        summary: 'Retrieve backend mount',
+        description: 'Returns a single backend mount by identifier.',
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the backend mount.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Backend mount details.',
+            content: {
+              'application/json': {
+                schema: schemaRef('BackendMountEnvelope')
+              }
+            }
           },
-          filters: {
-            search: query.search ?? null,
-            kinds: query.kinds ?? [],
-            states: query.states ?? [],
-            accessModes: query.accessModes ?? []
+          400: {
+            description: 'Invalid backend mount identifier supplied.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          404: {
+            description: 'Backend mount was not found.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error retrieving the backend mount.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
           }
         }
-      });
-
-      reply.send(payload);
-    } catch (err) {
-      return sendError(reply, err);
-    }
-  });
-
-  app.get('/v1/backend-mounts/:id', async (request, reply) => {
-    try {
-      const params = backendMountParamsSchema.parse(request.params ?? {});
-      const record = await withConnection((client) => getBackendMountById(client, params.id, { forUpdate: false }));
-      if (!record) {
-        return reply.status(404).send({
-          error: {
-            code: 'BACKEND_NOT_FOUND',
-            message: 'Backend mount not found'
-          }
-        });
       }
-
-      const payload = filestoreBackendMountEnvelopeSchema.parse({
-        data: serializeBackendMount(record)
-      });
-      reply.send(payload);
-    } catch (err) {
-      return sendError(reply, err);
-    }
-  });
-
-  app.post('/v1/backend-mounts', async (request, reply) => {
-    try {
-      ensureAdminScope(request);
-      const body = filestoreBackendMountCreateSchema.parse(request.body ?? {});
-      const created = await withConnection((client) =>
-        createBackendMount(client, {
-          mountKey: body.mountKey,
-          backendKind: body.backendKind,
-          rootPath: body.backendKind === 'local' ? body.rootPath ?? null : null,
-          bucket: body.backendKind === 's3' ? body.bucket ?? null : null,
-          prefix: body.prefix ?? null,
-          accessMode: body.accessMode,
-          state: body.state,
-          displayName: body.displayName ?? null,
-          description: body.description ?? null,
-          contact: body.contact ?? null,
-          labels: body.labels ?? [],
-          stateReason: body.stateReason ?? null,
-          config: body.config ?? {}
-        })
-      );
-
-      const payload = filestoreBackendMountEnvelopeSchema.parse({
-        data: serializeBackendMount(created)
-      });
-      reply.status(201).send(payload);
-    } catch (err) {
-      return sendError(reply, err);
-    }
-  });
-
-  app.patch('/v1/backend-mounts/:id', async (request, reply) => {
-    try {
-      ensureAdminScope(request);
-      const params = backendMountParamsSchema.parse(request.params ?? {});
-      const body = filestoreBackendMountUpdateSchema.parse(request.body ?? {});
-
-      const record = await withConnection(async (client) => {
-        const existing = await getBackendMountById(client, params.id);
-        if (!existing) {
-          return null;
-        }
-
-        const nextRootPath = body.rootPath !== undefined ? body.rootPath : existing.rootPath;
-        const nextBucket = body.bucket !== undefined ? body.bucket : existing.bucket;
-
-        if (existing.backendKind === 'local' && (!nextRootPath || nextRootPath.trim().length === 0)) {
-          throw new FilestoreError('rootPath required for local mounts', 'INVALID_REQUEST', {
-            field: 'rootPath'
+    },
+    async (request, reply) => {
+      try {
+        const params = backendMountParamsSchema.parse(request.params ?? {});
+        const record = await withConnection((client) =>
+          getBackendMountById(client, params.id, { forUpdate: false })
+        );
+        if (!record) {
+          return reply.status(404).send({
+            error: {
+              code: 'BACKEND_NOT_FOUND',
+              message: 'Backend mount not found'
+            }
           });
         }
 
-        if (existing.backendKind === 's3' && (!nextBucket || nextBucket.trim().length === 0)) {
-          throw new FilestoreError('bucket required for s3 mounts', 'INVALID_REQUEST', {
-            field: 'bucket'
+        const payload = filestoreBackendMountEnvelopeSchema.parse({
+          data: serializeBackendMount(record)
+        });
+        reply.send(payload);
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    }
+  );
+
+  app.post(
+    '/v1/backend-mounts',
+    {
+      schema: {
+        tags: ['Backend Mounts'],
+        summary: 'Create backend mount',
+        description: 'Registers a new backend mount for storing filestore data.',
+        body: schemaRef('BackendMountCreateRequest') as any,
+        response: {
+          201: {
+            description: 'Backend mount created successfully.',
+            content: {
+              'application/json': {
+                schema: schemaRef('BackendMountEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The supplied payload was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          403: {
+            description: 'The caller lacks permission to create backend mounts.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'A conflicting backend mount already exists.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while creating the backend mount.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      try {
+        ensureAdminScope(request);
+        const body = filestoreBackendMountCreateSchema.parse(request.body ?? {});
+        const created = await withConnection((client) =>
+          createBackendMount(client, {
+            mountKey: body.mountKey,
+            backendKind: body.backendKind,
+            rootPath: body.backendKind === 'local' ? body.rootPath ?? null : null,
+            bucket: body.backendKind === 's3' ? body.bucket ?? null : null,
+            prefix: body.prefix ?? null,
+            accessMode: body.accessMode,
+            state: body.state,
+            displayName: body.displayName ?? null,
+            description: body.description ?? null,
+            contact: body.contact ?? null,
+            labels: body.labels ?? [],
+            stateReason: body.stateReason ?? null,
+            config: body.config ?? {}
+          })
+        );
+
+        const payload = filestoreBackendMountEnvelopeSchema.parse({
+          data: serializeBackendMount(created)
+        });
+        reply.status(201).send(payload);
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    }
+  );
+
+  app.patch(
+    '/v1/backend-mounts/:id',
+    {
+      schema: {
+        tags: ['Backend Mounts'],
+        summary: 'Update backend mount',
+        description: 'Applies partial updates to an existing backend mount.',
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the backend mount.'
+            }
+          }
+        },
+        body: schemaRef('BackendMountUpdateRequest') as any,
+        response: {
+          200: {
+            description: 'Backend mount updated.',
+            content: {
+              'application/json': {
+                schema: schemaRef('BackendMountEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The update payload was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          403: {
+            description: 'The caller lacks permission to update backend mounts.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          404: {
+            description: 'Backend mount not found.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'Requested update conflicts with the current backend state.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while updating the backend mount.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      try {
+        ensureAdminScope(request);
+        const params = backendMountParamsSchema.parse(request.params ?? {});
+        const body = filestoreBackendMountUpdateSchema.parse(request.body ?? {});
+
+        const record = await withConnection(async (client) => {
+          const existing = await getBackendMountById(client, params.id);
+          if (!existing) {
+            return null;
+          }
+
+          const nextRootPath = body.rootPath !== undefined ? body.rootPath : existing.rootPath;
+          const nextBucket = body.bucket !== undefined ? body.bucket : existing.bucket;
+
+          if (existing.backendKind === 'local' && (!nextRootPath || nextRootPath.trim().length === 0)) {
+            throw new FilestoreError('rootPath required for local mounts', 'INVALID_REQUEST', {
+              field: 'rootPath'
+            });
+          }
+
+          if (existing.backendKind === 's3' && (!nextBucket || nextBucket.trim().length === 0)) {
+            throw new FilestoreError('bucket required for s3 mounts', 'INVALID_REQUEST', {
+              field: 'bucket'
+            });
+          }
+
+          const updated = await updateBackendMount(client, params.id, {
+            mountKey: body.mountKey,
+            rootPath: body.rootPath,
+            bucket: body.bucket,
+            prefix: body.prefix,
+            accessMode: body.accessMode,
+            state: body.state,
+            displayName: body.displayName,
+            description: body.description,
+            contact: body.contact,
+            labels: body.labels,
+            stateReason: body.stateReason,
+            config: body.config
+          });
+
+          return updated;
+        });
+
+        if (!record) {
+          return reply.status(404).send({
+            error: {
+              code: 'BACKEND_NOT_FOUND',
+              message: 'Backend mount not found'
+            }
           });
         }
 
-        const updated = await updateBackendMount(client, params.id, {
-          mountKey: body.mountKey,
-          rootPath: body.rootPath,
-          bucket: body.bucket,
-          prefix: body.prefix,
-          accessMode: body.accessMode,
-          state: body.state,
-          displayName: body.displayName,
-          description: body.description,
-          contact: body.contact,
-          labels: body.labels,
-          stateReason: body.stateReason,
-          config: body.config
+        const payload = filestoreBackendMountEnvelopeSchema.parse({
+          data: serializeBackendMount(record)
         });
-
-        return updated;
-      });
-
-      if (!record) {
-        return reply.status(404).send({
-          error: {
-            code: 'BACKEND_NOT_FOUND',
-            message: 'Backend mount not found'
-          }
-        });
+        reply.send(payload);
+      } catch (err) {
+        return sendError(reply, err);
       }
-
-      const payload = filestoreBackendMountEnvelopeSchema.parse({
-        data: serializeBackendMount(record)
-      });
-      reply.send(payload);
-    } catch (err) {
-      return sendError(reply, err);
     }
-  });
+  );
 
-  app.post('/v1/files', async (request, reply) => {
+  app.post(
+    '/v1/files',
+    {
+      schema: {
+        tags: ['Files'],
+        summary: 'Upload or replace file content',
+        description:
+          'Uploads file content to the filestore, optionally replacing an existing file when overwrite is enabled.',
+        consumes: ['multipart/form-data'],
+        body: {
+          type: 'object',
+          required: ['file', 'backendMountId', 'path'],
+          properties: {
+            file: {
+              type: 'string',
+              format: 'binary',
+              description: 'Binary payload for the file to upload.'
+            },
+            backendMountId: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the backend mount receiving the file.'
+            },
+            path: {
+              type: 'string',
+              description: 'Path where the file will be stored.'
+            },
+            metadata: {
+              type: 'string',
+              description: 'Optional JSON object string containing metadata to assign to the file.'
+            },
+            overwrite: {
+              type: 'boolean',
+              description: 'When true, replaces existing file content at the target path.'
+            },
+            idempotencyKey: {
+              type: 'string',
+              description: 'Optional idempotency key for safely retrying the upload.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'File upload accepted (idempotent replay).',
+            content: {
+              'application/json': {
+                schema: schemaRef('CommandOutcomeEnvelope')
+              }
+            }
+          },
+          201: {
+            description: 'File uploaded successfully.',
+            content: {
+              'application/json': {
+                schema: schemaRef('CommandOutcomeEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The upload request was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'A conflicting node prevented the upload.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          415: {
+            description: 'Multipart form data was not supplied.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          422: {
+            description: 'Checksum or content hash mismatched the provided value.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred during upload.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     if (typeof (request as any).isMultipart !== 'function' || !(request as any).isMultipart()) {
       return reply.status(415).send({
         error: {
@@ -1265,7 +1655,91 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get('/v1/files/:id/content', async (request, reply) => {
+  app.get(
+    '/v1/files/:id/content',
+    {
+      schema: {
+        tags: ['Files'],
+        summary: 'Download file content',
+        description: 'Streams stored file content. Supports HTTP range requests when metadata allows.',
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the file node to download.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Entire file content streamed to the client.',
+            content: {
+              'application/octet-stream': {
+                schema: {
+                  type: 'string',
+                  format: 'binary'
+                }
+              }
+            }
+          },
+          206: {
+            description: 'Partial file content returned in response to a range request.',
+            content: {
+              'application/octet-stream': {
+                schema: {
+                  type: 'string',
+                  format: 'binary'
+                }
+              }
+            }
+          },
+          400: {
+            description: 'The supplied identifier or range header was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          404: {
+            description: 'The requested file could not be found.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'The target node does not represent a downloadable file.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          416: {
+            description: 'The requested byte range is invalid for the file.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while reading from the backend.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
     if (!Number.isFinite(id) || id <= 0) {
       return reply.status(400).send({
@@ -1445,7 +1919,81 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get('/v1/files/:id/presign', async (request, reply) => {
+  app.get(
+    '/v1/files/:id/presign',
+    {
+      schema: {
+        tags: ['Files'],
+        summary: 'Create presigned download',
+        description: 'Generates a presigned URL that allows direct download from the backing storage.',
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the file node.'
+            }
+          }
+        },
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            expiresIn: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 3600,
+              description: 'Requested TTL for the presigned URL in seconds.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Presigned URL generated successfully.',
+            content: {
+              'application/json': {
+                schema: schemaRef('PresignedDownloadEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The request parameters were invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          404: {
+            description: 'The requested file could not be found.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'The node is not eligible for presigned downloads.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while generating the presigned URL.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
     if (!Number.isFinite(id) || id <= 0) {
       return reply.status(400).send({
@@ -1549,7 +2097,59 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post('/v1/directories', async (request, reply) => {
+  app.post(
+    '/v1/directories',
+    {
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Create directory',
+        description: 'Creates a new directory node within the specified backend mount.',
+        body: schemaRef('CreateDirectoryRequest') as any,
+        response: {
+          200: {
+            description: 'Directory already existed and the request was idempotent.',
+            content: {
+              'application/json': {
+                schema: schemaRef('CommandOutcomeEnvelope')
+              }
+            }
+          },
+          201: {
+            description: 'Directory created successfully.',
+            content: {
+              'application/json': {
+                schema: schemaRef('CommandOutcomeEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The directory request payload was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'The directory could not be created due to conflicts.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while creating the directory.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     const parseResult = createDirectorySchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({
@@ -1592,7 +2192,51 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.delete('/v1/nodes', async (request, reply) => {
+  app.delete(
+    '/v1/nodes',
+    {
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Delete node',
+        description: 'Deletes a node at the specified path, optionally cascading to children.',
+        body: schemaRef('DeleteNodeRequest') as any,
+        response: {
+          200: {
+            description: 'Deletion command accepted.',
+            content: {
+              'application/json': {
+                schema: schemaRef('CommandOutcomeEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The delete request payload was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'The node could not be deleted due to a conflict.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while deleting the node.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     const parseResult = deleteNodeSchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({
@@ -1634,7 +2278,51 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post('/v1/nodes/move', async (request, reply) => {
+  app.post(
+    '/v1/nodes/move',
+    {
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Move node',
+        description: 'Moves a node to a new path, optionally across backend mounts.',
+        body: schemaRef('MoveNodeRequest') as any,
+        response: {
+          200: {
+            description: 'Move command completed.',
+            content: {
+              'application/json': {
+                schema: schemaRef('CommandOutcomeEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The move request payload was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'The node could not be moved due to a conflict at the destination.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while moving the node.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     const parseResult = moveNodeBodySchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({
@@ -1678,7 +2366,51 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post('/v1/nodes/copy', async (request, reply) => {
+  app.post(
+    '/v1/nodes/copy',
+    {
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Copy node',
+        description: 'Copies a node to a new path, optionally across backend mounts.',
+        body: schemaRef('CopyNodeRequest') as any,
+        response: {
+          201: {
+            description: 'Copy command completed successfully.',
+            content: {
+              'application/json': {
+                schema: schemaRef('CommandOutcomeEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The copy request payload was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'The node could not be copied due to conflicts at the destination.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while copying the node.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     const parseResult = copyNodeBodySchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({
@@ -1722,7 +2454,62 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.patch('/v1/nodes/:id/metadata', async (request, reply) => {
+  app.patch(
+    '/v1/nodes/:id/metadata',
+    {
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Update node metadata',
+        description: 'Sets or unsets metadata fields on an existing node.',
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the node.'
+            }
+          }
+        },
+        body: schemaRef('UpdateMetadataRequest') as any,
+        response: {
+          200: {
+            description: 'Metadata updated successfully.',
+            content: {
+              'application/json': {
+                schema: schemaRef('CommandOutcomeEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The metadata update payload was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          409: {
+            description: 'The metadata could not be updated due to conflicts.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while updating metadata.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     const nodeId = Number((request.params as { id: string }).id);
     if (!Number.isFinite(nodeId) || nodeId <= 0) {
       return reply.status(400).send({
@@ -1775,7 +2562,119 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get('/v1/nodes', async (request, reply) => {
+  app.get(
+    '/v1/nodes',
+    {
+      schema: {
+        tags: ['Nodes'],
+        summary: 'List nodes',
+        description: 'Returns paginated nodes within a backend, supporting path, state, and advanced filters.',
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['backendMountId'],
+          properties: {
+            backendMountId: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the backend mount to inspect.'
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 200,
+              description: 'Maximum number of nodes to return.'
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              description: 'Number of nodes to skip before collecting results.'
+            },
+            path: {
+              type: 'string',
+              description: 'Optional path prefix filter.'
+            },
+            depth: {
+              type: 'integer',
+              minimum: 0,
+              maximum: 10,
+              description: 'Depth relative to the provided path to include in results.'
+            },
+            search: {
+              type: 'string',
+              description: 'Full-text search term across node names and metadata.'
+            },
+            states: {
+              oneOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['active', 'inconsistent', 'missing', 'deleted']
+                  }
+                },
+                {
+                  type: 'string',
+                  description: 'Comma-delimited list of node states.'
+                }
+              ],
+              description: 'Filter results to nodes in the specified states.'
+            },
+            kinds: {
+              oneOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['file', 'directory']
+                  }
+                },
+                {
+                  type: 'string',
+                  description: 'Comma-delimited list of node kinds.'
+                }
+              ],
+              description: 'Restrict results to files or directories.'
+            },
+            driftOnly: {
+              type: 'boolean',
+              description: 'When true, returns only nodes flagged for drift.'
+            },
+            filters: {
+              type: 'string',
+              description: 'JSON encoded advanced filter payload.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Nodes matching the supplied filters.',
+            content: {
+              'application/json': {
+                schema: schemaRef('NodeListEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The query parameters were invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while listing nodes.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     const parseResult = listNodesQuerySchema.safeParse(request.query);
     if (!parseResult.success) {
       return reply.status(400).send({
@@ -1878,7 +2777,122 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get('/v1/nodes/:id/children', async (request, reply) => {
+  app.get(
+    '/v1/nodes/:id/children',
+    {
+      schema: {
+        tags: ['Nodes'],
+        summary: 'List child nodes',
+        description: 'Returns the immediate children for a directory node.',
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the parent node.'
+            }
+          }
+        },
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 200,
+              description: 'Maximum number of children to return.'
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              description: 'Number of children to skip before collecting results.'
+            },
+            search: {
+              type: 'string',
+              description: 'Full-text search applied to child nodes.'
+            },
+            states: {
+              oneOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['active', 'inconsistent', 'missing', 'deleted']
+                  }
+                },
+                {
+                  type: 'string',
+                  description: 'Comma-delimited list of node states.'
+                }
+              ],
+              description: 'Filter children by state.'
+            },
+            kinds: {
+              oneOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['file', 'directory']
+                  }
+                },
+                {
+                  type: 'string',
+                  description: 'Comma-delimited list of node kinds.'
+                }
+              ],
+              description: 'Restrict children to files or directories.'
+            },
+            driftOnly: {
+              type: 'boolean',
+              description: 'When true, returns only children flagged for drift.'
+            },
+            filters: {
+              type: 'string',
+              description: 'JSON encoded advanced filter payload.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Children for the requested node.',
+            content: {
+              'application/json': {
+                schema: schemaRef('NodeChildrenEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The supplied parameters were invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          404: {
+            description: 'The parent node could not be found.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while listing child nodes.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
     if (!Number.isFinite(id) || id <= 0) {
       return reply.status(400).send({
@@ -1986,224 +3000,588 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get('/v1/nodes/:id', async (request, reply) => {
-    const id = Number((request.params as { id: string }).id);
-    if (!Number.isFinite(id) || id <= 0) {
-      return reply.status(400).send({
-        error: {
-          code: 'INVALID_REQUEST',
-          message: 'Node id must be a positive integer'
-        }
-      });
-    }
-
-    const node = await withConnection((client) => getNodeById(client, id));
-    if (!node) {
-      return reply.status(404).send({
-        error: {
-          code: 'NODE_NOT_FOUND',
-          message: 'Node not found'
-        }
-      });
-    }
-
-    return reply.status(200).send({ data: await serializeNode(node) });
-  });
-
-  app.get('/v1/nodes/by-path', async (request, reply) => {
-    const parseResult = nodeByPathQuerySchema.safeParse(request.query);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'INVALID_REQUEST',
-          message: 'Invalid query parameters',
-          details: parseResult.error.flatten()
-        }
-      });
-    }
-
-    const query = parseResult.data;
-    const node = await withConnection((client) =>
-      getNodeByPath(client, query.backendMountId, query.path)
-    );
-
-    if (!node) {
-      return reply.status(404).send({
-        error: {
-          code: 'NODE_NOT_FOUND',
-          message: 'Node not found'
-        }
-      });
-    }
-
-    return reply.status(200).send({ data: await serializeNode(node) });
-  });
-
-  app.post('/v1/reconciliation', async (request, reply) => {
-    const parseResult = reconciliationRequestSchema.safeParse(request.body);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'INVALID_REQUEST',
-          message: 'Invalid reconciliation payload',
-          details: parseResult.error.flatten()
-        }
-      });
-    }
-
-    const payload = parseResult.data;
-    const manager = ensureReconciliationManager();
-    await manager.enqueue({
-      backendMountId: payload.backendMountId,
-      path: payload.path,
-      nodeId: payload.nodeId ?? null,
-      reason: (payload.reason ?? 'manual') as ReconciliationReason,
-      detectChildren: payload.detectChildren,
-      requestedHash: payload.requestedHash
-    });
-
-    return reply.status(202).send({ data: { enqueued: true } });
-  });
-
-  app.get('/v1/reconciliation/jobs', async (request, reply) => {
-    if (!requireWriteScope(request, reply)) {
-      return;
-    }
-
-    const parseResult = listReconciliationJobsQuerySchema.safeParse(request.query);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'INVALID_REQUEST',
-          message: 'Invalid reconciliation job query',
-          details: parseResult.error.flatten()
-        }
-      });
-    }
-
-    const query = parseResult.data;
-    const limit = query.limit ? Math.min(query.limit, 200) : 50;
-    const offset = query.offset ?? 0;
-    const normalizedPath = query.path ? query.path.trim() : undefined;
-
-    try {
-      const result = await withConnection((client) =>
-        listReconciliationJobs(client, {
-          backendMountId: query.backendMountId,
-          path: normalizedPath,
-          status: query.status,
-          limit,
-          offset
-        })
-      );
-
-      const jobs = result.jobs.map(serializeReconciliationJobRecord);
-      const nextOffset = offset + jobs.length < result.total ? offset + jobs.length : null;
-
-      return reply.status(200).send({
-        data: {
-          jobs,
-          pagination: {
-            total: result.total,
-            limit,
-            offset,
-            nextOffset
+  app.get(
+    '/v1/nodes/:id',
+    {
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Retrieve node by id',
+        description: 'Returns the full metadata record for a node identified by its numeric identifier.',
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the node to retrieve.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Node details matching the supplied identifier.',
+            content: {
+              'application/json': {
+                schema: schemaRef('NodeEnvelope')
+              }
+            }
           },
-          filters: {
-            backendMountId: query.backendMountId ?? null,
-            path: normalizedPath ?? null,
-            status: query.status ?? []
+          400: {
+            description: 'The supplied identifier was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          404: {
+            description: 'The node could not be found.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while retrieving the node.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
           }
         }
-      });
-    } catch (err) {
-      return sendError(reply, err);
-    }
-  });
-
-  app.get('/v1/reconciliation/jobs/:id', async (request, reply) => {
-    if (!requireWriteScope(request, reply)) {
-      return;
-    }
-
-    const parseResult = reconciliationJobIdParamsSchema.safeParse(request.params);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'INVALID_REQUEST',
-          message: 'Invalid reconciliation job identifier',
-          details: parseResult.error.flatten()
-        }
-      });
-    }
-
-    try {
-      const job = await withConnection((client) =>
-        getReconciliationJobById(client, parseResult.data.id)
-      );
-      if (!job) {
-        return reply.status(404).send({
+      }
+    },
+    async (request, reply) => {
+      const id = Number((request.params as { id: string }).id);
+      if (!Number.isFinite(id) || id <= 0) {
+        return reply.status(400).send({
           error: {
-            code: 'NOT_FOUND',
-            message: 'Reconciliation job not found'
+            code: 'INVALID_REQUEST',
+            message: 'Node id must be a positive integer'
           }
         });
       }
-      return reply.status(200).send({ data: serializeReconciliationJobRecord(job) });
-    } catch (err) {
-      return sendError(reply, err);
-    }
-  });
 
-  app.get('/v1/events/stream', async (request, reply) => {
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
-    reply.raw.setHeader('Connection', 'keep-alive');
-    if (typeof reply.raw.flushHeaders === 'function') {
-      reply.raw.flushHeaders();
-    }
-
-    reply.hijack();
-    reply.raw.write(':connected\n\n');
-
-    const query = (request.query ?? {}) as EventStreamQuery;
-    const subscriptionOptions = buildSubscriptionOptionsFromQuery(query);
-    const dispatcher = createSseDispatcher(reply.raw);
-
-    const unsubscribe = subscribeToFilestoreEvents(
-      (event) => {
-        try {
-          dispatcher.sendEvent(event);
-        } catch (err) {
-          request.log.error({ err }, 'failed to write SSE payload');
-        }
-      },
-      subscriptionOptions
-    );
-
-    const heartbeat = setInterval(() => {
-      try {
-        dispatcher.sendComment('ping');
-      } catch (err) {
-        request.log.error({ err }, 'failed to write SSE heartbeat');
+      const node = await withConnection((client) => getNodeById(client, id));
+      if (!node) {
+        return reply.status(404).send({
+          error: {
+            code: 'NODE_NOT_FOUND',
+            message: 'Node not found'
+          }
+        });
       }
-    }, 15000);
-    if (typeof heartbeat.unref === 'function') {
-      heartbeat.unref();
-    }
 
-    let cleanedUp = false;
-    const cleanup = () => {
-      if (cleanedUp) {
+      return reply.status(200).send({ data: await serializeNode(node) });
+    }
+  );
+
+  app.get(
+    '/v1/nodes/by-path',
+    {
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Retrieve node by path',
+        description: 'Returns node metadata for the given backend mount and normalized path.',
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['backendMountId', 'path'],
+          properties: {
+            backendMountId: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the backend mount containing the node.'
+            },
+            path: {
+              type: 'string',
+              minLength: 1,
+              description: 'Absolute path to the node within the backend mount.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Node details for the specified path.',
+            content: {
+              'application/json': {
+                schema: schemaRef('NodeEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The supplied parameters were invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          404: {
+            description: 'No node exists at the requested path.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while resolving the node.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const parseResult = nodeByPathQuerySchema.safeParse(request.query);
+      if (!parseResult.success) {
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'Invalid query parameters',
+            details: parseResult.error.flatten()
+          }
+        });
+      }
+
+      const query = parseResult.data;
+      const node = await withConnection((client) =>
+        getNodeByPath(client, query.backendMountId, query.path)
+      );
+
+      if (!node) {
+        return reply.status(404).send({
+          error: {
+            code: 'NODE_NOT_FOUND',
+            message: 'Node not found'
+          }
+        });
+      }
+
+      return reply.status(200).send({ data: await serializeNode(node) });
+    }
+  );
+
+  app.post(
+    '/v1/reconciliation',
+    {
+      schema: {
+        tags: ['Reconciliation'],
+        summary: 'Enqueue reconciliation job',
+        description: 'Schedules a reconciliation job for the specified path and backend mount.',
+        body: schemaRef('ReconciliationRequest') as any,
+        response: {
+          202: {
+            description: 'Reconciliation job accepted for processing.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ReconciliationEnqueueResponse')
+              }
+            }
+          },
+          400: {
+            description: 'The reconciliation request payload was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while enqueuing the reconciliation job.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const parseResult = reconciliationRequestSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'Invalid reconciliation payload',
+            details: parseResult.error.flatten()
+          }
+        });
+      }
+
+      const payload = parseResult.data;
+      const manager = ensureReconciliationManager();
+      await manager.enqueue({
+        backendMountId: payload.backendMountId,
+        path: payload.path,
+        nodeId: payload.nodeId ?? null,
+        reason: (payload.reason ?? 'manual') as ReconciliationReason,
+        detectChildren: payload.detectChildren,
+        requestedHash: payload.requestedHash
+      });
+
+      return reply.status(202).send({ data: { enqueued: true } });
+    }
+  );
+
+  app.get(
+    '/v1/reconciliation/jobs',
+    {
+      schema: {
+        tags: ['Reconciliation'],
+        summary: 'List reconciliation jobs',
+        description: 'Returns historical reconciliation jobs for auditing and monitoring.',
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            backendMountId: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Filter jobs by backend mount identifier.'
+            },
+            path: {
+              type: 'string',
+              description: 'Filter jobs by path prefix.'
+            },
+            status: {
+              oneOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['queued', 'running', 'succeeded', 'failed', 'skipped', 'cancelled']
+                  }
+                },
+                {
+                  type: 'string',
+                  description: 'Comma-delimited list of job statuses.'
+                }
+              ],
+              description: 'Restrict results to jobs in the specified states.'
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 200,
+              description: 'Maximum number of jobs to return.'
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              description: 'Number of jobs to skip before collecting results.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Reconciliation jobs matching the supplied filters.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ReconciliationJobListEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The reconciliation job query parameters were invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          403: {
+            description: 'The caller lacks permission to inspect reconciliation jobs.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while listing reconciliation jobs.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      if (!requireWriteScope(request, reply)) {
         return;
       }
-      cleanedUp = true;
-      clearInterval(heartbeat);
-      dispatcher.close();
-      unsubscribe();
-    };
 
-    request.raw.on('close', cleanup);
-    request.raw.on('error', cleanup);
-  });
+      const parseResult = listReconciliationJobsQuerySchema.safeParse(request.query);
+      if (!parseResult.success) {
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'Invalid reconciliation job query',
+            details: parseResult.error.flatten()
+          }
+        });
+      }
+
+      const query = parseResult.data;
+      const limit = query.limit ? Math.min(query.limit, 200) : 50;
+      const offset = query.offset ?? 0;
+      const normalizedPath = query.path ? query.path.trim() : undefined;
+
+      try {
+        const result = await withConnection((client) =>
+          listReconciliationJobs(client, {
+            backendMountId: query.backendMountId,
+            path: normalizedPath,
+            status: query.status,
+            limit,
+            offset
+          })
+        );
+
+        const jobs = result.jobs.map(serializeReconciliationJobRecord);
+        const nextOffset = offset + jobs.length < result.total ? offset + jobs.length : null;
+
+        return reply.status(200).send({
+          data: {
+            jobs,
+            pagination: {
+              total: result.total,
+              limit,
+              offset,
+              nextOffset
+            },
+            filters: {
+              backendMountId: query.backendMountId ?? null,
+              path: normalizedPath ?? null,
+              status: query.status ?? []
+            }
+          }
+        });
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    }
+  );
+
+  app.get(
+    '/v1/reconciliation/jobs/:id',
+    {
+      schema: {
+        tags: ['Reconciliation'],
+        summary: 'Retrieve reconciliation job',
+        description: 'Fetches a single reconciliation job by identifier.',
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Identifier of the reconciliation job.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Reconciliation job details.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ReconciliationJobEnvelope')
+              }
+            }
+          },
+          400: {
+            description: 'The supplied identifier was invalid.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          403: {
+            description: 'The caller lacks permission to read reconciliation jobs.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          404: {
+            description: 'Reconciliation job not found.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while retrieving the reconciliation job.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      if (!requireWriteScope(request, reply)) {
+        return;
+      }
+
+      const parseResult = reconciliationJobIdParamsSchema.safeParse(request.params);
+      if (!parseResult.success) {
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'Invalid reconciliation job identifier',
+            details: parseResult.error.flatten()
+          }
+        });
+      }
+
+      try {
+        const job = await withConnection((client) =>
+          getReconciliationJobById(client, parseResult.data.id)
+        );
+        if (!job) {
+          return reply.status(404).send({
+            error: {
+              code: 'NOT_FOUND',
+              message: 'Reconciliation job not found'
+            }
+          });
+        }
+        return reply.status(200).send({ data: serializeReconciliationJobRecord(job) });
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    }
+  );
+
+  app.get(
+    '/v1/events/stream',
+    {
+      schema: {
+        tags: ['Events'],
+        summary: 'Stream filestore events',
+        description: 'Provides a server-sent events stream for filestore domain events.',
+        produces: ['text/event-stream'],
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            backendMountId: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Filter events to a specific backend mount.'
+            },
+            pathPrefix: {
+              type: 'string',
+              description: 'Restrict events to nodes under the specified path prefix.'
+            },
+            events: {
+              oneOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string'
+                  }
+                },
+                {
+                  type: 'string',
+                  description: 'Comma-delimited list of event types (filestore.*).'
+                }
+              ],
+              description: 'Filter by specific event types.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Event stream connection established.',
+            content: {
+              'text/event-stream': {
+                schema: {
+                  type: 'string',
+                  description: 'SSE stream payload.'
+                }
+              }
+            }
+          },
+          500: {
+            description: 'Unexpected error occurred while streaming events.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ErrorResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      reply.raw.setHeader('Content-Type', 'text/event-stream');
+      reply.raw.setHeader('Cache-Control', 'no-cache');
+      reply.raw.setHeader('Connection', 'keep-alive');
+      if (typeof reply.raw.flushHeaders === 'function') {
+        reply.raw.flushHeaders();
+      }
+
+      reply.hijack();
+      reply.raw.write(':connected\n\n');
+
+      const query = (request.query ?? {}) as EventStreamQuery;
+      const subscriptionOptions = buildSubscriptionOptionsFromQuery(query);
+      const dispatcher = createSseDispatcher(reply.raw);
+
+      const unsubscribe = subscribeToFilestoreEvents(
+        (event) => {
+          try {
+            dispatcher.sendEvent(event);
+          } catch (err) {
+            request.log.error({ err }, 'failed to write SSE payload');
+          }
+        },
+        subscriptionOptions
+      );
+
+      const heartbeat = setInterval(() => {
+        try {
+          dispatcher.sendComment('ping');
+        } catch (err) {
+          request.log.error({ err }, 'failed to write SSE heartbeat');
+        }
+      }, 15000);
+      if (typeof heartbeat.unref === 'function') {
+        heartbeat.unref();
+      }
+
+      let cleanedUp = false;
+      const cleanup = () => {
+        if (cleanedUp) {
+          return;
+        }
+        cleanedUp = true;
+        clearInterval(heartbeat);
+        dispatcher.close();
+        unsubscribe();
+      };
+
+      request.raw.on('close', cleanup);
+      request.raw.on('error', cleanup);
+    }
+  );
 }

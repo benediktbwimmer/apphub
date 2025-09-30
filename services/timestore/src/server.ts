@@ -16,6 +16,7 @@ import { initializeFilestoreActivity, shutdownFilestoreActivity } from './filest
 import { shutdownManifestCache } from './cache/manifestCache';
 import { initializeIngestionConnectors, shutdownIngestionConnectors } from './ingestion/connectors';
 import { initializeDatasetAccessCleanup, shutdownDatasetAccessCleanup } from './service/auditCleanup';
+import { registerOpenApi } from './openapi/plugin';
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
@@ -34,6 +35,8 @@ async function start(): Promise<void> {
       scope: config.observability.metrics.scope
     }
   });
+
+  await registerOpenApi(app);
 
   await registerHealthRoutes(app);
   await registerIngestionRoutes(app);

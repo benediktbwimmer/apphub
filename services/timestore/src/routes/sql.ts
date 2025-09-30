@@ -7,6 +7,8 @@ import { Query } from 'pg';
 import type { FieldDef, PoolClient, QueryResult, ResultBuilder } from 'pg';
 import { getClient } from '../db/client';
 import { loadServiceConfig } from '../config/serviceConfig';
+import { schemaRef } from '../openapi/definitions';
+import { errorResponse, jsonResponse } from '../openapi/utils';
 import {
   authorizeSqlExecAccess,
   authorizeSqlReadAccess,
@@ -107,27 +109,81 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
   }
   app.addContentTypeParser(/^application\/json($|;)/, { parseAs: 'string' }, jsonParser);
 
-  app.get('/sql/schema', async (request) => {
-    await authorizeSqlReadAccess(request as FastifyRequest);
-    const context = await loadSqlContext();
-    const tables: SqlSchemaTableInfo[] = context.datasets.map((dataset) => ({
-      name: dataset.viewName,
-      description: mergeDescription(dataset.dataset.description ?? null, dataset.aliasWarnings),
-      partitionKeys: dataset.partitionKeys.length > 0 ? dataset.partitionKeys : undefined,
-      columns: dataset.columns
-    }));
+  app.get(
+    '/sql/schema',
+    {
+      schema: {
+        tags: ['SQL'],
+        summary: 'Describe SQL schema',
+        description: 'Returns the current logical schema exposed to the SQL runtime.',
+        response: {
+          200: jsonResponse('SqlSchemaResponse', 'SQL schema snapshot for available datasets.'),
+          401: errorResponse('Authentication is required.'),
+          403: errorResponse('Caller lacks permission to inspect SQL metadata.'),
+          500: errorResponse('Failed to load SQL schema information.')
+        }
+      }
+    },
+    async (request) => {
+      await authorizeSqlReadAccess(request as FastifyRequest);
+      const context = await loadSqlContext();
+      const tables: SqlSchemaTableInfo[] = context.datasets.map((dataset) => ({
+        name: dataset.viewName,
+        description: mergeDescription(dataset.dataset.description ?? null, dataset.aliasWarnings),
+        partitionKeys: dataset.partitionKeys.length > 0 ? dataset.partitionKeys : undefined,
+        columns: dataset.columns
+      }));
 
-    return {
-      fetchedAt: new Date().toISOString(),
-      tables,
-      warnings: context.warnings
-    };
-  });
+      return {
+        fetchedAt: new Date().toISOString(),
+        tables,
+        warnings: context.warnings
+      };
+    }
+  );
 
-  app.post('/sql/read', async (request, reply) => {
-    await authorizeSqlReadAccess(request as FastifyRequest);
-    const { sql, params } = parseRequestBody(request);
-    const format = resolveResponseFormat(request);
+  app.post(
+    '/sql/read',
+    {
+      schema: {
+        tags: ['SQL'],
+        summary: 'Execute read-only SQL query',
+        description:
+          'Runs a read-only SELECT statement against the SQL runtime and returns the result set in the requested format.',
+        body: schemaRef('SqlQueryRequest'),
+        response: {
+          200: {
+            description: 'Query executed successfully.',
+            content: {
+              'application/json': {
+                schema: schemaRef('SqlReadResponse')
+              },
+              'text/csv': {
+                schema: {
+                  type: 'string',
+                  description: 'Result set rendered as CSV.'
+                }
+              },
+              'text/plain': {
+                schema: {
+                  type: 'string',
+                  description: 'Result set rendered as an ASCII table.'
+                }
+              }
+            }
+          },
+          400: errorResponse('Invalid SQL read request.'),
+          401: errorResponse('Authentication is required.'),
+          403: errorResponse('Caller lacks permission to run SQL queries.'),
+          406: errorResponse('Requested response format is not supported.'),
+          500: errorResponse('SQL read execution failed.')
+        }
+      }
+    },
+    async (request, reply) => {
+      await authorizeSqlReadAccess(request as FastifyRequest);
+      const { sql, params } = parseRequestBody(request);
+      const format = resolveResponseFormat(request);
     assertReadOnlyStatement(sql);
     const config = loadServiceConfig();
     enforceQueryLength(sql, config.sql.maxQueryLength);
@@ -213,123 +269,232 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
         // ignore cleanup failures
       });
     }
-  });
+  }
+  );
 
-  app.get('/sql/saved', async (request) => {
-    await authorizeSqlReadAccess(request as FastifyRequest);
-    const records = await listSavedSqlQueries();
-    return {
-      savedQueries: records.map(mapSavedSqlQuery)
-    };
-  });
-
-  app.get('/sql/saved/:id', async (request, reply) => {
-    await authorizeSqlReadAccess(request as FastifyRequest);
-    const params = savedQueryParamsSchema.parse(request.params ?? {});
-    const record = await getSavedSqlQueryById(params.id);
-    if (!record) {
-      reply.status(404);
-      return {
-        error: `Saved query ${params.id} not found`
-      };
-    }
-    return {
-      savedQuery: mapSavedSqlQuery(record)
-    };
-  });
-
-  app.put('/sql/saved/:id', async (request) => {
-    await authorizeSqlReadAccess(request as FastifyRequest);
-    const params = savedQueryParamsSchema.parse(request.params ?? {});
-    const body = savedQueryBodySchema.parse(request.body ?? {});
-    const actor = resolveRequestActor(request as FastifyRequest);
-    const saved = await upsertSavedSqlQuery({
-      id: params.id,
-      statement: body.statement,
-      label: normalizeLabel(body.label),
-      stats: body.stats,
-      createdBy: actor?.id ?? null
-    });
-    return {
-      savedQuery: mapSavedSqlQuery(saved)
-    };
-  });
-
-  app.delete('/sql/saved/:id', async (request, reply) => {
-    await authorizeSqlReadAccess(request as FastifyRequest);
-    const params = savedQueryParamsSchema.parse(request.params ?? {});
-    const removed = await deleteSavedSqlQuery(params.id);
-    if (!removed) {
-      reply.status(404);
-      return {
-        error: `Saved query ${params.id} not found`
-      };
-    }
-    return reply.status(204).send();
-  });
-
-  app.post('/sql/exec', async (request, reply) => {
-    await authorizeSqlExecAccess(request as FastifyRequest);
-    const { sql, params } = parseRequestBody(request);
-    const format = resolveResponseFormat(request);
-    const config = loadServiceConfig();
-    enforceQueryLength(sql, config.sql.maxQueryLength);
-
-    const actor = resolveRequestActor(request as FastifyRequest);
-    const scopes = getRequestScopes(request as FastifyRequest);
-    const requestId = `sql-${randomUUID()}`;
-    const fingerprint = fingerprintSql(sql);
-    const start = process.hrtime.bigint();
-
-    const client = await getClient();
-    try {
-      await setStatementTimeout(client, config.sql.statementTimeoutMs);
-
-      const execution = await executeSqlWithStreaming({
-        client,
-        sql,
-        params,
-        reply,
-        format,
-        requestId,
-        startMode: 'onFirstRow'
-      });
-
-      if (!execution.streamed) {
-        reply.header('x-sql-request-id', requestId);
-        reply.status(200).send({
-          command: execution.summary.command ?? 'UNKNOWN',
-          rowCount: execution.summary.rowCount
-        });
+  app.get(
+    '/sql/saved',
+    {
+      schema: {
+        tags: ['SQL'],
+        summary: 'List saved SQL queries',
+        response: {
+          200: jsonResponse('SqlSavedQueryListResponse', 'Saved SQL queries accessible to the caller.'),
+          401: errorResponse('Authentication is required.'),
+          403: errorResponse('Caller lacks permission to manage saved SQL queries.'),
+          500: errorResponse('Failed to load saved queries.')
+        }
       }
-
-      logSuccess(request, {
-        event: 'timestore.sql.exec',
-        actorId: actor?.id ?? null,
-        scopes,
-        requestId,
-        fingerprint,
-        format,
-        summary: execution.summary,
-        durationMs: elapsedMs(start),
-        streamed: execution.streamed
-      });
-    } catch (error) {
-      logFailure(request, {
-        event: 'timestore.sql.exec_failed',
-        actorId: actor?.id ?? null,
-        scopes,
-        requestId,
-        fingerprint,
-        format,
-        error
-      });
-      throw error;
-    } finally {
-      await resetStatementTimeout(client);
-      client.release();
+    },
+    async (request) => {
+      await authorizeSqlReadAccess(request as FastifyRequest);
+      const records = await listSavedSqlQueries();
+      return {
+        savedQueries: records.map(mapSavedSqlQuery)
+      };
     }
-  });
+  );
+
+  app.get(
+    '/sql/saved/:id',
+    {
+      schema: {
+        tags: ['SQL'],
+        summary: 'Get saved SQL query',
+        params: schemaRef('SqlSavedQueryParams'),
+        response: {
+          200: jsonResponse('SqlSavedQueryResponse', 'Saved SQL query definition.'),
+          401: errorResponse('Authentication is required.'),
+          403: errorResponse('Caller lacks permission to access saved SQL queries.'),
+          404: errorResponse('Saved SQL query not found.'),
+          500: errorResponse('Failed to load saved SQL query.')
+        }
+      }
+    },
+    async (request, reply) => {
+      await authorizeSqlReadAccess(request as FastifyRequest);
+      const params = savedQueryParamsSchema.parse(request.params ?? {});
+      const record = await getSavedSqlQueryById(params.id);
+      if (!record) {
+        reply.status(404);
+        return {
+          error: `Saved query ${params.id} not found`
+        };
+      }
+      return {
+        savedQuery: mapSavedSqlQuery(record)
+      };
+    }
+  );
+
+  app.put(
+    '/sql/saved/:id',
+    {
+      schema: {
+        tags: ['SQL'],
+        summary: 'Create or update saved SQL query',
+        params: schemaRef('SqlSavedQueryParams'),
+        body: schemaRef('SqlSavedQueryUpsertRequest'),
+        response: {
+          200: jsonResponse('SqlSavedQueryResponse', 'Saved SQL query persisted successfully.'),
+          400: errorResponse('Invalid saved query payload.'),
+          401: errorResponse('Authentication is required.'),
+          403: errorResponse('Caller lacks permission to manage saved SQL queries.'),
+          500: errorResponse('Failed to persist saved SQL query.')
+        }
+      }
+    },
+    async (request) => {
+      await authorizeSqlReadAccess(request as FastifyRequest);
+      const params = savedQueryParamsSchema.parse(request.params ?? {});
+      const body = savedQueryBodySchema.parse(request.body ?? {});
+      const actor = resolveRequestActor(request as FastifyRequest);
+      const saved = await upsertSavedSqlQuery({
+        id: params.id,
+        statement: body.statement,
+        label: normalizeLabel(body.label),
+        stats: body.stats,
+        createdBy: actor?.id ?? null
+      });
+      return {
+        savedQuery: mapSavedSqlQuery(saved)
+      };
+    }
+  );
+
+  app.delete(
+    '/sql/saved/:id',
+    {
+      schema: {
+        tags: ['SQL'],
+        summary: 'Delete saved SQL query',
+        params: schemaRef('SqlSavedQueryParams'),
+        response: {
+          204: {
+            description: 'Saved SQL query deleted successfully.'
+          },
+          401: errorResponse('Authentication is required.'),
+          403: errorResponse('Caller lacks permission to manage saved SQL queries.'),
+          404: errorResponse('Saved SQL query not found.'),
+          500: errorResponse('Failed to delete saved SQL query.')
+        }
+      }
+    },
+    async (request, reply) => {
+      await authorizeSqlReadAccess(request as FastifyRequest);
+      const params = savedQueryParamsSchema.parse(request.params ?? {});
+      const removed = await deleteSavedSqlQuery(params.id);
+      if (!removed) {
+        reply.status(404);
+        return {
+          error: `Saved query ${params.id} not found`
+        };
+      }
+      return reply.status(204).send();
+    }
+  );
+
+  app.post(
+    '/sql/exec',
+    {
+      schema: {
+        tags: ['SQL'],
+        summary: 'Execute SQL statement',
+        description:
+          'Executes a SQL statement with optional streaming responses for large result sets.',
+        body: schemaRef('SqlQueryRequest'),
+        response: {
+          200: {
+            description: 'Statement executed successfully.',
+            content: {
+              'application/json': {
+                schema: schemaRef('SqlExecResponse')
+              },
+              'text/csv': {
+                schema: {
+                  type: 'string',
+                  description: 'Row stream encoded as CSV.'
+                }
+              },
+              'text/plain': {
+                schema: {
+                  type: 'string',
+                  description: 'Row stream encoded as plain text.'
+                }
+              }
+            }
+          },
+          400: errorResponse('Invalid SQL execution request.'),
+          401: errorResponse('Authentication is required.'),
+          403: errorResponse('Caller lacks permission to execute SQL statements.'),
+          406: errorResponse('Requested response format is not supported.'),
+          500: errorResponse('SQL execution failed.')
+        }
+      }
+    },
+    async (request, reply) => {
+      await authorizeSqlExecAccess(request as FastifyRequest);
+      const { sql, params } = parseRequestBody(request);
+      const format = resolveResponseFormat(request);
+      const config = loadServiceConfig();
+      enforceQueryLength(sql, config.sql.maxQueryLength);
+
+      const actor = resolveRequestActor(request as FastifyRequest);
+      const scopes = getRequestScopes(request as FastifyRequest);
+      const requestId = `sql-${randomUUID()}`;
+      const fingerprint = fingerprintSql(sql);
+      const start = process.hrtime.bigint();
+
+      const client = await getClient();
+      try {
+        await setStatementTimeout(client, config.sql.statementTimeoutMs);
+
+        const execution = await executeSqlWithStreaming({
+          client,
+          sql,
+          params,
+          reply,
+          format,
+          requestId,
+          startMode: 'onFirstRow'
+        });
+
+        if (!execution.streamed) {
+          reply.header('x-sql-request-id', requestId);
+          reply.status(200).send({
+            command: execution.summary.command ?? 'UNKNOWN',
+            rowCount: execution.summary.rowCount
+          });
+        }
+
+        logSuccess(request, {
+          event: 'timestore.sql.exec',
+          actorId: actor?.id ?? null,
+          scopes,
+          requestId,
+          fingerprint,
+          format,
+          summary: execution.summary,
+          durationMs: elapsedMs(start),
+          streamed: execution.streamed
+        });
+      } catch (error) {
+        logFailure(request, {
+          event: 'timestore.sql.exec_failed',
+          actorId: actor?.id ?? null,
+          scopes,
+          requestId,
+          fingerprint,
+          format,
+          error
+        });
+        throw error;
+      } finally {
+        await resetStatementTimeout(client);
+        client.release();
+      }
+    }
+  );
 }
 
 function mapSavedSqlQuery(record: SavedSqlQueryRecord) {
