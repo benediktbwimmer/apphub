@@ -1,4 +1,4 @@
-import { OptimisticLockError, RecordDeletedError } from '../db/recordsRepository';
+import { IdempotencyConflictError, OptimisticLockError, RecordDeletedError } from '../db/recordsRepository';
 import { HttpError, toHttpError } from './httpError';
 
 export function mapToHttpError(err: unknown): HttpError {
@@ -12,6 +12,10 @@ export function mapToHttpError(err: unknown): HttpError {
 
   if (err instanceof RecordDeletedError) {
     return new HttpError(409, 'record_deleted', err.message);
+  }
+
+  if (err instanceof IdempotencyConflictError) {
+    return new HttpError(409, 'idempotency_conflict', err.message);
   }
 
   const httpLike = toHttpError(err);

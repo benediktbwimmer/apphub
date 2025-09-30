@@ -94,9 +94,9 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
       return;
     }
 
-    const record = await recordService.patchRecord(namespace, key, payload, buildOperationContext(request));
+    const result = await recordService.patchRecord(namespace, key, payload, buildOperationContext(request));
 
-    reply.send({ record });
+    reply.send(result);
   });
 
   app.get<{

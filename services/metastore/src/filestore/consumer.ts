@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { isDeepStrictEqual } from 'node:util';
 import IORedis, { type Redis } from 'ioredis';
 import type { FastifyBaseLogger } from 'fastify';
 import type {
@@ -255,6 +256,46 @@ function applyReconciliationMetadata(
   } satisfies Record<string, unknown>;
 }
 
+function resolveNodeIdempotencyKey(data: NodeEventInput): string | null {
+  if (typeof data.idempotencyKey === 'string' && data.idempotencyKey.trim().length > 0) {
+    return `filestore:${data.idempotencyKey.trim()}`;
+  }
+  if ('journalId' in data && data.journalId !== undefined && data.journalId !== null) {
+    return `filestore-journal:${String(data.journalId)}`;
+  }
+  return null;
+}
+
+function readFilestoreState(metadata: Record<string, unknown> | undefined): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== 'object') {
+    return null;
+  }
+  const filestore = (metadata as Record<string, unknown>).filestore;
+  if (filestore && typeof filestore === 'object') {
+    return filestore as Record<string, unknown>;
+  }
+  return null;
+}
+
+function hasProcessedEvent(metadata: Record<string, unknown> | undefined, data: NodeEventInput): boolean {
+  const filestoreState = readFilestoreState(metadata);
+  if (!filestoreState) {
+    return false;
+  }
+  if (typeof data.idempotencyKey === 'string' && data.idempotencyKey.trim().length > 0) {
+    const previousKey = typeof filestoreState.idempotencyKey === 'string' ? filestoreState.idempotencyKey.trim() : null;
+    return previousKey === data.idempotencyKey.trim();
+  }
+  if ('journalId' in data && data.journalId !== undefined && data.journalId !== null) {
+    const previousJournal = filestoreState.journalId;
+    if (previousJournal === undefined || previousJournal === null) {
+      return false;
+    }
+    return String(previousJournal) === String(data.journalId);
+  }
+  return false;
+}
+
 export class FilestoreSyncConsumer {
   private readonly options: ConsumerOptions;
   private subscriber: Redis | null = null;
@@ -416,29 +457,47 @@ export class FilestoreSyncConsumer {
     }
     const key = String(data.nodeId);
     const metadataPatch = buildNodeMetadata(data);
+    const idempotencyKey = resolveNodeIdempotencyKey(data);
 
     await withConnection(async (client) => {
-      const { record, created } = await createRecord(client, {
+      const creation = await createRecord(client, {
         namespace: this.options.config.namespace,
         key,
-        metadata: normalizeMetadata({}, metadataPatch),
-        actor: SYSTEM_ACTOR
+        metadata: normalizeMetadata(undefined, metadataPatch),
+        actor: SYSTEM_ACTOR,
+        idempotencyKey
       });
 
-      if (created) {
+      const record = creation.record;
+
+      if (creation.created || creation.idempotent) {
         return;
       }
 
-      const updatedMetadata = normalizeMetadata(record.metadata, metadataPatch);
-      await updateRecord(client, {
+      const existingMetadata = (record.metadata ?? {}) as Record<string, unknown>;
+
+      if (hasProcessedEvent(existingMetadata, data)) {
+        return;
+      }
+
+      const updatedMetadata = normalizeMetadata(existingMetadata, metadataPatch);
+      if (isDeepStrictEqual(existingMetadata, updatedMetadata)) {
+        return;
+      }
+
+      const result = await updateRecord(client, {
         namespace: this.options.config.namespace,
         key,
         metadata: updatedMetadata,
         tags: record.tags,
         owner: record.owner,
         schemaHash: record.schemaHash ?? undefined,
-        actor: SYSTEM_ACTOR
+        actor: SYSTEM_ACTOR,
+        idempotencyKey
       });
+      if (!result?.mutated) {
+        return;
+      }
     });
   }
 
@@ -447,11 +506,13 @@ export class FilestoreSyncConsumer {
       return;
     }
     const key = String(data.nodeId);
+    const idempotencyKey = resolveNodeIdempotencyKey(data);
     await withConnection(async (client) => {
       await softDeleteRecord(client, {
         namespace: this.options.config.namespace,
         key,
-        actor: SYSTEM_ACTOR
+        actor: SYSTEM_ACTOR,
+        idempotencyKey
       });
     });
   }

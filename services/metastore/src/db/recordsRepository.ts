@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { PoolClient } from 'pg';
 import { writeAuditEntry } from './audit';
 import type {
@@ -108,6 +110,165 @@ function normalizeTags(tags?: string[]): string[] {
     }
   }
   return Array.from(deduped);
+}
+
+function sortStrings(values: string[]): string[] {
+  return values.slice().sort((a, b) => (a > b ? 1 : a < b ? -1 : 0));
+}
+
+function tagsEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const sortedLeft = sortStrings(left);
+  const sortedRight = sortStrings(right);
+  for (let index = 0; index < sortedLeft.length; index += 1) {
+    if (sortedLeft[index] !== sortedRight[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`;
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([leftKey], [rightKey]) => (leftKey > rightKey ? 1 : leftKey < rightKey ? -1 : 0));
+    const serializedEntries = entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`);
+    return `{${serializedEntries.join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+type FingerprintSource = {
+  metadata: Record<string, unknown>;
+  tags: string[];
+  owner: string | null;
+  schemaHash: string | null;
+  deleted: boolean;
+};
+
+function computePayloadHash(source: FingerprintSource): string {
+  const payload = {
+    metadata: source.metadata,
+    tags: sortStrings(source.tags),
+    owner: source.owner ?? null,
+    schemaHash: source.schemaHash ?? null,
+    deleted: source.deleted
+  } satisfies FingerprintSource;
+  const serialized = stableSerialize(payload);
+  return createHash('sha256').update(serialized).digest('hex');
+}
+
+function toFingerprintSource(record: MetastoreRecord): FingerprintSource {
+  return {
+    metadata: normalizeMetadata(record.metadata),
+    tags: normalizeTags(record.tags),
+    owner: record.owner ?? null,
+    schemaHash: record.schemaHash ?? null,
+    deleted: Boolean(record.deletedAt)
+  } satisfies FingerprintSource;
+}
+
+type IdempotencyRow = {
+  payload_hash: string;
+  record_version: number;
+};
+
+async function getIdempotencyRecord(
+  client: PoolClient,
+  namespace: string,
+  key: string,
+  idempotencyKey: string
+): Promise<IdempotencyRow | null> {
+  const result = await client.query<IdempotencyRow>(
+    `SELECT payload_hash, record_version
+       FROM metastore_record_idempotency
+      WHERE namespace = $1
+        AND record_key = $2
+        AND idempotency_key = $3`,
+    [namespace, key, idempotencyKey]
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+  return result.rows[0] ?? null;
+}
+
+async function saveIdempotencyRecord(
+  client: PoolClient,
+  namespace: string,
+  key: string,
+  idempotencyKey: string,
+  payloadHash: string,
+  recordVersion: number
+): Promise<void> {
+  await client.query(
+    `INSERT INTO metastore_record_idempotency (namespace, record_key, idempotency_key, payload_hash, record_version)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (namespace, record_key, idempotency_key)
+     DO UPDATE SET payload_hash = EXCLUDED.payload_hash,
+                   record_version = EXCLUDED.record_version`,
+    [namespace, key, idempotencyKey, payloadHash, recordVersion]
+  );
+}
+
+export class IdempotencyConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'IdempotencyConflictError';
+  }
+}
+
+export type RecordMutationResult = {
+  record: MetastoreRecord;
+  mutated: boolean;
+};
+
+async function resolveIdempotency(
+  client: PoolClient,
+  options: {
+    namespace: string;
+    key: string;
+    idempotencyKey: string;
+    payloadHash: string;
+    baselineVersion: number | null;
+  }
+): Promise<'applied' | 'proceed'> {
+  const existing = await getIdempotencyRecord(
+    client,
+    options.namespace,
+    options.key,
+    options.idempotencyKey
+  );
+
+  if (!existing) {
+    return 'proceed';
+  }
+
+  if (existing.payload_hash !== options.payloadHash) {
+    throw new IdempotencyConflictError('Idempotency key was reused with a different payload');
+  }
+
+  if (options.baselineVersion === null || existing.record_version !== options.baselineVersion) {
+    throw new IdempotencyConflictError('Idempotency key no longer matches the current record version');
+  }
+
+  return 'applied';
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -222,12 +383,23 @@ function applyTagPatch(existing: string[], patch?: RecordPatchInput['tags']): st
 export async function createRecord(
   client: PoolClient,
   input: RecordWriteInput
-): Promise<{ record: MetastoreRecord; created: boolean }> {
+): Promise<{ record: MetastoreRecord; created: boolean; idempotent: boolean }> {
   const metadata = normalizeMetadata(input.metadata);
   const tags = normalizeTags(input.tags);
   const owner = input.owner ?? null;
   const schemaHash = input.schemaHash ?? null;
   const actor = input.actor ?? null;
+  const idempotencyKey = typeof input.idempotencyKey === 'string' && input.idempotencyKey.trim().length > 0
+    ? input.idempotencyKey.trim()
+    : null;
+
+  const desiredHash = computePayloadHash({
+    metadata,
+    tags,
+    owner,
+    schemaHash,
+    deleted: false
+  });
 
   const result = await client.query<MetastoreRecordRow>(
     `INSERT INTO metastore_records (namespace, record_key, metadata, tags, owner, schema_hash, created_by, updated_by)
@@ -248,7 +420,10 @@ export async function createRecord(
   if ((result.rowCount ?? 0) > 0) {
     const record = toRecord(result.rows[0]);
     await writeAuditEntry({ client, action: 'create', record, actor });
-    return { record, created: true };
+    if (idempotencyKey) {
+      await saveIdempotencyRecord(client, input.namespace, input.key, idempotencyKey, desiredHash, record.version);
+    }
+    return { record, created: true, idempotent: false };
   }
 
   const existing = await client.query<MetastoreRecordRow>(
@@ -260,7 +435,35 @@ export async function createRecord(
     throw new Error('Failed to locate record after insert conflict');
   }
 
-  return { record: toRecord(existing.rows[0]), created: false };
+  const record = toRecord(existing.rows[0]);
+  const matchesExisting =
+    !record.deletedAt &&
+    isDeepStrictEqual(normalizeMetadata(record.metadata), metadata) &&
+    tagsEqual(record.tags, tags) &&
+    (record.owner ?? null) === owner &&
+    (record.schemaHash ?? null) === schemaHash;
+
+  if (idempotencyKey) {
+    const resolution = await resolveIdempotency(client, {
+      namespace: input.namespace,
+      key: input.key,
+      idempotencyKey,
+      payloadHash: desiredHash,
+      baselineVersion: record.version
+    });
+
+    if (resolution === 'applied') {
+      return { record, created: false, idempotent: true };
+    }
+
+    if (!matchesExisting) {
+      throw new IdempotencyConflictError('Idempotency key cannot apply because record differs');
+    }
+
+    await saveIdempotencyRecord(client, input.namespace, input.key, idempotencyKey, desiredHash, record.version);
+  }
+
+  return { record, created: false, idempotent: matchesExisting };
 }
 
 export async function fetchRecord(
@@ -316,7 +519,7 @@ async function selectForUpdate(
 export async function updateRecord(
   client: PoolClient,
   input: RecordUpdateInput
-): Promise<MetastoreRecord | null> {
+): Promise<RecordMutationResult | null> {
   const previous = await selectForUpdate(client, input.namespace, input.key, {
     includeDeleted: true
   });
@@ -334,6 +537,51 @@ export async function updateRecord(
   const owner = input.owner ?? null;
   const schemaHash = input.schemaHash ?? null;
   const actor = input.actor ?? null;
+  const idempotencyKey = typeof input.idempotencyKey === 'string' && input.idempotencyKey.trim().length > 0
+    ? input.idempotencyKey.trim()
+    : null;
+
+  const desiredHash = computePayloadHash({
+    metadata,
+    tags,
+    owner,
+    schemaHash,
+    deleted: false
+  });
+
+  if (idempotencyKey) {
+    const resolution = await resolveIdempotency(client, {
+      namespace: input.namespace,
+      key: input.key,
+      idempotencyKey,
+      payloadHash: desiredHash,
+      baselineVersion: previous.version
+    });
+    if (resolution === 'applied') {
+      return { record: previous, mutated: false };
+    }
+  }
+
+  const unchanged =
+    !previous.deletedAt &&
+    isDeepStrictEqual(normalizeMetadata(previous.metadata), metadata) &&
+    tagsEqual(previous.tags, tags) &&
+    (previous.owner ?? null) === owner &&
+    (previous.schemaHash ?? null) === schemaHash;
+
+  if (unchanged) {
+    if (idempotencyKey) {
+      await saveIdempotencyRecord(
+        client,
+        input.namespace,
+        input.key,
+        idempotencyKey,
+        desiredHash,
+        previous.version
+      );
+    }
+    return { record: previous, mutated: false };
+  }
 
   const result = await client.query<MetastoreRecordRow>(
     `UPDATE metastore_records
@@ -365,13 +613,26 @@ export async function updateRecord(
 
   const updated = toRecord(result.rows[0]);
   await writeAuditEntry({ client, action: 'update', record: updated, previousRecord: previous, actor });
-  return updated;
+
+  if (idempotencyKey) {
+    const updatedHash = computePayloadHash(toFingerprintSource(updated));
+    await saveIdempotencyRecord(
+      client,
+      input.namespace,
+      input.key,
+      idempotencyKey,
+      updatedHash,
+      updated.version
+    );
+  }
+
+  return { record: updated, mutated: true };
 }
 
 export async function softDeleteRecord(
   client: PoolClient,
   input: RecordDeleteInput
-): Promise<MetastoreRecord | null> {
+): Promise<RecordMutationResult | null> {
   const previous = await selectForUpdate(client, input.namespace, input.key, {
     includeDeleted: true
   });
@@ -380,12 +641,46 @@ export async function softDeleteRecord(
     return null;
   }
 
-  if (previous.deletedAt) {
-    return previous;
-  }
-
   if (typeof input.expectedVersion === 'number' && previous.version !== input.expectedVersion) {
     throw new OptimisticLockError('Version mismatch while deleting metastore record');
+  }
+
+  const idempotencyKey = typeof input.idempotencyKey === 'string' && input.idempotencyKey.trim().length > 0
+    ? input.idempotencyKey.trim()
+    : null;
+  const desiredHash = computePayloadHash({
+    metadata: normalizeMetadata(previous.metadata),
+    tags: normalizeTags(previous.tags),
+    owner: previous.owner ?? null,
+    schemaHash: previous.schemaHash ?? null,
+    deleted: true
+  });
+
+  if (idempotencyKey) {
+    const resolution = await resolveIdempotency(client, {
+      namespace: input.namespace,
+      key: input.key,
+      idempotencyKey,
+      payloadHash: desiredHash,
+      baselineVersion: previous.version
+    });
+    if (resolution === 'applied') {
+      return { record: previous, mutated: false };
+    }
+  }
+
+  if (previous.deletedAt) {
+    if (idempotencyKey) {
+      await saveIdempotencyRecord(
+        client,
+        input.namespace,
+        input.key,
+        idempotencyKey,
+        desiredHash,
+        previous.version
+      );
+    }
+    return { record: previous, mutated: false };
   }
 
   const actor = input.actor ?? null;
@@ -408,13 +703,24 @@ export async function softDeleteRecord(
 
   const deleted = toRecord(result.rows[0]);
   await writeAuditEntry({ client, action: 'delete', record: deleted, previousRecord: previous, actor });
-  return deleted;
+  if (idempotencyKey) {
+    const updatedHash = computePayloadHash(toFingerprintSource(deleted));
+    await saveIdempotencyRecord(
+      client,
+      input.namespace,
+      input.key,
+      idempotencyKey,
+      updatedHash,
+      deleted.version
+    );
+  }
+  return { record: deleted, mutated: true };
 }
 
 export async function patchRecord(
   client: PoolClient,
   input: RecordPatchInput
-): Promise<MetastoreRecord | null> {
+): Promise<RecordMutationResult | null> {
   const previous = await selectForUpdate(client, input.namespace, input.key, {
     includeDeleted: true
   });
@@ -446,6 +752,50 @@ export async function patchRecord(
   const owner = input.owner !== undefined ? input.owner : previous.owner;
   const schemaHash = input.schemaHash !== undefined ? input.schemaHash : previous.schemaHash;
   const actor = input.actor ?? null;
+  const idempotencyKey = typeof input.idempotencyKey === 'string' && input.idempotencyKey.trim().length > 0
+    ? input.idempotencyKey.trim()
+    : null;
+
+  const desiredHash = computePayloadHash({
+    metadata,
+    tags: normalizeTags(tags),
+    owner: owner ?? null,
+    schemaHash: schemaHash ?? null,
+    deleted: false
+  });
+
+  if (idempotencyKey) {
+    const resolution = await resolveIdempotency(client, {
+      namespace: input.namespace,
+      key: input.key,
+      idempotencyKey,
+      payloadHash: desiredHash,
+      baselineVersion: previous.version
+    });
+    if (resolution === 'applied') {
+      return { record: previous, mutated: false };
+    }
+  }
+
+  const unchanged =
+    isDeepStrictEqual(normalizeMetadata(previous.metadata), metadata) &&
+    tagsEqual(previous.tags, normalizeTags(tags)) &&
+    (previous.owner ?? null) === (owner ?? null) &&
+    (previous.schemaHash ?? null) === (schemaHash ?? null);
+
+  if (unchanged) {
+    if (idempotencyKey) {
+      await saveIdempotencyRecord(
+        client,
+        input.namespace,
+        input.key,
+        idempotencyKey,
+        desiredHash,
+        previous.version
+      );
+    }
+    return { record: previous, mutated: false };
+  }
 
   const result = await client.query<MetastoreRecordRow>(
     `UPDATE metastore_records
@@ -476,7 +826,18 @@ export async function patchRecord(
 
   const updated = toRecord(result.rows[0]);
   await writeAuditEntry({ client, action: 'update', record: updated, previousRecord: previous, actor });
-  return updated;
+  if (idempotencyKey) {
+    const updatedHash = computePayloadHash(toFingerprintSource(updated));
+    await saveIdempotencyRecord(
+      client,
+      input.namespace,
+      input.key,
+      idempotencyKey,
+      updatedHash,
+      updated.version
+    );
+  }
+  return { record: updated, mutated: true };
 }
 
 export type RestoreRecordInput = {
@@ -495,7 +856,7 @@ export type RestoreRecordInput = {
 export async function restoreRecordFromAudit(
   client: PoolClient,
   input: RestoreRecordInput
-): Promise<MetastoreRecord | null> {
+): Promise<RecordMutationResult | null> {
   const previous = await selectForUpdate(client, input.namespace, input.key, {
     includeDeleted: true
   });
@@ -523,6 +884,51 @@ export async function restoreRecordFromAudit(
   const owner = typeof input.snapshot.owner === 'string' ? input.snapshot.owner : null;
   const schemaHash = typeof input.snapshot.schemaHash === 'string' ? input.snapshot.schemaHash : null;
   const actor = input.actor ?? null;
+  const idempotencyKey = typeof input.idempotencyKey === 'string' && input.idempotencyKey.trim().length > 0
+    ? input.idempotencyKey.trim()
+    : null;
+
+  const desiredHash = computePayloadHash({
+    metadata,
+    tags,
+    owner,
+    schemaHash,
+    deleted: false
+  });
+
+  if (idempotencyKey) {
+    const resolution = await resolveIdempotency(client, {
+      namespace: input.namespace,
+      key: input.key,
+      idempotencyKey,
+      payloadHash: desiredHash,
+      baselineVersion: previous.version
+    });
+    if (resolution === 'applied') {
+      return { record: previous, mutated: false };
+    }
+  }
+
+  const unchanged =
+    !previous.deletedAt &&
+    isDeepStrictEqual(normalizeMetadata(previous.metadata), metadata) &&
+    tagsEqual(previous.tags, tags) &&
+    (previous.owner ?? null) === owner &&
+    (previous.schemaHash ?? null) === schemaHash;
+
+  if (unchanged) {
+    if (idempotencyKey) {
+      await saveIdempotencyRecord(
+        client,
+        input.namespace,
+        input.key,
+        idempotencyKey,
+        desiredHash,
+        previous.version
+      );
+    }
+    return { record: previous, mutated: false };
+  }
 
   const result = await client.query<MetastoreRecordRow>(
     `UPDATE metastore_records
@@ -554,12 +960,25 @@ export async function restoreRecordFromAudit(
 
   const restored = toRecord(result.rows[0]);
   await writeAuditEntry({ client, action: 'restore', record: restored, previousRecord: previous, actor });
-  return restored;
+  if (idempotencyKey) {
+    const updatedHash = computePayloadHash(toFingerprintSource(restored));
+    await saveIdempotencyRecord(
+      client,
+      input.namespace,
+      input.key,
+      idempotencyKey,
+      updatedHash,
+      restored.version
+    );
+  }
+  return { record: restored, mutated: true };
 }
 
 export type UpsertResult = {
   record: MetastoreRecord | null;
   created: boolean;
+  mutated: boolean;
+  idempotent: boolean;
 };
 
 export async function upsertRecord(
@@ -571,30 +990,47 @@ export async function upsertRecord(
   });
 
   if (!existing) {
-    const { record } = await createRecord(client, input);
-    return { record, created: true };
-  }
+    const created = await createRecord(client, input);
 
-  if (existing.deletedAt) {
-    // treat as restore + update
-    const updated = await updateRecord(client, {
+    if (created.created || created.idempotent) {
+      return {
+        record: created.record,
+        created: created.created,
+        mutated: created.created,
+        idempotent: created.idempotent || !created.created
+      } satisfies UpsertResult;
+    }
+
+    const updateResult = await updateRecord(client, {
       ...input,
-      expectedVersion: input.expectedVersion ?? existing.version
+      expectedVersion: input.expectedVersion ?? created.record?.version
     });
-    return { record: updated, created: false };
+
+    return {
+      record: updateResult?.record ?? created.record,
+      created: false,
+      mutated: updateResult?.mutated ?? false,
+      idempotent: updateResult ? !updateResult.mutated : false
+    } satisfies UpsertResult;
   }
 
   const updated = await updateRecord(client, {
     ...input,
     expectedVersion: input.expectedVersion ?? existing.version
   });
-  return { record: updated, created: false };
+
+  return {
+    record: updated?.record ?? existing,
+    created: false,
+    mutated: updated?.mutated ?? false,
+    idempotent: updated ? !updated.mutated : false
+  } satisfies UpsertResult;
 }
 
 export async function hardDeleteRecord(
   client: PoolClient,
   input: RecordPurgeInput
-): Promise<MetastoreRecord | null> {
+): Promise<RecordMutationResult | null> {
   const previous = await selectForUpdate(client, input.namespace, input.key, {
     includeDeleted: true
   });
@@ -618,7 +1054,7 @@ export async function hardDeleteRecord(
     throw new Error('Failed to purge metastore record');
   }
 
-  return previous;
+  return { record: previous, mutated: true };
 }
 
 export type SearchRecordsResult = {

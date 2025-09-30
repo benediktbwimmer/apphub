@@ -66,6 +66,7 @@ export type RecordWriteInput = {
   owner?: string | null;
   schemaHash?: string | null;
   actor?: string | null;
+  idempotencyKey?: string | null;
 };
 
 export type RecordUpdateInput = RecordWriteInput & {
@@ -77,6 +78,7 @@ export type RecordDeleteInput = {
   key: string;
   actor?: string | null;
   expectedVersion?: number;
+  idempotencyKey?: string | null;
 };
 
 export type RecordPatchInput = {
@@ -93,10 +95,12 @@ export type RecordPatchInput = {
   schemaHash?: string | null | undefined;
   expectedVersion?: number;
   actor?: string | null;
+  idempotencyKey?: string | null;
 };
 
 export type RecordPurgeInput = {
   namespace: string;
   key: string;
   expectedVersion?: number;
+  idempotencyKey?: string | null;
 };

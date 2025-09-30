@@ -67,6 +67,8 @@ type BulkUpsertResult = {
   key: string;
   created: boolean;
   record: SerializedRecord;
+  idempotent: boolean;
+  mutated: boolean;
 };
 
 type BulkDeleteResult = {
@@ -74,6 +76,8 @@ type BulkDeleteResult = {
   namespace: string;
   key: string;
   record: SerializedRecord;
+  idempotent: boolean;
+  mutated: boolean;
 };
 
 type PendingMutation = {
@@ -86,27 +90,32 @@ type PendingMutation = {
 
 type RestoreResult = {
   restored: boolean;
+  idempotent: boolean;
   record: SerializedRecord;
   restoredFrom: { auditId: number; version: number | null };
 };
 
 type DeleteResult = {
   deleted: boolean;
+  idempotent: boolean;
   record: SerializedRecord;
 };
 
 type PurgeResult = {
   purged: boolean;
+  idempotent: boolean;
   record: SerializedRecord;
 };
 
 type UpsertResult = {
   created: boolean;
+  idempotent: boolean;
   record: SerializedRecord;
 };
 
 type CreateResult = {
   created: boolean;
+  idempotent: boolean;
   record: SerializedRecord;
 };
 
@@ -258,7 +267,8 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
         tags: payload.tags,
         owner: payload.owner,
         schemaHash: payload.schemaHash,
-        actor: context.actor
+        actor: context.actor,
+        idempotencyKey: payload.idempotencyKey
       })
     );
 
@@ -271,13 +281,18 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
     }
 
     const serialized = toSerializedRecord(result.record);
+    const response: CreateResult = {
+      created: result.created,
+      idempotent: result.created ? false : result.idempotent,
+      record: serialized
+    };
 
     if (result.created) {
       const mutation = buildEventPayload('created', serialized, context);
       await emitMutation(mutation, context);
     }
 
-    return { created: result.created, record: serialized };
+    return response;
   }
 
   async function upsertRecord(
@@ -295,7 +310,8 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
         owner: payload.owner,
         schemaHash: payload.schemaHash,
         expectedVersion: payload.expectedVersion,
-        actor: context.actor
+        actor: context.actor,
+        idempotencyKey: payload.idempotencyKey
       })
     );
 
@@ -304,10 +320,16 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
     }
 
     const serialized = toSerializedRecord(result.record);
-    const mutation = buildEventPayload(result.created ? 'created' : 'updated', serialized, context);
-    await emitMutation(mutation, context);
+    if (result.mutated) {
+      const mutation = buildEventPayload(result.created ? 'created' : 'updated', serialized, context);
+      await emitMutation(mutation, context);
+    }
 
-    return { created: result.created, record: serialized };
+    return {
+      created: result.created,
+      idempotent: result.idempotent,
+      record: serialized
+    } satisfies UpsertResult;
   }
 
   async function patchRecord(
@@ -315,8 +337,8 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
     key: string,
     payload: PatchRecordPayload,
     context: OperationContext
-  ): Promise<SerializedRecord> {
-    const record = await runWithTransaction((client) =>
+  ): Promise<{ record: SerializedRecord; idempotent: boolean }> {
+    const result = await runWithTransaction((client) =>
       patchRecordDb(client, {
         namespace,
         key,
@@ -326,19 +348,22 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
         owner: payload.owner,
         schemaHash: payload.schemaHash,
         expectedVersion: payload.expectedVersion,
-        actor: context.actor
+        actor: context.actor,
+        idempotencyKey: payload.idempotencyKey
       })
     );
 
-    if (!record) {
+    if (!result) {
       throw new HttpError(404, 'not_found', 'Record not found');
     }
 
-    const serialized = toSerializedRecord(record);
-    const mutation = buildEventPayload('updated', serialized, context);
-    await emitMutation(mutation, context);
+    const serialized = toSerializedRecord(result.record);
+    if (result.mutated) {
+      const mutation = buildEventPayload('updated', serialized, context);
+      await emitMutation(mutation, context);
+    }
 
-    return serialized;
+    return { record: serialized, idempotent: !result.mutated };
   }
 
   async function fetchRecord(
@@ -360,7 +385,8 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
         namespace,
         key,
         expectedVersion: payload.expectedVersion,
-        actor: context.actor
+        actor: context.actor,
+        idempotencyKey: payload.idempotencyKey
       })
     );
 
@@ -368,14 +394,16 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
       throw new HttpError(404, 'not_found', 'Record not found');
     }
 
-    const serialized = toSerializedRecord(record);
-    const mutation = buildEventPayload('deleted', serialized, context, {
-      mode: 'soft',
-      logMessage: 'Failed to publish metastore record.deleted event'
-    });
-    await emitMutation(mutation, context);
+    const serialized = toSerializedRecord(record.record);
+    if (record.mutated) {
+      const mutation = buildEventPayload('deleted', serialized, context, {
+        mode: 'soft',
+        logMessage: 'Failed to publish metastore record.deleted event'
+      });
+      await emitMutation(mutation, context);
+    }
 
-    return { deleted: true, record: serialized };
+    return { deleted: record.mutated, idempotent: !record.mutated, record: serialized } satisfies DeleteResult;
   }
 
   async function hardDeleteRecord(
@@ -388,7 +416,8 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
       hardDeleteRecordDb(client, {
         namespace,
         key,
-        expectedVersion: payload.expectedVersion
+        expectedVersion: payload.expectedVersion,
+        idempotencyKey: payload.idempotencyKey
       })
     );
 
@@ -396,14 +425,16 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
       throw new HttpError(404, 'not_found', 'Record not found');
     }
 
-    const serialized = toSerializedRecord(record);
-    const mutation = buildEventPayload('deleted', serialized, context, {
-      mode: 'hard',
-      logMessage: 'Failed to publish metastore record.purged event'
-    });
-    await emitMutation(mutation, context);
+    const serialized = toSerializedRecord(record.record);
+    if (record.mutated) {
+      const mutation = buildEventPayload('deleted', serialized, context, {
+        mode: 'hard',
+        logMessage: 'Failed to publish metastore record.purged event'
+      });
+      await emitMutation(mutation, context);
+    }
 
-    return { purged: true, record: serialized };
+    return { purged: record.mutated, idempotent: !record.mutated, record: serialized } satisfies PurgeResult;
   }
 
   async function restoreRecord(
@@ -437,20 +468,23 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
       throw new HttpError(404, 'not_found', 'Record not found');
     }
 
-    const serialized = toSerializedRecord(restored);
-    const mutation = buildEventPayload('updated', serialized, context, {
-      logMessage: 'Failed to publish metastore record.restore event',
-      extra: {
-        restoredFrom: {
-          auditId: auditEntry.id,
-          version: auditEntry.version
+    const serialized = toSerializedRecord(restored.record);
+    if (restored.mutated) {
+      const mutation = buildEventPayload('updated', serialized, context, {
+        logMessage: 'Failed to publish metastore record.restore event',
+        extra: {
+          restoredFrom: {
+            auditId: auditEntry.id,
+            version: auditEntry.version
+          }
         }
-      }
-    });
-    await emitMutation(mutation, context);
+      });
+      await emitMutation(mutation, context);
+    }
 
     return {
-      restored: true,
+      restored: restored.mutated,
+      idempotent: !restored.mutated,
       record: serialized,
       restoredFrom: {
         auditId: auditEntry.id,
@@ -567,30 +601,35 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
     { client, context, pendingMutations }: ExecuteOperationDependencies,
     operation: BulkOperation
   ): Promise<BulkDeleteResult> {
-    const record = await softDeleteRecordDb(client, {
+    const result = await softDeleteRecordDb(client, {
       namespace: operation.namespace,
       key: operation.key,
       expectedVersion: operation.expectedVersion,
-      actor: context.actor
+      actor: context.actor,
+      idempotencyKey: operation.idempotencyKey
     });
 
-    if (!record) {
+    if (!result) {
       throw new HttpError(404, 'not_found', `Record ${operation.namespace}/${operation.key} not found`);
     }
 
-    const serialized = toSerializedRecord(record);
-    pendingMutations.push(
-      buildEventPayload('deleted', serialized, context, {
-        mode: 'soft',
-        logMessage: 'Failed to publish metastore record.deleted event'
-      })
-    );
+    const serialized = toSerializedRecord(result.record);
+    if (result.mutated) {
+      pendingMutations.push(
+        buildEventPayload('deleted', serialized, context, {
+          mode: 'soft',
+          logMessage: 'Failed to publish metastore record.deleted event'
+        })
+      );
+    }
 
     return {
       type: 'delete',
       namespace: operation.namespace,
       key: operation.key,
-      record: serialized
+      record: serialized,
+      idempotent: !result.mutated,
+      mutated: result.mutated
     } satisfies BulkDeleteResult;
   }
 
@@ -606,7 +645,8 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
       owner: operation.owner,
       schemaHash: operation.schemaHash,
       expectedVersion: operation.expectedVersion,
-      actor: context.actor
+      actor: context.actor,
+      idempotencyKey: operation.idempotencyKey
     });
 
     if (!result.record) {
@@ -618,14 +658,20 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
     }
 
     const serialized = toSerializedRecord(result.record);
-    pendingMutations.push(buildEventPayload(result.created ? 'created' : 'updated', serialized, context));
+    if (result.mutated) {
+      pendingMutations.push(
+        buildEventPayload(result.created ? 'created' : 'updated', serialized, context)
+      );
+    }
 
     return {
       type: 'upsert',
       namespace: operation.namespace,
       key: operation.key,
       created: result.created,
-      record: serialized
+      record: serialized,
+      idempotent: result.idempotent,
+      mutated: result.mutated
     } satisfies BulkUpsertResult;
   }
 

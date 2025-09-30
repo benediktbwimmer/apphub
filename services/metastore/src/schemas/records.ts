@@ -65,13 +65,20 @@ const sortFieldSchema = z.object({
 
 const projectionSchema = z.array(z.string().min(1)).max(32).optional();
 
+const idempotencyKeySchema = z
+  .string()
+  .trim()
+  .min(1, 'Idempotency key must be at least 1 character')
+  .max(200, 'Idempotency key must be at most 200 characters');
+
 const createRecordSchema = z.object({
   namespace: namespaceSchema,
   key: keySchema,
   metadata: metadataSchema,
   tags: tagsSchema,
   owner: ownerSchema,
-  schemaHash: schemaHashSchema
+  schemaHash: schemaHashSchema,
+  idempotencyKey: idempotencyKeySchema.optional()
 });
 
 const updateRecordSchema = z.object({
@@ -79,11 +86,13 @@ const updateRecordSchema = z.object({
   tags: tagsSchema,
   owner: ownerSchema,
   schemaHash: schemaHashSchema,
-  expectedVersion: versionSchema.optional()
+  expectedVersion: versionSchema.optional(),
+  idempotencyKey: idempotencyKeySchema.optional()
 });
 
 const deleteRecordSchema = z.object({
-  expectedVersion: versionSchema.optional()
+  expectedVersion: versionSchema.optional(),
+  idempotencyKey: idempotencyKeySchema.optional()
 });
 
 const searchSchema = z.object({
@@ -107,14 +116,16 @@ const bulkUpsertSchema = z.object({
   tags: tagsSchema,
   owner: ownerSchema,
   schemaHash: schemaHashSchema,
-  expectedVersion: versionSchema.optional()
+  expectedVersion: versionSchema.optional(),
+  idempotencyKey: idempotencyKeySchema.optional()
 });
 
 const bulkDeleteSchema = z.object({
   type: z.literal('delete'),
   namespace: namespaceSchema,
   key: keySchema,
-  expectedVersion: versionSchema.optional()
+  expectedVersion: versionSchema.optional(),
+  idempotencyKey: idempotencyKeySchema.optional()
 });
 
 const bulkRequestSchema = z.object({
@@ -139,10 +150,11 @@ const patchRecordSchema = z
   .object({
     metadata: metadataSchema.optional(),
     metadataUnset: metadataUnsetSchema,
-    tags: tagsPatchSchema,
-    owner: nullableOwnerSchema,
-    schemaHash: nullableSchemaHashSchema,
-    expectedVersion: versionSchema.optional()
+  tags: tagsPatchSchema,
+  owner: nullableOwnerSchema,
+  schemaHash: nullableSchemaHashSchema,
+  expectedVersion: versionSchema.optional(),
+  idempotencyKey: idempotencyKeySchema.optional()
   })
   .refine(
     (value) =>
@@ -159,7 +171,8 @@ const patchRecordSchema = z
   );
 
 const purgeRecordSchema = z.object({
-  expectedVersion: versionSchema.optional()
+  expectedVersion: versionSchema.optional(),
+  idempotencyKey: idempotencyKeySchema.optional()
 });
 
 const auditQuerySchema = z.object({
@@ -171,7 +184,8 @@ const restoreRecordSchema = z
   .object({
     auditId: z.number().int().positive().optional(),
     version: z.number().int().positive().optional(),
-    expectedVersion: versionSchema.optional()
+    expectedVersion: versionSchema.optional(),
+    idempotencyKey: idempotencyKeySchema.optional()
   })
   .refine((value) => value.auditId !== undefined || value.version !== undefined, {
     message: 'Either auditId or version must be provided'

@@ -82,6 +82,22 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_metastore_schema_registry_updated
          ON metastore_schema_registry(updated_at DESC);`
     ]
+  },
+  {
+    id: '004_metastore_record_idempotency',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS metastore_record_idempotency (
+         namespace TEXT NOT NULL,
+         record_key TEXT NOT NULL,
+         idempotency_key TEXT NOT NULL,
+         payload_hash TEXT NOT NULL,
+         record_version INTEGER NOT NULL,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (namespace, record_key, idempotency_key)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_metastore_record_idempotency_created
+         ON metastore_record_idempotency(created_at);`
+    ]
   }
 ];
 

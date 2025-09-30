@@ -144,6 +144,12 @@ npm run dev --workspace @apphub/metastore
 
 The service listens on `http://127.0.0.1:4100` by default. Update `PORT` / `HOST` / `DATABASE_URL` env vars as needed. Set `APPHUB_METASTORE_PG_SCHEMA` (default `metastore`) to control which Postgres schema is used. The server automatically runs migrations on startup.
 
+### Idempotency and retriable mutations
+
+Write-facing endpoints (`POST /records`, `PUT /records/:namespace/:key`, `PATCH /records/:namespace/:key`, `DELETE /records/:namespace/:key`, `DELETE /records/:namespace/:key/purge`, and `POST /records/bulk`) now accept an optional `idempotencyKey`. When supplied, the repository stores a fingerprint of the resulting record version and short-circuits future retries that reuse the same key and payload. Responses include an `idempotent` flag so callers can detect when nothing changed. Duplicate submissions with mismatched payloads are rejected with `409 idempotency_conflict`.
+
+Even without an explicit key, the API compares normalized payloads to the current record. If a request would not change persisted metadata, tags, owner, schema hash, or deletion state, the service returns `idempotent: true` and skips audit/event emission. Queue consumers (for example, the Filestore sync) also forward Filestore idempotency markers and journal ids into these checks so repeated node events no longer churn metastore record versions.
+
 ## Event Publishing
 
 Metastore publishers should emit lifecycle changes (create/update/delete) through the shared event bus. Import the helper and publish from the code path that commits the record mutation:

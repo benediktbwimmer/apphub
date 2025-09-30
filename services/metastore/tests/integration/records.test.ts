@@ -154,9 +154,11 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(createResponse.statusCode, 201, createResponse.body);
   const createBody = createResponse.json() as {
     created: boolean;
+    idempotent: boolean;
     record: { namespace: string; key: string; metadata: Record<string, unknown>; version: number };
   };
   assert.equal(createBody.created, true);
+  assert.equal(createBody.idempotent, false);
   assert.equal(createBody.record.namespace, 'analytics');
   assert.equal(createBody.record.key, 'pipeline-1');
   assert.equal(createBody.record.metadata.status, 'active');
@@ -182,13 +184,47 @@ runE2E(async ({ registerCleanup }) => {
         notes: ['maintenance']
       },
       tags: ['pipelines', 'maintenance'],
-      owner: 'data-team@apphub.dev'
+      owner: 'data-team@apphub.dev',
+      idempotencyKey: 'pipeline-1-update-v1'
     }
   });
   assert.equal(updateResponse.statusCode, 200, updateResponse.body);
-  const updateBody = updateResponse.json() as { record: { version: number; metadata: Record<string, unknown> } };
+  const updateBody = updateResponse.json() as {
+    created: boolean;
+    idempotent: boolean;
+    record: { version: number; metadata: Record<string, unknown> };
+  };
+  assert.equal(updateBody.created, false);
+  assert.equal(updateBody.idempotent, false);
   assert.equal(updateBody.record.version, 2);
   assert.equal(updateBody.record.metadata.status, 'paused');
+  const updatedVersion = updateBody.record.version;
+  const eventsAfterFirstUpdate = streamEvents.length;
+
+  const duplicateUpdateResponse = await app.inject({
+    method: 'PUT',
+    url: '/records/analytics/pipeline-1',
+    payload: {
+      metadata: {
+        status: 'paused',
+        version: 2,
+        notes: ['maintenance']
+      },
+      tags: ['pipelines', 'maintenance'],
+      owner: 'data-team@apphub.dev',
+      idempotencyKey: 'pipeline-1-update-v1'
+    }
+  });
+  assert.equal(duplicateUpdateResponse.statusCode, 200, duplicateUpdateResponse.body);
+  const duplicateUpdateBody = duplicateUpdateResponse.json() as {
+    created: boolean;
+    idempotent: boolean;
+    record: { version: number };
+  };
+  assert.equal(duplicateUpdateBody.created, false);
+  assert.equal(duplicateUpdateBody.idempotent, true);
+  assert.equal(duplicateUpdateBody.record.version, updatedVersion);
+  assert.equal(streamEvents.length, eventsAfterFirstUpdate);
 
   // Patch record to merge metadata, adjust tags, and clear owner
   const patchResponse = await app.inject({
@@ -204,13 +240,16 @@ runE2E(async ({ registerCleanup }) => {
         add: ['patched'],
         remove: ['maintenance']
       },
-      owner: null
+      owner: null,
+      idempotencyKey: 'pipeline-1-patch-v1'
     }
   });
   assert.equal(patchResponse.statusCode, 200, patchResponse.body);
   const patchBody = patchResponse.json() as {
+    idempotent: boolean;
     record: { metadata: Record<string, unknown>; tags: string[]; owner: string | null; version: number };
   };
+  assert.equal(patchBody.idempotent, false);
   assert.equal(patchBody.record.metadata.status, 'active');
   assert.equal(
     (patchBody.record.metadata.thresholds as Record<string, unknown>).latencyMs,
@@ -218,6 +257,30 @@ runE2E(async ({ registerCleanup }) => {
   );
   assert.equal(patchBody.record.owner, null);
   assert.deepEqual(patchBody.record.tags.sort(), ['patched', 'pipelines']);
+  const eventsAfterPatch = streamEvents.length;
+
+  const duplicatePatchResponse = await app.inject({
+    method: 'PATCH',
+    url: '/records/analytics/pipeline-1',
+    payload: {
+      metadata: {
+        status: 'active',
+        thresholds: { latencyMs: 180 }
+      },
+      metadataUnset: ['notes'],
+      tags: {
+        add: ['patched'],
+        remove: ['maintenance']
+      },
+      owner: null,
+      idempotencyKey: 'pipeline-1-patch-v1'
+    }
+  });
+  assert.equal(duplicatePatchResponse.statusCode, 200, duplicatePatchResponse.body);
+  const duplicatePatchBody = duplicatePatchResponse.json() as { idempotent: boolean; record: { version: number } };
+  assert.equal(duplicatePatchBody.idempotent, true);
+  assert.equal(duplicatePatchBody.record.version, patchBody.record.version);
+  assert.equal(streamEvents.length, eventsAfterPatch);
 
   // Numeric comparison search should treat metadata latency as a number
   const numericSearchResponse = await app.inject({
@@ -372,6 +435,7 @@ runE2E(async ({ registerCleanup }) => {
   const okOperation = bulkContinueBody.operations.find((op) => op.status === 'ok');
   assert.ok(okOperation);
   assert.equal(okOperation?.type, 'upsert');
+  assert.equal((okOperation as { idempotent?: boolean }).idempotent, false);
   const errorOperation = bulkContinueBody.operations.find((op) => op.status === 'error');
   assert.ok(errorOperation);
   assert.equal((errorOperation?.error as Record<string, unknown>).code, 'not_found');
@@ -402,7 +466,9 @@ runE2E(async ({ registerCleanup }) => {
   const bulkBody = bulkResponse.json() as { operations: Array<{ type: string }> };
   assert.equal(bulkBody.operations.length, 2);
   assert.equal(bulkBody.operations[0]?.type, 'upsert');
+  assert.equal((bulkBody.operations[0] as { idempotent?: boolean }).idempotent, false);
   assert.equal(bulkBody.operations[1]?.type, 'delete');
+  assert.equal((bulkBody.operations[1] as { idempotent?: boolean }).idempotent, false);
 
   // Fetch record including deleted
   const fetchDeleted = await app.inject({
@@ -500,6 +566,7 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(restoreResponse.statusCode, 200, restoreResponse.body);
   const restoreBody = restoreResponse.json() as {
     restored: boolean;
+    idempotent: boolean;
     record: {
       metadata: Record<string, unknown>;
       tags: string[];
@@ -509,6 +576,7 @@ runE2E(async ({ registerCleanup }) => {
     restoredFrom: { auditId: number };
   };
   assert.equal(restoreBody.restored, true);
+  assert.equal(restoreBody.idempotent, false);
   assert.equal(restoreBody.restoredFrom.auditId, restoreSource!.id);
   assert.equal(restoreBody.record.metadata.status, 'retired');
   assert.equal(Array.isArray(restoreBody.record.tags), true);
@@ -530,17 +598,34 @@ runE2E(async ({ registerCleanup }) => {
     method: 'DELETE',
     url: '/records/analytics/pipeline-1',
     payload: {
-      expectedVersion: restoreBody.record.version
+      expectedVersion: restoreBody.record.version,
+      idempotencyKey: 'pipeline-1-delete-v1'
     }
   });
   assert.equal(deleteAfterRestore.statusCode, 200, deleteAfterRestore.body);
   const deleteAfterBody = deleteAfterRestore.json() as {
     deleted: boolean;
+    idempotent: boolean;
     record: { version: number; deletedAt: string | null };
   };
   assert.equal(deleteAfterBody.deleted, true);
+  assert.equal(deleteAfterBody.idempotent, false);
   assert.ok(deleteAfterBody.record.deletedAt);
   deletedVersion = deleteAfterBody.record.version;
+
+  const duplicateDelete = await app.inject({
+    method: 'DELETE',
+    url: '/records/analytics/pipeline-1',
+    payload: {
+      expectedVersion: deletedVersion,
+      idempotencyKey: 'pipeline-1-delete-v1'
+    }
+  });
+  assert.equal(duplicateDelete.statusCode, 200, duplicateDelete.body);
+  const duplicateDeleteBody = duplicateDelete.json() as { deleted: boolean; idempotent: boolean; record: { version: number } };
+  assert.equal(duplicateDeleteBody.deleted, false);
+  assert.equal(duplicateDeleteBody.idempotent, true);
+  assert.equal(duplicateDeleteBody.record.version, deletedVersion);
 
   const fetchAfterRestoreDelete = await app.inject({
     method: 'GET',
@@ -561,8 +646,9 @@ runE2E(async ({ registerCleanup }) => {
     }
   });
   assert.equal(purgeResponse.statusCode, 200, purgeResponse.body);
-  const purgeBody = purgeResponse.json() as { purged: boolean; record: { key: string } };
+  const purgeBody = purgeResponse.json() as { purged: boolean; idempotent: boolean; record: { key: string } };
   assert.equal(purgeBody.purged, true);
+  assert.equal(purgeBody.idempotent, false);
 
   const fetchAfterPurge = await app.inject({
     method: 'GET',
