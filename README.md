@@ -291,6 +291,9 @@ APPHUB_ALLOW_INLINE_MODE=false           # Set true only for single-process smok
 REDIS_URL=redis://127.0.0.1:6379         # Use "inline" together with APPHUB_ALLOW_INLINE_MODE=true for test-only inline execution
 APPHUB_EVENTS_MODE=                    # "inline" (requires APPHUB_ALLOW_INLINE_MODE=true) to bypass Redis publish/subscribe
 APPHUB_EVENTS_CHANNEL=apphub:events
+APPHUB_EVENT_PROXY_URL=                # Optional HTTP endpoint for publishing events without BullMQ
+APPHUB_EVENT_PROXY_TOKEN=              # Bearer token used by sandboxed bundles when calling the proxy
+APPHUB_EVENT_PROXY_TOKENS=             # Comma-separated list of accepted proxy tokens on the catalog service
 INGEST_QUEUE_NAME=apphub_queue
 BUILD_QUEUE_NAME=apphub_build_queue
 LAUNCH_QUEUE_NAME=apphub_launch_queue

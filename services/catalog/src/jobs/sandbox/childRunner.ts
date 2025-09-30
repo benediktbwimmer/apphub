@@ -324,7 +324,8 @@ function extractErrorProperties(error: Error): Record<string, JsonValue> | undef
       continue;
     }
     try {
-      const value = (error as Record<string, unknown>)[key];
+      const record = error as unknown as Record<string, unknown>;
+      const value = record[key];
       const converted = toJsonValue(value);
       if (converted !== undefined) {
         properties[key] = converted;
@@ -338,7 +339,7 @@ function extractErrorProperties(error: Error): Record<string, JsonValue> | undef
 
 function serializeError(error: unknown): {
   message: string;
-  stack?: string | null;
+  stack?: string;
   name?: string | null;
   properties?: Record<string, JsonValue>;
 } {
@@ -352,7 +353,9 @@ function serializeError(error: unknown): {
           : null;
     return {
       message: error.message,
-      stack: error.stack ?? null,
+      ...(typeof error.stack === 'string' && error.stack.length > 0
+        ? { stack: error.stack }
+        : {}),
       ...(derivedName ? { name: derivedName } : {}),
       ...(properties ? { properties } : {})
     };

@@ -320,7 +320,7 @@ export class PythonSandboxRunner {
               err.stack = raw.error.stack;
             }
             if (raw.error.properties) {
-              Object.assign(err as Record<string, unknown>, raw.error.properties);
+              Object.assign(err as unknown as Record<string, unknown>, raw.error.properties);
             }
             options.logger('Python sandbox reported error', {
               taskId,

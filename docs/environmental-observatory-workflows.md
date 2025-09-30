@@ -162,6 +162,17 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
 2. Publish bundles and register the job definitions exported from the example module.
 3. Import the bundled service manifest (`examples/environmental-observatory-event-driven/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the catalog now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
+   > ⚠️ **Event proxy configuration**
+   >
+   > The sandboxed bundles publish events through the new HTTP proxy. Before running the watcher or ingest workflow, export the proxy variables so both the catalog and the bundle agree on the endpoint/token:
+   > ```bash
+   > export APPHUB_EVENT_PROXY_URL="http://127.0.0.1:4000/internal/events/publish"
+   > export APPHUB_EVENT_PROXY_TOKEN="prototype-secret"
+   > # Catalog only: accept the same token (comma-separated list for multiple values)
+   > export APPHUB_EVENT_PROXY_TOKENS="prototype-secret"
+   > ```
+   > Ensure the observatory bundles keep the `network` capability enabled so `fetch` is available inside the sandbox.
+
 4. Launch the filestore ingest watcher so new inbox files land in MinIO and trigger `observatory-minute-ingest` automatically (configured via the observatory service manifest described above):
    ```bash
    npm run dev:minio

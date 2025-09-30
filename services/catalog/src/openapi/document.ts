@@ -33,6 +33,53 @@ const jsonValueSchema: OpenAPIV3.SchemaObject = {
   ]
 };
 
+const jsonRecordSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: { $ref: '#/components/schemas/JsonValue' }
+};
+
+const eventEnvelopeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['id', 'type', 'source', 'occurredAt', 'payload'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    type: { type: 'string' },
+    source: { type: 'string' },
+    occurredAt: stringSchema('date-time'),
+    payload: jsonValueSchema,
+    correlationId: nullable(stringSchema()),
+    ttl: nullable(integerSchema()),
+    metadata: nullable(jsonRecordSchema)
+  },
+  additionalProperties: true
+};
+
+const eventPublishRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  description: 'Event envelope accepted by the HTTP event proxy.',
+  required: ['type', 'source'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    type: { type: 'string' },
+    source: { type: 'string' },
+    occurredAt: nullable(stringSchema('date-time')),
+    payload: jsonValueSchema,
+    correlationId: nullable(stringSchema()),
+    ttl: nullable(integerSchema()),
+    metadata: nullable(jsonRecordSchema)
+  },
+  additionalProperties: true
+};
+
+const eventPublishResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['acceptedAt', 'event'],
+  properties: {
+    acceptedAt: stringSchema('date-time'),
+    event: eventEnvelopeSchema
+  }
+};
+
 const repositoryTagSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['key', 'value'],
@@ -2086,6 +2133,9 @@ const errorResponseSchema: OpenAPIV3.SchemaObject = {
 const components: OpenAPIV3.ComponentsObject = {
   schemas: {
     JsonValue: jsonValueSchema,
+    EventEnvelope: eventEnvelopeSchema,
+    EventPublishRequest: eventPublishRequestSchema,
+    EventPublishResponse: eventPublishResponseSchema,
     RepositoryTag: repositoryTagSchema,
     LaunchEnvVar: launchEnvVarSchema,
     Build: buildSchema,
@@ -2875,6 +2925,56 @@ export const openApiDocument: OpenAPIV3.Document = {
           },
           '404': {
             description: 'The saved search does not exist for this operator.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/internal/events/publish': {
+      post: {
+        tags: ['Events'],
+        summary: 'Publish an event via HTTP proxy',
+        description:
+          'Validates and enqueues a workflow event using the catalog event pipeline. When proxy tokens are configured the caller must provide a matching bearer token or X-Apphub-Event-Token header.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/EventPublishRequest' }
+            }
+          }
+        },
+        responses: {
+          '202': {
+            description: 'Event accepted for ingestion.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['data'],
+                  properties: {
+                    data: { $ref: '#/components/schemas/EventPublishResponse' }
+                  }
+                }
+              }
+            }
+          },
+          '400': {
+            description: 'The request payload failed validation.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '401': {
+            description: 'The caller did not provide a valid proxy token.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '502': {
+            description: 'The server was unable to enqueue the event.',
             content: {
               'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
             }

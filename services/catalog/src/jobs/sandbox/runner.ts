@@ -397,7 +397,7 @@ export class SandboxRunner {
               err.stack = raw.error.stack;
             }
             if (raw.error.properties) {
-              Object.assign(err as Record<string, unknown>, raw.error.properties);
+              Object.assign(err as unknown as Record<string, unknown>, raw.error.properties);
             }
             const logMeta = {
               stack: raw.error.stack ?? null,

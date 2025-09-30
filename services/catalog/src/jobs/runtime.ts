@@ -84,7 +84,8 @@ function coerceJsonValue(value: unknown): JsonValue | undefined {
     return result;
   }
   if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>);
+    const record = value as Record<string, unknown>;
+    const entries = Object.entries(record);
     const result: Record<string, JsonValue> = {};
     for (const [key, entryValue] of entries) {
       const converted = coerceJsonValue(entryValue);
@@ -107,7 +108,8 @@ function extractErrorProperties(error: unknown): Record<string, JsonValue> | nul
       continue;
     }
     try {
-      const entry = (error as Record<string, unknown>)[key];
+      const record = error as unknown as Record<string, unknown>;
+      const entry = record[key];
       const converted = coerceJsonValue(entry);
       if (converted !== undefined) {
         properties[key] = converted;
@@ -406,12 +408,12 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
         stack: err instanceof Error ? err.stack ?? null : null,
         ...(derivedProperties ? { errorProperties: derivedProperties } : {})
       });
-      const errorContext = {
+      const errorContext: Record<string, JsonValue> = {
         docker: {
           error: message
         }
-      } satisfies Record<string, JsonValue>;
-      if (err instanceof Error && err.stack) {
+      };
+      if (err instanceof Error && typeof err.stack === 'string') {
         errorContext.stack = err.stack;
       }
       if (err instanceof Error && typeof err.name === 'string' && err.name.length > 0) {

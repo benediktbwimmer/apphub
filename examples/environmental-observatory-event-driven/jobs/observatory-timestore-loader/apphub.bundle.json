@@ -8,9 +8,7 @@
     "manifest.json",
     "dist/**/*"
   ],
-  "runtimeDependencies": [
-    "bullmq"
-  ],
+  "runtimeDependencies": [],
   "externals": [],
   "tests": {
     "sampleInputPath": "tests/sample-input.json"

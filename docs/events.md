@@ -41,6 +41,9 @@ await publisher.publish({
 - `APPHUB_EVENT_QUEUE_NAME` overrides the default queue (`apphub_event_ingress_queue`).
 - `EVENT_INGRESS_CONCURRENCY` tunes worker parallelism (default `5`).
 - `APPHUB_EVENTS_MODE=inline` keeps publishing synchronous and skips the dedicated worker—useful for local development.
+- `APPHUB_EVENT_PROXY_URL` switches `@apphub/event-bus` into HTTP proxy mode. Bundles send events to the configured URL instead of instantiating BullMQ directly.
+- `APPHUB_EVENT_PROXY_TOKEN` supplies the bearer token used by the HTTP proxy client. Multiple bundles can share the same value.
+- `APPHUB_EVENT_PROXY_TOKENS` (catalog service) lists accepted proxy tokens, comma-separated. Leave unset to allow unauthenticated requests during prototyping.
 
 ### Workflow Event Context
 
@@ -55,6 +58,43 @@ Workflow job executions now carry a lightweight context payload so downstream pu
 Node handlers running in-process can call `getWorkflowEventContext()` from `@apphub/catalog/jobs/runtime` to read the current store. Sandbox and Docker adapters serialize the same payload into the `APPHUB_WORKFLOW_EVENT_CONTEXT` environment variable; the sandbox context object also exposes `workflowEventContext` plus `getWorkflowEventContext()` (Python bundles receive matching attributes) for convenience. Child bootstrap code keeps the AsyncLocalStorage scope active so downstream imports resolve the same data.
 
 `@apphub/event-bus` now injects this context automatically into every envelope that does not already include `metadata.__apphubWorkflow`. The reserved block is trimmed to the required fields, strings are normalized, and payloads larger than 2 KB (UTF-8) are dropped to protect downstream storage. Existing publishers that set `metadata.__apphubWorkflow` manually keep their values; everyone else gets the enriched metadata with no API changes.
+
+### HTTP Event Proxy
+
+When bundles run inside the sandbox they cannot require `bullmq`. Set `APPHUB_EVENT_PROXY_URL` to enable the lightweight HTTP proxy and the shared publisher falls back to `fetch`:
+
+```bash
+export APPHUB_EVENT_PROXY_URL="http://127.0.0.1:4000/internal/events/publish"
+export APPHUB_EVENT_PROXY_TOKEN="prototype-secret"
+
+# Catalog (or any trusted publisher) should allow the same token
+export APPHUB_EVENT_PROXY_TOKENS="prototype-secret"
+```
+
+`POST /internal/events/publish`
+
+- **Headers**
+  - `Authorization: Bearer <token>` (required when tokens are configured)
+  - `Content-Type: application/json`
+- **Body** — Event envelope matching `@apphub/event-bus` (`type`, `source`, optional `payload`, etc.)
+- **Response** — `202 Accepted` with the normalized event payload
+
+Example request:
+
+```bash
+curl \
+  -X POST \
+  -H 'Authorization: Bearer prototype-secret' \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "type": "observatory.minute.raw-uploaded",
+        "source": "observatory.ingest",
+        "payload": {"minute": "2025-10-01T00:00"}
+      }' \
+  http://127.0.0.1:4000/internal/events/publish
+```
+
+Once the proxy URL is configured, `createEventPublisher()` automatically chooses the HTTP path—bundle code does not need to change beyond setting the environment variables and enabling the `network` capability in the bundle manifest.
 
 ## Ingress Worker & Persistence
 
