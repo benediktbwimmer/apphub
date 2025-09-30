@@ -44,6 +44,11 @@
       "require": "./dist/filestoreFilters.js",
       "default": "./dist/filestoreFilters.js"
     },
+    "./designTokens": {
+      "types": "./dist/designTokens/index.d.ts",
+      "require": "./dist/designTokens/index.js",
+      "default": "./dist/designTokens/index.js"
+    },
     "./retries/backoff": {
       "types": "./dist/retries/backoff.d.ts",
       "require": "./dist/retries/backoff.js",

@@ -1,6 +1,12 @@
 # React + TypeScript + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Theming pipeline
+
+- Runtime design tokens now live in `@apphub/shared/designTokens`; the Vite build emits CSS custom properties for every registered theme through the `virtual:apphub-theme.css` module.
+- Global styles import the generated variables before Tailwind so utility classes such as `bg-surface-canvas` resolve to semantic tokens while legacy palette classes continue to function.
+- During migration you can keep existing `text-slate-*` or `bg-violet-*` utilities; they fall back to their Tailwind defaults but we expose matching semantic helpers—prefer `text-[var(--color-text-muted)]` or `bg-surface-raised` for new work.
+- When editing tokens run `npm run build --workspace @apphub/shared` to refresh the package `dist` output; the Vite dev server hot-reloads the generated CSS once the build completes.
+- For bespoke gradients or imagery, set component-level variables (for example `--surface-canvas-background-image`) and reference the semantic colors for the base fills so tenant overrides stay in sync.
 
 ## Workflow topology data layer
 

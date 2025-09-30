@@ -1,8 +1,13 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { ROUTE_SEGMENTS } from '../routes/paths';
-import { PREVIEW_HEIGHT_BOUNDS, PREVIEW_WIDTH_BOUNDS } from './previewLayoutContext';
 
 const TABS = [
+  {
+    key: 'appearance',
+    label: 'Appearance',
+    path: ROUTE_SEGMENTS.settingsAppearance,
+    description: 'Switch between light, dark, or custom tenant themes.'
+  },
   {
     key: 'preview',
     label: 'Preview Scaling',
@@ -49,7 +54,7 @@ export default function SettingsLayout() {
       <header className="flex flex-col gap-3">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Settings</h1>
         <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">
-          Tune AppHub to match your environment. Preview tiles default to {PREVIEW_WIDTH_BOUNDS.default}×{PREVIEW_HEIGHT_BOUNDS.default}px and apply across the catalog and apps gallery.
+          Tailor AppHub to match your workspace. Choose a theme, adjust preview layouts, manage API access, and review runtime controls from a single place.
         </p>
       </header>
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/70 bg-white/70 p-2 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/60" role="tablist" aria-label="Settings sections">

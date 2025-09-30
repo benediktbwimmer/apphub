@@ -5,12 +5,15 @@ import { ReactFlowProvider } from 'reactflow';
 import WorkflowGraphCanvas from '../WorkflowGraphCanvas';
 import { createSmallWorkflowGraphNormalized } from '../../graph/mocks';
 import type { ComponentProps } from 'react';
+import { ThemeProvider } from '../../../theme';
 
 function renderCanvas(props: ComponentProps<typeof WorkflowGraphCanvas>) {
   return render(
-    <ReactFlowProvider>
-      <WorkflowGraphCanvas {...props} />
-    </ReactFlowProvider>
+    <ThemeProvider>
+      <ReactFlowProvider>
+        <WorkflowGraphCanvas {...props} />
+      </ReactFlowProvider>
+    </ThemeProvider>
   );
 }
 

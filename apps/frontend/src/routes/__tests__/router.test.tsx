@@ -39,12 +39,13 @@ describe('appRouteConfig', () => {
     expect(childSegments.has(ROUTE_SEGMENTS.servicesMetastore)).toBe(true);
   });
 
-  it('nests import workspace under settings', () => {
+  it('nests settings routes including appearance and import', () => {
     const root = appRouteConfig.find((route) => route.path === '/');
     const settingsRoute = root?.children?.find((child) => child.path === ROUTE_SEGMENTS.settings);
     expect(settingsRoute).toBeTruthy();
     const settingsChildren = settingsRoute?.children ?? [];
     const childSegments = new Set(settingsChildren.map((child) => (child.index ? 'index' : child.path)));
+    expect(childSegments.has(ROUTE_SEGMENTS.settingsAppearance)).toBe(true);
     expect(childSegments.has(ROUTE_SEGMENTS.settingsImport)).toBe(true);
   });
 });

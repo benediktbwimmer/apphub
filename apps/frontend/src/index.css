@@ -1,34 +1,74 @@
+@import 'virtual:apphub-theme.css';
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: var(--font-family-sans);
+  --font-mono: var(--font-family-mono);
+  --color-surface-canvas: var(--color-surface-canvas);
+  --color-surface-raised: var(--color-surface-raised);
+  --color-surface-sunken: var(--color-surface-sunken);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-inverse: var(--color-text-inverse);
+  --color-accent-default: var(--color-accent-default);
+  --color-accent-emphasis: var(--color-accent-emphasis);
+  --color-accent-muted: var(--color-accent-muted);
+  --color-border-subtle: var(--color-border-subtle);
+  --color-border-default: var(--color-border-default);
+  --color-border-strong: var(--color-border-strong);
+  --color-overlay-hover: var(--color-overlay-hover);
+  --color-overlay-pressed: var(--color-overlay-pressed);
+  --shadow-focus: var(--shadow-focus);
 }
 
 @layer base {
-  :root {
-    color-scheme: light;
-    --app-background: radial-gradient(circle at top, rgba(124, 58, 237, 0.16), transparent 55%),
+  :root:not([data-theme]) {
+    --surface-canvas-background-image: radial-gradient(circle at top, rgba(124, 58, 237, 0.16), transparent 55%),
       linear-gradient(180deg, #f5f3ff 0%, #e5e7eb 100%);
   }
 
+  :root[data-theme='apphub-light'],
+  :root.theme-apphub-light {
+    --surface-canvas-background-image: radial-gradient(circle at top, rgba(124, 58, 237, 0.16), transparent 55%),
+      linear-gradient(180deg, #f5f3ff 0%, #e5e7eb 100%);
+  }
+
+  :root[data-theme='apphub-dark'],
+  :root.theme-apphub-dark,
+  :root.dark,
+  :root.theme-dark {
+    --surface-canvas-background-image: radial-gradient(circle at top, rgba(88, 28, 135, 0.22), transparent 55%),
+      linear-gradient(180deg, #0f0a1a 0%, #05010d 100%);
+  }
+
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme]) {
       color-scheme: dark;
-      --app-background: radial-gradient(circle at top, rgba(88, 28, 135, 0.22), transparent 55%),
+      --surface-canvas-background-image: radial-gradient(circle at top, rgba(88, 28, 135, 0.22), transparent 55%),
         linear-gradient(180deg, #0f0a1a 0%, #05010d 100%);
+    }
+
+    :root:not([data-theme]) body {
+      color: #e2e8f0;
+      background: var(--surface-canvas-background-image, #0f0a1a);
+    }
+
+    :root:not([data-theme]) a {
+      color: #c4b5fd;
+    }
+
+    :root:not([data-theme]) a:hover,
+    :root:not([data-theme]) a:focus-visible {
+      color: #e0e7ff;
     }
   }
 
   body {
-    @apply min-h-screen bg-slate-100 text-slate-900 antialiased transition-colors;
+    @apply min-h-screen antialiased transition-colors;
     font-family: var(--font-sans);
-    background: var(--app-background);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    body {
-      @apply bg-neutral-950 text-slate-100;
-    }
+    background: var(--surface-canvas-background-image, var(--color-surface-canvas));
+    color: var(--color-text-primary, #0f172a);
   }
 
   #root {
@@ -36,7 +76,13 @@
   }
 
   a {
-    @apply font-semibold text-violet-600 underline-offset-2 transition-colors hover:underline dark:text-violet-200;
+    @apply font-semibold underline-offset-2 transition-colors hover:underline;
+    color: var(--color-accent-default, #7c3aed);
+  }
+
+  a:hover,
+  a:focus-visible {
+    color: var(--color-accent-emphasis, #5b21b6);
   }
 
   button {
@@ -140,27 +186,27 @@
   }
 
   .focus-visible\:outline-violet-500:focus-visible {
-    outline-color: rgb(139 92 246 / 1);
+    outline-color: var(--color-accent-emphasis, rgb(139 92 246 / 1));
   }
 
   .focus-visible\:ring-violet-200\/50:focus-visible {
-    box-shadow: 0 0 0 4px rgb(196 181 253 / 0.5);
+    box-shadow: 0 0 0 4px var(--color-accent-muted, rgb(196 181 253 / 0.5));
   }
 
   .focus\:ring-violet-500:focus {
-    --tw-ring-color: rgb(139 92 246 / 1);
+    --tw-ring-color: var(--color-accent-default, rgb(139 92 246 / 1));
   }
 
   .text-violet-600 {
-    color: rgb(124 58 237 / 1);
+    color: var(--color-accent-default, rgb(124 58 237 / 1));
   }
 
   .bg-violet-600 {
-    background-color: rgb(124 58 237 / 1);
+    background-color: var(--color-accent-default, rgb(124 58 237 / 1));
   }
 
   .bg-violet-500\/10 {
-    background-color: rgb(139 92 246 / 0.1);
+    background-color: var(--color-accent-muted, rgb(139 92 246 / 0.1));
   }
 
 }
@@ -235,4 +281,3 @@
     transform: scale(1.1);
   }
 }
-

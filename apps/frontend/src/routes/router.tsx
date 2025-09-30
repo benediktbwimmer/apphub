@@ -24,6 +24,7 @@ import RuntimeScalingSettingsPage from '../settings/RuntimeScalingSettingsPage';
 import SettingsLayout from '../settings/SettingsLayout';
 import PreviewSettingsPage from '../settings/PreviewSettingsPage';
 import AdminToolsPage from '../settings/AdminToolsPage';
+import ThemeSettingsPage from '../settings/ThemeSettingsPage';
 import TopologyRoute from './TopologyRoute';
 import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
 import AssetsPage from '../dataAssets/AssetsPage';
@@ -149,7 +150,11 @@ export const appRouteConfig: RouteObject[] = [
         children: [
           {
             index: true,
-            element: <Navigate to={ROUTE_PATHS.settingsPreview} replace />
+            element: <Navigate to={ROUTE_PATHS.settingsAppearance} replace />
+          },
+          {
+            path: ROUTE_SEGMENTS.settingsAppearance,
+            element: <ThemeSettingsPage />
           },
           {
             path: ROUTE_SEGMENTS.settingsPreview,
