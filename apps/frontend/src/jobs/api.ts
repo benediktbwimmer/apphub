@@ -1,10 +1,8 @@
+import { z } from 'zod';
+
 import { API_BASE_URL } from '../config';
-import {
-  ensureOk,
-  parseJson,
-  type AuthorizedFetch,
-  type JobDefinitionSummary
-} from '../workflows/api';
+import { createApiClient, type AuthorizedFetch } from '../lib/apiClient';
+import type { JobDefinitionSummary } from '../workflows/api';
 
 export type JobRunSummary = {
   id: string;
@@ -156,66 +154,422 @@ function toRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-export async function fetchJobs(fetcher: AuthorizedFetch): Promise<JobDefinitionSummary[]> {
-  const response = await fetcher(`${API_BASE_URL}/jobs`);
-  await ensureOk(response, 'Failed to load job definitions');
-  const payload = await parseJson<{ data?: JobDefinitionSummary[] }>(response);
-  return Array.isArray(payload.data) ? payload.data : [];
+function createClient(fetcher: AuthorizedFetch) {
+  return createApiClient(fetcher, { baseUrl: API_BASE_URL });
 }
 
-export async function fetchJobRuntimeStatuses(fetcher: AuthorizedFetch): Promise<JobRuntimeStatus[]> {
-  const response = await fetcher(`${API_BASE_URL}/jobs/runtimes`);
-  await ensureOk(response, 'Failed to load job runtime readiness');
-  const payload = await parseJson<{ data?: unknown }>(response);
-  const rawData = payload.data;
-  const raw = Array.isArray(rawData) ? rawData : [];
-  const statuses: JobRuntimeStatus[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== 'object') {
-      continue;
-    }
-    const record = entry as Record<string, unknown>;
+function dataEnvelope<T extends z.ZodTypeAny>(schema: T) {
+  return z.object({ data: schema }).transform(({ data }) => data);
+}
+
+function dataArrayEnvelope<T extends z.ZodTypeAny>(schema: T) {
+  return z.object({ data: z.array(schema).optional() }).transform(({ data }) => data ?? []);
+}
+
+const jobDefinitionSummarySchema = z
+  .object({
+    id: z.string(),
+    slug: z.string(),
+    name: z.string(),
+    version: z.number(),
+    type: z.string(),
+    runtime: z.enum(['node', 'python', 'docker']),
+    entryPoint: z.string(),
+    registryRef: z.string().nullable().optional(),
+    parametersSchema: z.unknown().optional(),
+    defaultParameters: z.unknown().optional(),
+    outputSchema: z.unknown().optional(),
+    timeoutMs: z.number().nullable().optional(),
+    retryPolicy: z.unknown().optional(),
+    metadata: z.unknown().optional(),
+    createdAt: z.string(),
+    updatedAt: z.string()
+  })
+  .transform((value) => ({
+    id: value.id,
+    slug: value.slug,
+    name: value.name,
+    version: value.version,
+    type: value.type,
+    runtime: value.runtime,
+    entryPoint: value.entryPoint,
+    registryRef: value.registryRef ?? null,
+    parametersSchema: value.parametersSchema ?? null,
+    defaultParameters: value.defaultParameters ?? null,
+    outputSchema: value.outputSchema ?? null,
+    timeoutMs: value.timeoutMs ?? null,
+    retryPolicy: value.retryPolicy ?? null,
+    metadata: value.metadata ?? null,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt
+  } satisfies JobDefinitionSummary));
+
+const jobRunSummarySchema = z
+  .object({
+    id: z.string(),
+    status: z.string(),
+    parameters: z.unknown().optional(),
+    result: z.unknown().optional(),
+    errorMessage: z.string().nullable().optional(),
+    logsUrl: z.string().nullable().optional(),
+    context: z.unknown().optional(),
+    metrics: z.unknown().optional(),
+    attempt: z.number(),
+    maxAttempts: z.number().nullable().optional(),
+    timeoutMs: z.number().nullable().optional(),
+    durationMs: z.number().nullable().optional(),
+    retryCount: z.number().optional(),
+    failureReason: z.string().nullable().optional(),
+    startedAt: z.string().nullable().optional(),
+    completedAt: z.string().nullable().optional(),
+    scheduledAt: z.string().nullable().optional(),
+    createdAt: z.string(),
+    updatedAt: z.string()
+  })
+  .transform((value) => ({
+    id: value.id,
+    status: value.status,
+    parameters: value.parameters ?? null,
+    result: value.result ?? null,
+    errorMessage: value.errorMessage ?? null,
+    logsUrl: value.logsUrl ?? null,
+    context: value.context ?? null,
+    metrics: value.metrics ?? null,
+    attempt: value.attempt,
+    maxAttempts: value.maxAttempts ?? null,
+    timeoutMs: value.timeoutMs ?? null,
+    durationMs: value.durationMs ?? null,
+    retryCount: value.retryCount ?? 0,
+    failureReason: value.failureReason ?? null,
+    startedAt: value.startedAt ?? null,
+    completedAt: value.completedAt ?? null,
+    scheduledAt: value.scheduledAt ?? null,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt
+  } satisfies JobRunSummary));
+
+const jobDetailResponseSchema = z
+  .object({
+    job: jobDefinitionSummarySchema,
+    runs: z.array(jobRunSummarySchema)
+  })
+  .transform((value) => ({
+    job: value.job,
+    runs: value.runs
+  } satisfies JobDetailResponse));
+
+const bundleEditorFileSchema = z
+  .object({
+    path: z.string(),
+    contents: z.string(),
+    encoding: z.enum(['utf8', 'base64']).optional(),
+    executable: z.boolean().optional()
+  })
+  .transform((value) => ({
+    path: value.path,
+    contents: value.contents,
+    encoding: value.encoding ?? 'utf8',
+    executable: value.executable ?? false
+  } satisfies BundleEditorFile));
+
+const bundleVersionSummaryBase = z.object({
+  version: z.string(),
+  checksum: z.string(),
+  capabilityFlags: z.array(z.string()).optional(),
+  status: z.string(),
+  immutable: z.boolean(),
+  publishedAt: z.string(),
+  deprecatedAt: z.string().nullable().optional(),
+  artifact: z.object({
+    storage: z.string(),
+    size: z.number().nullable().optional(),
+    contentType: z.string().nullable().optional()
+  }),
+  metadata: z.unknown().optional()
+});
+
+type BundleVersionSummaryBase = z.infer<typeof bundleVersionSummaryBase>;
+
+function mapBundleVersionSummary(value: BundleVersionSummaryBase): BundleVersionSummary {
+  return {
+    version: value.version,
+    checksum: value.checksum,
+    capabilityFlags: value.capabilityFlags ?? [],
+    status: value.status,
+    immutable: value.immutable,
+    publishedAt: value.publishedAt,
+    deprecatedAt: value.deprecatedAt ?? null,
+    artifact: {
+      storage: value.artifact.storage,
+      size: value.artifact.size ?? null,
+      contentType: value.artifact.contentType ?? null
+    },
+    metadata: value.metadata ?? null
+  } satisfies BundleVersionSummary;
+}
+
+const bundleVersionSummarySchema = bundleVersionSummaryBase.transform((value) => mapBundleVersionSummary(value));
+
+const bundleEditorDataSchema = z
+  .object({
+    job: jobDefinitionSummarySchema,
+    binding: z.object({
+      slug: z.string(),
+      version: z.string(),
+      exportName: z.string().nullable().optional()
+    }),
+    bundle: bundleVersionSummarySchema,
+    editor: z.object({
+      entryPoint: z.string(),
+      manifestPath: z.string(),
+      manifest: z.unknown().optional(),
+      files: z.array(bundleEditorFileSchema).optional()
+    }),
+    aiBuilder: z.record(z.unknown()).nullable().optional(),
+    history: z
+      .array(
+        z.object({
+          slug: z.string(),
+          version: z.string(),
+          checksum: z.string().optional(),
+          regeneratedAt: z.string().optional()
+        })
+      )
+      .optional(),
+    suggestionSource: z.enum(['metadata', 'artifact']),
+    availableVersions: z.array(bundleVersionSummarySchema).optional()
+  })
+  .transform((value) => ({
+    job: value.job,
+    binding: {
+      slug: value.binding.slug,
+      version: value.binding.version,
+      exportName: value.binding.exportName ?? null
+    },
+    bundle: value.bundle,
+    editor: {
+      entryPoint: value.editor.entryPoint,
+      manifestPath: value.editor.manifestPath,
+      manifest: value.editor.manifest ?? null,
+      files: value.editor.files ?? []
+    },
+    aiBuilder: value.aiBuilder ?? null,
+    history: value.history ?? [],
+    suggestionSource: value.suggestionSource,
+    availableVersions: value.availableVersions ?? []
+  } satisfies BundleEditorData));
+
+const bundleVersionDetailVersionSchema = bundleVersionSummaryBase
+  .extend({
+    id: z.string(),
+    bundleId: z.string(),
+    slug: z.string(),
+    publishedBy: z
+      .object({
+        subject: z.string(),
+        kind: z.string().nullable().optional(),
+        tokenHash: z.string().nullable().optional()
+      })
+      .nullable()
+      .optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    manifest: z.unknown().optional(),
+    download: z
+      .object({
+        url: z.string(),
+        expiresAt: z.string(),
+        storage: z.string(),
+        kind: z.enum(['local', 'external'])
+      })
+      .optional()
+  })
+  .transform((value) => ({
+    ...mapBundleVersionSummary(value),
+    id: value.id,
+    bundleId: value.bundleId,
+    slug: value.slug,
+    publishedBy: value.publishedBy
+      ? {
+          subject: value.publishedBy.subject,
+          kind: value.publishedBy.kind ?? null,
+          tokenHash: value.publishedBy.tokenHash ?? null
+        }
+      : null,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    manifest: value.manifest,
+    download: value.download
+      ? {
+          url: value.download.url,
+          expiresAt: value.download.expiresAt,
+          storage: value.download.storage,
+          kind: value.download.kind
+        }
+      : undefined
+  } satisfies BundleVersionDetail['version']));
+
+const bundleVersionDetailSchema = z
+  .object({
+    bundle: z.object({
+      id: z.string(),
+      slug: z.string(),
+      displayName: z.string().nullable().optional(),
+      description: z.string().nullable().optional(),
+      latestVersion: z.string().nullable().optional(),
+      createdAt: z.string(),
+      updatedAt: z.string()
+    }),
+    version: bundleVersionDetailVersionSchema
+  })
+  .transform((value) => ({
+    bundle: {
+      id: value.bundle.id,
+      slug: value.bundle.slug,
+      displayName: value.bundle.displayName ?? null,
+      description: value.bundle.description ?? null,
+      latestVersion: value.bundle.latestVersion ?? null,
+      createdAt: value.bundle.createdAt,
+      updatedAt: value.bundle.updatedAt
+    },
+    version: value.version
+  } satisfies BundleVersionDetail));
+
+const jobRuntimeStatusSchema = z
+  .object({
+    runtime: z.unknown(),
+    ready: z.unknown(),
+    reason: z.unknown(),
+    checkedAt: z.unknown(),
+    details: z.unknown()
+  })
+  .transform((value) => {
     const runtimeValue =
-      typeof record.runtime === 'string' ? record.runtime.trim().toLowerCase() : '';
+      typeof value.runtime === 'string' ? value.runtime.trim().toLowerCase() : '';
     const runtime: JobRuntimeStatus['runtime'] =
       runtimeValue === 'python'
         ? 'python'
         : runtimeValue === 'docker'
           ? 'docker'
           : 'node';
-    const ready = Boolean(record.ready);
-    const reason = typeof record.reason === 'string' ? record.reason : null;
-    const checkedAt = typeof record.checkedAt === 'string' ? record.checkedAt : new Date().toISOString();
-    const details = toRecord(record.details ?? null);
-    statuses.push({ runtime, ready, reason, checkedAt, details });
-  }
-  return statuses;
+    const reason = typeof value.reason === 'string' ? value.reason : null;
+    const checkedAt =
+      typeof value.checkedAt === 'string' ? value.checkedAt : new Date().toISOString();
+    const details = toRecord(value.details);
+    return {
+      runtime,
+      ready: Boolean(value.ready),
+      reason,
+      checkedAt,
+      details
+    } satisfies JobRuntimeStatus;
+  });
+
+const jobDefinitionsSchema = dataArrayEnvelope(jobDefinitionSummarySchema);
+const jobRuntimeStatusesSchema = dataArrayEnvelope(jobRuntimeStatusSchema);
+const jobDetailEnvelope = dataEnvelope(jobDetailResponseSchema);
+const bundleEditorDataEnvelope = dataEnvelope(bundleEditorDataSchema);
+const bundleVersionDetailEnvelope = dataEnvelope(bundleVersionDetailSchema);
+
+const schemaPreviewBase = z.object({
+  parametersSchema: z.unknown().optional(),
+  outputSchema: z.unknown().optional(),
+  parametersSource: z.unknown().optional(),
+  outputSource: z.unknown().optional()
+});
+
+const schemaPreviewSchema = schemaPreviewBase.transform((value) => ({
+  parametersSchema: toRecord(value.parametersSchema),
+  outputSchema: toRecord(value.outputSchema),
+  parametersSource: typeof value.parametersSource === 'string' ? value.parametersSource : null,
+  outputSource: typeof value.outputSource === 'string' ? value.outputSource : null
+} satisfies SchemaPreview));
+
+const schemaPreviewEnvelope = z
+  .object({ data: schemaPreviewBase.optional() })
+  .transform(({ data }) => schemaPreviewSchema.parse(data ?? {}));
+
+const pythonSnippetPreviewSchema = z
+  .object({
+    handlerName: z.string(),
+    handlerIsAsync: z.boolean(),
+    inputModel: z.object({
+      name: z.string(),
+      schema: z.record(z.unknown())
+    }),
+    outputModel: z.object({
+      name: z.string(),
+      schema: z.record(z.unknown())
+    })
+  })
+  .transform((value) => ({
+    handlerName: value.handlerName,
+    handlerIsAsync: value.handlerIsAsync,
+    inputModel: {
+      name: value.inputModel.name,
+      schema: value.inputModel.schema
+    },
+    outputModel: {
+      name: value.outputModel.name,
+      schema: value.outputModel.schema
+    }
+  } satisfies PythonSnippetPreview));
+
+const pythonSnippetPreviewEnvelope = dataEnvelope(pythonSnippetPreviewSchema);
+
+const pythonSnippetCreateResultSchema = z
+  .object({
+    job: jobDefinitionSummarySchema,
+    analysis: pythonSnippetPreviewSchema,
+    bundle: z.object({
+      slug: z.string(),
+      version: z.string()
+    })
+  })
+  .transform((value) => ({
+    job: value.job,
+    analysis: value.analysis,
+    bundle: value.bundle
+  } satisfies PythonSnippetCreateResult));
+
+const pythonSnippetCreateEnvelope = dataEnvelope(pythonSnippetCreateResultSchema);
+
+export async function fetchJobs(fetcher: AuthorizedFetch): Promise<JobDefinitionSummary[]> {
+  const client = createClient(fetcher);
+  return client.get('/jobs', {
+    schema: jobDefinitionsSchema,
+    errorMessage: 'Failed to load job definitions'
+  });
+}
+
+export async function fetchJobRuntimeStatuses(fetcher: AuthorizedFetch): Promise<JobRuntimeStatus[]> {
+  const client = createClient(fetcher);
+  return client.get('/jobs/runtimes', {
+    schema: jobRuntimeStatusesSchema,
+    errorMessage: 'Failed to load job runtime readiness'
+  });
 }
 
 export async function fetchJobDetail(
   fetcher: AuthorizedFetch,
   slug: string
 ): Promise<JobDetailResponse> {
-  const response = await fetcher(`${API_BASE_URL}/jobs/${encodeURIComponent(slug)}`);
-  await ensureOk(response, 'Failed to load job details');
-  const payload = await parseJson<{ data?: JobDetailResponse }>(response);
-  if (!payload.data) {
-    throw new Error('Job detail response missing data');
-  }
-  return payload.data;
+  const client = createClient(fetcher);
+  return client.get(`/jobs/${encodeURIComponent(slug)}`, {
+    schema: jobDetailEnvelope,
+    errorMessage: 'Failed to load job details'
+  });
 }
 
 export async function fetchJobBundleEditor(
   fetcher: AuthorizedFetch,
   slug: string
 ): Promise<BundleEditorData> {
-  const response = await fetcher(`${API_BASE_URL}/jobs/${encodeURIComponent(slug)}/bundle-editor`);
-  await ensureOk(response, 'Failed to load bundle editor');
-  const payload = await parseJson<{ data?: BundleEditorData }>(response);
-  if (!payload.data) {
-    throw new Error('Bundle editor response missing data');
-  }
-  return payload.data;
+  const client = createClient(fetcher);
+  return client.get(`/jobs/${encodeURIComponent(slug)}/bundle-editor`, {
+    schema: bundleEditorDataEnvelope,
+    errorMessage: 'Failed to load bundle editor'
+  });
 }
 
 export async function fetchBundleVersionDetail(
@@ -223,15 +577,14 @@ export async function fetchBundleVersionDetail(
   slug: string,
   version: string
 ): Promise<BundleVersionDetail> {
-  const response = await fetcher(
-    `${API_BASE_URL}/job-bundles/${encodeURIComponent(slug)}/versions/${encodeURIComponent(version)}`
+  const client = createClient(fetcher);
+  return client.get(
+    `/job-bundles/${encodeURIComponent(slug)}/versions/${encodeURIComponent(version)}`,
+    {
+      schema: bundleVersionDetailEnvelope,
+      errorMessage: 'Failed to load bundle version'
+    }
   );
-  await ensureOk(response, 'Failed to load bundle version');
-  const payload = await parseJson<{ data?: BundleVersionDetail }>(response);
-  if (!payload.data) {
-    throw new Error('Bundle version response missing data');
-  }
-  return payload.data;
 }
 
 export type BundleRegenerateInput = {
@@ -256,17 +609,12 @@ export async function regenerateJobBundle(
   slug: string,
   input: BundleRegenerateInput
 ): Promise<BundleEditorData> {
-  const response = await fetcher(`${API_BASE_URL}/jobs/${encodeURIComponent(slug)}/bundle/regenerate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+  const client = createClient(fetcher);
+  return client.post(`/jobs/${encodeURIComponent(slug)}/bundle/regenerate`, {
+    json: input,
+    schema: bundleEditorDataEnvelope,
+    errorMessage: 'Failed to regenerate bundle'
   });
-  await ensureOk(response, 'Failed to regenerate bundle');
-  const payload = await parseJson<{ data?: BundleEditorData }>(response);
-  if (!payload.data) {
-    throw new Error('Bundle regeneration response missing data');
-  }
-  return payload.data;
 }
 
 export type BundleAiEditInput = {
@@ -287,91 +635,36 @@ export async function aiEditJobBundle(
   slug: string,
   input: BundleAiEditInput
 ): Promise<BundleEditorData> {
-  const response = await fetcher(`${API_BASE_URL}/jobs/${encodeURIComponent(slug)}/bundle/ai-edit`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+  const client = createClient(fetcher);
+  return client.post(`/jobs/${encodeURIComponent(slug)}/bundle/ai-edit`, {
+    json: input,
+    schema: bundleEditorDataEnvelope,
+    errorMessage: 'Failed to edit bundle with AI'
   });
-  await ensureOk(response, 'Failed to edit bundle with AI');
-  const payload = await parseJson<{ data?: BundleEditorData }>(response);
-  if (!payload.data) {
-    throw new Error('AI bundle edit response missing data');
-  }
-  return payload.data;
 }
 
 export async function previewJobSchemas(
   fetcher: AuthorizedFetch,
   input: { entryPoint: string; runtime?: 'node' | 'python' }
 ): Promise<SchemaPreview> {
-  const response = await fetcher(`${API_BASE_URL}/jobs/schema-preview`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ entryPoint: input.entryPoint, runtime: input.runtime })
+  const client = createClient(fetcher);
+  return client.post('/jobs/schema-preview', {
+    json: { entryPoint: input.entryPoint, runtime: input.runtime },
+    schema: schemaPreviewEnvelope,
+    errorMessage: 'Failed to inspect entry point schemas'
   });
-  await ensureOk(response, 'Failed to inspect entry point schemas');
-  const payload = await parseJson<{
-    data?: {
-      parametersSchema?: unknown;
-      outputSchema?: unknown;
-      parametersSource?: unknown;
-      outputSource?: unknown;
-    };
-  }>(response);
-  const data = payload.data ?? {};
-  return {
-    parametersSchema: toRecord(data.parametersSchema ?? null),
-    outputSchema: toRecord(data.outputSchema ?? null),
-    parametersSource: typeof data.parametersSource === 'string' ? data.parametersSource : null,
-    outputSource: typeof data.outputSource === 'string' ? data.outputSource : null
-  } satisfies SchemaPreview;
-}
-
-function normalizeSnippetPreview(raw: unknown): PythonSnippetPreview {
-  if (!raw || typeof raw !== 'object') {
-    throw new Error('Invalid snippet preview response');
-  }
-  const data = raw as Record<string, unknown>;
-  const handlerName = typeof data.handlerName === 'string' ? data.handlerName : null;
-  const handlerIsAsync = Boolean(data.handlerIsAsync);
-  const inputModel = toRecord(data.inputModel ?? null);
-  const outputModel = toRecord(data.outputModel ?? null);
-  if (!handlerName || !inputModel || !outputModel) {
-    throw new Error('Snippet preview response missing required data');
-  }
-  const inputSchema = toRecord(inputModel.schema ?? null);
-  const outputSchema = toRecord(outputModel.schema ?? null);
-  if (!inputSchema || !outputSchema) {
-    throw new Error('Snippet preview response missing schemas');
-  }
-  const inputName = typeof inputModel.name === 'string' ? inputModel.name : null;
-  const outputName = typeof outputModel.name === 'string' ? outputModel.name : null;
-  if (!inputName || !outputName) {
-    throw new Error('Snippet preview response missing model names');
-  }
-  return {
-    handlerName,
-    handlerIsAsync,
-    inputModel: { name: inputName, schema: inputSchema },
-    outputModel: { name: outputName, schema: outputSchema }
-  } satisfies PythonSnippetPreview;
 }
 
 export async function previewPythonSnippet(
   fetcher: AuthorizedFetch,
   input: { snippet: string }
 ): Promise<PythonSnippetPreview> {
-  const response = await fetcher(`${API_BASE_URL}/jobs/python-snippet/preview`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+  const client = createClient(fetcher);
+  return client.post('/jobs/python-snippet/preview', {
+    json: input,
+    schema: pythonSnippetPreviewEnvelope,
+    errorMessage: 'Failed to analyze Python snippet'
   });
-  await ensureOk(response, 'Failed to analyze Python snippet');
-  const payload = await parseJson<{ data?: unknown }>(response);
-  if (!payload.data) {
-    throw new Error('Snippet preview response missing data');
-  }
-  return normalizeSnippetPreview(payload.data);
 }
 
 export async function createPythonSnippetJob(
@@ -389,37 +682,10 @@ export async function createPythonSnippetJob(
     jobVersion?: number | null;
   }
 ): Promise<PythonSnippetCreateResult> {
-  const response = await fetcher(`${API_BASE_URL}/jobs/python-snippet`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+  const client = createClient(fetcher);
+  return client.post('/jobs/python-snippet', {
+    json: input,
+    schema: pythonSnippetCreateEnvelope,
+    errorMessage: 'Failed to create Python job'
   });
-  await ensureOk(response, 'Failed to create Python job');
-  const payload = await parseJson<{
-    data?: {
-      job?: JobDefinitionSummary;
-      analysis?: unknown;
-      bundle?: { slug?: unknown; version?: unknown };
-    };
-  }>(response);
-  const data = payload.data;
-  if (!data || !data.job || !data.bundle) {
-    throw new Error('Python job creation response missing data');
-  }
-  const analysis = normalizeSnippetPreview(data.analysis ?? {});
-  const bundleSlug = typeof data.bundle.slug === 'string' ? data.bundle.slug : null;
-  const bundleVersion = typeof data.bundle.version === 'string' ? data.bundle.version : null;
-  if (!bundleSlug || !bundleVersion) {
-    throw new Error('Bundle metadata missing from response');
-  }
-  const job: JobDefinitionSummary = {
-    ...data.job,
-    registryRef: data.job.registryRef ?? null,
-    timeoutMs: data.job.timeoutMs ?? null
-  } satisfies JobDefinitionSummary;
-  return {
-    job,
-    analysis,
-    bundle: { slug: bundleSlug, version: bundleVersion }
-  } satisfies PythonSnippetCreateResult;
 }

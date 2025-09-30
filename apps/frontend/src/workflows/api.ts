@@ -1,5 +1,23 @@
 import type { WorkflowTopologyGraph } from '@apphub/shared/workflowTopology';
+import { z } from 'zod';
+
 import { API_BASE_URL } from '../config';
+import {
+  createApiClient,
+  type AuthorizedFetch,
+  type QueryValue,
+  ApiError,
+  ensureOk as ensureResponseOk,
+  parseJson as parseResponseJson
+} from '../lib/apiClient';
+
+export { ApiError } from '../lib/apiClient';
+export type { AuthorizedFetch } from '../lib/apiClient';
+
+const ensureOk = ensureResponseOk;
+const parseJson = parseResponseJson;
+
+export { ensureOk, parseJson };
 import type {
   WorkflowAssetDetail,
   WorkflowAssetInventoryEntry,
@@ -39,26 +57,6 @@ import {
   normalizeWorkflowTimelineMeta
 } from './normalizers';
 
-type FetchArgs = Parameters<typeof fetch>;
-type FetchInput = FetchArgs[0];
-type FetchInit = FetchArgs[1];
-
-export type AuthorizedFetch = (input: FetchInput, init?: FetchInit) => Promise<Response>;
-
-export type ApiErrorDetails = unknown;
-
-export class ApiError extends Error {
-  status: number;
-  details: ApiErrorDetails;
-
-  constructor(message: string, status: number, details?: ApiErrorDetails) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.details = details;
-  }
-}
-
 export type WorkflowGraphCacheStats = {
   hits: number;
   misses: number;
@@ -83,6 +81,37 @@ export type WorkflowGraphFetchResult = {
   graph: WorkflowTopologyGraph;
   meta: WorkflowGraphFetchMeta;
 };
+
+function createClient(fetcher: AuthorizedFetch) {
+  return createApiClient(fetcher, { baseUrl: API_BASE_URL });
+}
+
+type RequestJsonOptions<T> = {
+  method?: string;
+  headers?: HeadersInit;
+  query?: Record<string, QueryValue>;
+  body?: BodyInit;
+  json?: unknown;
+  schema?: z.ZodType<T>;
+  errorMessage: string;
+};
+
+async function requestJson<T = unknown>(
+  fetcher: AuthorizedFetch,
+  path: string,
+  options: RequestJsonOptions<T>
+): Promise<T> {
+  const client = createClient(fetcher);
+  const { method, headers, query, body, json, schema, errorMessage } = options;
+  if (schema) {
+    return client.request(path, { method, headers, query, body, json, schema, errorMessage });
+  }
+  return client.request(path, { method, headers, query, body, json, errorMessage }) as Promise<T>;
+}
+
+const optionalDataSchema = z.object({ data: z.unknown().optional() });
+const requiredDataSchema = z.object({ data: z.unknown() });
+const optionalDataArraySchema = z.object({ data: z.array(z.unknown()).optional() });
 
 function parseNullableString(value: unknown): string | null {
   if (typeof value === 'string') {
@@ -465,95 +494,29 @@ export type OperatorIdentity = {
   kind: 'user' | 'service';
 };
 
-export async function parseJson<T>(response: Response): Promise<T> {
-  const text = await response.text();
-  if (!text) {
-    return {} as T;
-  }
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new ApiError('Failed to parse server response', response.status, text);
-  }
-}
-
-export async function ensureOk(response: Response, fallbackMessage: string): Promise<Response> {
-  if (response.ok) {
-    return response;
-  }
-  let details: ApiErrorDetails = null;
-  let message = fallbackMessage;
-  try {
-    const text = await response.text();
-    if (text) {
-      try {
-        const parsed = JSON.parse(text) as Record<string, unknown> | null;
-        const container = parsed && typeof parsed === 'object' ? parsed : null;
-        const errorValue = container && 'error' in container ? (container.error as unknown) : parsed;
-        details = errorValue ?? parsed;
-        let candidate: unknown =
-          container && typeof container.error === 'string'
-            ? container.error
-            : container && typeof container.message === 'string'
-              ? container.message
-              : null;
-        if (!candidate && errorValue && typeof errorValue === 'object' && !Array.isArray(errorValue)) {
-          const record = errorValue as Record<string, unknown>;
-          const formErrors = record.formErrors;
-          if (Array.isArray(formErrors)) {
-            const first = formErrors.find(
-              (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
-            );
-            if (first) {
-              candidate = first;
-            }
-          }
-        }
-        if (typeof candidate === 'string' && candidate.trim().length > 0) {
-          message = candidate.trim();
-        } else {
-          const trimmed = text.trim();
-          if (trimmed.length > 0) {
-            message = trimmed;
-          }
-        }
-      } catch {
-        const trimmed = text.trim();
-        details = trimmed || text;
-        if (trimmed.length > 0) {
-          message = trimmed;
-        }
-      }
-    }
-  } catch {
-    // Ignore secondary parse errors.
-  }
-  throw new ApiError(message, response.status, details);
-}
-
 export async function fetchWorkflowTopologyGraph(
   fetcher: AuthorizedFetch
 ): Promise<WorkflowGraphFetchResult> {
-  const response = await fetcher(`${API_BASE_URL}/workflows/graph`, {
+  const payload = await requestJson(fetcher, '/workflows/graph', {
     headers: {
       'Cache-Control': 'no-cache',
       Pragma: 'no-cache'
-    }
+    },
+    schema: z.object({ data: z.unknown(), meta: z.object({ cache: z.unknown().optional() }).optional() }),
+    errorMessage: 'Failed to load workflow graph'
   });
-  await ensureOk(response, 'Failed to load workflow graph');
-  const payload = await parseJson<{ data?: unknown; meta?: { cache?: unknown } }>(response);
   const graph = payload.data;
   if (!graph || typeof graph !== 'object' || Array.isArray(graph)) {
-    throw new ApiError('Invalid workflow graph response', response.status, payload);
+    throw new ApiError('Invalid workflow graph response', 500, payload);
   }
   const graphPayload = graph as { version?: unknown; edges?: unknown } & Record<string, unknown>;
   const version = graphPayload.version;
   if (version !== 'v1' && version !== 'v2') {
-    throw new ApiError('Unsupported workflow graph version', response.status, graphPayload);
+    throw new ApiError('Unsupported workflow graph version', 500, graphPayload);
   }
   const edges = graphPayload.edges;
   if (!edges || typeof edges !== 'object' || Array.isArray(edges)) {
-    throw new ApiError('Invalid workflow graph payload', response.status, graphPayload);
+    throw new ApiError('Invalid workflow graph payload', 500, graphPayload);
   }
   const edgePayload = edges as { stepToEventSource?: unknown[] } & Record<string, unknown>;
   if (!Array.isArray(edgePayload.stepToEventSource)) {
@@ -567,9 +530,10 @@ export async function fetchWorkflowTopologyGraph(
 }
 
 export async function listWorkflowDefinitions(fetcher: AuthorizedFetch): Promise<WorkflowDefinition[]> {
-  const response = await fetcher(`${API_BASE_URL}/workflows`);
-  await ensureOk(response, 'Failed to load workflows');
-  const payload = await parseJson<{ data?: unknown[] }>(response);
+  const payload = await requestJson(fetcher, '/workflows', {
+    schema: optionalDataArraySchema,
+    errorMessage: 'Failed to load workflows'
+  });
   if (!Array.isArray(payload.data)) {
     return [];
   }
@@ -613,9 +577,10 @@ export async function getWorkflowStats(
   params?: WorkflowAnalyticsQuery
 ) {
   const query = buildAnalyticsQuery(params);
-  const response = await fetcher(`${API_BASE_URL}/workflows/${slug}/stats${query}`);
-  await ensureOk(response, 'Failed to load workflow stats');
-  const payload = await parseJson<{ data?: unknown }>(response);
+  const payload = await requestJson(fetcher, `/workflows/${slug}/stats${query}`, {
+    schema: optionalDataSchema,
+    errorMessage: 'Failed to load workflow stats'
+  });
   const stats = normalizeWorkflowRunStats(payload.data);
   if (!stats) {
     throw new ApiError('Failed to parse workflow stats', 500, payload);
@@ -629,9 +594,10 @@ export async function getWorkflowRunMetrics(
   params?: WorkflowAnalyticsQuery
 ) {
   const query = buildAnalyticsQuery(params);
-  const response = await fetcher(`${API_BASE_URL}/workflows/${slug}/run-metrics${query}`);
-  await ensureOk(response, 'Failed to load workflow run metrics');
-  const payload = await parseJson<{ data?: unknown }>(response);
+  const payload = await requestJson(fetcher, `/workflows/${slug}/run-metrics${query}`, {
+    schema: optionalDataSchema,
+    errorMessage: 'Failed to load workflow run metrics'
+  });
   const metrics = normalizeWorkflowRunMetrics(payload.data);
   if (!metrics) {
     throw new ApiError('Failed to parse workflow run metrics', 500, payload);
@@ -652,14 +618,17 @@ export async function getWorkflowAutoMaterializeOps(
     params.set('offset', String(options.offset));
   }
   const query = params.toString();
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/auto-materialize${query ? `?${query}` : ''}`
+  const payload = await requestJson(
+    fetcher,
+    `/workflows/${encodeURIComponent(slug)}/auto-materialize${query ? `?${query}` : ''}`,
+    {
+      schema: optionalDataSchema,
+      errorMessage: 'Failed to load auto-materialization activity'
+    }
   );
-  await ensureOk(response, 'Failed to load auto-materialization activity');
-  const payload = await parseJson<{ data?: unknown }>(response);
   const ops = normalizeWorkflowAutoMaterializeOps(payload);
   if (!ops) {
-    throw new ApiError('Failed to parse auto-materialization response', response.status, payload);
+    throw new ApiError('Failed to parse auto-materialization response', 500, payload);
   }
   return ops;
 }
@@ -668,12 +637,20 @@ export async function getWorkflowDetail(
   fetcher: AuthorizedFetch,
   slug: string
 ): Promise<{ workflow: WorkflowDefinition; runs: WorkflowRun[] }> {
-  const response = await fetcher(`${API_BASE_URL}/workflows/${slug}`);
-  await ensureOk(response, 'Failed to load workflow details');
-  const payload = await parseJson<{ data?: { workflow?: unknown; runs?: unknown[] } }>(response);
+  const payload = await requestJson(fetcher, `/workflows/${slug}`, {
+    schema: z.object({
+      data: z
+        .object({
+          workflow: z.unknown().optional(),
+          runs: z.array(z.unknown()).optional()
+        })
+        .optional()
+    }),
+    errorMessage: 'Failed to load workflow details'
+  });
   const workflow = normalizeWorkflowDefinition(payload.data?.workflow);
   if (!workflow) {
-    throw new ApiError('Workflow response missing definition', response.status, payload);
+    throw new ApiError('Workflow response missing definition', 500, payload);
   }
   const runs = Array.isArray(payload.data?.runs)
     ? payload.data?.runs
@@ -687,12 +664,20 @@ export async function listWorkflowRunSteps(
   fetcher: AuthorizedFetch,
   runId: string
 ): Promise<{ run: WorkflowRun; steps: WorkflowRunStep[] }> {
-  const response = await fetcher(`${API_BASE_URL}/workflow-runs/${runId}/steps`);
-  await ensureOk(response, 'Failed to load workflow run steps');
-  const payload = await parseJson<{ data?: { run?: unknown; steps?: unknown[] } }>(response);
+  const payload = await requestJson(fetcher, `/workflow-runs/${runId}/steps`, {
+    schema: z.object({
+      data: z
+        .object({
+          run: z.unknown().optional(),
+          steps: z.array(z.unknown()).optional()
+        })
+        .optional()
+    }),
+    errorMessage: 'Failed to load workflow run steps'
+  });
   const run = normalizeWorkflowRun(payload.data?.run);
   if (!run) {
-    throw new ApiError('Workflow run response missing run', response.status, payload);
+    throw new ApiError('Workflow run response missing run', 500, payload);
   }
   const steps = Array.isArray(payload.data?.steps)
     ? payload.data?.steps
@@ -718,22 +703,33 @@ export async function listWorkflowEventTriggers(
     params.set('eventSource', filters.eventSource);
   }
   const query = params.toString();
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers${query ? `?${query}` : ''}`
+  const payload = await requestJson(
+    fetcher,
+    `/workflows/${encodeURIComponent(slug)}/triggers${query ? `?${query}` : ''}`,
+    {
+      schema: z.object({
+        data: z
+          .object({
+            workflow: z
+              .object({
+                id: z.unknown().optional(),
+                slug: z.unknown().optional(),
+                name: z.unknown().optional()
+              })
+              .optional(),
+            triggers: z.array(z.unknown()).optional()
+          })
+          .optional()
+      }),
+      errorMessage: 'Failed to load workflow event triggers'
+    }
   );
-  await ensureOk(response, 'Failed to load workflow event triggers');
-  const payload = await parseJson<{
-    data?: {
-      workflow?: { id?: unknown; slug?: unknown; name?: unknown };
-      triggers?: unknown[];
-    };
-  }>(response);
   const workflowRaw = payload.data?.workflow ?? {};
   const workflowId = typeof workflowRaw.id === 'string' ? workflowRaw.id : null;
   const workflowSlug = typeof workflowRaw.slug === 'string' ? workflowRaw.slug : slug;
   const workflowName = typeof workflowRaw.name === 'string' ? workflowRaw.name : workflowSlug;
   if (!workflowId || !workflowSlug || !workflowName) {
-    throw new ApiError('Invalid workflow trigger response', response.status, payload);
+    throw new ApiError('Invalid workflow trigger response', 500, payload);
   }
   const triggers = normalizeWorkflowEventTriggers(payload.data?.triggers);
   return {
@@ -751,14 +747,17 @@ export async function getWorkflowEventTrigger(
   slug: string,
   triggerId: string
 ): Promise<WorkflowEventTrigger> {
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`
+  const payload = await requestJson(
+    fetcher,
+    `/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
+    {
+      schema: requiredDataSchema,
+      errorMessage: 'Failed to load workflow event trigger'
+    }
   );
-  await ensureOk(response, 'Failed to load workflow event trigger');
-  const payload = await parseJson<{ data?: unknown }>(response);
   const trigger = normalizeWorkflowEventTrigger(payload.data);
   if (!trigger) {
-    throw new ApiError('Invalid workflow trigger response', response.status, payload);
+    throw new ApiError('Invalid workflow trigger response', 500, payload);
   }
   return trigger;
 }
@@ -768,16 +767,15 @@ export async function createWorkflowEventTrigger(
   slug: string,
   input: WorkflowEventTriggerCreateInput
 ): Promise<WorkflowEventTrigger> {
-  const response = await fetcher(`${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers`, {
+  const payload = await requestJson(fetcher, `/workflows/${encodeURIComponent(slug)}/triggers`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+    json: input,
+    schema: requiredDataSchema,
+    errorMessage: 'Failed to create workflow event trigger'
   });
-  await ensureOk(response, 'Failed to create workflow event trigger');
-  const payload = await parseJson<{ data?: unknown }>(response);
   const trigger = normalizeWorkflowEventTrigger(payload.data);
   if (!trigger) {
-    throw new ApiError('Invalid workflow trigger response', response.status, payload);
+    throw new ApiError('Invalid workflow trigger response', 500, payload);
   }
   return trigger;
 }
@@ -788,19 +786,19 @@ export async function updateWorkflowEventTrigger(
   triggerId: string,
   input: WorkflowEventTriggerUpdateInput
 ): Promise<WorkflowEventTrigger> {
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
+  const payload = await requestJson(
+    fetcher,
+    `/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input)
+      json: input,
+      schema: requiredDataSchema,
+      errorMessage: 'Failed to update workflow event trigger'
     }
   );
-  await ensureOk(response, 'Failed to update workflow event trigger');
-  const payload = await parseJson<{ data?: unknown }>(response);
   const trigger = normalizeWorkflowEventTrigger(payload.data);
   if (!trigger) {
-    throw new ApiError('Invalid workflow trigger response', response.status, payload);
+    throw new ApiError('Invalid workflow trigger response', 500, payload);
   }
   return trigger;
 }
@@ -810,14 +808,14 @@ export async function deleteWorkflowEventTrigger(
   slug: string,
   triggerId: string
 ): Promise<void> {
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
-    { method: 'DELETE' }
+  await requestJson(
+    fetcher,
+    `/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
+    {
+      method: 'DELETE',
+      errorMessage: 'Failed to delete workflow event trigger'
+    }
   );
-  if (response.status === 204) {
-    return;
-  }
-  await ensureOk(response, 'Failed to delete workflow event trigger');
 }
 
 export async function listWorkflowTriggerDeliveries(

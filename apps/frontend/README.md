@@ -8,6 +8,28 @@ The workflows surface now exposes a dedicated client and store for the topology 
 
 The provider automatically listens for `workflow.run.*` and `workflow.definition.updated` websocket events, queuing them for later visualization work while triggering a debounced background refresh after definitions change. Tests for the store live in `src/workflows/hooks/__tests__/useWorkflowGraph.test.tsx`, and Storybook-friendly mocks are available in `src/workflows/graph/mocks.ts` for building UI scenarios.
 
+## Shared API client
+
+`src/lib/apiClient.ts` exposes a small wrapper around our authorized fetch that normalizes error handling and JSON parsing and optionally validates responses with `zod`. Jobs and workflows APIs now call the client instead of reimplementing `fetch`/`ensureOk`/`parseJson` loops. To add the client to other feature areas:
+
+```ts
+import { createApiClient, type AuthorizedFetch } from '../lib/apiClient';
+import { API_BASE_URL } from '../config';
+import { z } from 'zod';
+
+const exampleSchema = z.object({ data: z.object({ value: z.string() }) });
+
+export async function fetchExample(fetcher: AuthorizedFetch) {
+  const client = createApiClient(fetcher, { baseUrl: API_BASE_URL });
+  return client.get('/examples/endpoint', {
+    schema: exampleSchema.transform(({ data }) => data.value),
+    errorMessage: 'Failed to load example payload'
+  });
+}
+```
+
+The client automatically applies auth headers, attempts to decode JSON once, and throws a shared `ApiError` with parsed error bodies when the response is not OK. Pairing a schema with a `.transform()` lets feature code collapse `payload.data` guards and return domain types directly.
+
 ## Environment variables
 
 Set the following variables in `.env.local` to target locally running services:
