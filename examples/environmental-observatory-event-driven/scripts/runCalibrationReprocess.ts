@@ -7,7 +7,6 @@ function parseArgs(argv: string[]): {
   planPath?: string;
   mode: 'all' | 'selected';
   selectedPartitions: string[];
-  maxConcurrency?: number;
   pollIntervalMs?: number;
 } {
   const args: Record<string, string[]> = {};
@@ -32,18 +31,12 @@ function parseArgs(argv: string[]): {
   const planId = args['plan-id']?.[0] ?? args.planId?.[0];
   const planPath = args['plan-path']?.[0] ?? args.planPath?.[0];
   if (!planId && !planPath) {
-    throw new Error('Usage: tsx runCalibrationReprocess.ts --plan-id <id> [--plan-path <filestore path>] [--mode all|selected] [--partition <minute|partitionKey>] [--max-concurrency <number>] [--poll-interval <ms>]');
+    throw new Error('Usage: tsx runCalibrationReprocess.ts --plan-id <id> [--plan-path <filestore path>] [--mode all|selected] [--partition <minute|partitionKey>] [--poll-interval <ms>]');
   }
 
   const modeRaw = args.mode?.[0] ?? 'all';
   const mode = modeRaw === 'selected' ? 'selected' : 'all';
   const selectedPartitions = (args.partition ?? args.partitions ?? []).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
-
-  const maxConcurrencyRaw = args['max-concurrency']?.[0] ?? args.maxConcurrency?.[0];
-  const maxConcurrency = maxConcurrencyRaw ? Number(maxConcurrencyRaw) : undefined;
-  if (maxConcurrencyRaw && (!Number.isFinite(maxConcurrency as number) || (maxConcurrency as number) <= 0)) {
-    throw new Error(`Invalid max concurrency '${maxConcurrencyRaw}'.`);
-  }
 
   const pollIntervalRaw = args['poll-interval']?.[0] ?? args.pollInterval?.[0];
   const pollIntervalMs = pollIntervalRaw ? Number(pollIntervalRaw) : undefined;
@@ -51,7 +44,7 @@ function parseArgs(argv: string[]): {
     throw new Error(`Invalid poll interval '${pollIntervalRaw}'. Expected a number >= 250.`);
   }
 
-  return { planId, planPath, mode, selectedPartitions, maxConcurrency, pollIntervalMs };
+  return { planId, planPath, mode, selectedPartitions, pollIntervalMs };
 }
 
 async function main(): Promise<void> {
@@ -71,7 +64,6 @@ async function main(): Promise<void> {
       planPath: args.planPath,
       mode: args.mode,
       selectedPartitions: args.selectedPartitions,
-      maxConcurrency: args.maxConcurrency,
       pollIntervalMs: args.pollIntervalMs,
       catalogBaseUrl,
       catalogApiToken: catalogToken,

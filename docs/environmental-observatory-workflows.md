@@ -42,10 +42,10 @@ graph TD
 
 ## Data drop and directory layout
 
-Each instrument pushes a minute CSV into an inbox (`/tmp/apphub-observatory/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to the Timestore ingestion job:
+Each instrument pushes a minute CSV into an inbox (`/tmp/apphub-scratch/observatory/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to the Timestore ingestion job:
 
 ```
-/tmp/apphub-observatory/
+/tmp/apphub-scratch/observatory/
   inbox/
     instrument_alpha_202508010900.csv
     instrument_alpha_202508011000.csv
@@ -71,7 +71,7 @@ CSV columns:
 
 - `scripts/materializeConfig.ts` now records `filestore.calibrationsPrefix` (default `datasets/observatory/calibrations`) and `filestore.plansPrefix` (`datasets/observatory/calibrations/plans`) in the generated configuration.
 - The materializer pre-creates both prefixes in Filestore so operators can upload calibration JSON/CSV files and future reprocessing plans without manual setup.
-- Workflows, triggers, and services read these prefixes from `.generated/observatory-config.json`; upcoming calibration tooling will rely on them to locate operator uploads and generated plan artifacts.
+- Workflows, triggers, and services read these prefixes from the scratch config (`${OBSERVATORY_DATA_ROOT}/config/observatory-config.json` by default); upcoming calibration tooling will rely on them to locate operator uploads and generated plan artifacts.
 
 ## Jobs
 
@@ -177,8 +177,8 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
    cd services/filestore-ingest-watcher
    npm install
 
-   WATCH_ROOT=/tmp/apphub-observatory/inbox \
-   WATCH_ARCHIVE_DIR=/tmp/apphub-observatory/archive \
+   WATCH_ROOT=/tmp/apphub-scratch/observatory/inbox \
+   WATCH_ARCHIVE_DIR=/tmp/apphub-scratch/observatory/archive \
    FILESTORE_BASE_URL=http://127.0.0.1:4300 \
    FILESTORE_BACKEND_ID=1 \
    FILESTORE_TARGET_PREFIX=datasets/observatory/inbox \
@@ -207,9 +207,9 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
        "partitionKey": "2025-08-01T09:00",
        "parameters": {
          "minute": "2025-08-01T09:00",
-         "inboxDir": "/tmp/apphub-observatory/inbox",
-         "stagingDir": "/tmp/apphub-observatory/staging",
-         "archiveDir": "/tmp/apphub-observatory/archive",
+         "inboxDir": "/tmp/apphub-scratch/observatory/inbox",
+         "stagingDir": "/tmp/apphub-scratch/observatory/staging",
+         "archiveDir": "/tmp/apphub-scratch/observatory/archive",
         "timestoreBaseUrl": "http://127.0.0.1:4200",
         "timestoreDatasetSlug": "observatory-timeseries",
         "timestoreDatasetName": "Observatory Time Series",
@@ -223,6 +223,6 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
    curl -sS http://127.0.0.1:4000/workflows/observatory-daily-publication/assets | jq
    ```
 
-9. After the visualization workflow emits `observatory.visualizations.minute`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `/tmp/apphub-observatory/reports/<minute>/` to view the Markdown, HTML, and JSON outputs side by side.
+9. After the visualization workflow emits `observatory.visualizations.minute`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `/tmp/apphub-scratch/observatory/reports/<minute>/` to view the Markdown, HTML, and JSON outputs side by side.
 
 This example demonstrates how AppHub’s asset graph keeps downstream pages synchronized with instrument feeds. By pairing partitioned assets, Timestore manifests, SVG plots, and auto-materialized reports, operators get traceable lineage and consistently fresh observatory dashboards.

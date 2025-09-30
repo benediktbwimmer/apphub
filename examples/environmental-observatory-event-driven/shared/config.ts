@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 export type ObservatoryPathConfig = {
@@ -93,12 +94,21 @@ function resolveCandidatePaths(): string[] {
 
   const cwd = process.cwd();
   const guesses = new Set<string>();
+  const dataRoot = process.env.OBSERVATORY_DATA_ROOT?.trim();
+  if (dataRoot) {
+    guesses.add(path.resolve(dataRoot, 'config', 'observatory-config.json'));
+  }
+  const scratchRoot = process.env.APPHUB_SCRATCH_ROOT?.trim();
+  if (scratchRoot) {
+    guesses.add(path.resolve(scratchRoot, 'observatory', 'config', 'observatory-config.json'));
+  }
   guesses.add(path.resolve(cwd, GENERATED_RELATIVE_PATH));
   guesses.add(path.resolve(cwd, '..', GENERATED_RELATIVE_PATH));
   guesses.add(path.resolve(cwd, '..', '..', GENERATED_RELATIVE_PATH));
   guesses.add(path.resolve(cwd, '..', '..', '..', GENERATED_RELATIVE_PATH));
   guesses.add(path.resolve(__dirname, '..', GENERATED_RELATIVE_PATH));
   guesses.add(path.resolve(__dirname, '..', '..', GENERATED_RELATIVE_PATH));
+  guesses.add(path.resolve(os.tmpdir(), 'observatory', 'config', 'observatory-config.json'));
   return Array.from(guesses);
 }
 
@@ -122,7 +132,7 @@ function loadRawConfig(configPath?: string): ObservatoryConfig {
   }
 
   throw new Error(
-    'Observatory configuration not found. Provide OBSERVATORY_CONFIG_PATH or generate .generated/observatory-config.json.'
+    'Observatory configuration not found. Provide OBSERVATORY_CONFIG_PATH or run the bootstrap to materialize the scratch config file.'
   );
 }
 

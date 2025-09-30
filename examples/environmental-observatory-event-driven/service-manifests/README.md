@@ -6,7 +6,7 @@ This manifest registers the the supporting dashboard service for the event-drive
 | --- | --- | --- |
 | `observatory-dashboard` | Serves observatory reports plus the aggregate visualization. | Runs from `examples/environmental-observatory-event-driven/services/observatory-dashboard` and listens on `http://127.0.0.1:4311`. |
 
-Environment variables are minimal because both services load `.generated/observatory-config.json`:
+Environment variables are minimal because both services load the scratch config file (default `${OBSERVATORY_DATA_ROOT}/config/observatory-config.json`):
 
 - `OBSERVATORY_CONFIG_PATH` (optional) – explicit path to the generated config if you do not want to rely on the default discovery.
 - `PORT` / `HOST` – standard Fastify binding options.

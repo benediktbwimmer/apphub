@@ -22,27 +22,12 @@ type TriggerDefinition = {
   }>;
   parameterTemplate: Record<string, unknown>;
   metadata: Record<string, unknown>;
-  throttleWindowMs?: number | null;
-  throttleCount?: number | null;
-  maxConcurrency?: number | null;
   idempotencyKeyExpression?: string;
   runKeyTemplate?: string;
 };
 
 function sanitizeTriggerDefinition(definition: TriggerDefinition): TriggerDefinition {
   const normalized: TriggerDefinition = { ...definition };
-
-  if (!(typeof normalized.throttleWindowMs === 'number' && normalized.throttleWindowMs > 0)) {
-    delete normalized.throttleWindowMs;
-  }
-
-  if (!(typeof normalized.throttleCount === 'number' && normalized.throttleCount > 0)) {
-    delete normalized.throttleCount;
-  }
-
-  if (!(typeof normalized.maxConcurrency === 'number' && normalized.maxConcurrency > 0)) {
-    delete normalized.maxConcurrency;
-  }
 
   return normalized;
 }
@@ -171,9 +156,6 @@ async function ensureTrigger(
         predicates: definition.predicates,
         parameterTemplate: definition.parameterTemplate,
         metadata: definition.metadata,
-        throttleWindowMs: definition.throttleWindowMs,
-        throttleCount: definition.throttleCount,
-        maxConcurrency: definition.maxConcurrency,
         idempotencyKeyExpression: definition.idempotencyKeyExpression,
         runKeyTemplate: definition.runKeyTemplate
       }
@@ -195,9 +177,6 @@ async function ensureTrigger(
       predicates: definition.predicates,
       parameterTemplate: definition.parameterTemplate,
       metadata: definition.metadata,
-      throttleWindowMs: definition.throttleWindowMs,
-      throttleCount: definition.throttleCount,
-      maxConcurrency: definition.maxConcurrency,
       idempotencyKeyExpression: definition.idempotencyKeyExpression,
       runKeyTemplate: definition.runKeyTemplate
     }
@@ -498,9 +477,6 @@ async function main(): Promise<void> {
       ],
       parameterTemplate: ingestTemplate,
       metadata: ingestMetadata,
-      throttleWindowMs: null,
-      throttleCount: null,
-      maxConcurrency: null,
       idempotencyKeyExpression: '{{ event.payload.node.metadata.minute }}-{{ event.payload.path | replace: "/", "_" | replace: ":", "-" }}'
     },
     {
@@ -514,9 +490,6 @@ async function main(): Promise<void> {
       ],
       parameterTemplate: publicationTemplate,
       metadata: publicationMetadata,
-      throttleWindowMs: null,
-      throttleCount: null,
-      maxConcurrency: null,
       idempotencyKeyExpression:
         '{{ event.payload.instrumentId | default: "unknown" }}-{{ event.payload.partitionKey }}',
       runKeyTemplate:
@@ -533,9 +506,6 @@ async function main(): Promise<void> {
       ],
       parameterTemplate: dashboardTemplate,
       metadata: dashboardMetadata,
-      throttleWindowMs: 0,
-      throttleCount: null,
-      maxConcurrency: 1,
       idempotencyKeyExpression:
         'observatory-dashboard-{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey }}',
       runKeyTemplate: 'observatory-dashboard-{{ parameters.partitionKey | replace: ":", "-" }}'
@@ -551,9 +521,6 @@ async function main(): Promise<void> {
       ],
       parameterTemplate: dashboardFallbackTemplate,
       metadata: dashboardMetadata,
-      throttleWindowMs: 0,
-      throttleCount: null,
-      maxConcurrency: 1,
       idempotencyKeyExpression:
         'observatory-dashboard-{{ event.payload.partitionKeyFields.window | default: event.payload.minute }}',
       runKeyTemplate: 'observatory-dashboard-{{ parameters.partitionKey | replace: ":", "-" }}'
@@ -570,9 +537,6 @@ async function main(): Promise<void> {
       ],
       parameterTemplate: calibrationTemplate,
       metadata: calibrationMetadata,
-      throttleWindowMs: null,
-      throttleCount: null,
-      maxConcurrency: null,
       idempotencyKeyExpression:
         'observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: "/", "_" | replace: ":", "-" }}',
       runKeyTemplate:

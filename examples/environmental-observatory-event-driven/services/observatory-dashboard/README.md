@@ -6,7 +6,7 @@ The dashboard renders the latest observatory report bundle (HTML/MD/JSON) and au
 
 ```bash
 npm install
-OBSERVATORY_CONFIG_PATH=$(pwd)/../../.generated/observatory-config.json \
+OBSERVATORY_CONFIG_PATH="${OBSERVATORY_CONFIG_PATH:-${APPHUB_SCRATCH_ROOT:-/tmp/apphub-scratch}/observatory/config/observatory-config.json}" \
 PORT=4311 \
 HOST=0.0.0.0 \
 DASHBOARD_REFRESH_MS=10000 \
@@ -19,7 +19,7 @@ npm run dev
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OBSERVATORY_CONFIG_PATH` | `.generated/observatory-config.json` | Location of the generated config file. |
+| `OBSERVATORY_CONFIG_PATH` | `${OBSERVATORY_DATA_ROOT}/config/observatory-config.json` | Location of the generated config file. |
 | `PORT` | `4311` | HTTP port the dashboard listens on. |
 | `HOST` | `0.0.0.0` | Bind interface. |
 | `DASHBOARD_REFRESH_MS` | `10000` | Client polling interval for `/api/status`. |

@@ -1,4 +1,5 @@
 import { mkdir, readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { resolveContainerPath as resolveSharedContainerPath } from './containerPaths';
 import { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
@@ -74,13 +75,15 @@ export function isObservatoryModule(moduleId: string): boolean {
 }
 
 export function resolveGeneratedObservatoryConfigPath(repoRoot: string): string {
-  return path.resolve(
-    repoRoot,
-    'examples',
-    'environmental-observatory-event-driven',
-    '.generated',
-    'observatory-config.json'
-  );
+  const dataRoot = process.env.OBSERVATORY_DATA_ROOT?.trim();
+  const scratchRoot = process.env.APPHUB_SCRATCH_ROOT?.trim();
+  if (dataRoot && dataRoot.length > 0) {
+    return path.resolve(dataRoot, 'config', 'observatory-config.json');
+  }
+  if (scratchRoot && scratchRoot.length > 0) {
+    return path.resolve(scratchRoot, 'observatory', 'config', 'observatory-config.json');
+  }
+  return path.resolve(os.tmpdir(), 'observatory', 'config', 'observatory-config.json');
 }
 
 export function isObservatoryWorkflowSlug(slug: string): boolean {
@@ -214,7 +217,6 @@ export function applyObservatoryWorkflowDefaults(
       defaults.selectedPartitions = Array.isArray(defaults.selectedPartitions)
         ? defaults.selectedPartitions
         : [];
-      defaults.maxConcurrency = defaults.maxConcurrency ?? 3;
       defaults.pollIntervalMs = defaults.pollIntervalMs ?? 1500;
       defaults.catalogBaseUrl = config.catalog?.baseUrl ?? defaults.catalogBaseUrl ?? null;
       defaults.catalogApiToken = config.catalog?.apiToken ?? defaults.catalogApiToken ?? null;

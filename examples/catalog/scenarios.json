@@ -46,7 +46,7 @@
         "configPath": "examples/environmental-observatory-event-driven/config.json",
         "module": "github.com/apphub/examples/environmental-observatory-event-driven",
         "variables": {
-          "OBSERVATORY_DATA_ROOT": "/tmp/apphub-observatory"
+          "OBSERVATORY_DATA_ROOT": "/tmp/apphub-scratch/observatory"
         }
       },
       "analyticsTag": "service__observatory_services"
@@ -673,8 +673,8 @@
         },
         "defaultParameters": {
           "maxFiles": 1000,
-          "stagingDir": "/tmp/apphub-observatory/staging",
-          "archiveDir": "/tmp/apphub-observatory/archive",
+          "stagingDir": "/tmp/apphub-scratch/observatory/staging",
+          "archiveDir": "/tmp/apphub-scratch/observatory/archive",
           "filestoreBaseUrl": "http://127.0.0.1:4300",
           "filestoreBackendId": 1,
           "inboxPrefix": "datasets/observatory/inbox",
@@ -1029,8 +1029,8 @@
           "lookbackMinutes": 180,
           "timestoreBaseUrl": "http://127.0.0.1:4200",
           "timestoreDatasetSlug": "observatory-timeseries",
-          "plotsDir": "/tmp/apphub-observatory/plots",
-          "reportsDir": "/tmp/apphub-observatory/reports",
+          "plotsDir": "/tmp/apphub-scratch/observatory/plots",
+          "reportsDir": "/tmp/apphub-scratch/observatory/reports",
           "metastoreBaseUrl": "http://127.0.0.1:4100",
           "metastoreNamespace": "observatory.reports",
           "timestoreAuthToken": null,

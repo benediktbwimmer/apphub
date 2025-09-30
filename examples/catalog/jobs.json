@@ -358,8 +358,8 @@
         },
         "defaultParameters": {
           "maxFiles": 1000,
-          "stagingDir": "/tmp/apphub-observatory/staging",
-          "archiveDir": "/tmp/apphub-observatory/archive",
+          "stagingDir": "/tmp/apphub-scratch/observatory/staging",
+          "archiveDir": "/tmp/apphub-scratch/observatory/archive",
           "filestoreBaseUrl": "http://127.0.0.1:4300",
           "filestoreBackendId": 1,
           "inboxPrefix": "datasets/observatory/inbox",

@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 
 export type ObservatoryConfig = {
@@ -163,14 +164,16 @@ export function createEventDrivenObservatoryConfig(
     return undefined;
   };
 
-  const exampleRoot = path.resolve(repoRoot, 'examples', 'environmental-observatory-event-driven');
-  const defaultDataDir = path.join(exampleRoot, 'data');
+  const scratchRoot = optionalString(getVar('APPHUB_SCRATCH_ROOT'))
+    ?? optionalString(getVar('TMPDIR'))
+    ?? os.tmpdir();
+  const defaultDataDir = path.resolve(scratchRoot, 'observatory');
 
   const resolvedOutput = options.outputPath ?? getVar('OBSERVATORY_CONFIG_OUTPUT');
   const outputPath = path.resolve(
     resolvedOutput && resolvedOutput.trim().length > 0
       ? resolvedOutput
-      : path.join(exampleRoot, '.generated', 'observatory-config.json')
+      : path.join(defaultDataDir, 'config', 'observatory-config.json')
   );
 
   const dataRoot = resolvePathValue(

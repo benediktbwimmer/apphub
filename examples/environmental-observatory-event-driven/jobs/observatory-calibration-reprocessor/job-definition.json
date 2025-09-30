@@ -21,7 +21,6 @@
         "type": "array",
         "items": { "type": "string", "minLength": 1 }
       },
-      "maxConcurrency": { "type": "number", "minimum": 1, "maximum": 10 },
       "pollIntervalMs": { "type": "number", "minimum": 250, "maximum": 10000 },
       "catalogBaseUrl": { "type": "string", "minLength": 1 },
       "catalogApiToken": { "type": "string" },
@@ -43,7 +42,6 @@
   },
   "defaultParameters": {
     "mode": "all",
-    "maxConcurrency": 3,
     "pollIntervalMs": 1500,
     "catalogBaseUrl": "http://127.0.0.1:4000",
     "catalogApiToken": null,

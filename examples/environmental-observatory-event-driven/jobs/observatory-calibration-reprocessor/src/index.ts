@@ -17,7 +17,6 @@ import {
 const DEFAULT_JOB_SLUG = 'observatory-calibration-reprocessor';
 const DEFAULT_PLAN_VERSION = 1;
 const DEFAULT_METASTORE_NAMESPACE = 'observatory.reprocess.plans';
-const DEFAULT_MAX_CONCURRENCY = 3;
 const DEFAULT_POLL_INTERVAL_MS = 1500;
 const USER_AGENT = 'observatory-calibration-reprocessor/0.1.0';
 
@@ -41,7 +40,6 @@ type ReprocessorParameters = {
   planId: string | null;
   mode: 'all' | 'selected';
   selectedPartitions: string[];
-  maxConcurrency: number;
   pollIntervalMs: number;
   catalogBaseUrl: string;
   catalogApiToken?: string;
@@ -155,14 +153,6 @@ function sanitizeIdentifier(value: string | null | undefined, fallback: string):
   return normalized || fallback;
 }
 
-function ensurePositiveInteger(value: number | null | undefined, fallback: number, min = 1, max = 10) {
-  if (!value || !Number.isFinite(value)) {
-    return fallback;
-  }
-  const clamped = Math.max(min, Math.min(max, Math.floor(value)));
-  return clamped;
-}
-
 function parseMode(value: unknown): 'all' | 'selected' {
   const normalized = ensureString(value).toLowerCase();
   return normalized === 'selected' ? 'selected' : 'all';
@@ -189,12 +179,6 @@ function parseParameters(raw: unknown): ReprocessorParameters {
     .map((entry) => ensureString(entry))
     .filter((entry) => entry.length > 0);
 
-  const maxConcurrency = ensurePositiveInteger(
-    ensureNumber(raw.maxConcurrency ?? raw.max_concurrency),
-    DEFAULT_MAX_CONCURRENCY,
-    1,
-    10
-  );
   const pollIntervalCandidate = ensureNumber(raw.pollIntervalMs ?? raw.poll_interval_ms);
   const pollIntervalMs = pollIntervalCandidate && pollIntervalCandidate >= 250
     ? Math.min(pollIntervalCandidate, 10_000)
@@ -237,7 +221,6 @@ function parseParameters(raw: unknown): ReprocessorParameters {
     planId: planId || null,
     mode,
     selectedPartitions,
-    maxConcurrency,
     pollIntervalMs,
     catalogBaseUrl,
     catalogApiToken: ensureString(raw.catalogApiToken ?? raw.catalog_api_token ?? ''),
@@ -866,35 +849,21 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     );
 
     const outcomes: PartitionRunOutcome[] = [];
-    const workQueue = [...targets];
-    const workers: Array<Promise<void>> = [];
-    const concurrency = Math.min(parameters.maxConcurrency, workQueue.length);
 
-    for (let index = 0; index < concurrency; index += 1) {
-      const worker = (async () => {
-        while (workQueue.length > 0) {
-          const execution = workQueue.shift();
-          if (!execution) {
-            break;
-          }
-          const outcome = await processPartitionExecution(
-            parameters,
-            plan,
-            execution.calibration,
-            execution.partition,
-            filestoreClient,
-            planPath,
-            parameters.filestorePrincipal || undefined,
-            parameters.pollIntervalMs,
-            context
-          );
-          outcomes.push(outcome);
-        }
-      })();
-      workers.push(worker);
+    for (const execution of targets) {
+      const outcome = await processPartitionExecution(
+        parameters,
+        plan,
+        execution.calibration,
+        execution.partition,
+        filestoreClient,
+        planPath,
+        parameters.filestorePrincipal || undefined,
+        parameters.pollIntervalMs,
+        context
+      );
+      outcomes.push(outcome);
     }
-
-    await Promise.all(workers);
 
     const summary = computeResultSummary(outcomes);
     plan.state = summary.failed > 0 ? 'failed' : 'completed';

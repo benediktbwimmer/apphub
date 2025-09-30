@@ -13,7 +13,7 @@
         { "key": "PORT", "value": "4311" },
         {
           "key": "OBSERVATORY_CONFIG_PATH",
-          "value": "examples/environmental-observatory-event-driven/.generated/observatory-config.json"
+          "value": "${OBSERVATORY_CONFIG_PATH}"
         },
         {
           "key": "OBSERVATORY_DATA_ROOT",

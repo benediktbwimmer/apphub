@@ -70,8 +70,8 @@
   "placeholders": [
     {
       "name": "OBSERVATORY_DATA_ROOT",
-      "description": "Base directory on the host where observatory datasets and artifacts are stored.",
-      "default": "/tmp/apphub-observatory"
+      "description": "Scratch directory where observatory datasets and artifacts are stored inside the sandbox.",
+      "default": "{{ env.APPHUB_SCRATCH_ROOT | default: env.TMPDIR | default:/tmp/apphub-scratch }}/observatory"
     }
   ],
   "bootstrap": {
@@ -80,6 +80,8 @@
         "type": "setEnvDefaults",
         "description": "Capture optional observatory overrides provided via the CLI environment",
         "values": {
+          "OBSERVATORY_DATA_ROOT": "{{ placeholders.OBSERVATORY_DATA_ROOT }}",
+          "OBSERVATORY_CONFIG_PATH": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/config/observatory-config.json",
           "OBSERVATORY_FILESTORE_BACKEND_ID": "{{ env.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 }}",
           "OBSERVATORY_TIMESTORE_STORAGE_ROOT": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/storage",
           "OBSERVATORY_TIMESTORE_CACHE_DIR": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/cache",
@@ -90,9 +92,17 @@
         }
       },
       {
+        "type": "ensureDirectories",
+        "description": "Create observatory scratch directories",
+        "directories": [
+          "{{ placeholders.OBSERVATORY_DATA_ROOT }}",
+          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/config"
+        ]
+      },
+      {
         "type": "writeJsonFile",
         "description": "Materialize the observatory runtime configuration",
-        "path": "{{ paths.repoRoot }}/examples/environmental-observatory-event-driven/.generated/observatory-config.json",
+        "path": "{{ variables.OBSERVATORY_CONFIG_PATH | default: env.OBSERVATORY_CONFIG_PATH }}",
         "content": {
           "paths": {
             "inbox": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/datasets/observatory/inbox",
