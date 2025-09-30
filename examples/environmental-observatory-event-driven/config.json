@@ -72,6 +72,11 @@
       "name": "OBSERVATORY_DATA_ROOT",
       "description": "Scratch directory where observatory datasets and artifacts are stored inside the sandbox.",
       "default": "{{ env.APPHUB_SCRATCH_ROOT | default: env.TMPDIR | default:/tmp/apphub-scratch }}/observatory"
+    },
+    {
+      "name": "OBSERVATORY_CONFIG_PATH",
+      "description": "Location of the generated observatory runtime configuration file.",
+      "default": "{{ env.APPHUB_SCRATCH_ROOT | default: env.TMPDIR | default:/tmp/apphub-scratch }}/observatory/config/observatory-config.json"
     }
   ],
   "bootstrap": {
