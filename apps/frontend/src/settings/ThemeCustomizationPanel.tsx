@@ -617,7 +617,7 @@ function ActionRow({
 
 interface TokenAccordionProps {
   readonly title: string;
-  readonly children: React.ReactNode;
+  readonly children: ReactNode;
 }
 
 function TokenAccordion({ title, children }: TokenAccordionProps) {
@@ -633,7 +633,7 @@ function TokenAccordion({ title, children }: TokenAccordionProps) {
 
 interface LabeledFieldProps {
   readonly label: string;
-  readonly children: React.ReactNode;
+  readonly children: ReactNode;
   readonly error?: string;
 }
 
