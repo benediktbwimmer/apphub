@@ -10,14 +10,14 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@apphub/filestore-client": "workspace:*",
-    "@apphub/shared": "workspace:*",
+    "@apphub/filestore-client": "file:../../packages/filestore-client",
+    "@apphub/shared": "file:../../packages/shared",
     "chokidar": "^3.6.0",
     "fastify": "^4.27.2",
     "pino": "^9.4.0"
   },
   "devDependencies": {
-    "@types/chokidar": "^3.5.5",
+    "@types/chokidar": "^2.1.7",
     "tsx": "^4.15.2",
     "typescript": "^5.9.2"
   }

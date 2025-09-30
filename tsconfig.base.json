@@ -80,6 +80,12 @@
       ],
       "@apphub/kubectl-mock/*": [
         "packages/kubectl-mock/src/*"
+      ],
+      "@apphub/ticketing": [
+        "packages/ticketing/src/index.ts"
+      ],
+      "@apphub/ticketing/*": [
+        "packages/ticketing/src/*"
       ]
     }
   }

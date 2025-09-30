@@ -1,0 +1,102 @@
+{
+  "$ref": "#/definitions/TicketIndex",
+  "definitions": {
+    "TicketIndex": {
+      "type": "object",
+      "properties": {
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "tickets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 120,
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
+              },
+              "title": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "backlog",
+                  "in_progress",
+                  "blocked",
+                  "review",
+                  "done",
+                  "archived"
+                ]
+              },
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "critical"
+                ]
+              },
+              "assignees": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dependencies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/TicketIndex/properties/tickets/items/properties/id"
+                }
+              },
+              "dependents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/TicketIndex/properties/tickets/items/properties/id"
+                }
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "status",
+              "priority",
+              "assignees",
+              "tags",
+              "dependencies",
+              "dependents",
+              "updatedAt",
+              "revision"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "generatedAt",
+        "tickets"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "apphub-ticketing",
+  "description": "Ticketing MCP server backed by the AppHub monorepo",
+  "command": "npm",
+  "args": [
+    "run",
+    "mcp",
+    "--workspace",
+    "@apphub/ticketing-service"
+  ],
+  "cwd": "../../",
+  "env": {
+    "TICKETING_MCP_TOKENS": "change-me",
+    "TICKETING_MCP_ACTOR": "agent"
+  }
+}
