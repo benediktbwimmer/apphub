@@ -1,6 +1,6 @@
 # Ticketing MCP Server
 
-The ticketing service ships an MCP-compatible interface so local agents can create, update, and inspect tickets while sharing the same Git-backed store as the HTTP API.
+The ticketing service ships an MCP-compatible interface so local agents can create, update, and inspect tickets while sharing the same SQLite-backed store as the HTTP API.
 
 ## Getting Started
 
@@ -18,7 +18,7 @@ The server uses stdio transport by default, making it easy to plug into agents s
 | `TICKETING_MCP_ENABLED` | `true` | Disable to skip loading the MCP server in automation contexts. |
 | `TICKETING_MCP_TOKENS` | *(empty)* | Comma-separated list of bearer tokens required by tool invocations. Leave empty to allow unauthenticated access. |
 | `TICKETING_MCP_ACTOR` | `mcp` | Default actor recorded in ticket history when callers do not override `actor`. |
-| `TICKETING_MCP_TICKETS_DIR` | `tickets/` | Override the ticket directory (defaults to the same path as the HTTP service). |
+| `TICKETING_MCP_TICKETS_DIR` | `tickets/` | Override the ticket data directory (defaults to the same path as the HTTP service). |
 
 The MCP server reuses the ticket store directly, so all changes immediately appear in the HTTP API and derived artifacts.
 
@@ -38,7 +38,7 @@ All tool responses include a JSON payload plus a short text summary, which most 
 
 ## Development Notes
 
-- The MCP server relies on the shared `@apphub/ticketing` package for validation and file IO, ensuring parity with the HTTP service.
+- The MCP server relies on the shared `@apphub/ticketing` package for validation and database access, ensuring parity with the HTTP service.
 - Because commands run over stdio, avoid writing to stdout in custom scripts. Diagnostics are emitted on stderr.
 - Integration tests under `services/ticketing/tests/mcp.test.ts` exercise the handlers without spinning up a transport.
 
@@ -46,7 +46,7 @@ All tool responses include a JSON payload plus a short text summary, which most 
 
 1. Set `TICKETING_MCP_TOKENS` in a local `.env.local` or agent manifest.
 2. Configure your MCP-capable agent to run `npm run mcp --workspace @apphub/ticketing-service` from the repo root.
-3. Confirm that `ticket_list` returns data and `ticket_create` writes `tickets/*.ticket.yaml` files.
+3. Confirm that `ticket_list` returns data and `ticket_create` persists new rows in `tickets.db` (inspect with `sqlite3` if needed).
 
 > Note: Advanced fields such as links, metadata, or seed history are currently omitted from the MCP contract to satisfy Codex CLI parsing quirks. The HTTP API continues to support these fields.
 4. Coordinate token distribution with teammates before enabling in shared environments.

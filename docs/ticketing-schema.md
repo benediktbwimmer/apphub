@@ -1,11 +1,16 @@
 # Ticketing Schema and Storage Model
 
-This document describes the canonical data model and persistence layout used by the ticketing service. It is the contract shared by the MCP server, REST API, file store, and UI.
+This document describes the canonical data model and persistence layout used by the ticketing service. It is the contract shared by the MCP server, REST API, SQLite backend, and UI.
 
-## Ticket Files
-- Location: `tickets/<ticket-id>.ticket.yaml`
-- Format: YAML document validated by `@apphub/ticketing` schemas.
-- All fields except `dependents` are persisted. `dependents` is derived during index builds.
+## Storage Layout
+- Location: `${TICKETING_TICKETS_DIR}/tickets.db` (defaults to `./tickets/tickets.db`).
+- Engine: `better-sqlite3` opened in WAL mode.
+- Table schema:
+  - `tickets(id TEXT PRIMARY KEY)`
+  - `data TEXT` — JSON blob validated by `@apphub/ticketing` schemas.
+  - `revision INTEGER` — optimistic locking counter.
+  - `created_at TEXT`, `updated_at TEXT` — ISO timestamps mirrored in the JSON payload.
+- All fields except `dependents` are persisted. `dependents` is derived during artifact rebuilds.
 
 ### Ticket Fields
 | Field | Type | Notes |
@@ -40,12 +45,12 @@ type Activity = {
 ```
 
 ## Derived Artifacts
-The store keeps two JSON artifacts for fast lookups and UIs:
+The store maintains two in-memory artifacts for fast lookups and UIs:
 
-- `tickets/index.json` — array of summarized tickets with `dependents` populated and timestamps for cache busting.
-- `tickets/dependencies.json` — adjacency list representing the dependency graph.
+- Ticket index — array of summarized tickets with `dependents` populated and timestamps for cache busting.
+- Dependency graph — adjacency list representing the dependency graph.
 
-These files include a `generatedAt` timestamp and are regenerated after each mutation.
+They are regenerated after each mutation or watcher refresh and exposed through `TicketStore#getIndex()` and `TicketStore#getDependencyGraph()`. No additional files are written to disk.
 
 ## Concurrency and Revisions
 - Mutations accept an optional `expectedRevision`. Conflicts raise `TicketConflictError` before touching the filesystem.
@@ -65,11 +70,11 @@ Run `npm run generate:schema --workspace @apphub/ticketing` to refresh them afte
 ## Validation Pipeline
 1. Incoming payloads are parsed with Zod schemas in `packages/ticketing/src/schema.ts`.
 2. Before persisting, objects are normalized (dedupe arrays, trim whitespace, drop self references).
-3. Artifacts (`index.json`, `dependencies.json`) are validated against their own schemas before writing.
-4. YAML ticket files are parsed and validated on every load; malformed files raise `TicketValidationError`.
+3. Artifacts (index and dependency graph) are validated against their own schemas before being published to callers.
+4. Stored tickets are parsed from JSON and validated on every load; malformed rows raise `TicketValidationError`.
 
-## File Naming Conventions
-- Ticket filenames must match `^[a-zA-Z0-9][a-zA-Z0-9._-]*$`.
+## Ticket Identifier Rules
+- Ticket IDs must match `^[a-zA-Z0-9][a-zA-Z0-9._-]*$`.
 - Default IDs derive from a slugified title. Collisions append `-1`, `-2`, etc.
 - Manual IDs supplied in new ticket payloads are treated as authoritative; duplicates throw.
 

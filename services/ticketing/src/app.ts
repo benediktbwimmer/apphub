@@ -50,8 +50,8 @@ export const createApp = async (config: TicketingConfig): Promise<CreateAppResul
 
   let watcher: chokidar.FSWatcher | undefined;
   if (config.enableWatcher) {
-    const pattern = join(store.getRootDir(), `*${store.getTicketExtension()}`);
-    watcher = chokidar.watch(pattern, {
+    const databasePath = store.getDatabasePath();
+    watcher = chokidar.watch(databasePath, {
       ignoreInitial: false,
       awaitWriteFinish: {
         stabilityThreshold: 150,
@@ -62,28 +62,28 @@ export const createApp = async (config: TicketingConfig): Promise<CreateAppResul
     const triggerRefresh = (reason: string) => {
       ctx.metrics.ticketRefreshes.inc({ reason });
       store.refreshFromDisk().catch((error) => {
-        app.log.error({ err: error, reason }, 'Failed to refresh tickets from disk');
+        app.log.error({ err: error, reason }, 'Failed to refresh tickets from storage');
       });
     };
 
     watcher.on('ready', () => {
       readiness.watcher = true;
       metrics.readinessGauge.set({ component: 'watcher' }, 1);
-      app.log.info({ pattern }, 'Ticket watcher ready');
+      app.log.info({ databasePath }, 'Ticket database watcher ready');
     });
 
     watcher.on('add', (filePath) => {
-      app.log.debug({ filePath }, 'Ticket file added');
+      app.log.debug({ filePath }, 'Ticket database created');
       triggerRefresh('add');
     });
 
     watcher.on('change', (filePath) => {
-      app.log.debug({ filePath }, 'Ticket file changed');
+      app.log.debug({ filePath }, 'Ticket database changed');
       triggerRefresh('change');
     });
 
     watcher.on('unlink', (filePath) => {
-      app.log.debug({ filePath }, 'Ticket file removed');
+      app.log.debug({ filePath }, 'Ticket database removed');
       triggerRefresh('unlink');
     });
 

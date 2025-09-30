@@ -15,7 +15,7 @@ auth_token="local-dev" npm run dev --workspace @apphub/ticketing-service
 This launches three processes via `concurrently`:
 
 - `dev:server` — Fastify REST service on `http://localhost:4100`
-- `dev:mcp` — MCP stdio server reusing the same `tickets/` store
+- `dev:mcp` — MCP stdio server reusing the same SQLite store under `tickets/`
 - `dev:ui` — Vite dev server for the dashboard (`http://localhost:5175`)
 
 The REST build embeds the UI: `npm run build --workspace @apphub/ticketing-service` produces `dist/` assets and bundles them with Fastify Static.
@@ -26,7 +26,7 @@ The REST build embeds the UI: `npm run build --workspace @apphub/ticketing-servi
 | --- | --- | --- |
 | `TICKETING_PORT` | `4100` | REST server port. |
 | `TICKETING_HOST` | `0.0.0.0` | Bind address for REST server. |
-| `TICKETING_TICKETS_DIR` | `tickets/` | Location of ticket YAML files. |
+| `TICKETING_TICKETS_DIR` | `tickets/` | Location for the SQLite ticket database (`tickets.db`). |
 | `TICKETING_ENABLE_WATCHER` | `true` | Disable to skip filesystem polling (e.g., CI). |
 | `TICKETING_MCP_ENABLED` | `true` | Fast path to disable MCP server. |
 | `TICKETING_MCP_PORT` | `4101` | Not used for stdio transport, but reserved for future sockets. |
@@ -46,7 +46,7 @@ For UI/API auth parity, set `TICKETING_MCP_TOKENS` and share the token with agen
 
 - Load `http://localhost:5175` (dev) or `http://localhost:4100` (built bundle).
 - Create/edit a ticket via MCP and confirm the kanban board reflects updates within ~5 seconds.
-- Open the ticket drawer and verify assignee + comment workflows write to `tickets/*.ticket.yaml`.
+- Open the ticket drawer and verify assignee + comment workflows appear in the database (check via the API or `sqlite3 tickets/tickets.db 'select id, status from tickets'`).
 - Inspect the dependency graph for cycles and ensure new edges appear on refresh or SSE update.
 
 A minimal Vitest smoke test runs via `npm run test:ui --workspace @apphub/ticketing-service`.
@@ -63,7 +63,7 @@ Suggested SLO: `HTTP 2xx responses / total >= 99% over 15 minutes` and `watcher 
 
 ## Deployment Steps
 
-1. Ensure `tickets/` directory is git-versioned on the target environment or configure a shared volume.
+1. Ensure the `tickets/` data directory is persisted (volume, durable disk, or git-free storage) on the target environment.
 2. Deploy the service behind the existing reverse proxy (`/tickets`, `/tickets/dependencies`, `/tickets/events`, `/metrics`).
 3. Publish the MCP manifest to agent configuration repositories with the production token.
 4. Update onboarding docs to reference the dashboard URL and MCP manifest.
@@ -72,5 +72,5 @@ Suggested SLO: `HTTP 2xx responses / total >= 99% over 15 minutes` and `watcher 
 ## Rollback
 
 - Stop the ticketing service deployment or remove `/tickets` routes from the proxy.
-- Restore manual ticket management from git history (`tickets/*.ticket.yaml`).
+- Restore the SQLite database from the latest backup (or rebuild from API exports if necessary).
 - Disable MCP manifests in agent configs to prevent stale tool usage.

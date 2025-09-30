@@ -2,8 +2,10 @@ import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+import Database from 'better-sqlite3';
+import type { Database as SqliteDatabase } from 'better-sqlite3';
+
 import { nanoid } from 'nanoid';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import {
   NewTicketInput,
@@ -25,9 +27,7 @@ import {
   TicketValidationError
 } from './errors';
 
-const DEFAULT_TICKET_EXTENSION = '.ticket.yaml';
-const DEFAULT_INDEX_FILENAME = 'index.json';
-const DEFAULT_DEPENDENCY_FILENAME = 'dependencies.json';
+const DEFAULT_DATABASE_FILENAME = 'tickets.db';
 const DEFAULT_ACTOR = 'system';
 
 const clone = <T>(value: T): T =>
@@ -62,9 +62,7 @@ interface DerivedArtifacts {
 
 export interface TicketStoreOptions {
   rootDir: string;
-  ticketExtension?: string;
-  indexFile?: string;
-  dependencyFile?: string;
+  databaseFile?: string;
   defaultActor?: string;
 }
 
@@ -89,12 +87,16 @@ type TicketStoreEvents = {
   'tickets:refreshed': [artifacts: DerivedArtifacts];
 };
 
+type TicketRow = {
+  id: string;
+  data: string;
+};
+
 export class TicketStore extends EventEmitter<TicketStoreEvents> {
   private readonly rootDir: string;
-  private readonly ticketExtension: string;
-  private readonly indexFile: string;
-  private readonly dependencyFile: string;
+  private readonly databaseFile: string;
   private readonly defaultActor: string;
+  private db: SqliteDatabase | null = null;
   private operationQueue: Promise<void> = Promise.resolve();
   private artifacts: DerivedArtifacts = {
     index: {
@@ -112,9 +114,9 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
   constructor(options: TicketStoreOptions) {
     super();
     this.rootDir = path.resolve(options.rootDir);
-    this.ticketExtension = options.ticketExtension ?? DEFAULT_TICKET_EXTENSION;
-    this.indexFile = options.indexFile ?? path.join(this.rootDir, DEFAULT_INDEX_FILENAME);
-    this.dependencyFile = options.dependencyFile ?? path.join(this.rootDir, DEFAULT_DEPENDENCY_FILENAME);
+    this.databaseFile = options.databaseFile
+      ? path.resolve(options.databaseFile)
+      : path.join(this.rootDir, DEFAULT_DATABASE_FILENAME);
     this.defaultActor = options.defaultActor ?? DEFAULT_ACTOR;
   }
 
@@ -124,6 +126,26 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
     }
 
     await fs.mkdir(this.rootDir, { recursive: true });
+    try {
+      this.db = new Database(this.databaseFile);
+    } catch (error) {
+      const message = `Failed to open ticket database at ${this.databaseFile}: ${(error as Error).message}`;
+      throw new TicketStoreError(message);
+    }
+
+    const db = this.getDb();
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS tickets (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+
     await this.rebuildArtifacts();
     this.initialized = true;
   }
@@ -197,8 +219,9 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
         revision: 1
       });
 
-      await this.writeTicketFile(ticket);
+      this.writeTicketRecord(ticket);
       await this.rebuildArtifacts();
+
       const created = this.artifacts.tickets.get(id);
       if (!created) {
         throw new TicketStoreError(`Ticket ${id} could not be loaded after creation`);
@@ -323,7 +346,7 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
 
       const normalizedTicket = normalizeTicket(nextTicket);
 
-      await this.writeTicketFile(normalizedTicket);
+      this.writeTicketRecord(normalizedTicket);
       await this.rebuildArtifacts();
 
       const updated = this.artifacts.tickets.get(id);
@@ -351,15 +374,47 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
         );
       }
 
-      await fs.rm(this.getTicketFilePath(id), { force: true });
+      const db = this.getDb();
+      const result = db.prepare('DELETE FROM tickets WHERE id = ?').run(id);
+      if (result.changes === 0) {
+        throw new TicketNotFoundError(id);
+      }
+
       await this.rebuildArtifacts();
       this.emit('ticket:deleted', id);
     });
   }
 
+  private writeTicketRecord(ticket: Ticket): void {
+    const sanitized = sanitizeTicketForWrite(ticket);
+    const payload = JSON.stringify(sanitized);
+    const db = this.getDb();
+    db.prepare(
+      `INSERT INTO tickets (id, data, revision, created_at, updated_at)
+       VALUES (@id, @data, @revision, @createdAt, @updatedAt)
+       ON CONFLICT(id) DO UPDATE SET
+         data = excluded.data,
+         revision = excluded.revision,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    ).run({
+      id: ticket.id,
+      data: payload,
+      revision: sanitized.revision,
+      createdAt: sanitized.createdAt,
+      updatedAt: sanitized.updatedAt
+    });
+  }
+
+  private ticketExistsInDatabase(ticketId: string): boolean {
+    const db = this.getDb();
+    const row = db.prepare('SELECT 1 FROM tickets WHERE id = ? LIMIT 1').get(ticketId);
+    return Boolean(row);
+  }
+
   private async ensureUniqueTicketId(candidateId: string, strict: boolean): Promise<string> {
     const parsedId = ticketIdSchema.parse(candidateId);
-    const existing = this.artifacts.tickets.has(parsedId) || (await this.fileExists(this.getTicketFilePath(parsedId)));
+    const existing = this.artifacts.tickets.has(parsedId) || this.ticketExistsInDatabase(parsedId);
     if (!existing) {
       return parsedId;
     }
@@ -372,7 +427,7 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
     while (true) {
       const attempt = `${parsedId}-${suffix}`;
       const alreadyExists =
-        this.artifacts.tickets.has(attempt) || (await this.fileExists(this.getTicketFilePath(attempt)));
+        this.artifacts.tickets.has(attempt) || this.ticketExistsInDatabase(attempt);
       if (!alreadyExists) {
         return attempt;
       }
@@ -380,51 +435,17 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
     }
   }
 
-  private async fileExists(target: string): Promise<boolean> {
-    try {
-      await fs.stat(target);
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return false;
-      }
-      throw error;
+  private getDb(): SqliteDatabase {
+    if (!this.db) {
+      throw new TicketStoreError('Ticket store has not been initialized');
     }
-  }
-
-  private async writeTicketFile(ticket: Ticket): Promise<void> {
-    const sanitized = sanitizeTicketForWrite(ticket);
-    const yamlContent = `${stringifyYaml(sanitized, { aliasDuplicateObjects: false }).trim()}\n`;
-    await fs.writeFile(this.getTicketFilePath(ticket.id), yamlContent, 'utf8');
-  }
-
-  private getTicketFilePath(ticketId: string): string {
-    return path.join(this.rootDir, `${ticketId}${this.ticketExtension}`);
-  }
-
-  private async readTicketFile(filePath: string): Promise<Ticket> {
-    const raw = await fs.readFile(filePath, 'utf8');
-    let parsed: unknown;
-    try {
-      parsed = parseYaml(raw);
-    } catch (error) {
-      throw new TicketValidationError(`Failed to parse ticket file ${filePath}`, error);
-    }
-
-    const result = ticketSchema.safeParse(parsed);
-    if (!result.success) {
-      throw new TicketValidationError(`Ticket file ${filePath} failed validation`, result.error.format());
-    }
-
-    return normalizeTicket(result.data);
+    return this.db;
   }
 
   private async rebuildArtifacts(): Promise<void> {
-    const files = await fs.readdir(this.rootDir);
-    const yamlFiles = files.filter((file) => file.endsWith(this.ticketExtension));
-    const tickets = await Promise.all(
-      yamlFiles.map(async (file) => this.readTicketFile(path.join(this.rootDir, file)))
-    );
+    const db = this.getDb();
+    const rows = db.prepare('SELECT id, data FROM tickets ORDER BY id ASC').all() as TicketRow[];
+    const tickets = rows.map((row) => this.deserializeTicketRow(row));
 
     const dependencyGraph = buildDependencyGraph(tickets);
     const enrichedTickets = tickets.map((ticket) => ({
@@ -450,9 +471,6 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
 
     validateArtifacts(index, dependencyGraph);
 
-    await fs.writeFile(this.indexFile, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
-    await fs.writeFile(this.dependencyFile, `${JSON.stringify(dependencyGraph, null, 2)}\n`, 'utf8');
-
     this.artifacts = {
       index,
       dependencyGraph,
@@ -460,6 +478,22 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
     };
 
     this.emit('artifacts:rebuilt', this.artifacts);
+  }
+
+  private deserializeTicketRow(row: TicketRow): Ticket {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.data);
+    } catch (error) {
+      throw new TicketValidationError(`Failed to parse stored ticket ${row.id}`, error);
+    }
+
+    const result = ticketSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new TicketValidationError(`Stored ticket ${row.id} failed validation`, result.error.format());
+    }
+
+    return normalizeTicket({ ...result.data });
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -479,8 +513,13 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
     });
   }
 
+  getDatabasePath(): string {
+    return this.databaseFile;
+  }
+
   getTicketExtension(): string {
-    return this.ticketExtension;
+    const ext = path.extname(this.databaseFile);
+    return ext || '.db';
   }
 
   getRootDir(): string {

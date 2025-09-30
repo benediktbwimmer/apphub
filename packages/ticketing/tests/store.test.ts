@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import Database from 'better-sqlite3';
 
 import {
   TicketConflictError,
   TicketNotFoundError,
   TicketStore
-} from '../src';
+} from '../dist';
 
 const makeTempDir = async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'ticket-store-'));
@@ -56,20 +56,14 @@ test('creates tickets and builds derived artifacts', async (t) => {
   assert.deepEqual(firstIndex.dependencies, []);
   assert.deepEqual(firstIndex.dependents, [second.id]);
 
-  const indexPath = path.join(dir, 'index.json');
-  const dependenciesPath = path.join(dir, 'dependencies.json');
-  const ticketPath = path.join(dir, `${first.id}.ticket.yaml`);
+  const databasePath = store.getDatabasePath();
+  const stats = await stat(databasePath);
+  assert.equal(stats.isFile(), true);
 
-  const indexFile = JSON.parse(await readFile(indexPath, 'utf8'));
-  assert.ok(Array.isArray(indexFile.tickets));
-
-  const dependencyFile = JSON.parse(await readFile(dependenciesPath, 'utf8'));
-  assert.equal(typeof dependencyFile.generatedAt, 'string');
-  assert.ok(dependencyFile.nodes[first.id]);
-
-  const ticketFile = parseYaml(await readFile(ticketPath, 'utf8')) as Record<string, unknown>;
-  assert.equal(ticketFile['title'], 'Set up persistence');
-  assert.equal(ticketFile['dependents'], undefined);
+  const dependencyGraph = await store.getDependencyGraph();
+  assert.equal(typeof dependencyGraph.generatedAt, 'string');
+  assert.ok(dependencyGraph.nodes[first.id]);
+  assert.deepEqual(dependencyGraph.nodes[first.id]?.dependents ?? [], [second.id]);
 });
 
 test('updates tickets with optimistic locking', async (t) => {
@@ -171,11 +165,25 @@ test('refreshFromDisk picks up manual edits', async (t) => {
     description: 'Initial description'
   });
 
-  const ticketPath = path.join(dir, `${ticket.id}.ticket.yaml`);
-  const raw = parseYaml(await readFile(ticketPath, 'utf8')) as Record<string, unknown>;
-  raw['description'] = 'Updated manually';
-  raw['revision'] = 10;
-  await writeFile(ticketPath, `${stringifyYaml(raw).trim()}\n`, 'utf8');
+  const db = new Database(store.getDatabasePath());
+  try {
+    const row = db.prepare('SELECT data FROM tickets WHERE id = ?').get(ticket.id) as { data: string } | undefined;
+    assert(row, 'expected ticket row to exist');
+    const payload = JSON.parse(row.data) as Record<string, unknown>;
+    payload['description'] = 'Updated manually';
+    payload['revision'] = 10;
+    payload['updatedAt'] = new Date().toISOString();
+    db.prepare(
+      'UPDATE tickets SET data = @data, revision = @revision, updated_at = @updatedAt WHERE id = @id'
+    ).run({
+      id: ticket.id,
+      data: JSON.stringify(payload),
+      revision: 10,
+      updatedAt: payload['updatedAt']
+    });
+  } finally {
+    db.close();
+  }
 
   await store.refreshFromDisk();
 
