@@ -22,6 +22,7 @@ const NAV_ICON_MAP: Record<PrimaryNavKey, IconComponent> = {
   events: EventsIcon,
   assets: AssetsIcon,
   services: ServicesIcon,
+  observatory: ObservatoryIcon,
   runs: RunsIcon,
   jobs: JobsIcon,
   workflows: WorkflowsIcon,
@@ -56,12 +57,12 @@ export default function Navbar({ variant = 'default', onExitFullscreen }: Navbar
 function SidebarNavbar({ isPathActive }: { isPathActive: PathPredicate }) {
   return (
     <aside className="flex-shrink-0 lg:sticky lg:top-10 lg:self-start">
-      <div className="flex h-full max-h-[calc(100vh-5rem)] flex-col items-center gap-6 rounded-3xl border border-slate-200/70 bg-white/80 px-4 py-5 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-100">
+      <div className="flex h-full max-h-[calc(100vh-5rem)] flex-col items-center gap-6 rounded-3xl border border-subtle bg-surface-glass px-4 py-5 text-primary shadow-elevation-lg backdrop-blur-md">
         <div className="flex flex-col items-center text-center">
-          <span className="text-[0.55rem] font-semibold uppercase tracking-[0.6em] text-violet-600 dark:text-violet-300">
+          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.6em] text-accent-soft">
             Osiris
           </span>
-          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AppHub</span>
+          <span className="text-scale-sm font-weight-semibold text-primary">AppHub</span>
         </div>
         <nav
           aria-label="Primary"
@@ -92,20 +93,20 @@ function SidebarNavbar({ isPathActive }: { isPathActive: PathPredicate }) {
 
 function getSidebarLinkClasses(isActive: boolean): string {
   const base =
-    'group relative flex h-12 w-12 items-center justify-center rounded-2xl border border-transparent text-slate-600 transition-colors transition-shadow duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:text-slate-300';
+    'group relative flex h-12 w-12 items-center justify-center rounded-2xl border border-transparent text-muted transition-colors transition-shadow duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
   if (isActive) {
-    return `${base} bg-violet-600 text-white shadow-lg shadow-violet-500/30 ring-1 ring-violet-400/60 dark:bg-violet-500 dark:text-slate-50`;
+    return `${base} bg-accent text-on-accent shadow-accent-soft ring-1 ring-accent`;
   }
 
-  return `${base} hover:border-violet-500/40 hover:bg-violet-500/10 hover:text-violet-600 dark:hover:border-violet-400/30 dark:hover:bg-slate-800/80 dark:hover:text-violet-200`;
+  return `${base} hover:border-accent-soft hover:bg-accent-soft hover:text-accent`;
 }
 
 function Tooltip({ label }: { label: string }) {
   return (
     <span
       aria-hidden="true"
-      className="pointer-events-none absolute left-1/2 top-full z-10 mt-3 -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1 text-xs font-semibold text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100 lg:left-full lg:top-1/2 lg:ml-3 lg:mt-0 lg:-translate-y-1/2 lg:translate-x-0 lg:shadow-xl dark:bg-slate-700/90"
+      className="pointer-events-none absolute left-1/2 top-full z-10 mt-3 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-sunken px-3 py-1 text-scale-xs font-weight-semibold text-inverse opacity-0 shadow-elevation-md transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100 lg:left-full lg:top-1/2 lg:ml-3 lg:mt-0 lg:-translate-y-1/2 lg:translate-x-0 lg:shadow-elevation-xl"
     >
       {label}
     </span>
@@ -114,23 +115,24 @@ function Tooltip({ label }: { label: string }) {
 
 function OverlayNavbar({ isPathActive, onExitFullscreen }: { isPathActive: PathPredicate; onExitFullscreen?: () => void }) {
   const containerClasses =
-    'rounded-3xl border border-slate-700/70 bg-slate-900/80 px-5 py-4 text-slate-100 shadow-[0_25px_60px_-35px_rgba(15,23,42,1)] backdrop-blur';
+    'rounded-3xl border border-default bg-surface-sunken-glass px-5 py-4 text-inverse shadow-elevation-lg backdrop-blur';
 
-  const tabGroupClasses = 'inline-flex items-center justify-start gap-1 rounded-full border border-slate-700/70 bg-slate-800/70 p-1';
+  const tabGroupClasses =
+    'inline-flex items-center justify-start gap-1 rounded-full border border-default bg-surface-sunken-glass p-1';
 
   const getTabClasses = (isActive: boolean) => {
     if (isActive) {
-      return 'rounded-full px-5 py-2 text-sm font-semibold text-slate-50 shadow-lg shadow-violet-500/20 ring-1 ring-inset ring-slate-500/40';
+      return 'rounded-full px-5 py-2 text-scale-sm font-weight-semibold text-on-accent bg-accent shadow-accent-soft ring-1 ring-inset ring-accent';
     }
 
-    return 'rounded-full px-5 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700/70 hover:text-white';
+    return 'rounded-full px-5 py-2 text-scale-sm font-weight-semibold text-secondary hover:bg-surface-sunken-glass hover:text-inverse';
   };
 
   return (
     <nav className={`flex flex-col gap-4 md:flex-row md:items-center md:justify-between ${containerClasses}`} aria-label="Primary">
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-semibold uppercase tracking-[0.4em] text-violet-300">Osiris</span>
-        <span className="text-lg font-semibold">AppHub</span>
+        <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.4em] text-accent-soft">Osiris</span>
+        <span className="text-scale-lg font-weight-semibold">AppHub</span>
       </div>
       <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-4">
         <div className={tabGroupClasses} role="tablist" aria-label="Pages">
@@ -143,7 +145,7 @@ function OverlayNavbar({ isPathActive, onExitFullscreen }: { isPathActive: PathP
                 role="tab"
                 aria-selected={isActive}
                 aria-current={isActive ? 'page' : undefined}
-                className={`${getTabClasses(isActive)} transition-colors transition-shadow duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
+                className={`${getTabClasses(isActive)} transition-colors transition-shadow duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
                 onClick={() => {
                   if (!isActive && onExitFullscreen) {
                     onExitFullscreen();
@@ -158,7 +160,7 @@ function OverlayNavbar({ isPathActive, onExitFullscreen }: { isPathActive: PathP
         {onExitFullscreen && (
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-full border border-slate-700/50 bg-slate-900/60 px-4 py-2 text-sm font-semibold text-slate-100 transition-colors hover:bg-slate-900/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 md:self-stretch"
+            className="inline-flex items-center gap-2 rounded-full border border-default bg-surface-sunken-glass px-4 py-2 text-scale-sm font-weight-semibold text-inverse transition-colors hover:bg-surface-sunken-glass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent md:self-stretch"
             onClick={onExitFullscreen}
           >
             <ExitFullscreenIcon />
@@ -203,6 +205,27 @@ function EventsIcon({ className }: IconProps) {
     >
       <path d="M5 15v2m4-8v12m4-6v6m4-14v14" />
       <path d="M3 19h18" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ObservatoryIcon({ className }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 10a8 8 0 0 1 16 0" />
+      <path d="M12 2v8l6 6" />
+      <path d="M6 22h12" />
+      <path d="M9 18h6" />
     </svg>
   );
 }

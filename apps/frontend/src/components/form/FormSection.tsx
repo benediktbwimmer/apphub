@@ -8,10 +8,10 @@ type FormSectionProps = HTMLAttributes<FormSectionElement> & FormHTMLAttributes<
 };
 
 const BASE_SECTION_CLASSES =
-  'flex flex-col gap-5 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.6)] dark:border-slate-700/60 dark:bg-slate-900/70';
+  'flex flex-col gap-5 rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-lg';
 
 const UNPADDED_SECTION_CLASSES =
-  'flex flex-col gap-5 rounded-3xl border border-slate-200/70 bg-white/80 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.6)] dark:border-slate-700/60 dark:bg-slate-900/70';
+  'flex flex-col gap-5 rounded-3xl border border-subtle bg-surface-glass shadow-elevation-lg';
 
 const joinClasses = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 

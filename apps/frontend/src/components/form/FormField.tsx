@@ -8,8 +8,8 @@ type FormFieldProps = {
   className?: string;
 };
 
-const LABEL_CLASSES = 'text-sm font-semibold text-slate-700 dark:text-slate-200';
-const HINT_CLASSES = 'text-xs text-slate-500 dark:text-slate-400';
+const LABEL_CLASSES = 'text-scale-sm font-weight-semibold text-primary';
+const HINT_CLASSES = 'text-scale-xs text-muted';
 
 export default function FormField({ label, htmlFor, hint, children, className }: FormFieldProps) {
   return (

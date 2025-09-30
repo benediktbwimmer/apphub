@@ -120,7 +120,7 @@ export function ScrollableListContainer({
     >
       {children}
       {isLoading && (
-        <div className="flex items-center justify-center gap-2 px-3 py-2 text-[11px] text-slate-500 dark:text-slate-300">
+        <div className="flex items-center justify-center gap-2 px-3 py-2 text-scale-xs text-muted">
           <Spinner size="xs" label={loaderLabel} />
         </div>
       )}

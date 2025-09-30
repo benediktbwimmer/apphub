@@ -12,9 +12,9 @@ type ModalProps = {
 };
 
 const BASE_OVERLAY_CLASSES =
-  'fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-slate-900/60 backdrop-blur-sm';
+  'fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-overlay-scrim backdrop-blur-sm';
 const BASE_CONTENT_CLASSES =
-  'relative w-full max-w-2xl rounded-3xl border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900';
+  'relative w-full max-w-2xl rounded-3xl border border-subtle bg-surface-raised shadow-elevation-xl';
 
 function joinClassNames(...values: Array<string | null | undefined | false>) {
   return values

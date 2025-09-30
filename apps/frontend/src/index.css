@@ -34,6 +34,17 @@
       linear-gradient(180deg, #f5f3ff 0%, #e5e7eb 100%);
   }
 
+  :root {
+    --surface-glass-strong: color-mix(in srgb, var(--color-surface-raised) 92%, transparent);
+    --surface-glass-soft: color-mix(in srgb, var(--color-surface-raised) 88%, transparent);
+    --surface-sunken-glass: color-mix(in srgb, var(--color-surface-sunken) 86%, transparent);
+    --surface-muted-glass: color-mix(in srgb, var(--color-surface-canvas-muted) 88%, transparent);
+    --accent-surface-soft: color-mix(in srgb, var(--color-accent-default) 18%, transparent);
+    --accent-surface-strong: color-mix(in srgb, var(--color-accent-default) 36%, transparent);
+    --accent-shadow-soft: 0 22px 48px -28px color-mix(in srgb, var(--color-accent-default) 48%, transparent);
+    --border-accent-soft: color-mix(in srgb, var(--color-border-accent, var(--color-accent-default)) 65%, transparent);
+  }
+
   :root[data-theme='apphub-dark'],
   :root.theme-apphub-dark,
   :root.dark,
@@ -91,6 +102,282 @@
 }
 
 @layer utilities {
+  .text-primary {
+    color: var(--color-text-primary);
+  }
+
+  .text-secondary {
+    color: var(--color-text-secondary);
+  }
+
+  .text-muted {
+    color: var(--color-text-muted);
+  }
+
+  .text-inverse {
+    color: var(--color-text-inverse);
+  }
+
+  .text-accent {
+    color: var(--color-accent-default);
+  }
+
+  .text-accent-strong {
+    color: var(--color-accent-emphasis);
+  }
+
+  .text-accent-soft {
+    color: color-mix(in srgb, var(--color-accent-default) 68%, var(--color-accent-on-accent));
+  }
+
+  .text-on-accent {
+    color: var(--color-accent-on-accent);
+  }
+
+  .text-status-info {
+    color: var(--color-status-info);
+  }
+
+  .text-status-info-on {
+    color: var(--color-status-info-on);
+  }
+
+  .text-status-success {
+    color: var(--color-status-success);
+  }
+
+  .text-status-success-on {
+    color: var(--color-status-success-on);
+  }
+
+  .text-status-warning {
+    color: var(--color-status-warning);
+  }
+
+  .text-status-warning-on {
+    color: var(--color-status-warning-on);
+  }
+
+  .text-status-danger {
+    color: var(--color-status-danger);
+  }
+
+  .text-status-danger-on {
+    color: var(--color-status-danger-on);
+  }
+
+  .text-status-neutral {
+    color: var(--color-status-neutral);
+  }
+
+  .text-status-neutral-on {
+    color: var(--color-status-neutral-on);
+  }
+
+  .text-scale-xs {
+    font-size: var(--font-size-xs);
+  }
+
+  .text-scale-sm {
+    font-size: var(--font-size-sm);
+  }
+
+  .text-scale-md {
+    font-size: var(--font-size-md);
+  }
+
+  .text-scale-lg {
+    font-size: var(--font-size-lg);
+  }
+
+  .text-scale-xl {
+    font-size: var(--font-size-xl);
+  }
+
+  .text-scale-2xl {
+    font-size: var(--font-size-2xl);
+  }
+
+  .text-scale-display {
+    font-size: var(--font-size-display);
+  }
+
+  .text-scale-hero {
+    font-size: var(--font-size-hero);
+  }
+
+  .font-weight-regular {
+    font-weight: var(--font-weight-regular);
+  }
+
+  .font-weight-medium {
+    font-weight: var(--font-weight-medium);
+  }
+
+  .font-weight-semibold {
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .font-weight-bold {
+    font-weight: var(--font-weight-bold);
+  }
+
+  .leading-scale-tight {
+    line-height: var(--line-height-tight);
+  }
+
+  .leading-scale-snug {
+    line-height: var(--line-height-snug);
+  }
+
+  .leading-scale-normal {
+    line-height: var(--line-height-normal);
+  }
+
+  .leading-scale-relaxed {
+    line-height: var(--line-height-relaxed);
+  }
+
+  .tracking-scale-tight {
+    letter-spacing: var(--letter-spacing-tight);
+  }
+
+  .tracking-scale-normal {
+    letter-spacing: var(--letter-spacing-normal);
+  }
+
+  .tracking-scale-wide {
+    letter-spacing: var(--letter-spacing-wide);
+  }
+
+  .tracking-scale-wider {
+    letter-spacing: var(--letter-spacing-wider);
+  }
+
+  .border-subtle {
+    border-color: var(--color-border-subtle);
+  }
+
+  .border-default {
+    border-color: var(--color-border-default);
+  }
+
+  .border-strong {
+    border-color: var(--color-border-strong);
+  }
+
+  .border-accent {
+    border-color: var(--color-border-accent, var(--color-accent-default));
+  }
+
+  .border-accent-soft {
+    border-color: var(--border-accent-soft);
+  }
+
+  .bg-surface-canvas {
+    background-color: var(--color-surface-canvas);
+  }
+
+  .bg-surface-muted {
+    background-color: var(--color-surface-canvas-muted);
+  }
+
+  .bg-surface-raised {
+    background-color: var(--color-surface-raised);
+  }
+
+  .bg-surface-glass {
+    background-color: var(--surface-glass-strong);
+  }
+
+  .bg-surface-glass-soft {
+    background-color: var(--surface-glass-soft);
+  }
+
+  .bg-surface-sunken {
+    background-color: var(--color-surface-sunken);
+  }
+
+  .bg-surface-sunken-glass {
+    background-color: var(--surface-sunken-glass);
+  }
+
+  .bg-overlay-scrim {
+    background-color: var(--color-surface-backdrop);
+  }
+
+  .bg-accent {
+    background-color: var(--color-accent-default);
+  }
+
+  .bg-accent-soft {
+    background-color: var(--accent-surface-soft);
+  }
+
+  .bg-accent-strong {
+    background-color: var(--accent-surface-strong);
+  }
+
+  .shadow-elevation-md {
+    box-shadow: var(--shadow-md);
+  }
+
+  .shadow-elevation-lg {
+    box-shadow: var(--shadow-lg);
+  }
+
+  .shadow-elevation-xl {
+    box-shadow: var(--shadow-xl);
+  }
+
+  .shadow-accent-soft {
+    box-shadow: var(--accent-shadow-soft);
+  }
+
+  .ring-accent {
+    --tw-ring-color: var(--color-border-focus, var(--color-accent-default));
+  }
+
+  .focus-visible\:outline-accent:focus-visible {
+    outline-color: var(--color-border-focus, var(--color-accent-default));
+  }
+
+  .hover\:bg-accent-soft:hover {
+    background-color: var(--accent-surface-soft);
+  }
+
+  .hover\:bg-accent-strong:hover {
+    background-color: var(--accent-surface-strong);
+  }
+
+  .hover\:text-accent:hover {
+    color: var(--color-accent-default);
+  }
+
+  .hover\:text-accent-strong:hover {
+    color: var(--color-accent-emphasis);
+  }
+
+  .hover\:border-accent:hover {
+    border-color: var(--color-border-accent, var(--color-accent-default));
+  }
+
+  .hover\:border-accent-soft:hover {
+    border-color: var(--border-accent-soft);
+  }
+
+  .hover\:bg-surface-glass-soft:hover {
+    background-color: var(--surface-glass-soft);
+  }
+
+  .hover\:bg-surface-sunken-glass:hover {
+    background-color: var(--surface-sunken-glass);
+  }
+
+  .hover\:text-inverse:hover {
+    color: var(--color-text-inverse);
+  }
+
   .rounded-3xl {
     border-radius: 1rem;
   }

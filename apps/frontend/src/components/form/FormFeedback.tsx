@@ -8,11 +8,11 @@ type FormFeedbackProps = HTMLAttributes<HTMLDivElement> & {
 };
 
 const TONE_CLASSES: Record<FormFeedbackTone, string> = {
-  info: 'rounded-2xl border border-slate-200/70 bg-slate-50/80 px-3 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300',
+  info: 'rounded-2xl border border-[color:var(--color-status-info)] bg-[color:color-mix(in_srgb,var(--color-status-info)_12%,var(--color-surface-raised))] px-3 py-2 text-scale-sm text-status-info',
   success:
-    'rounded-2xl border border-emerald-300/70 bg-emerald-50/80 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/15 dark:text-emerald-200',
+    'rounded-2xl border border-[color:var(--color-status-success)] bg-[color:color-mix(in_srgb,var(--color-status-success)_12%,var(--color-surface-raised))] px-3 py-2 text-scale-sm text-status-success',
   error:
-    'rounded-2xl border border-rose-300/70 bg-rose-50/80 px-3 py-2 text-sm text-rose-600 dark:border-rose-500/60 dark:bg-rose-500/15 dark:text-rose-200'
+    'rounded-2xl border border-[color:var(--color-status-danger)] bg-[color:color-mix(in_srgb,var(--color-status-danger)_14%,var(--color-surface-raised))] px-3 py-2 text-scale-sm text-status-danger'
 };
 
 export default function FormFeedback({ tone = 'info', className, children, ...props }: FormFeedbackProps) {

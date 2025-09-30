@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   DiffEditor as MonacoDiffEditor,
   type DiffEditorProps as MonacoDiffEditorProps,
   type DiffOnMount
 } from '@monaco-editor/react';
-import { getAppliedTheme, registerThemes, useMonacoTheme } from './useMonacoTheme';
+import type { Monaco } from '@monaco-editor/react';
+import { applyMonacoTheme, useMonacoTheme } from './useMonacoTheme';
 
 type BaseDiffProps = {
   original: string;
@@ -40,6 +41,7 @@ export function DiffViewer({
   className
 }: DiffViewerProps) {
   const theme = useMonacoTheme();
+  const monacoRef = useRef<Monaco | null>(null);
 
   const mergedOptions = useMemo(
     () => ({ ...BASE_OPTIONS, ...options }),
@@ -47,11 +49,17 @@ export function DiffViewer({
   );
 
   const handleMount: DiffOnMount = (_editor, monaco) => {
-    registerThemes(monaco);
-    monaco.editor.setTheme(getAppliedTheme(theme));
+    monacoRef.current = monaco;
+    applyMonacoTheme(monaco, theme);
   };
 
-  const appliedTheme = getAppliedTheme(theme);
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco) {
+      return;
+    }
+    applyMonacoTheme(monaco, theme);
+  }, [theme]);
 
   return (
     <div className={className}>
@@ -62,7 +70,7 @@ export function DiffViewer({
         height={height}
         options={mergedOptions}
         onMount={handleMount}
-        theme={appliedTheme}
+        theme={theme.id}
         aria-label={ariaLabel}
       />
     </div>

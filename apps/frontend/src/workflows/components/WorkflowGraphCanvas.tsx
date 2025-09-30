@@ -23,7 +23,13 @@ import ReactFlow, {
   type ReactFlowInstance
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { useIsDarkMode } from '../../hooks/useIsDarkMode';
+import { useTheme } from '../../theme';
+import {
+  createWorkflowGraphTheme,
+  type WorkflowGraphCanvasTheme,
+  type WorkflowGraphCanvasThemeOverrides,
+  type WorkflowGraphCanvasNodeTheme
+} from '../../theme/integrations/workflowGraphTheme';
 import {
   buildWorkflowGraphCanvasModel,
   type WorkflowGraphCanvasSelection,
@@ -34,34 +40,6 @@ import {
   type WorkflowGraphCanvasModel
 } from '../graph/canvasModel';
 import type { WorkflowGraphLiveOverlay, WorkflowGraphNormalized } from '../graph';
-
-type WorkflowGraphCanvasNodeTheme = {
-  background: string;
-  border: string;
-  borderHighlighted: string;
-  text: string;
-  mutedText: string;
-  badgeBackground: string;
-  badgeText: string;
-  shadow: string;
-};
-
-type WorkflowGraphCanvasTheme = {
-  surface: string;
-  surfaceMuted: string;
-  gridColor: string;
-  edgeDefault: string;
-  edgeMuted: string;
-  edgeHighlight: string;
-  edgeDashed: string;
-  labelBackground: string;
-  labelText: string;
-  nodes: Record<WorkflowGraphCanvasNodeKind, WorkflowGraphCanvasNodeTheme>;
-};
-
-type WorkflowGraphCanvasThemeOverrides = Partial<Omit<WorkflowGraphCanvasTheme, 'nodes'>> & {
-  nodes?: Partial<Record<WorkflowGraphCanvasNodeKind, Partial<WorkflowGraphCanvasNodeTheme>>>;
-};
 
 type WorkflowGraphCanvasEdgeData = {
   kind: WorkflowGraphCanvasEdgeKind;
@@ -140,213 +118,6 @@ function useWorkflowGraphCanvasTheme(): WorkflowGraphCanvasTheme {
   return theme;
 }
 
-const LIGHT_THEME: WorkflowGraphCanvasTheme = {
-  surface: 'rgba(255, 255, 255, 0.9)',
-  surfaceMuted: 'rgba(248, 250, 252, 0.75)',
-  gridColor: '#e2e8f0',
-  edgeDefault: '#94a3b8',
-  edgeMuted: 'rgba(148, 163, 184, 0.5)',
-  edgeHighlight: '#7c3aed',
-  edgeDashed: '#64748b',
-  labelBackground: '#f8fafc',
-  labelText: '#334155',
-  nodes: {
-    workflow: {
-      background: 'linear-gradient(135deg, rgba(129, 140, 248, 0.24), rgba(59, 130, 246, 0.12))',
-      border: 'rgba(99, 102, 241, 0.45)',
-      borderHighlighted: '#7c3aed',
-      text: '#1f2937',
-      mutedText: '#4b5563',
-      badgeBackground: 'rgba(79, 70, 229, 0.12)',
-      badgeText: '#4338ca',
-      shadow: '0 26px 48px -32px rgba(79, 70, 229, 0.55)'
-    },
-    'step-job': {
-      background: 'linear-gradient(135deg, rgba(94, 234, 212, 0.18), rgba(14, 165, 233, 0.12))',
-      border: 'rgba(20, 184, 166, 0.42)',
-      borderHighlighted: '#0d9488',
-      text: '#0f172a',
-      mutedText: '#475569',
-      badgeBackground: 'rgba(45, 212, 191, 0.15)',
-      badgeText: '#0f766e',
-      shadow: '0 16px 40px -28px rgba(13, 148, 136, 0.5)'
-    },
-    'step-service': {
-      background: 'linear-gradient(135deg, rgba(129, 200, 255, 0.18), rgba(14, 116, 144, 0.16))',
-      border: 'rgba(56, 189, 248, 0.42)',
-      borderHighlighted: '#0284c7',
-      text: '#0f172a',
-      mutedText: '#475569',
-      badgeBackground: 'rgba(125, 211, 252, 0.2)',
-      badgeText: '#0369a1',
-      shadow: '0 16px 40px -28px rgba(2, 132, 199, 0.45)'
-    },
-    'step-fanout': {
-      background: 'linear-gradient(135deg, rgba(244, 114, 182, 0.16), rgba(251, 191, 36, 0.16))',
-      border: 'rgba(249, 115, 22, 0.4)',
-      borderHighlighted: '#ea580c',
-      text: '#111827',
-      mutedText: '#52525b',
-      badgeBackground: 'rgba(251, 191, 36, 0.18)',
-      badgeText: '#c2410c',
-      shadow: '0 18px 46px -30px rgba(249, 115, 22, 0.5)'
-    },
-    'trigger-event': {
-      background: 'linear-gradient(135deg, rgba(129, 140, 248, 0.16), rgba(148, 163, 184, 0.12))',
-      border: 'rgba(99, 102, 241, 0.28)',
-      borderHighlighted: '#6366f1',
-      text: '#1e293b',
-      mutedText: '#475569',
-      badgeBackground: 'rgba(129, 140, 248, 0.2)',
-      badgeText: '#4c1d95',
-      shadow: '0 16px 40px -32px rgba(99, 102, 241, 0.45)'
-    },
-    'trigger-definition': {
-      background: 'linear-gradient(135deg, rgba(129, 140, 248, 0.12), rgba(37, 99, 235, 0.08))',
-      border: 'rgba(59, 130, 246, 0.32)',
-      borderHighlighted: '#2563eb',
-      text: '#1e293b',
-      mutedText: '#475569',
-      badgeBackground: 'rgba(191, 219, 254, 0.3)',
-      badgeText: '#1d4ed8',
-      shadow: '0 16px 40px -32px rgba(37, 99, 235, 0.5)'
-    },
-    schedule: {
-      background: 'linear-gradient(135deg, rgba(248, 250, 252, 0.95), rgba(226, 232, 240, 0.6))',
-      border: 'rgba(148, 163, 184, 0.45)',
-      borderHighlighted: '#64748b',
-      text: '#1e293b',
-      mutedText: '#475569',
-      badgeBackground: 'rgba(125, 211, 252, 0.25)',
-      badgeText: '#1d4ed8',
-      shadow: '0 14px 32px -26px rgba(148, 163, 184, 0.4)'
-    },
-    asset: {
-      background: 'linear-gradient(135deg, rgba(252, 165, 165, 0.16), rgba(254, 215, 170, 0.12))',
-      border: 'rgba(248, 113, 113, 0.44)',
-      borderHighlighted: '#f97316',
-      text: '#111827',
-      mutedText: '#52525b',
-      badgeBackground: 'rgba(248, 113, 113, 0.2)',
-      badgeText: '#b91c1c',
-      shadow: '0 18px 46px -30px rgba(248, 113, 113, 0.48)'
-    },
-    'event-source': {
-      background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(134, 239, 172, 0.18))',
-      border: 'rgba(34, 197, 94, 0.4)',
-      borderHighlighted: '#22c55e',
-      text: '#14532d',
-      mutedText: '#15803d',
-      badgeBackground: 'rgba(74, 222, 128, 0.25)',
-      badgeText: '#166534',
-      shadow: '0 16px 36px -28px rgba(34, 197, 94, 0.45)'
-    }
-  }
-};
-
-const DARK_THEME: WorkflowGraphCanvasTheme = {
-  surface: 'rgba(15, 23, 42, 0.82)',
-  surfaceMuted: 'rgba(15, 23, 42, 0.68)',
-  gridColor: 'rgba(71, 85, 105, 0.2)',
-  edgeDefault: '#a855f7',
-  edgeMuted: 'rgba(168, 85, 247, 0.5)',
-  edgeHighlight: '#f472b6',
-  edgeDashed: '#38bdf8',
-  labelBackground: 'rgba(15, 23, 42, 0.94)',
-  labelText: '#f8fafc',
-  nodes: {
-    workflow: {
-      background: 'linear-gradient(135deg, rgba(76, 29, 149, 0.48), rgba(37, 99, 235, 0.32))',
-      border: 'rgba(129, 140, 248, 0.55)',
-      borderHighlighted: '#c4b5fd',
-      text: '#f8fafc',
-      mutedText: 'rgba(226, 232, 240, 0.7)',
-      badgeBackground: 'rgba(99, 102, 241, 0.32)',
-      badgeText: '#c7d2fe',
-      shadow: '0 26px 48px -32px rgba(129, 140, 248, 0.55)'
-    },
-    'step-job': {
-      background: 'linear-gradient(135deg, rgba(13, 148, 136, 0.4), rgba(3, 105, 161, 0.36))',
-      border: 'rgba(45, 212, 191, 0.5)',
-      borderHighlighted: '#5eead4',
-      text: '#f8fafc',
-      mutedText: 'rgba(203, 213, 225, 0.72)',
-      badgeBackground: 'rgba(20, 184, 166, 0.28)',
-      badgeText: '#ccfbf1',
-      shadow: '0 16px 40px -26px rgba(20, 184, 166, 0.55)'
-    },
-    'step-service': {
-      background: 'linear-gradient(135deg, rgba(13, 148, 210, 0.35), rgba(8, 145, 178, 0.32))',
-      border: 'rgba(56, 189, 248, 0.5)',
-      borderHighlighted: '#38bdf8',
-      text: '#f8fafc',
-      mutedText: 'rgba(203, 213, 225, 0.72)',
-      badgeBackground: 'rgba(59, 130, 246, 0.28)',
-      badgeText: '#bfdbfe',
-      shadow: '0 16px 40px -26px rgba(56, 189, 248, 0.55)'
-    },
-    'step-fanout': {
-      background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.35), rgba(147, 51, 234, 0.28))',
-      border: 'rgba(249, 115, 22, 0.45)',
-      borderHighlighted: '#fb923c',
-      text: '#f8fafc',
-      mutedText: 'rgba(248, 250, 252, 0.7)',
-      badgeBackground: 'rgba(249, 115, 22, 0.28)',
-      badgeText: '#fed7aa',
-      shadow: '0 18px 46px -28px rgba(249, 115, 22, 0.55)'
-    },
-    'trigger-event': {
-      background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.38), rgba(59, 130, 246, 0.28))',
-      border: 'rgba(129, 140, 248, 0.5)',
-      borderHighlighted: '#8b5cf6',
-      text: '#f8fafc',
-      mutedText: 'rgba(203, 213, 225, 0.72)',
-      badgeBackground: 'rgba(99, 102, 241, 0.32)',
-      badgeText: '#d8b4fe',
-      shadow: '0 16px 40px -28px rgba(99, 102, 241, 0.55)'
-    },
-    'trigger-definition': {
-      background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.32), rgba(37, 99, 235, 0.28))',
-      border: 'rgba(96, 165, 250, 0.5)',
-      borderHighlighted: '#60a5fa',
-      text: '#f8fafc',
-      mutedText: 'rgba(203, 213, 225, 0.72)',
-      badgeBackground: 'rgba(37, 99, 235, 0.32)',
-      badgeText: '#bfdbfe',
-      shadow: '0 16px 40px -28px rgba(37, 99, 235, 0.5)'
-    },
-    schedule: {
-      background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.65))',
-      border: 'rgba(148, 163, 184, 0.54)',
-      borderHighlighted: '#94a3b8',
-      text: '#f1f5f9',
-      mutedText: 'rgba(203, 213, 225, 0.7)',
-      badgeBackground: 'rgba(148, 163, 184, 0.28)',
-      badgeText: '#e2e8f0',
-      shadow: '0 14px 32px -24px rgba(148, 163, 184, 0.45)'
-    },
-    asset: {
-      background: 'linear-gradient(135deg, rgba(250, 204, 21, 0.3), rgba(248, 113, 113, 0.38))',
-      border: 'rgba(248, 113, 113, 0.62)',
-      borderHighlighted: '#fda4af',
-      text: '#f8fafc',
-      mutedText: 'rgba(254, 226, 226, 0.7)',
-      badgeBackground: 'rgba(248, 113, 113, 0.28)',
-      badgeText: '#fecdd3',
-      shadow: '0 18px 46px -28px rgba(248, 113, 113, 0.55)'
-    },
-    'event-source': {
-      background: 'linear-gradient(135deg, rgba(22, 163, 74, 0.36), rgba(34, 197, 94, 0.28))',
-      border: 'rgba(34, 197, 94, 0.6)',
-      borderHighlighted: '#4ade80',
-      text: '#f8fafc',
-      mutedText: 'rgba(209, 250, 229, 0.78)',
-      badgeBackground: 'rgba(34, 197, 94, 0.32)',
-      badgeText: '#bbf7d0',
-      shadow: '0 16px 36px -26px rgba(34, 197, 94, 0.55)'
-    }
-  }
-};
 
 function mergeTheme(
   base: WorkflowGraphCanvasTheme,
@@ -554,8 +325,11 @@ export function WorkflowGraphCanvas({
   interactionMode = 'interactive',
   overlay = null
 }: WorkflowGraphCanvasProps) {
-  const isDarkMode = useIsDarkMode();
-  const baseTheme = useMemo<WorkflowGraphCanvasTheme>(() => (isDarkMode ? DARK_THEME : LIGHT_THEME), [isDarkMode]);
+  const { theme: activeTheme } = useTheme();
+  const baseTheme = useMemo<WorkflowGraphCanvasTheme>(
+    () => createWorkflowGraphTheme(activeTheme),
+    [activeTheme]
+  );
   const mergedTheme = useMemo(() => mergeTheme(baseTheme, theme), [baseTheme, theme]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [tooltip, setTooltip] = useState<WorkflowGraphCanvasTooltip | null>(null);

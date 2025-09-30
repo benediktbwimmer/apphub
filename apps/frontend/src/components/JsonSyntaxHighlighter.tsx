@@ -57,13 +57,13 @@ function highlightJson(text: string): ReactNode[] {
 
     let tokenClass = '';
     if (token.startsWith('"')) {
-      tokenClass = token.endsWith(':') ? 'text-sky-300' : 'text-emerald-300';
+      tokenClass = token.endsWith(':') ? 'text-status-warning' : 'text-status-success';
     } else if (token === 'true' || token === 'false') {
-      tokenClass = 'text-violet-300';
+      tokenClass = 'text-status-info';
     } else if (token === 'null') {
-      tokenClass = 'text-rose-300';
+      tokenClass = 'text-status-danger';
     } else {
-      tokenClass = 'text-amber-200';
+      tokenClass = 'text-status-neutral';
     }
 
     nodes.push(

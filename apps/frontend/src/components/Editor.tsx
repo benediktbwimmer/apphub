@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import MonacoEditor, {
   type EditorProps as MonacoEditorProps,
   type OnChange,
   type OnMount
 } from '@monaco-editor/react';
-import { getAppliedTheme, registerThemes, useMonacoTheme } from './useMonacoTheme';
+import type { Monaco } from '@monaco-editor/react';
+import { applyMonacoTheme, useMonacoTheme } from './useMonacoTheme';
 
 type BaseEditorProps = {
   value: string;
@@ -45,6 +46,7 @@ export function Editor({
   onMount: userOnMount
 }: BaseEditorProps) {
   const theme = useMonacoTheme();
+  const monacoRef = useRef<Monaco | null>(null);
 
   const mergedOptions = useMemo(
     () => ({ ...BASE_OPTIONS, ...options, readOnly }),
@@ -56,16 +58,22 @@ export function Editor({
   };
 
   const handleMount: OnMount = (editor, monaco) => {
+    monacoRef.current = monaco;
     editor.updateOptions({ renderWhitespace: 'selection', tabSize: 2 });
     if (readOnly) {
       editor.updateOptions({ renderLineHighlight: 'none' });
     }
-    registerThemes(monaco);
-    monaco.editor.setTheme(getAppliedTheme(theme));
+    applyMonacoTheme(monaco, theme);
     userOnMount?.(editor, monaco);
   };
 
-  const appliedTheme = getAppliedTheme(theme);
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco) {
+      return;
+    }
+    applyMonacoTheme(monaco, theme);
+  }, [theme]);
 
   return (
     <div className={className}>
@@ -74,7 +82,7 @@ export function Editor({
         language={language}
         onChange={handleChange}
         height={height}
-        theme={appliedTheme}
+        theme={theme.id}
         options={mergedOptions}
         onMount={handleMount}
         aria-label={ariaLabel}

@@ -7,17 +7,40 @@ type Toast = ToastPayload & {
 };
 
 const TOAST_BASE_CLASSES =
-  'pointer-events-auto flex min-w-[260px] max-w-sm flex-col gap-1 rounded-2xl border px-4 py-3 text-sm shadow-lg backdrop-blur-sm';
+  'pointer-events-auto flex min-w-[260px] max-w-sm flex-col gap-1 rounded-2xl border px-4 py-3 text-scale-sm shadow-elevation-md backdrop-blur-sm';
 
 const TONE_STYLES: Record<ToastTone, string> = {
-  info: 'border-slate-200/70 bg-white/95 text-slate-900 dark:border-slate-700/60 dark:bg-slate-900/90 dark:text-slate-100',
-  success: 'border-emerald-300/70 bg-emerald-50/95 text-emerald-800 dark:border-emerald-400/60 dark:bg-emerald-900/50 dark:text-emerald-200',
-  warning: 'border-amber-300/70 bg-amber-50/95 text-amber-800 dark:border-amber-400/60 dark:bg-amber-900/60 dark:text-amber-200',
-  error: 'border-rose-300/70 bg-rose-50/95 text-rose-700 dark:border-rose-500/60 dark:bg-rose-900/60 dark:text-rose-200'
+  info: [
+    'border-[color:var(--color-status-info)]',
+    'bg-[color:color-mix(in_srgb,var(--color-status-info)_12%,var(--color-surface-raised))]',
+    'text-status-info'
+  ].join(' '),
+  success: [
+    'border-[color:var(--color-status-success)]',
+    'bg-[color:color-mix(in_srgb,var(--color-status-success)_12%,var(--color-surface-raised))]',
+    'text-status-success'
+  ].join(' '),
+  warning: [
+    'border-[color:var(--color-status-warning)]',
+    'bg-[color:color-mix(in_srgb,var(--color-status-warning)_14%,var(--color-surface-raised))]',
+    'text-status-warning'
+  ].join(' '),
+  error: [
+    'border-[color:var(--color-status-danger)]',
+    'bg-[color:color-mix(in_srgb,var(--color-status-danger)_14%,var(--color-surface-raised))]',
+    'text-status-danger'
+  ].join(' ')
+};
+
+const TONE_TEXT_CLASSES: Record<ToastTone, string> = {
+  info: 'text-status-info-on',
+  success: 'text-status-success-on',
+  warning: 'text-status-warning-on',
+  error: 'text-status-danger-on'
 };
 
 const CLOSE_BUTTON_CLASSES =
-  'absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full text-xs text-slate-400 transition-colors hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:text-slate-500 dark:hover:text-slate-300';
+  'absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full text-scale-xs text-muted transition-colors hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 function generateId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -79,6 +102,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <div className="flex flex-col gap-3">
                 {toasts.map((toast) => {
                   const tone = toast.tone ?? 'info';
+                  const toneTextClass = TONE_TEXT_CLASSES[tone];
                   return (
                     <div
                       key={toast.id}
@@ -95,9 +119,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                         ×
                       </button>
                       {toast.title && (
-                        <strong className="text-sm font-semibold">{toast.title}</strong>
+                        <strong className={`text-scale-sm font-weight-semibold ${toneTextClass}`}>{toast.title}</strong>
                       )}
-                      {toast.description && <p className="text-sm leading-snug">{toast.description}</p>}
+                      {toast.description && (
+                        <p className={`text-scale-sm leading-scale-snug ${toneTextClass}`}>{toast.description}</p>
+                      )}
                     </div>
                   );
                 })}
