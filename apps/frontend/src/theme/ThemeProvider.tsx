@@ -15,6 +15,147 @@ import {
 } from '@apphub/shared/designTokens';
 
 const THEME_STORAGE_KEY = 'apphub.theme-preference';
+const CUSTOM_THEME_STORAGE_SUFFIX = 'custom-themes';
+
+function createCustomThemesStorageKey(baseKey: string): string {
+  return `${baseKey}::${CUSTOM_THEME_STORAGE_SUFFIX}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function deepCopy<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => deepCopy(item)) as unknown as T;
+  }
+
+  if (isRecord(value)) {
+    const entries = Object.entries(value).map(([key, val]) => [key, deepCopy(val)]);
+    return Object.fromEntries(entries) as T;
+  }
+
+  return value;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (Array.isArray(value)) {
+    value.forEach((item) => deepFreeze(item));
+    return Object.freeze(value);
+  }
+
+  if (isRecord(value)) {
+    Object.values(value).forEach((val) => deepFreeze(val));
+    return Object.freeze(value);
+  }
+
+  return value;
+}
+
+function sanitizeThemeDefinition(input: unknown): ThemeDefinition | null {
+  if (!isRecord(input)) {
+    return null;
+  }
+
+  const candidate = deepCopy(input) as Partial<ThemeDefinition>;
+
+  if (typeof candidate.id !== 'string' || candidate.id.trim().length === 0) {
+    return null;
+  }
+
+  if (typeof candidate.label !== 'string' || candidate.label.trim().length === 0) {
+    return null;
+  }
+
+  if (candidate.scheme !== 'light' && candidate.scheme !== 'dark') {
+    return null;
+  }
+
+  if (!isRecord(candidate.semantics)) {
+    return null;
+  }
+
+  const semantics = candidate.semantics as Record<string, unknown>;
+  const requiredSemanticSections: Array<keyof ThemeDefinition['semantics']> = [
+    'surface',
+    'text',
+    'border',
+    'status',
+    'overlay',
+    'accent'
+  ];
+
+  for (const section of requiredSemanticSections) {
+    if (!isRecord(semantics[section])) {
+      return null;
+    }
+  }
+
+  if (!isRecord(candidate.typography) || !isRecord(candidate.spacing)) {
+    return null;
+  }
+
+  if (!isRecord(candidate.radius) || !isRecord(candidate.shadow)) {
+    return null;
+  }
+
+  if (candidate.description !== undefined && typeof candidate.description !== 'string') {
+    return null;
+  }
+
+  if (candidate.metadata !== undefined && !isRecord(candidate.metadata)) {
+    return null;
+  }
+
+  return deepFreeze(candidate as ThemeDefinition);
+}
+
+function readStoredCustomThemes(storageKey: string): ThemeDefinition[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const themes: ThemeDefinition[] = [];
+    for (const entry of parsed) {
+      const theme = sanitizeThemeDefinition(entry);
+      if (theme) {
+        themes.push(theme);
+      }
+    }
+
+    return themes;
+  } catch {
+    return [];
+  }
+}
+
+function mergeThemeLists(
+  baseList: readonly ThemeDefinition[],
+  customThemes: readonly ThemeDefinition[]
+): ThemeDefinition[] {
+  if (customThemes.length === 0) {
+    return [...baseList];
+  }
+
+  const overriddenIds = new Set(customThemes.map((theme) => theme.id));
+  const filteredBase = baseList.filter((theme) => !overriddenIds.has(theme.id));
+
+  return [...filteredBase, ...customThemes];
+}
+
+function sortThemesByLabel(themes: readonly ThemeDefinition[]): ThemeDefinition[] {
+  return [...themes].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+}
 
 export type ThemePreference = 'system' | ThemeDefinition['id'];
 
@@ -31,6 +172,9 @@ interface ThemeContextValue {
   readonly theme: ThemeDefinition;
   readonly themeId: ThemeDefinition['id'];
   readonly scheme: ThemeDefinition['scheme'];
+  readonly customThemes: readonly ThemeDefinition[];
+  readonly saveCustomTheme: (theme: ThemeDefinition) => void;
+  readonly deleteCustomTheme: (themeId: ThemeDefinition['id']) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -149,7 +293,21 @@ export function ThemeProvider({
   themes = defaultThemeRegistry,
   storageKey = THEME_STORAGE_KEY
 }: ThemeProviderProps) {
-  const themeList = useMemo(() => createThemeList(themes), [themes]);
+  const baseThemeList = useMemo(() => createThemeList(themes), [themes]);
+
+  const customThemesStorageKey = createCustomThemesStorageKey(storageKey);
+  const [customThemes, setCustomThemes] = useState<ThemeDefinition[]>(() =>
+    readStoredCustomThemes(customThemesStorageKey)
+  );
+
+  useEffect(() => {
+    setCustomThemes(readStoredCustomThemes(customThemesStorageKey));
+  }, [customThemesStorageKey]);
+
+  const themeList = useMemo(
+    () => mergeThemeLists(baseThemeList, customThemes),
+    [baseThemeList, customThemes]
+  );
   const themeMap = useMemo(() => createThemeMap(themeList), [themeList]);
 
   if (themeList.length === 0) {
@@ -239,6 +397,43 @@ export function ThemeProvider({
     [themeMap]
   );
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    try {
+      if (customThemes.length === 0) {
+        window.localStorage.removeItem(customThemesStorageKey);
+        return;
+      }
+      window.localStorage.setItem(customThemesStorageKey, JSON.stringify(customThemes));
+    } catch {
+      // ignore write failures (private browsing, etc.)
+    }
+  }, [customThemes, customThemesStorageKey]);
+
+  useEffect(() => {
+    if (preference !== 'system' && !themeMap.has(preference)) {
+      setPreferenceState('system');
+    }
+  }, [preference, themeMap, setPreferenceState]);
+
+  const saveCustomTheme = useCallback((definition: ThemeDefinition) => {
+    const sanitized = sanitizeThemeDefinition(definition);
+    if (!sanitized) {
+      return;
+    }
+
+    setCustomThemes((current) => {
+      const withoutTarget = current.filter((theme) => theme.id !== sanitized.id);
+      return sortThemesByLabel([...withoutTarget, sanitized]);
+    });
+  }, []);
+
+  const deleteCustomTheme = useCallback((themeId: ThemeDefinition['id']) => {
+    setCustomThemes((current) => current.filter((theme) => theme.id !== themeId));
+  }, []);
+
   const value: ThemeContextValue = useMemo(
     () => ({
       availableThemes: themeList,
@@ -246,9 +441,12 @@ export function ThemeProvider({
       setPreference,
       theme: activeTheme,
       themeId: activeTheme.id,
-      scheme: activeTheme.scheme
+      scheme: activeTheme.scheme,
+      customThemes,
+      saveCustomTheme,
+      deleteCustomTheme
     }),
-    [activeTheme, preference, setPreference, themeList]
+    [activeTheme, customThemes, preference, saveCustomTheme, deleteCustomTheme, setPreference, themeList]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

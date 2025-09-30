@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ThemeDefinition } from '@apphub/shared/designTokens';
 import { useTheme, type ThemePreference } from '../theme';
+import ThemeCustomizationPanel from './ThemeCustomizationPanel';
 
 type ThemeOption = {
   readonly preference: ThemePreference;
@@ -16,7 +17,36 @@ const SYSTEM_OPTION: ThemeOption = {
 };
 
 export default function ThemeSettingsPage() {
-  const { availableThemes, preference, setPreference, theme } = useTheme();
+  const {
+    availableThemes,
+    preference,
+    setPreference,
+    theme,
+    customThemes,
+    saveCustomTheme,
+    deleteCustomTheme
+  } = useTheme();
+
+  const [selectedThemeId, setSelectedThemeId] = useState<string>(theme.id);
+  const [pendingThemeId, setPendingThemeId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pendingThemeId) {
+      const pendingExists = availableThemes.some((candidate) => candidate.id === pendingThemeId);
+      if (pendingExists) {
+        setSelectedThemeId(pendingThemeId);
+        setPendingThemeId(null);
+        return;
+      }
+    }
+
+    const exists = availableThemes.some((candidate) => candidate.id === selectedThemeId);
+    if (!exists && availableThemes.length > 0) {
+      setSelectedThemeId(availableThemes[0].id);
+    }
+  }, [availableThemes, pendingThemeId, selectedThemeId]);
+
+  const customThemeIds = useMemo(() => new Set(customThemes.map((item) => item.id)), [customThemes]);
 
   const options = useMemo<ThemeOption[]>(() => {
     const themedOptions = availableThemes.map((item) => ({
@@ -50,6 +80,18 @@ export default function ThemeSettingsPage() {
           ))}
         </div>
       </fieldset>
+
+      <ThemeCustomizationPanel
+        availableThemes={availableThemes}
+        customThemeIds={customThemeIds}
+        selectedThemeId={selectedThemeId}
+        onSelectTheme={setSelectedThemeId}
+        onThemeSaved={(id) => setPendingThemeId(id)}
+        saveCustomTheme={saveCustomTheme}
+        deleteCustomTheme={deleteCustomTheme}
+        preference={preference}
+        setPreference={setPreference}
+      />
     </section>
   );
 }
