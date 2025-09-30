@@ -137,6 +137,7 @@ export interface DatasetPartitionRecord {
   metadata: JsonObject;
   columnStatistics: PartitionColumnStatisticsMap;
   columnBloomFilters: PartitionColumnBloomFilterMap;
+  ingestionSignature: string | null;
   createdAt: string;
 }
 
@@ -154,6 +155,7 @@ export interface PartitionInput {
   metadata?: JsonObject;
   columnStatistics?: PartitionColumnStatisticsMap;
   columnBloomFilters?: PartitionColumnBloomFilterMap;
+  ingestionSignature?: string | null;
 }
 
 export interface CreateDatasetManifestInput {
@@ -606,7 +608,8 @@ export async function appendPartitionsToManifest(
            checksum,
            metadata,
            column_statistics,
-           column_bloom_filters
+           column_bloom_filters,
+           ingestion_signature
          ) VALUES (
            $1,
            $2,
@@ -623,7 +626,8 @@ export async function appendPartitionsToManifest(
            $13,
            $14::jsonb,
            $15::jsonb,
-           $16::jsonb
+           $16::jsonb,
+           $17
          )` as const,
         [
           partition.id,
@@ -641,7 +645,8 @@ export async function appendPartitionsToManifest(
           partition.checksum ?? null,
           JSON.stringify(partition.metadata ?? {}),
           JSON.stringify(partition.columnStatistics ?? {}),
-          JSON.stringify(partition.columnBloomFilters ?? {})
+          JSON.stringify(partition.columnBloomFilters ?? {}),
+          partition.ingestionSignature ?? null
         ]
       );
     }
@@ -764,7 +769,8 @@ export async function replacePartitionsInManifest(
            checksum,
            metadata,
            column_statistics,
-           column_bloom_filters
+           column_bloom_filters,
+           ingestion_signature
          ) VALUES (
            $1,
            $2,
@@ -781,7 +787,8 @@ export async function replacePartitionsInManifest(
            $13,
            $14::jsonb,
            $15::jsonb,
-           $16::jsonb
+           $16::jsonb,
+           $17
          )` as const,
         [
           partition.id,
@@ -799,7 +806,8 @@ export async function replacePartitionsInManifest(
           partition.checksum ?? null,
           JSON.stringify(partition.metadata ?? {}),
           JSON.stringify(partition.columnStatistics ?? {}),
-          JSON.stringify(partition.columnBloomFilters ?? {})
+          JSON.stringify(partition.columnBloomFilters ?? {}),
+          partition.ingestionSignature ?? null
         ]
       );
     }
@@ -1743,6 +1751,27 @@ export async function recordIngestionBatch(
   });
 }
 
+export async function findPartitionByIngestionSignature(
+  datasetId: string,
+  ingestionSignature: string
+): Promise<DatasetPartitionRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetPartitionRow>(
+      `SELECT *
+         FROM dataset_partitions
+        WHERE dataset_id = $1
+          AND ingestion_signature = $2
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [datasetId, ingestionSignature]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapPartition(rows[0]);
+  });
+}
+
 export async function listPartitionsForQuery(
   datasetId: string,
   rangeStart: Date,
@@ -1847,7 +1876,8 @@ async function insertPartitions(
          checksum,
          metadata,
          column_statistics,
-         column_bloom_filters
+         column_bloom_filters,
+         ingestion_signature
        ) VALUES (
          $1,
          $2,
@@ -1864,7 +1894,8 @@ async function insertPartitions(
          $13,
          $14::jsonb,
          $15::jsonb,
-         $16::jsonb
+         $16::jsonb,
+         $17
        )
        RETURNING *` as const,
       [
@@ -1883,7 +1914,8 @@ async function insertPartitions(
         partition.checksum ?? null,
         JSON.stringify(partition.metadata ?? {}),
         JSON.stringify(partition.columnStatistics ?? {}),
-        JSON.stringify(partition.columnBloomFilters ?? {})
+        JSON.stringify(partition.columnBloomFilters ?? {}),
+        partition.ingestionSignature ?? null
       ]
     );
     partitions.push(mapPartition(rows[0]));
@@ -2027,6 +2059,7 @@ type DatasetPartitionRow = {
   metadata: JsonObject;
   column_statistics: JsonObject;
   column_bloom_filters: JsonObject;
+  ingestion_signature: string | null;
   created_at: string;
 };
 
@@ -2190,6 +2223,7 @@ function mapPartition(row: DatasetPartitionRow): DatasetPartitionRecord {
       (row.column_statistics as PartitionColumnStatisticsMap | undefined) ?? {},
     columnBloomFilters:
       (row.column_bloom_filters as PartitionColumnBloomFilterMap | undefined) ?? {},
+    ingestionSignature: row.ingestion_signature,
     createdAt: row.created_at
   };
 }

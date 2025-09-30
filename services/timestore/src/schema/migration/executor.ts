@@ -672,7 +672,8 @@ async function materializePartition(
         }
       },
       columnStatistics: indexResult.columnStatistics,
-      columnBloomFilters: indexResult.columnBloomFilters
+      columnBloomFilters: indexResult.columnBloomFilters,
+      ingestionSignature: null
     };
 
     return {

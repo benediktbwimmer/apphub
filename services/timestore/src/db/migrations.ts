@@ -97,6 +97,7 @@ const migrations: Migration[] = [
          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
          column_statistics JSONB NOT NULL DEFAULT '{}'::jsonb,
          column_bloom_filters JSONB NOT NULL DEFAULT '{}'::jsonb,
+         ingestion_signature TEXT,
          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
          CHECK (file_format IN ('duckdb', 'parquet')),
          CHECK (end_time >= start_time)
@@ -304,6 +305,16 @@ const migrations: Migration[] = [
     statements: [
       `CREATE INDEX IF NOT EXISTS idx_dataset_access_audit_created_at
          ON dataset_access_audit(created_at ASC);`
+    ]
+  },
+  {
+    id: '012_timestore_ingestion_signatures',
+    statements: [
+      `ALTER TABLE dataset_partitions
+         ADD COLUMN IF NOT EXISTS ingestion_signature TEXT;`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_dataset_partitions_ingestion_signature
+         ON dataset_partitions(dataset_id, ingestion_signature)
+         WHERE ingestion_signature IS NOT NULL;`
     ]
   }
 ];

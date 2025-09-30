@@ -660,7 +660,8 @@ async function processChunk(params: {
           }
         },
         columnStatistics: artifact.columnStatistics,
-        columnBloomFilters: artifact.columnBloomFilters
+        columnBloomFilters: artifact.columnBloomFilters,
+        ingestionSignature: null
       });
 
       chunkAuditEvents.push({

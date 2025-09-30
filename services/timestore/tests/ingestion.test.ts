@@ -151,6 +151,57 @@ test('processIngestionJob writes partitions and respects idempotency', async () 
   assert.equal(repeat.dataset.id, result.dataset.id);
 });
 
+test('processIngestionJob deduplicates identical payloads without explicit idempotency key', async () => {
+  const datasetSlug = `observatory-dedupe-${randomUUID().slice(0, 8)}`;
+  const basePayload = ingestionTypesModule.ingestionJobPayloadSchema.parse({
+    datasetSlug,
+    datasetName: 'Observatory Dedupe',
+    tableName: 'observations',
+    schema: {
+      fields: [
+        { name: 'timestamp', type: 'timestamp' },
+        { name: 'temperature_c', type: 'double' },
+        { name: 'humidity_percent', type: 'double' }
+      ]
+    },
+    partition: {
+      key: { window: '2024-03-01', dataset: 'observatory' },
+      timeRange: {
+        start: '2024-03-01T00:00:00.000Z',
+        end: '2024-03-01T01:00:00.000Z'
+      }
+    },
+    rows: [
+      {
+        timestamp: '2024-03-01T00:00:00.000Z',
+        temperature_c: 18.4,
+        humidity_percent: 58.1
+      },
+      {
+        timestamp: '2024-03-01T00:15:00.000Z',
+        temperature_c: 18.9,
+        humidity_percent: 57.6
+      }
+    ],
+    receivedAt: new Date().toISOString()
+  });
+
+  const first = await ingestionModule.processIngestionJob(basePayload);
+  const second = await ingestionModule.processIngestionJob({
+    ...basePayload,
+    receivedAt: new Date().toISOString()
+  });
+
+  assert.equal(second.manifest.id, first.manifest.id);
+  assert.equal(second.dataset.id, first.dataset.id);
+
+  const metadataModule = await import('../src/db/metadata');
+  const manifest = await metadataModule.getManifestById(first.manifest.id);
+  assert.ok(manifest);
+  assert.equal(manifest!.partitions.length, 1);
+  assert.ok(manifest!.partitions[0]?.ingestionSignature);
+});
+
 test('processIngestionJob accumulates rows across multiple batches for a partition window', async () => {
   const metadataModule = await import('../src/db/metadata');
   const datasetSlug = `observatory-multi-batch-${randomUUID().slice(0, 8)}`;

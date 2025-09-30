@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import type { DatabaseError } from 'pg';
 import {
   appendPartitionsToManifest,
   createDataset,
@@ -14,9 +15,11 @@ import {
   getSchemaVersionById,
   getStorageTargetById,
   getPartitionsWithTargetsForManifest,
+  findPartitionByIngestionSignature,
   recordIngestionBatch,
   updateDatasetDefaultStorageTarget,
   type DatasetRecord,
+  type DatasetPartitionRecord,
   type PartitionInput,
   type StorageTargetRecord
 } from '../db/metadata';
@@ -86,6 +89,38 @@ export async function processIngestionJob(
         defaultStorageTargetId: storageTarget.id
       };
     }
+
+    const reuseExistingPartition = async (
+      partition: DatasetPartitionRecord
+    ): Promise<IngestionProcessingResult | null> => {
+      const manifest = await getManifestById(partition.manifestId);
+      if (!manifest) {
+        return null;
+      }
+
+      const existingTarget = await getStorageTargetById(partition.storageTargetId);
+      if (payload.idempotencyKey) {
+        await recordIngestionBatch({
+          id: `ing-${randomUUID()}`,
+          datasetId: dataset.id,
+          idempotencyKey: payload.idempotencyKey,
+          manifestId: manifest.id
+        });
+      }
+
+      observeIngestionJob({
+        datasetSlug,
+        result: 'success',
+        durationSeconds: durationSince(start)
+      });
+      endSpan(span);
+      return {
+        dataset,
+        manifest,
+        storageTarget: existingTarget ?? storageTarget,
+        idempotencyKey: payload.idempotencyKey
+      };
+    };
 
     if (payload.idempotencyKey) {
       const existing = await getIngestionBatch(dataset.id, payload.idempotencyKey);
@@ -160,6 +195,27 @@ export async function processIngestionJob(
     const partitionAttributes = normalizeStringMap(payload.partition.attributes ?? null);
     const partitionKeyString = buildPartitionKeyString(partitionKey);
 
+    const ingestionSignature = computeIngestionSignature({
+      datasetId: dataset.id,
+      datasetSlug,
+      schemaChecksum,
+      partitionKey,
+      startTime,
+      endTime,
+      rows: payload.rows ?? []
+    });
+
+    const existingPartitionBySignature = await findPartitionByIngestionSignature(
+      dataset.id,
+      ingestionSignature
+    );
+    if (existingPartitionBySignature) {
+      const reused = await reuseExistingPartition(existingPartitionBySignature);
+      if (reused) {
+        return reused;
+      }
+    }
+
     const partitionId = `part-${randomUUID()}`;
     const tableName = payload.tableName ?? 'records';
     const partitionIndex = computePartitionIndexForRows(
@@ -194,7 +250,8 @@ export async function processIngestionJob(
         ...(partitionAttributes ? { attributes: partitionAttributes } : {})
       },
       columnStatistics: partitionIndex.columnStatistics,
-      columnBloomFilters: partitionIndex.columnBloomFilters
+      columnBloomFilters: partitionIndex.columnBloomFilters,
+      ingestionSignature
     } satisfies PartitionInput;
 
     const summaryPatch = {
@@ -226,36 +283,52 @@ export async function processIngestionJob(
       Boolean(previousManifest) &&
       (previousManifest?.schemaVersionId === schemaVersion.id || compatibility?.status === 'additive');
 
-    if (previousManifest && canReuseManifest) {
-      manifest = await appendPartitionsToManifest({
-        datasetId: dataset.id,
-        manifestId: previousManifest.id,
-        partitions: [partitionInput],
-        summaryPatch,
-        metadataPatch,
-        schemaVersionId: schemaVersion.id
-      });
-    } else {
-      const manifestVersion = await getNextManifestVersion(dataset.id);
-      manifest = await createDatasetManifest({
-        id: `dm-${randomUUID()}`,
-        datasetId: dataset.id,
-        version: manifestVersion,
-        status: 'published',
-        manifestShard,
-        schemaVersionId: schemaVersion.id,
-        parentManifestId: previousManifest?.id ?? null,
-        summary: summaryPatch,
-        statistics: {
-          rowCount: writeResult.rowCount,
-          fileSizeBytes: writeResult.fileSizeBytes,
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString()
-        },
-        metadata: metadataPatch,
-        createdBy: 'timestore-ingestion',
-        partitions: [partitionInput]
-      });
+    try {
+      if (previousManifest && canReuseManifest) {
+        manifest = await appendPartitionsToManifest({
+          datasetId: dataset.id,
+          manifestId: previousManifest.id,
+          partitions: [partitionInput],
+          summaryPatch,
+          metadataPatch,
+          schemaVersionId: schemaVersion.id
+        });
+      } else {
+        const manifestVersion = await getNextManifestVersion(dataset.id);
+        manifest = await createDatasetManifest({
+          id: `dm-${randomUUID()}`,
+          datasetId: dataset.id,
+          version: manifestVersion,
+          status: 'published',
+          manifestShard,
+          schemaVersionId: schemaVersion.id,
+          parentManifestId: previousManifest?.id ?? null,
+          summary: summaryPatch,
+          statistics: {
+            rowCount: writeResult.rowCount,
+            fileSizeBytes: writeResult.fileSizeBytes,
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString()
+          },
+          metadata: metadataPatch,
+          createdBy: 'timestore-ingestion',
+          partitions: [partitionInput]
+        });
+      }
+    } catch (error) {
+      if (isIngestionSignatureConflict(error)) {
+        const existingPartition = await findPartitionByIngestionSignature(
+          dataset.id,
+          ingestionSignature
+        );
+        if (existingPartition) {
+          const reused = await reuseExistingPartition(existingPartition);
+          if (reused) {
+            return reused;
+          }
+        }
+      }
+      throw error;
     }
 
     if (payload.idempotencyKey) {
@@ -432,4 +505,77 @@ function buildPartitionKeyString(key: Record<string, string>): string | null {
     .sort((a, b) => a.field.localeCompare(b.field))
     .map(({ field, value }) => `${field}=${value}`);
   return parts.length > 0 ? parts.join('|') : null;
+}
+
+function computeIngestionSignature(params: {
+  datasetId: string;
+  datasetSlug: string;
+  schemaChecksum: string;
+  partitionKey: Record<string, string>;
+  startTime: Date;
+  endTime: Date;
+  rows: Record<string, unknown>[];
+}): string {
+  const { datasetId, datasetSlug, schemaChecksum, partitionKey, startTime, endTime, rows } = params;
+  const canonicalKey = Object.entries(partitionKey)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => ({ key, value }));
+  const payload = {
+    datasetId,
+    datasetSlug,
+    schemaChecksum,
+    partitionKey: canonicalKey,
+    startTime: startTime.toISOString(),
+    endTime: endTime.toISOString(),
+    rowHash: hashRowsForSignature(rows)
+  };
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function hashRowsForSignature(rows: Record<string, unknown>[]): string {
+  if (!rows || rows.length === 0) {
+    return createHash('sha256').update('[]').digest('hex');
+  }
+  const canonicalRows = rows.map((row) => {
+    const normalized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row).sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (value === undefined) {
+        continue;
+      }
+      normalized[key] = normalizeValueForHash(value);
+    }
+    return normalized;
+  });
+  return createHash('sha256').update(JSON.stringify(canonicalRows)).digest('hex');
+}
+
+function normalizeValueForHash(value: unknown): unknown {
+  if (value === undefined) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeValueForHash(entry));
+  }
+  if (value && typeof value === 'object') {
+    const normalized: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>).sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (entry === undefined) {
+        continue;
+      }
+      normalized[key] = normalizeValueForHash(entry);
+    }
+    return normalized;
+  }
+  return value;
+}
+
+function isIngestionSignatureConflict(error: unknown): error is DatabaseError {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const maybe = error as Partial<DatabaseError> & { constraint?: string };
+  return maybe.code === '23505' && maybe.constraint === 'uq_dataset_partitions_ingestion_signature';
 }

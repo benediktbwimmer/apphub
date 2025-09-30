@@ -83,6 +83,7 @@ interface CachePartitionRecord
     | 'metadata'
     | 'columnStatistics'
     | 'columnBloomFilters'
+    | 'ingestionSignature'
     | 'createdAt'
   > {}
 

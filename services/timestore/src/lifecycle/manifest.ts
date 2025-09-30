@@ -18,7 +18,8 @@ export function partitionRecordToInput(partition: DatasetPartitionRecord): Parti
     checksum: partition.checksum ?? undefined,
     metadata: partition.metadata,
     columnStatistics: partition.columnStatistics,
-    columnBloomFilters: partition.columnBloomFilters
+    columnBloomFilters: partition.columnBloomFilters,
+    ingestionSignature: partition.ingestionSignature ?? null
   };
 }
 
