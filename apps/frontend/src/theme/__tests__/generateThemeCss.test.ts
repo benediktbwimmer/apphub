@@ -16,7 +16,12 @@ describe('generateThemeCss', () => {
 
   it('renders selectors for light and dark themes with color-scheme', () => {
     expect(css).toMatch(/:root\[data-theme="apphub-light"\][^}]*color-scheme: light;/);
-    expect(css).toMatch(/:root\.dark[^}]*color-scheme: dark;/);
+    expect(css).toMatch(/:root\.theme-apphub-dark[^}]*color-scheme: dark;/);
+  });
+
+  it('avoids shared scheme selectors that would override custom palettes', () => {
+    expect((css.match(/:root\.theme-light/g) ?? []).length).toBe(1);
+    expect(css).not.toContain(':root.dark');
   });
 
   it('applies semantic color custom properties', () => {

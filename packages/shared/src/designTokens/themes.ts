@@ -227,6 +227,94 @@ const auroraTheme = createTheme({
   }
 });
 
+const obsidianTheme = createTheme({
+  base: darkTheme,
+  id: 'apphub-obsidian',
+  label: 'Obsidian Pulse',
+  description: 'Graphite gradients with electric violet highlights for focus sessions.',
+  overrides: {
+    semantics: {
+      surface: {
+        canvas: '#05060b',
+        canvasMuted: '#0b0f1d',
+        raised: '#12172a',
+        sunken: '#020309',
+        accent: 'rgba(124, 58, 237, 0.24)',
+        backdrop: 'rgba(6, 10, 26, 0.82)'
+      },
+      text: {
+        accent: palette.violet[300],
+        success: palette.emerald[300],
+        warning: palette.amber[300],
+        danger: palette.rose[300]
+      },
+      border: {
+        accent: 'rgba(124, 58, 237, 0.5)',
+        focus: 'rgba(139, 92, 246, 0.72)'
+      },
+      overlay: {
+        hover: 'rgba(139, 92, 246, 0.1)',
+        pressed: 'rgba(139, 92, 246, 0.22)'
+      },
+      accent: {
+        default: palette.violet[400],
+        emphasis: palette.indigo[500],
+        muted: 'rgba(124, 58, 237, 0.34)',
+        onAccent: palette.slate[50]
+      }
+    },
+    metadata: {
+      version: '1.1.0',
+      source: 'system',
+      tags: ['dark', 'violet', 'focused']
+    }
+  }
+});
+
+const nebulaTheme = createTheme({
+  base: darkTheme,
+  id: 'apphub-nebula',
+  label: 'Nebula Drift',
+  description: 'Teal and emerald accents with cosmic blues for monitoring-heavy work.',
+  overrides: {
+    semantics: {
+      surface: {
+        canvas: '#02060f',
+        canvasMuted: '#0b1422',
+        raised: '#102032',
+        sunken: '#01040a',
+        accent: 'rgba(14, 116, 144, 0.28)',
+        backdrop: 'rgba(2, 8, 20, 0.78)'
+      },
+      text: {
+        accent: palette.teal[300],
+        success: palette.emerald[300],
+        warning: palette.amber[300],
+        danger: palette.rose[400]
+      },
+      border: {
+        accent: 'rgba(20, 184, 166, 0.5)',
+        focus: 'rgba(13, 148, 136, 0.7)'
+      },
+      overlay: {
+        hover: 'rgba(20, 184, 166, 0.08)',
+        pressed: 'rgba(20, 184, 166, 0.18)'
+      },
+      accent: {
+        default: palette.teal[400],
+        emphasis: palette.emerald[400],
+        muted: 'rgba(45, 212, 191, 0.32)',
+        onAccent: palette.slate[900]
+      }
+    },
+    metadata: {
+      version: '1.1.0',
+      source: 'system',
+      tags: ['dark', 'teal', 'monitoring']
+    }
+  }
+});
+
 const highContrastTheme = createTheme({
   base: lightTheme,
   id: 'apphub-high-contrast',
@@ -285,6 +373,8 @@ export const defaultThemeRegistry: ThemeRegistry = deepFreeze({
   [darkTheme.id]: darkTheme,
   [coastalTheme.id]: coastalTheme,
   [auroraTheme.id]: auroraTheme,
+  [obsidianTheme.id]: obsidianTheme,
+  [nebulaTheme.id]: nebulaTheme,
   [highContrastTheme.id]: highContrastTheme
 });
 

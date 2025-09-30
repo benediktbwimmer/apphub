@@ -79,11 +79,13 @@ function createThemeSelectors(theme: ThemeDefinition, includeRootFallback: boole
   selectors.add(`:root[data-theme="${theme.id}"]`);
   selectors.add(`:root.theme-${toKebabCase(theme.id)}`);
 
-  if (theme.scheme === 'dark') {
-    selectors.add(':root.theme-dark');
-    selectors.add(':root.dark');
-  } else {
-    selectors.add(':root.theme-light');
+  if (includeRootFallback) {
+    if (theme.scheme === 'dark') {
+      selectors.add(':root.theme-dark');
+      selectors.add(':root.dark');
+    } else {
+      selectors.add(':root.theme-light');
+    }
   }
 
   return Array.from(selectors);
