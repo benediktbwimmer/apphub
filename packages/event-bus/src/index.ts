@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { JobsOptions, QueueOptions } from 'bullmq';
+import type { JobsOptions, Queue, QueueOptions } from 'bullmq';
 import { z } from 'zod';
 
 const WORKFLOW_METADATA_KEY = '__apphubWorkflow' as const;
@@ -215,8 +215,16 @@ function loadBullmqQueue<T>(): BullQueueCtor<T> {
     const hint =
       "BullMQ runtime dependency is missing. Ensure 'bullmq' is installed and packaged with the bundle or switch APPHUB_EVENTS_MODE=inline.";
     const message = error instanceof Error ? `${error.message}. ${hint}` : `Failed to require ${modulePath}. ${hint}`;
-    throw error instanceof Error ? new Error(message, { cause: error }) : new Error(message);
+    if (error instanceof Error) {
+      throw attachErrorCause(new Error(message), error);
+    }
+    throw new Error(message);
   }
+}
+
+function attachErrorCause<T extends Error>(error: T, cause: unknown): T {
+  (error as T & { cause?: unknown }).cause = cause;
+  return error;
 }
 
 export function createEventPublisher(options: EventPublisherOptions = {}): EventPublisherHandle {

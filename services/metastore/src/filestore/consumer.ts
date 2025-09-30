@@ -257,7 +257,7 @@ function applyReconciliationMetadata(
 }
 
 function resolveNodeIdempotencyKey(data: NodeEventInput): string | null {
-  if (typeof data.idempotencyKey === 'string' && data.idempotencyKey.trim().length > 0) {
+  if ('idempotencyKey' in data && typeof data.idempotencyKey === 'string' && data.idempotencyKey.trim().length > 0) {
     return `filestore:${data.idempotencyKey.trim()}`;
   }
   if ('journalId' in data && data.journalId !== undefined && data.journalId !== null) {
@@ -282,7 +282,7 @@ function hasProcessedEvent(metadata: Record<string, unknown> | undefined, data: 
   if (!filestoreState) {
     return false;
   }
-  if (typeof data.idempotencyKey === 'string' && data.idempotencyKey.trim().length > 0) {
+  if ('idempotencyKey' in data && typeof data.idempotencyKey === 'string' && data.idempotencyKey.trim().length > 0) {
     const previousKey = typeof filestoreState.idempotencyKey === 'string' ? filestoreState.idempotencyKey.trim() : null;
     return previousKey === data.idempotencyKey.trim();
   }

@@ -1,4 +1,4 @@
-import type { FastifyError, FastifyErrorHandler, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
 import { HttpError } from './httpError';
 import { mapToHttpError } from './mapper';
 
@@ -9,7 +9,13 @@ type ErrorResponsePayload = {
   details?: unknown;
 };
 
-export function createHttpErrorHandler(): FastifyErrorHandler {
+type FastifyErrorHandlerFn = (
+  error: FastifyError | Error,
+  request: FastifyRequest,
+  reply: FastifyReply
+) => void | Promise<void>;
+
+export function createHttpErrorHandler(): FastifyErrorHandlerFn {
   return function httpErrorHandler(
     error: FastifyError | Error,
     request: FastifyRequest,

@@ -583,7 +583,7 @@ async function executeJobStep(
       assets: extractProducedAssetsFromResult(step, executed.result ?? null)
     });
 
-    const successContext = updateStepContext(nextContext, step.id, {
+    let successContext = updateStepContext(nextContext, step.id, {
       status: jobStatusToStepStatus(executed.status),
       jobRunId: jobRun.id,
       result: executed.result ?? null,
@@ -681,7 +681,7 @@ function appendQuery(path: string, query: Record<string, string | number | boole
     params.append(key, String(value));
   }
   const hasQuery = path.includes('?');
-  const separator = hasQuery ? (path.endsWith('?') || path.endswith('&') ? '' : '&') : '?';
+  const separator = hasQuery ? (path.endsWith('?') || path.endsWith('&') ? '' : '&') : '?';
   const queryString = params.toString();
   return queryString.length > 0 ? `${path}${separator}${queryString}` : path;
 }

@@ -530,8 +530,8 @@ export default function ObservatoryOpsPage() {
           {uploadError && <FormFeedback tone="error">{uploadError}</FormFeedback>}
 
           <FormActions>
-            <FormButton type="submit" tone="primary" loading={uploadBusy} disabled={uploadBusy}>
-              Upload calibration
+            <FormButton type="submit" variant="primary" disabled={uploadBusy}>
+              {uploadBusy ? 'Uploading...' : 'Upload calibration'}
             </FormButton>
           </FormActions>
         </form>
@@ -839,21 +839,19 @@ export default function ObservatoryOpsPage() {
                   <FormActions>
                     <FormButton
                       type="button"
-                      tone="secondary"
-                      loading={processingPlan}
+                      variant="secondary"
                       disabled={processingPlan}
                       onClick={() => handleTriggerReprocess('selected')}
                     >
-                      Process selected partitions
+                      {processingPlan ? 'Processing selected...' : 'Process selected partitions'}
                     </FormButton>
                     <FormButton
                       type="button"
-                      tone="primary"
-                      loading={processingPlan}
+                      variant="primary"
                       disabled={processingPlan}
                       onClick={() => handleTriggerReprocess('all')}
                     >
-                      Process entire plan
+                      {processingPlan ? 'Processing plan...' : 'Process entire plan'}
                     </FormButton>
                   </FormActions>
                 </FormSection>

@@ -851,6 +851,7 @@ export type RestoreRecordInput = {
   };
   expectedVersion?: number;
   actor?: string | null;
+  idempotencyKey?: string | null;
 };
 
 export async function restoreRecordFromAudit(

@@ -8,8 +8,7 @@ import {
   restoreRecordFromAudit as restoreRecordFromAuditRepo,
   searchRecords as searchRecordsRepo,
   softDeleteRecord as softDeleteRecordRepo,
-  upsertRecord as upsertRecordRepo,
-  type MetastoreRecord
+  upsertRecord as upsertRecordRepo
 } from '../db/recordsRepository';
 import { withConnection, withTransaction } from '../db/client';
 import type {
@@ -32,6 +31,7 @@ import {
   getRecordAuditByVersion,
   type RecordAuditView
 } from '../db/auditRepository';
+import type { MetastoreRecord } from '../db/types';
 
 export type OperationContext = {
   actor: string | null;
@@ -163,7 +163,13 @@ type MutationOptions = {
 
 type MutationPayload = PendingMutation['payload'];
 
-type BulkOperation = BulkOperationPayload & { type?: 'delete' | 'upsert' | 'put' | 'create' };
+type BulkOperation = BulkOperationPayload;
+type BulkDeleteOperation = Extract<BulkOperation, { type: 'delete' }>;
+type BulkWriteOperation = Exclude<BulkOperation, { type: 'delete' }>;
+
+function isDeleteOperation(operation: BulkOperation): operation is BulkDeleteOperation {
+  return operation.type === 'delete';
+}
 
 export function createRecordService(deps: RecordServiceDependencies = {}) {
   const {
@@ -591,7 +597,7 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
     deps: ExecuteOperationDependencies,
     operation: BulkOperation
   ): Promise<BulkDeleteResult | BulkUpsertResult> {
-    if (operation.type === 'delete') {
+    if (isDeleteOperation(operation)) {
       return performBulkDelete(deps, operation);
     }
     return performBulkUpsert(deps, operation);
@@ -599,7 +605,7 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
 
   async function performBulkDelete(
     { client, context, pendingMutations }: ExecuteOperationDependencies,
-    operation: BulkOperation
+    operation: BulkDeleteOperation
   ): Promise<BulkDeleteResult> {
     const result = await softDeleteRecordDb(client, {
       namespace: operation.namespace,
@@ -635,7 +641,7 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
 
   async function performBulkUpsert(
     { client, context, pendingMutations }: ExecuteOperationDependencies,
-    operation: BulkOperation
+    operation: BulkWriteOperation
   ): Promise<BulkUpsertResult> {
     const result = await upsertRecordDb(client, {
       namespace: operation.namespace,

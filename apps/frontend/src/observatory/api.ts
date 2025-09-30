@@ -74,7 +74,12 @@ export async function fetchCalibrations(
       limit: params.limit
     },
     schema,
-    transform: (payload) => payload.calibrations
+    transform: (payload) => {
+      if (!payload) {
+        throw new Error('Missing calibration response payload');
+      }
+      return payload.calibrations;
+    }
   });
 }
 
@@ -116,7 +121,12 @@ export async function fetchCalibrationPlans(
   return client.request('/observatory/plans', {
     query: { limit: params.limit },
     schema,
-    transform: (payload) => payload.plans
+    transform: (payload) => {
+      if (!payload) {
+        throw new Error('Missing calibration plans payload');
+      }
+      return payload.plans;
+    }
   });
 }
 

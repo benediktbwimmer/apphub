@@ -1020,58 +1020,69 @@ function setSharedValue(
   return next;
 }
 
+function isWorkflowRunStatus(value: unknown): value is WorkflowRunStatus {
+  return (
+    value === 'pending' ||
+    value === 'running' ||
+    value === 'succeeded' ||
+    value === 'failed' ||
+    value === 'canceled'
+  );
+}
+
 async function applyRunContextPatch(
   runId: string,
   stepId: string,
   patch: Partial<WorkflowStepRuntimeContext> | null,
-  options: {
+  options?: {
     shared?: Record<string, JsonValue | null>;
     metrics?: { totalSteps: number; completedSteps: number };
-    status?: WorkflowRunStatus;
+    status?: WorkflowRunStatus | WorkflowRunStepStatus;
     errorMessage?: string | null;
     currentStepId?: string | null;
     currentStepIndex?: number | null;
     startedAt?: string | null;
     completedAt?: string | null;
     durationMs?: number | null;
-  } = {}
+  }
 ): Promise<void> {
+  const opts = options ?? {};
   const update: WorkflowRunUpdateInput = {};
-  if (patch || options.shared) {
+  if (patch || opts.shared) {
     update.contextPatch = {};
     if (patch) {
       update.contextPatch.steps = { [stepId]: patch };
     }
-    if (options.shared) {
-      update.contextPatch.shared = options.shared;
+    if (opts.shared) {
+      update.contextPatch.shared = opts.shared;
     }
   }
-  if (options.metrics) {
+  if (opts.metrics) {
     update.metrics = {
-      totalSteps: options.metrics.totalSteps,
-      completedSteps: options.metrics.completedSteps
+      totalSteps: opts.metrics.totalSteps,
+      completedSteps: opts.metrics.completedSteps
     } as JsonValue;
   }
-  if (options.status) {
-    update.status = options.status;
+  if (opts.status && isWorkflowRunStatus(opts.status)) {
+    update.status = opts.status;
   }
-  if (options.errorMessage !== undefined) {
-    update.errorMessage = options.errorMessage;
+  if (opts.errorMessage !== undefined) {
+    update.errorMessage = opts.errorMessage;
   }
-  if (options.currentStepId !== undefined) {
-    update.currentStepId = options.currentStepId;
+  if (opts.currentStepId !== undefined) {
+    update.currentStepId = opts.currentStepId;
   }
-  if (options.currentStepIndex !== undefined) {
-    update.currentStepIndex = options.currentStepIndex;
+  if (opts.currentStepIndex !== undefined) {
+    update.currentStepIndex = opts.currentStepIndex;
   }
-  if (options.startedAt !== undefined) {
-    update.startedAt = options.startedAt;
+  if (opts.startedAt !== undefined) {
+    update.startedAt = opts.startedAt;
   }
-  if (options.completedAt !== undefined) {
-    update.completedAt = options.completedAt;
+  if (opts.completedAt !== undefined) {
+    update.completedAt = opts.completedAt;
   }
-  if (options.durationMs !== undefined) {
-    update.durationMs = options.durationMs;
+  if (opts.durationMs !== undefined) {
+    update.durationMs = opts.durationMs;
   }
 
   if (Object.keys(update).length === 0) {
