@@ -47,7 +47,7 @@
     {
       "name": "OBSERVATORY_DATA_ROOT",
       "description": "Base directory on the host where observatory datasets and artifacts are stored.",
-      "default": "examples/environmental-observatory-event-driven/data"
+      "default": "/tmp/apphub-observatory"
     }
   ],
   "bootstrap": {
@@ -63,36 +63,6 @@
           "TIMESTORE_STORAGE_ROOT": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/storage",
           "TIMESTORE_QUERY_CACHE_DIR": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/cache",
           "TIMESTORE_STORAGE_DRIVER": "{{ env.TIMESTORE_STORAGE_DRIVER | default:local }}"
-        }
-      },
-      {
-        "type": "ensureDirectories",
-        "description": "Create local directories required by the observatory example",
-        "directories": [
-          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/datasets/observatory/inbox",
-          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/staging",
-          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/archive",
-          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/plots",
-          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/reports",
-          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/storage",
-          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/cache"
-        ]
-      },
-      {
-        "type": "ensureFilestoreBackend",
-        "description": "Provision the observatory filestore backend",
-        "mountKey": "observatory-event-driven-local",
-        "backend": {
-          "kind": "local",
-          "rootPath": "{{ placeholders.OBSERVATORY_DATA_ROOT }}"
-        },
-        "config": {
-          "provisionedBy": "observatory-import"
-        },
-        "assign": {
-          "variables": {
-            "OBSERVATORY_FILESTORE_BACKEND_ID": "{{ outputs.lastFilestoreBackendId }}"
-          }
         }
       },
       {

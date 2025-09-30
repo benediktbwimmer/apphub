@@ -24,12 +24,26 @@ Descriptors accept the existing service-manifest payloads plus:
     {
       "name": "OBSERVATORY_DATA_ROOT",
       "description": "Base directory on the host where observatory datasets and artifacts are stored.",
-      "default": "examples/environmental-observatory-event-driven/data"
+      "default": "/tmp/apphub-observatory"
     }
   ],
   "bootstrap": {
     "actions": [
-      { "type": "ensureDirectories", "directories": ["{{ placeholders.OBSERVATORY_DATA_ROOT }}/staging"] }
+      {
+        "type": "setEnvDefaults",
+        "values": {
+          "TIMESTORE_STORAGE_ROOT": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/storage"
+        }
+      },
+      {
+        "type": "writeJsonFile",
+        "path": "{{ paths.repoRoot }}/examples/environmental-observatory-event-driven/.generated/observatory-config.json",
+        "content": {
+          "paths": {
+            "staging": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/staging"
+          }
+        }
+      }
     ]
   }
 }

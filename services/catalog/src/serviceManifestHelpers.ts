@@ -27,6 +27,12 @@ export function buildBootstrapContext(
     }
   }
 
+  for (const [key, value] of Object.entries(resolvedVariables)) {
+    if (!placeholders.has(key) && typeof value === 'string') {
+      placeholders.set(key, value);
+    }
+  }
+
   return { placeholders, variables: resolvedVariables };
 }
 

@@ -15,6 +15,10 @@
           "key": "OBSERVATORY_CONFIG_PATH",
           "value": "examples/environmental-observatory-event-driven/.generated/observatory-config.json"
         },
+        {
+          "key": "OBSERVATORY_DATA_ROOT",
+          "value": "${OBSERVATORY_DATA_ROOT}"
+        },
         { "key": "DASHBOARD_REFRESH_MS", "value": "10000" }
       ]
     }

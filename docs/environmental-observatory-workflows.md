@@ -42,10 +42,10 @@ graph TD
 
 ## Data drop and directory layout
 
-Each instrument pushes a minute CSV into an inbox (`examples/environmental-observatory-event-driven/data/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to the Timestore ingestion job:
+Each instrument pushes a minute CSV into an inbox (`/tmp/apphub-observatory/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to the Timestore ingestion job:
 
 ```
-examples/environmental-observatory-event-driven/data/
+/tmp/apphub-observatory/
   inbox/
     instrument_alpha_202508010900.csv
     instrument_alpha_202508011000.csv
@@ -169,8 +169,8 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
    cd services/filestore-ingest-watcher
    npm install
 
-   WATCH_ROOT=$(pwd)/../examples/environmental-observatory-event-driven/data/inbox \
-   WATCH_ARCHIVE_DIR=$(pwd)/../examples/environmental-observatory-event-driven/data/archive \
+   WATCH_ROOT=/tmp/apphub-observatory/inbox \
+   WATCH_ARCHIVE_DIR=/tmp/apphub-observatory/archive \
    FILESTORE_BASE_URL=http://127.0.0.1:4300 \
    FILESTORE_BACKEND_ID=1 \
    FILESTORE_TARGET_PREFIX=datasets/observatory/inbox \
@@ -182,7 +182,6 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
    cd examples/environmental-observatory-event-driven/services/observatory-dashboard
    npm install
 
-   REPORTS_DIR=$(pwd)/../../data/reports \
    PORT=4311 \
    npm run dev
    ```
@@ -200,9 +199,9 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
        "partitionKey": "2025-08-01T09:00",
        "parameters": {
          "minute": "2025-08-01T09:00",
-         "inboxDir": "examples/environmental-observatory-event-driven/data/inbox",
-         "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
-         "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
+         "inboxDir": "/tmp/apphub-observatory/inbox",
+         "stagingDir": "/tmp/apphub-observatory/staging",
+         "archiveDir": "/tmp/apphub-observatory/archive",
         "timestoreBaseUrl": "http://127.0.0.1:4200",
         "timestoreDatasetSlug": "observatory-timeseries",
         "timestoreDatasetName": "Observatory Time Series",
@@ -216,6 +215,6 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
    curl -sS http://127.0.0.1:4000/workflows/observatory-daily-publication/assets | jq
    ```
 
-9. After the visualization workflow emits `observatory.visualizations.minute`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `examples/environmental-observatory-event-driven/data/reports/<minute>/` to view the Markdown, HTML, and JSON outputs side by side.
+9. After the visualization workflow emits `observatory.visualizations.minute`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `/tmp/apphub-observatory/reports/<minute>/` to view the Markdown, HTML, and JSON outputs side by side.
 
 This example demonstrates how AppHub’s asset graph keeps downstream pages synchronized with instrument feeds. By pairing partitioned assets, Timestore manifests, SVG plots, and auto-materialized reports, operators get traceable lineage and consistently fresh observatory dashboards.

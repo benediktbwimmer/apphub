@@ -29,12 +29,12 @@ async function run() {
     assert(placeholder, 'placeholder summary should include OBSERVATORY_DATA_ROOT');
     assert.equal(
       placeholder?.defaultValue,
-      'examples/environmental-observatory-event-driven/data',
+      '/tmp/apphub-observatory',
       'descriptor placeholder should expose default value'
     );
     assert.equal(
       placeholder?.value,
-      'examples/environmental-observatory-event-driven/data',
+      '/tmp/apphub-observatory',
       'descriptor placeholder should resolve to default value when not overridden'
     );
   } finally {

@@ -43,7 +43,7 @@ Inside a workflow definition, attach `produces` and `consumes` blocks to job ste
         "onUpstreamUpdate": true,
         "priority": 5,
         "parameterDefaults": {
-          "plotsDir": "examples/environmental-observatory-event-driven/data/plots",
+          "plotsDir": "/tmp/apphub-observatory/plots",
           "timestoreAsset": {
             "assetId": "observatory.timeseries.timestore"
           }
