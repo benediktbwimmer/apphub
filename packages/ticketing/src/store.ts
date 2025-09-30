@@ -54,6 +54,11 @@ const slugify = (input: string): string => {
     .replace(/-{2,}/g, '-');
 };
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 interface DerivedArtifacts {
   index: TicketIndex;
   dependencyGraph: TicketDependencyGraph;
@@ -134,8 +139,7 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
     }
 
     const db = this.getDb();
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
+    await this.configureDatabase(db);
     db.exec(`
       CREATE TABLE IF NOT EXISTS tickets (
         id TEXT PRIMARY KEY,
@@ -440,6 +444,57 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
       throw new TicketStoreError('Ticket store has not been initialized');
     }
     return this.db;
+  }
+
+  private async configureDatabase(db: SqliteDatabase): Promise<void> {
+    db.pragma('busy_timeout = 5000');
+    await this.ensureWalJournalMode(db);
+    db.pragma('foreign_keys = ON');
+  }
+
+  private async ensureWalJournalMode(db: SqliteDatabase): Promise<void> {
+    const maxAttempts = 5;
+    const baseDelayMs = 100;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        const result = db.pragma('journal_mode = WAL', { simple: true });
+        if (typeof result === 'string' && result.toLowerCase() === 'wal') {
+          return;
+        }
+
+        throw new TicketStoreError(
+          `Ticket database returned unexpected journal mode ${String(result)} while enabling WAL`
+        );
+      } catch (error) {
+        if (!this.isBusySqliteError(error)) {
+          const message = (error as Error)?.message ?? 'Unknown error';
+          throw new TicketStoreError(`Failed to enable WAL journal mode for ticket database: ${message}`);
+        }
+
+        const delayMs = baseDelayMs * (attempt + 1);
+        await sleep(delayMs);
+      }
+    }
+
+    try {
+      const currentMode = db.pragma('journal_mode', { simple: true });
+      if (typeof currentMode === 'string' && currentMode.toLowerCase() === 'wal') {
+        return;
+      }
+    } catch (error) {
+      if (this.isBusySqliteError(error)) {
+        throw new TicketStoreError('Timed out while waiting for WAL journal mode to become available');
+      }
+      const message = (error as Error)?.message ?? 'Unknown error';
+      throw new TicketStoreError(`Failed to read ticket database journal mode: ${message}`);
+    }
+
+    throw new TicketStoreError('Timed out enabling WAL journal mode for ticket database');
+  }
+
+  private isBusySqliteError(error: unknown): error is { code: string } {
+    return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'SQLITE_BUSY');
   }
 
   private async rebuildArtifacts(): Promise<void> {
