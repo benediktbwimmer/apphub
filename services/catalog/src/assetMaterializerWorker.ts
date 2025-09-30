@@ -924,13 +924,25 @@ export class AssetMaterializer {
         const existing = await getActiveWorkflowRunByKey(workflowId, runKeyColumns.runKeyNormalized);
         await releaseWorkflowAutoRun(workflowId, { ownerId: this.instanceId });
         if (existing) {
-          logger.info('Auto-materialize run already active for run key', {
-            workflowId,
-            workflowSlug: config.slug,
-            runKey: runKeyColumns.runKey,
-            existingRunId: existing.id
-          });
-          return;
+          const existingRunKey = existing.runKey ?? runKeyColumns.runKey ?? null;
+          try {
+            await enqueueWorkflowRun(existing.id, { runKey: existingRunKey });
+            logger.info('Auto-materialize run already active for run key', {
+              workflowId,
+              workflowSlug: config.slug,
+              runKey: existingRunKey,
+              existingRunId: existing.id
+            });
+            return;
+          } catch (enqueueErr) {
+            logger.error('Failed to re-enqueue existing auto-materialize run after run key conflict', {
+              workflowId,
+              workflowSlug: config.slug,
+              existingRunId: existing.id,
+              error: (enqueueErr as Error).message ?? 'unknown error'
+            });
+            throw enqueueErr;
+          }
         }
         throw err;
       }

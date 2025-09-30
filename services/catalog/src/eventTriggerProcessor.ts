@@ -698,6 +698,8 @@ async function processTrigger(
         runKeyColumns.runKeyNormalized
       );
       if (existing) {
+        const existingRunKey = existing.runKey ?? runKeyColumns.runKey ?? null;
+        await enqueueWorkflowRun(existing.id, { runKey: existingRunKey });
         await updateWorkflowTriggerDelivery(delivery.id, {
           status: 'launched',
           workflowRunId: existing.id,
@@ -711,7 +713,7 @@ async function processTrigger(
         logger.info('Reused existing workflow run for trigger run key', {
           triggerId: trigger.id,
           workflowDefinitionId: trigger.workflowDefinitionId,
-          runKey: runKeyColumns.runKey,
+          runKey: existingRunKey,
           workflowRunId: existing.id
         });
         return;

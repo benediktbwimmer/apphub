@@ -21,6 +21,7 @@ import {
   appendWorkflowExecutionHistory,
   updateWorkflowRunStep,
   listScheduledWorkflowRunSteps,
+  listUnstartedWorkflowRuns,
   type WorkflowStaleStepRef
 } from './db/workflows';
 import {
@@ -64,11 +65,30 @@ const WORKFLOW_RETRY_RECONCILIATION_BATCH = Math.max(
   Number(process.env.WORKFLOW_RETRY_RECONCILIATION_BATCH ?? 200)
 );
 
+const WORKFLOW_ENQUEUE_RECONCILIATION_INTERVAL_MS = Math.max(
+  15_000,
+  Number(process.env.WORKFLOW_ENQUEUE_RECONCILIATION_INTERVAL_MS ?? 60_000)
+);
+
+const WORKFLOW_ENQUEUE_RECONCILIATION_BATCH = Math.max(
+  5,
+  Number(process.env.WORKFLOW_ENQUEUE_RECONCILIATION_BATCH ?? 100)
+);
+
+const WORKFLOW_ENQUEUE_STALE_AFTER_MS = Math.max(
+  5_000,
+  Number(process.env.WORKFLOW_ENQUEUE_STALE_AFTER_MS ?? 60_000)
+);
+
 type HeartbeatMonitor = {
   stop: () => Promise<void>;
 };
 
 type RetryReconciler = {
+  stop: () => Promise<void>;
+};
+
+type RunEnqueueReconciler = {
   stop: () => Promise<void>;
 };
 
@@ -158,6 +178,68 @@ function startRetryReconciler(): RetryReconciler {
       await loop;
     }
   } satisfies RetryReconciler;
+}
+
+async function reconcilePendingWorkflowRuns(batchSize = WORKFLOW_ENQUEUE_RECONCILIATION_BATCH) {
+  if (useInlineQueue) {
+    return;
+  }
+
+  const cutoffIso = new Date(Date.now() - WORKFLOW_ENQUEUE_STALE_AFTER_MS).toISOString();
+  const runs = await listUnstartedWorkflowRuns(batchSize, cutoffIso);
+  if (runs.length === 0) {
+    return;
+  }
+
+  let requeued = 0;
+
+  for (const run of runs) {
+    try {
+      await enqueueWorkflowRun(run.id, { runKey: run.runKey ?? null });
+      requeued += 1;
+    } catch (err) {
+      logger.error('Failed to enqueue pending workflow run', {
+        workflowRunId: run.id,
+        workflowDefinitionId: run.workflowDefinitionId,
+        error: err instanceof Error ? err.message : 'unknown'
+      });
+    }
+  }
+
+  if (requeued > 0) {
+    log('Re-enqueued pending workflow runs', { count: requeued });
+  }
+}
+
+function startRunEnqueueReconciler(): RunEnqueueReconciler {
+  if (useInlineQueue || WORKFLOW_ENQUEUE_RECONCILIATION_INTERVAL_MS <= 0) {
+    return {
+      stop: async () => {
+        // no-op when reconciliation disabled
+      }
+    } satisfies RunEnqueueReconciler;
+  }
+
+  let stopped = false;
+  const loop = (async () => {
+    while (!stopped) {
+      try {
+        await reconcilePendingWorkflowRuns();
+      } catch (err) {
+        logger.error('Pending workflow run reconciliation failed', {
+          error: err instanceof Error ? err.message : 'unknown'
+        });
+      }
+      await sleep(WORKFLOW_ENQUEUE_RECONCILIATION_INTERVAL_MS);
+    }
+  })();
+
+  return {
+    stop: async () => {
+      stopped = true;
+      await loop;
+    }
+  } satisfies RunEnqueueReconciler;
 }
 
 function resolveStepDefinition(
@@ -432,6 +514,7 @@ async function runQueueWorker() {
   const connection = getQueueConnection();
   const heartbeatMonitor = startHeartbeatMonitor();
   let retryReconciler: RetryReconciler | null = null;
+  let runEnqueueReconciler: RunEnqueueReconciler | null = null;
   const initialConcurrency = Math.max(WORKFLOW_SCALING_CONFIG.defaultConcurrency, 1);
   const worker = new Worker(
     WORKFLOW_QUEUE_NAME,
@@ -533,9 +616,13 @@ async function runQueueWorker() {
     });
     await reconcileScheduledWorkflowRetries();
     retryReconciler = startRetryReconciler();
+    runEnqueueReconciler = startRunEnqueueReconciler();
   } catch (err) {
     if (scalingAgent) {
       await scalingAgent.stop().catch(() => undefined);
+    }
+    if (runEnqueueReconciler) {
+      await runEnqueueReconciler.stop().catch(() => undefined);
     }
     await heartbeatMonitor.stop();
     await scheduler.stop();
@@ -553,6 +640,9 @@ async function runQueueWorker() {
     await worker.close();
     if (retryReconciler) {
       await retryReconciler.stop();
+    }
+    if (runEnqueueReconciler) {
+      await runEnqueueReconciler.stop();
     }
     await heartbeatMonitor.stop();
     await scheduler.stop();

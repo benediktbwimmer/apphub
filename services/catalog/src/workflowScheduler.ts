@@ -407,19 +407,38 @@ async function materializeSchedule(
           runKeyColumns.runKeyNormalized
         );
         if (existing) {
-          log('Skipped scheduled run due to existing active run key', {
-            workflowId: definition.id,
-            workflowSlug: definition.slug,
-            scheduleId: schedule.id,
-            workflowRunId: existing.id,
-            runKey: runKeyColumns.runKey
-          });
-          recordWorkflowSchedulerScheduleEvent('skipped', {
-            scheduleId: schedule.id,
-            reason: 'duplicate_run_key'
-          });
-          skipReason = 'duplicate_run_key';
-          break;
+          try {
+            const existingRunKey = existing.runKey ?? runKeyColumns.runKey ?? null;
+            await deps.enqueueWorkflowRun(existing.id, { runKey: existingRunKey });
+            log('Skipped scheduled run due to existing active run key', {
+              workflowId: definition.id,
+              workflowSlug: definition.slug,
+              scheduleId: schedule.id,
+              workflowRunId: existing.id,
+              runKey: existingRunKey
+            });
+            recordWorkflowSchedulerScheduleEvent('skipped', {
+              scheduleId: schedule.id,
+              reason: 'duplicate_run_key'
+            });
+            skipReason = 'duplicate_run_key';
+            break;
+          } catch (enqueueErr) {
+            logError('Failed to re-enqueue existing workflow run after run key conflict', {
+              workflowId: definition.id,
+              workflowSlug: definition.slug,
+              scheduleId: schedule.id,
+              existingRunId: existing.id,
+              error: (enqueueErr as Error).message ?? 'unknown error'
+            });
+            recordWorkflowSchedulerScheduleEvent('error', {
+              scheduleId: schedule.id,
+              reason: 'enqueue_failure'
+            });
+            skipReason = 'enqueue_failure';
+            hadError = true;
+            break;
+          }
         }
       }
       logError('Failed to enqueue scheduled workflow run', {
@@ -444,6 +463,10 @@ async function materializeSchedule(
     remaining -= 1;
 
     nextCursor = computeNextOccurrence(schedule, nextCursor, { inclusive: false });
+  }
+
+  if (hadError && runsCreated === 0) {
+    return { runsCreated: 0, skipReason: skipReason ?? 'enqueue_failure' };
   }
 
   const updates: {

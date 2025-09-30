@@ -34,6 +34,7 @@ import {
   WORKFLOW_QUEUE_NAME,
   WORKFLOW_RETRY_JOB_NAME
 } from './queueConstants';
+import { logger } from './observability/logger';
 
 export {
   ASSET_EVENT_QUEUE_NAME,
@@ -726,11 +727,37 @@ export async function enqueueWorkflowRun(
       }
     );
   } catch (err) {
-    console.error('[enqueueWorkflowRun] queue.add failed', {
+    if (err instanceof Error && err.message.includes('jobId already exists')) {
+      logger.info('Workflow run already enqueued', {
+        workflowRunId: trimmedId,
+        jobId
+      });
+      return;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn('Workflow enqueue failed; falling back to synchronous execution', {
+      workflowRunId: trimmedId,
       jobId,
-      error: err instanceof Error ? err.message : String(err)
+      error: message
     });
-    throw err;
+    try {
+      const { runWorkflowOrchestration } = await import('./workflowOrchestrator');
+      await runWorkflowOrchestration(trimmedId);
+      logger.info('Workflow run executed synchronously after enqueue failure', {
+        workflowRunId: trimmedId,
+        jobId
+      });
+      return;
+    } catch (fallbackErr) {
+      const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      logger.error('Synchronous workflow execution failed after enqueue failure', {
+        workflowRunId: trimmedId,
+        jobId,
+        enqueueError: message,
+        fallbackError: fallbackMessage
+      });
+      throw fallbackErr instanceof Error ? fallbackErr : new Error(fallbackMessage);
+    }
   }
 }
 

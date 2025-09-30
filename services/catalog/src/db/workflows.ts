@@ -2913,6 +2913,33 @@ export async function listWorkflowRunsForDefinition(
   });
 }
 
+export async function listUnstartedWorkflowRuns(
+  limit: number,
+  olderThanIso: string
+): Promise<WorkflowRunRecord[]> {
+  const boundedLimit = Math.max(1, Math.min(limit, 200));
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowRunRow>(
+      `SELECT *
+         FROM workflow_runs
+        WHERE status = 'pending'
+          AND started_at IS NULL
+          AND current_step_id IS NULL
+          AND updated_at <= $2
+        ORDER BY updated_at ASC
+        LIMIT $1`,
+      [boundedLimit, olderThanIso]
+    );
+    if (rows.length === 0) {
+      return [];
+    }
+    const runs = rows.map(mapWorkflowRunRow);
+    await attachWorkflowRunRetrySummaries(runs);
+    return runs;
+  });
+}
+
 export async function listWorkflowRunsInRange(
   workflowDefinitionId: string,
   options: { from: string; to: string; limit?: number }
