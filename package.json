@@ -40,7 +40,9 @@
     "minikube:up": "node scripts/minikube-up.mjs",
     "minikube:redeploy": "node scripts/minikube-redeploy.mjs",
     "minikube:down": "node scripts/minikube-down.mjs",
-    "minikube:verify": "node scripts/minikube-verify.mjs"
+    "minikube:verify": "node scripts/minikube-verify.mjs",
+    "obs:event:plan": "tsx examples/environmental-observatory-event-driven/scripts/runCalibrationPlan.ts",
+    "obs:event:reprocess": "tsx examples/environmental-observatory-event-driven/scripts/runCalibrationReprocess.ts"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

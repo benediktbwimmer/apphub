@@ -314,6 +314,10 @@ async function main(): Promise<void> {
     calibrations: {
       prefix: config.filestore.calibrationsPrefix,
       plansPrefix: config.filestore.plansPrefix ?? null
+    },
+    catalog: {
+      baseUrl: config.catalog?.baseUrl ?? 'http://127.0.0.1:4000',
+      apiToken: config.catalog?.apiToken ?? null
     }
   } satisfies Record<string, unknown>;
 
@@ -325,6 +329,9 @@ async function main(): Promise<void> {
     calibrationPath: '{{ event.payload.path }}',
     calibrationNodeId: '{{ event.payload.node.id }}',
     calibrationsPrefix: '{{ trigger.metadata.calibrations.prefix }}',
+    plansPrefix: '{{ trigger.metadata.calibrations.plansPrefix }}',
+    catalogBaseUrl: '{{ trigger.metadata.catalog.baseUrl }}',
+    catalogApiToken: '{{ trigger.metadata.catalog.apiToken }}',
     checksum: '{{ event.payload.node.checksum }}',
     metastoreBaseUrl: '{{ trigger.metadata.metastore.baseUrl }}',
     metastoreNamespace: '{{ trigger.metadata.metastore.namespace }}',

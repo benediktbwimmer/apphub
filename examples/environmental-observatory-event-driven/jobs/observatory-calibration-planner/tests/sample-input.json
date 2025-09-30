@@ -1,0 +1,16 @@
+{
+  "calibrations": [
+    {
+      "calibrationId": "instrument_alpha:2029-12-31T23:00:00.000Z",
+      "instrumentId": "instrument_alpha",
+      "effectiveAt": "2029-12-31T23:00:00.000Z",
+      "metastoreVersion": 1
+    }
+  ],
+  "catalogBaseUrl": "http://127.0.0.1:4000",
+  "ingestWorkflowSlug": "observatory-minute-ingest",
+  "ingestAssetId": "observatory.timeseries.timestore",
+  "plansPrefix": "datasets/observatory/calibrations/plans",
+  "filestoreBaseUrl": "http://127.0.0.1:4300",
+  "filestoreBackendId": 1
+}

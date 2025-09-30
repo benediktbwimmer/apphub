@@ -29,6 +29,18 @@
     {
       "path": "./jobs/observatory-dashboard-aggregator/apphub.bundle.json",
       "kind": "bundle"
+    },
+    {
+      "path": "./jobs/observatory-calibration-importer/apphub.bundle.json",
+      "kind": "bundle"
+    },
+    {
+      "path": "./jobs/observatory-calibration-planner/apphub.bundle.json",
+      "kind": "bundle"
+    },
+    {
+      "path": "./jobs/observatory-calibration-reprocessor/apphub.bundle.json",
+      "kind": "bundle"
     }
   ],
   "placeholders": [
@@ -130,6 +142,8 @@
             "ingestSlug": "{{ env.OBSERVATORY_INGEST_WORKFLOW_SLUG | default:observatory-minute-ingest }}",
             "publicationSlug": "{{ env.OBSERVATORY_PUBLICATION_WORKFLOW_SLUG | default:observatory-daily-publication }}",
             "aggregateSlug": "{{ env.OBSERVATORY_DASHBOARD_WORKFLOW_SLUG | default:observatory-dashboard-aggregate }}",
+            "calibrationImportSlug": "{{ env.OBSERVATORY_CALIBRATION_WORKFLOW_SLUG | default:observatory-calibration-import }}",
+            "reprocessSlug": "{{ env.OBSERVATORY_CALIBRATION_REPROCESS_WORKFLOW_SLUG | default:observatory-calibration-reprocess }}",
             "visualizationAssetId": "{{ env.OBSERVATORY_VISUALIZATION_ASSET_ID | default:observatory.visualizations.minute }}",
             "dashboard": {
               "overviewPrefix": "{{ env.OBSERVATORY_DASHBOARD_OVERVIEW_PREFIX | default:datasets/observatory/reports/overview }}",
@@ -206,6 +220,36 @@
               "timestoreBaseUrl": "{{ env.OBSERVATORY_TIMESTORE_BASE_URL | default:http://127.0.0.1:4200 }}",
               "timestoreDatasetSlug": "{{ env.OBSERVATORY_TIMESTORE_DATASET_SLUG | default:observatory-timeseries }}",
               "timestoreAuthToken": "{{ env.OBSERVATORY_TIMESTORE_TOKEN | default:null }}"
+            }
+          },
+          {
+            "slug": "observatory-calibration-import",
+            "defaults": {
+              "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
+              "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
+              "filestorePrincipal": "observatory-calibration-importer",
+              "calibrationsPrefix": "{{ env.OBSERVATORY_FILESTORE_CALIBRATIONS_PREFIX | default:datasets/observatory/calibrations }}",
+              "plansPrefix": "{{ env.OBSERVATORY_FILESTORE_PLANS_PREFIX | default:datasets/observatory/calibrations/plans }}",
+              "catalogBaseUrl": "{{ env.OBSERVATORY_CATALOG_BASE_URL | default:http://127.0.0.1:4000 }}",
+              "catalogApiToken": "{{ env.OBSERVATORY_CATALOG_TOKEN | default:dev-token }}",
+              "metastoreBaseUrl": "{{ env.OBSERVATORY_METASTORE_BASE_URL | default:http://127.0.0.1:4100 }}",
+              "metastoreNamespace": "{{ env.OBSERVATORY_CALIBRATION_NAMESPACE | default:observatory.calibrations }}",
+              "metastoreAuthToken": "{{ env.OBSERVATORY_METASTORE_TOKEN | default:null }}"
+            }
+          },
+          {
+            "slug": "observatory-calibration-reprocess",
+            "defaults": {
+              "catalogBaseUrl": "{{ env.OBSERVATORY_CATALOG_BASE_URL | default:http://127.0.0.1:4000 }}",
+              "catalogApiToken": "{{ env.OBSERVATORY_CATALOG_TOKEN | default:dev-token }}",
+              "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
+              "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
+              "filestorePrincipal": "observatory-calibration-reprocessor",
+              "metastoreBaseUrl": "{{ env.OBSERVATORY_METASTORE_BASE_URL | default:http://127.0.0.1:4100 }}",
+              "metastoreNamespace": "{{ env.OBSERVATORY_REPROCESS_NAMESPACE | default:observatory.reprocess.plans }}",
+              "metastoreAuthToken": "{{ env.OBSERVATORY_METASTORE_TOKEN | default:null }}"
             }
           }
         ]

@@ -13,6 +13,9 @@
       "calibrationPath": { "type": "string", "minLength": 1 },
       "calibrationNodeId": { "type": "number", "minimum": 1 },
       "calibrationsPrefix": { "type": "string", "minLength": 1 },
+      "plansPrefix": { "type": "string", "minLength": 1 },
+      "catalogBaseUrl": { "type": "string", "minLength": 1 },
+      "catalogApiToken": { "type": "string" },
       "checksum": { "type": "string" },
       "metastoreBaseUrl": { "type": "string", "minLength": 1 },
       "metastoreNamespace": { "type": "string", "minLength": 1 },
@@ -33,7 +36,10 @@
     "metastoreBaseUrl": "http://127.0.0.1:4100",
     "metastoreNamespace": "observatory.calibrations",
     "metastoreAuthToken": null,
-    "calibrationsPrefix": "datasets/observatory/calibrations"
+    "calibrationsPrefix": "datasets/observatory/calibrations",
+    "plansPrefix": "datasets/observatory/calibrations/plans",
+    "catalogBaseUrl": "http://127.0.0.1:4000",
+    "catalogApiToken": null
   },
   "steps": [
     {
@@ -89,6 +95,48 @@
           }
         }
       ]
+    },
+    {
+      "id": "plan-reprocessing",
+      "name": "Build calibration reprocess plan",
+      "type": "job",
+      "jobSlug": "observatory-calibration-planner",
+      "parameters": {
+        "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
+        "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
+        "filestoreToken": "{{ parameters.filestoreToken }}",
+        "filestorePrincipal": "observatory-calibration-planner",
+        "plansPrefix": "{{ parameters.plansPrefix }}",
+        "catalogBaseUrl": "{{ parameters.catalogBaseUrl }}",
+        "catalogApiToken": "{{ parameters.catalogApiToken }}",
+        "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
+        "metastoreNamespace": "{{ parameters.metastoreNamespace }}",
+        "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}",
+        "calibrations": [
+          {
+            "calibrationId": "{{ steps.import-calibration.result.calibrationId }}",
+            "instrumentId": "{{ steps.import-calibration.result.instrumentId }}",
+            "effectiveAt": "{{ steps.import-calibration.result.effectiveAt }}",
+            "metastoreVersion": "{{ steps.import-calibration.result.metastoreVersion }}"
+          }
+        ],
+        "downstreamWorkflows": [
+          { "workflowSlug": "observatory-minute-ingest" },
+          { "workflowSlug": "observatory-daily-publication" },
+          { "workflowSlug": "observatory-dashboard-aggregate" }
+        ]
+      },
+      "storeResultAs": "planResult",
+      "produces": [
+        {
+          "assetId": "observatory.reprocess.plan",
+          "partitioning": { "type": "dynamic" },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      ]
     }
   ],
   "triggers": [
@@ -118,6 +166,9 @@
             "calibrationPath": "{{ event.payload.path }}",
             "calibrationNodeId": "{{ event.payload.node.id }}",
             "calibrationsPrefix": "{{ trigger.metadata.calibrations.prefix }}",
+            "plansPrefix": "{{ trigger.metadata.calibrations.plansPrefix }}",
+            "catalogBaseUrl": "{{ trigger.metadata.catalog.baseUrl }}",
+            "catalogApiToken": "{{ trigger.metadata.catalog.apiToken }}",
             "checksum": "{{ event.payload.node.checksum }}",
             "metastoreBaseUrl": "{{ trigger.metadata.metastore.baseUrl }}",
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
@@ -138,6 +189,10 @@
             "calibrations": {
               "prefix": "{{ trigger.metadata.calibrations.prefix }}",
               "plansPrefix": "{{ trigger.metadata.calibrations.plansPrefix }}"
+            },
+            "catalog": {
+              "baseUrl": "{{ defaultParameters.catalogBaseUrl }}",
+              "apiToken": "{{ defaultParameters.catalogApiToken }}"
             }
           },
           "idempotencyKeyExpression": "observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: '/', '_' }}",

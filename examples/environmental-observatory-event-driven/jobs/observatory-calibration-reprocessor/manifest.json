@@ -1,0 +1,8 @@
+{
+  "name": "Observatory Calibration Reprocessor",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "description": "Consumes calibration reprocessing plans, queues ingest workflow reruns with bounded concurrency, and updates plan status artifacts as runs complete.",
+  "capabilities": ["network"]
+}

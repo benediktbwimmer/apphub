@@ -79,7 +79,9 @@ const OBSERVATORY_BUNDLE_SLUGS: ExampleJobSlug[] = [
   'observatory-timestore-loader',
   'observatory-visualization-runner',
   'observatory-report-publisher',
-  'observatory-calibration-importer'
+  'observatory-calibration-importer',
+  'observatory-calibration-planner',
+  'observatory-calibration-reprocessor'
 ];
 
 const OBSERVATORY_ROWS_PER_INSTRUMENT = 6;
@@ -90,7 +92,8 @@ const OBSERVATORY_WORKFLOW_SLUGS: ExampleWorkflowSlug[] = [
   'observatory-minute-ingest',
   'observatory-daily-publication',
   'observatory-dashboard-aggregate',
-  'observatory-calibration-import'
+  'observatory-calibration-import',
+  'observatory-calibration-reprocess'
 ];
 
 function isProvisioningObject(value: JsonValue | undefined): value is Record<string, JsonValue> {
@@ -303,6 +306,7 @@ type ServerContext = {
   timestore: TimestoreTestServer;
   filestore: FilestoreTestServer;
   metastore: MetastoreTestServer;
+  catalogBaseUrl: string;
 };
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
@@ -413,9 +417,12 @@ async function withServer(fn: (app: FastifyInstance, context: ServerContext) => 
   const { buildServer } = await import('@apphub/catalog/server');
   const app = await buildServer();
   await app.ready();
+  const catalogPort = await findAvailablePort();
+  await app.listen({ port: catalogPort, host: '127.0.0.1' });
+  const catalogBaseUrl = `http://127.0.0.1:${catalogPort}`;
 
   try {
-    await fn(app, { timestore, filestore, metastore });
+    await fn(app, { timestore, filestore, metastore, catalogBaseUrl });
   } finally {
     await app.close();
     await timestore.close();
@@ -553,7 +560,62 @@ async function fetchWorkflowRun(app: FastifyInstance, runId: string) {
   };
 }
 
+async function waitForJobRunCompletion(
+  app: FastifyInstance,
+  jobSlug: string,
+  runId: string,
+  description: string,
+  timeoutMs = 60_000
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/job-runs?job=${jobSlug}&limit=50`,
+      headers: { Authorization: `Bearer ${OPERATOR_TOKEN}` }
+    });
+    assert.equal(response.statusCode, 200, `Failed to list job runs for ${jobSlug}: ${response.payload}`);
+    const payload = JSON.parse(response.payload) as {
+      data: Array<{
+        run: {
+          id: string;
+          status: string;
+          result?: Record<string, unknown> | null;
+          errorMessage?: string | null;
+        };
+      }>;
+    };
+    const match = payload.data.find((entry) => entry.run.id === runId);
+    if (match) {
+      const status = match.run.status;
+      if (status === 'succeeded') {
+        return match.run;
+      }
+      if (status === 'failed' || status === 'canceled' || status === 'expired') {
+        const detail = match.run.errorMessage ?? 'no error message';
+        assert.fail(`Job ${jobSlug} run ${runId} ${description} did not succeed (status=${status}): ${detail}`);
+      }
+    }
+    await delay(200);
+  }
+  assert.fail(`Timed out waiting for job ${jobSlug} run ${runId} ${description}`);
+}
+
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function readStreamToString(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    if (typeof chunk === 'string') {
+      chunks.push(Buffer.from(chunk));
+    } else if (chunk instanceof Buffer) {
+      chunks.push(chunk);
+    } else {
+      chunks.push(Buffer.from(chunk));
+    }
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 async function runWorkflow(
   app: FastifyInstance,
@@ -891,7 +953,8 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
         generatorSlug: 'observatory-minute-data-generator',
         ingestSlug: 'observatory-minute-ingest',
         publicationSlug: 'observatory-daily-publication',
-      calibrationImportSlug: 'observatory-calibration-import'
+        calibrationImportSlug: 'observatory-calibration-import',
+        reprocessSlug: 'observatory-calibration-reprocess'
       }
     } as const;
 
@@ -1185,6 +1248,166 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
     const reportedInstrumentCount = reportJson.summary?.instrumentCount
       ?? reportJson.visualization?.metrics?.instrumentCount;
     assert.equal(reportedInstrumentCount, 3);
+
+    const recalibrationEffectiveAt = '2030-01-01T03:00:00Z';
+    const recalibrationReference = 'instrument_alpha_20300101T030000Z';
+    const recalibrationPath = `${config.filestore.calibrationsPrefix}/${recalibrationReference}.json`;
+    const recalibrationPayload = {
+      instrumentId: 'instrument_alpha',
+      effectiveAt: recalibrationEffectiveAt,
+      createdAt: recalibrationEffectiveAt,
+      revision: 2,
+      offsets: { temperature_c: 0.9 },
+      scales: { temperature_c: 1.02 },
+      metadata: { seededBy: 'environmentalObservatoryIngest.e2e', note: 'recalibration test' }
+    } satisfies Record<string, unknown>;
+    await filestoreClient.uploadFile({
+      backendMountId: config.filestore.backendMountId,
+      path: recalibrationPath,
+      content: `${JSON.stringify(recalibrationPayload, null, 2)}\n`,
+      overwrite: true,
+      contentType: 'application/json',
+      principal: 'observatory-calibration-importer'
+    });
+    await runWorkflow(app, config.workflows.calibrationImportSlug, recalibrationReference, {
+      calibrationPath: recalibrationPath,
+      calibrationsPrefix: config.filestore.calibrationsPrefix,
+      filestoreBaseUrl: config.filestore.baseUrl,
+      filestoreBackendId: config.filestore.backendMountId,
+      filestoreToken: config.filestore.token,
+      filestorePrincipal: 'observatory-calibration-importer',
+      metastoreBaseUrl: config.metastore.baseUrl,
+      metastoreNamespace: 'observatory.calibrations',
+      metastoreAuthToken: config.metastore.authToken
+    });
+
+    const plannerResponse = await app.inject({
+      method: 'POST',
+      url: '/jobs/observatory-calibration-planner/run',
+      headers: { Authorization: `Bearer ${OPERATOR_TOKEN}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        parameters: {
+          filestoreBaseUrl: config.filestore.baseUrl,
+          filestoreBackendId: config.filestore.backendMountId,
+          filestoreToken: config.filestore.token,
+          filestorePrincipal: 'observatory-calibration-planner',
+          plansPrefix: config.filestore.plansPrefix,
+          catalogBaseUrl: context.catalogBaseUrl,
+          catalogApiToken: OPERATOR_TOKEN,
+          metastoreBaseUrl: config.metastore.baseUrl,
+          metastoreNamespace: 'observatory.calibrations',
+          metastoreAuthToken: config.metastore.authToken,
+          calibrations: [
+            {
+              calibrationId: `instrument_alpha:${recalibrationEffectiveAt}`,
+              instrumentId: 'instrument_alpha',
+              effectiveAt: recalibrationEffectiveAt,
+              metastoreVersion: null
+            }
+          ]
+        }
+      })
+    });
+    assert.equal(
+      plannerResponse.statusCode,
+      202,
+      `Calibration planner request failed: ${plannerResponse.payload}`
+    );
+    const plannerRunPayload = JSON.parse(plannerResponse.payload) as {
+      data: { id: string };
+    };
+    const plannerRun = await waitForJobRunCompletion(
+      app,
+      'observatory-calibration-planner',
+      plannerRunPayload.data.id,
+      'calibration planning'
+    );
+    assert.equal(plannerRun.status, 'succeeded', 'Calibration planner run should succeed');
+    const plannerResult = plannerRun.result as Record<string, unknown> | null;
+    assert(plannerResult, 'Planner result payload missing');
+    const planId = typeof plannerResult?.planId === 'string' ? plannerResult.planId : '';
+    const planPath = typeof plannerResult?.planPath === 'string' ? plannerResult.planPath : '';
+    assert(planId, 'Planner did not return a planId');
+    assert(planPath, 'Planner did not return a planPath');
+
+    const planNode = await filestoreClient.getNodeByPath({
+      backendMountId: config.filestore.backendMountId,
+      path: planPath
+    });
+    const planDownload = await filestoreClient.downloadFile(planNode.id, {
+      principal: 'observatory-calibration-planner'
+    });
+    const planJson = JSON.parse(await readStreamToString(planDownload.stream)) as {
+      planId: string;
+      summary: { partitionCount: number; stateCounts?: Record<string, number> };
+      calibrations: Array<{
+        target: { instrumentId: string };
+        partitions: Array<{
+          instrumentId: string;
+          minute: string;
+          status: { state: string };
+        }>;
+      }>;
+    };
+    assert.equal(planJson.planId, planId);
+    assert.equal(planJson.summary.partitionCount, 1);
+
+    const alphaPlanEntry = planJson.calibrations.find(
+      (entry) => entry.target.instrumentId === 'instrument_alpha'
+    );
+    assert(alphaPlanEntry, 'Plan is missing instrument_alpha entry');
+    const alphaPartitionEntry = alphaPlanEntry.partitions.find(
+      (entry) => entry.instrumentId === 'instrument_alpha'
+    );
+    assert(alphaPartitionEntry, 'Plan partition for instrument_alpha missing');
+    assert.equal(alphaPartitionEntry.status.state, 'pending');
+
+    const reprocessParameters = {
+      planId,
+      planPath,
+      mode: 'selected',
+      selectedPartitions: [`instrument_alpha:${minute}`],
+      maxConcurrency: 1,
+      pollIntervalMs: 500,
+      catalogBaseUrl: context.catalogBaseUrl,
+      catalogApiToken: OPERATOR_TOKEN,
+      filestoreBaseUrl: config.filestore.baseUrl,
+      filestoreBackendId: config.filestore.backendMountId,
+      filestoreToken: config.filestore.token,
+      filestorePrincipal: 'observatory-calibration-reprocessor',
+      metastoreBaseUrl: config.metastore.baseUrl,
+      metastoreNamespace: 'observatory.reprocess.plans',
+      metastoreAuthToken: config.metastore.authToken
+    } satisfies Record<string, unknown>;
+
+    await runWorkflow(app, config.workflows.reprocessSlug, undefined, reprocessParameters);
+
+    const updatedPlanDownload = await filestoreClient.downloadFile(planNode.id, {
+      principal: 'observatory-calibration-reprocessor'
+    });
+    const updatedPlanJson = JSON.parse(await readStreamToString(updatedPlanDownload.stream)) as {
+      summary: { stateCounts?: Record<string, number> };
+      state: string;
+      calibrations: Array<{
+        target: { instrumentId: string };
+        partitions: Array<{
+          instrumentId: string;
+          minute: string;
+          status: { state: string; runId?: string | null };
+        }>;
+      }>;
+    };
+    assert.equal(updatedPlanJson.state, 'completed');
+    const alphaUpdated = updatedPlanJson.calibrations
+      .find((entry) => entry.target.instrumentId === 'instrument_alpha')
+      ?.partitions.find((entry) => entry.instrumentId === 'instrument_alpha');
+    assert(alphaUpdated, 'Updated plan missing instrument_alpha partition');
+    assert.equal(alphaUpdated.status.state, 'succeeded');
+    assert(alphaUpdated.status.runId, 'Reprocess plan should record the workflow run id');
+    const succeededCount = updatedPlanJson.summary.stateCounts?.succeeded ?? 0;
+    assert.equal(succeededCount, 1, 'Exactly one partition should have succeeded after selective reprocess');
+    const pendingCount = updatedPlanJson.summary.stateCounts?.pending ?? 0;
+    assert.equal(pendingCount, 0, 'No partitions should remain pending when only one calibration was planned');
   } finally {
     await pool.end();
     if (process.env.OBSERVATORY_KEEP_TEMP === '1') {

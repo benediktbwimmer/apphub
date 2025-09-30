@@ -1,0 +1,8 @@
+{
+  "name": "Observatory Calibration Planner",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "description": "Builds calibration reprocessing plans by comparing ingest partitions against updated calibration records and storing plan artifacts in Filestore.",
+  "capabilities": ["network"]
+}

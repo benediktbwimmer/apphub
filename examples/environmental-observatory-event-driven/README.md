@@ -58,10 +58,12 @@ Convenience aliases (add to your global npm scripts if desired):
 ```json
 {
   "obs:event:config": "tsx examples/environmental-observatory-event-driven/scripts/materializeConfig.ts",
-  "obs:event:triggers": "tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts"
+  "obs:event:triggers": "tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts",
+  "obs:event:plan": "tsx examples/environmental-observatory-event-driven/scripts/runCalibrationPlan.ts",
+  "obs:event:reprocess": "tsx examples/environmental-observatory-event-driven/scripts/runCalibrationReprocess.ts"
 }
 ```
-Run them from the repo root (`npm run obs:event:config`).
+Run them from the repo root (`npm run obs:event:config`). Use `npm run obs:event:plan -- --instrument sensor_alpha --effectiveAt 2029-12-31T23:00:00Z` to generate a reprocessing plan and `npm run obs:event:reprocess -- --plan-id <planId>` to launch the orchestration workflow once you have reviewed the plan.
 
 ## Next Steps
 - Inspect/adjust the generated config file before committing to any environment.

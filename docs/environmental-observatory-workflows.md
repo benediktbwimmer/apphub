@@ -120,8 +120,16 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 ### 3. `observatory-calibration-import`
 
 - **Trigger:** `filestore.command.completed` scoped to the calibration prefix.
-- **Steps:** Single step that runs `observatory-calibration-importer`, downloading the uploaded calibration JSON, validating offsets/gains, and upserting the canonical record into the Metastore.
-- **Outputs:** Emits the `observatory.calibration.instrument` asset and an `observatory.calibration.updated` event so orchestrators can plan reprocessing.
+- **Steps:**
+  1. `observatory-calibration-importer` downloads the uploaded calibration JSON, validates offsets/gains, and upserts the canonical record into the Metastore.
+  2. `observatory-calibration-planner` queries the existing ingest partitions, compares calibration lineage, writes a plan JSON file to Filestore, and emits the `observatory.reprocess.plan` asset summarising affected partitions.
+- **Outputs:** Emits the `observatory.calibration.instrument` asset, the `observatory.reprocess.plan` asset, and an `observatory.calibration.updated` event downstream orchestrators can consume.
+
+### 4. `observatory-calibration-reprocess`
+
+- **Trigger:** Manual (operators launch it once they are satisfied with the generated plan).
+- **Steps:** A single `observatory-calibration-reprocessor` job reads the chosen plan file, queues `observatory-minute-ingest` runs for each stale partition with bounded concurrency, polls run status, and updates the plan artifact / Metastore record with live progress.
+- **Outputs:** Repopulates `observatory.reprocess.plan` with per-partition status (`pending`, `running`, `succeeded`, `failed`) and increments the plan’s execution metadata so dashboards can surface run health.
 - **Parameters:** Filestore connection (`filestoreBaseUrl`, `filestoreBackendId`, optional `filestoreToken`/`principal`), the uploaded file path/node id, and Metastore coordinates (`metastoreBaseUrl`, `metastoreNamespace`, optional token).
 
 ## Auto-materialization flow
