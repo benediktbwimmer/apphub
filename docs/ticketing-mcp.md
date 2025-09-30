@@ -26,13 +26,13 @@ The MCP server reuses the ticket store directly, so all changes immediately appe
 
 | Tool | Purpose | Input Schema |
 | --- | --- | --- |
-| `ticket.create` | Create a ticket from the shared schema. | `{ ticket, actor?, message?, authToken? }` |
-| `ticket.updateStatus` | Change a ticket status with optional comment. | `{ id, status, comment?, expectedRevision?, actor?, authToken? }` |
-| `ticket.addDependency` | Append a dependency, rejecting self-references. | `{ id, dependencyId, expectedRevision?, actor?, authToken? }` |
-| `ticket.comment` | Add a history comment without mutating other fields. | `{ id, comment, expectedRevision?, actor?, authToken? }` |
-| `ticket.assign` | Replace or merge assignees. | `{ id, assignees[], mode?, expectedRevision?, actor?, authToken? }` |
-| `ticket.list` | List tickets with filters. | `{ status?, tags?, assignee?, authToken? }` |
-| `ticket.history` | Fetch the activity log. | `{ id, authToken? }` |
+| `ticket_create` | Create a ticket from the shared schema. | `{ ticket, actor?, message?, authToken? }` |
+| `ticket_update_status` | Change a ticket status with optional comment. | `{ id, status, comment?, expectedRevision?, actor?, authToken? }` |
+| `ticket_add_dependency` | Append a dependency, rejecting self-references. | `{ id, dependencyId, expectedRevision?, actor?, authToken? }` |
+| `ticket_comment` | Add a history comment without mutating other fields. | `{ id, comment, expectedRevision?, actor?, authToken? }` |
+| `ticket_assign` | Replace or merge assignees. | `{ id, assignees[], mode?, expectedRevision?, actor?, authToken? }` |
+| `ticket_list` | List tickets with filters. | `{ status?, tags?, assignee?, authToken? }` |
+| `ticket_history` | Fetch the activity log. | `{ id, authToken? }` |
 
 All tool responses include a JSON payload plus a short text summary, which most MCP clients surface to the user. When `TICKETING_MCP_TOKENS` is set, callers must pass the matching token in `authToken`.
 
@@ -46,5 +46,5 @@ All tool responses include a JSON payload plus a short text summary, which most 
 
 1. Set `TICKETING_MCP_TOKENS` in a local `.env.local` or agent manifest.
 2. Configure your MCP-capable agent to run `npm run mcp --workspace @apphub/ticketing-service` from the repo root.
-3. Confirm that `ticket.list` returns data and `ticket.create` writes `tickets/*.ticket.yaml` files.
+3. Confirm that `ticket_list` returns data and `ticket_create` writes `tickets/*.ticket.yaml` files.
 4. Coordinate token distribution with teammates before enabling in shared environments.
