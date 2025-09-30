@@ -6,7 +6,15 @@ import { test } from 'node:test';
 
 import { TicketStore } from '@apphub/ticketing';
 
+import { ticketingToolNameList } from '../src/mcp/register';
 import { buildToolHandlers, toolSchemas } from '../src/mcp/tools';
+
+test('ticketing MCP tool names follow SDK pattern', () => {
+  const pattern = /^[a-zA-Z0-9_-]+$/;
+  for (const name of ticketingToolNameList) {
+    assert.equal(pattern.test(name), true, `invalid tool name: ${name}`);
+  }
+});
 
 const makeStore = async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'ticketing-mcp-'));
