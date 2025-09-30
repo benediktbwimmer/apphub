@@ -1153,6 +1153,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
   app.post(
     '/workflows',
     {
+      config: { skipValidation: true },
       schema: {
         tags: ['Workflows'],
         summary: 'Create a workflow definition',
