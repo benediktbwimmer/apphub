@@ -144,6 +144,137 @@ const darkTheme: ThemeDefinition = deepFreeze({
   }
 } satisfies ThemeDefinition);
 
+const coastalTheme = createTheme({
+  base: lightTheme,
+  id: 'apphub-coastal',
+  label: 'Coastal Breeze',
+  description: 'Seafoam-fresh palette that keeps long sessions feeling calm.',
+  overrides: {
+    semantics: {
+      surface: {
+        canvas: palette.cyan[50],
+        canvasMuted: palette.blue[50],
+        sunken: palette.cyan[100],
+        accent: palette.cyan[100],
+        backdrop: 'rgba(14, 116, 144, 0.45)'
+      },
+      text: {
+        accent: palette.cyan[600],
+        success: palette.teal[600]
+      },
+      border: {
+        accent: 'rgba(14, 116, 144, 0.4)',
+        focus: 'rgba(6, 182, 212, 0.55)'
+      },
+      overlay: {
+        hover: 'rgba(14, 116, 144, 0.08)',
+        pressed: 'rgba(14, 116, 144, 0.18)'
+      },
+      accent: {
+        default: palette.cyan[500],
+        emphasis: palette.blue[600],
+        muted: palette.cyan[100],
+        onAccent: palette.slate[50]
+      }
+    },
+    metadata: {
+      version: '1.1.0',
+      source: 'system',
+      tags: ['light', 'calm', 'teal']
+    }
+  }
+});
+
+const auroraTheme = createTheme({
+  base: darkTheme,
+  id: 'apphub-aurora',
+  label: 'Aurora Midnight',
+  description: 'Indigo and cyan accents inspired by after-hours dashboards.',
+  overrides: {
+    semantics: {
+      surface: {
+        canvas: '#060821',
+        canvasMuted: '#11153a',
+        raised: '#141b3a',
+        sunken: '#030617',
+        accent: 'rgba(99, 102, 241, 0.22)',
+        backdrop: 'rgba(5, 8, 30, 0.8)'
+      },
+      text: {
+        accent: palette.indigo[300],
+        success: palette.emerald[300]
+      },
+      border: {
+        accent: 'rgba(99, 102, 241, 0.48)',
+        focus: 'rgba(129, 140, 248, 0.7)'
+      },
+      overlay: {
+        hover: 'rgba(99, 102, 241, 0.1)',
+        pressed: 'rgba(99, 102, 241, 0.2)'
+      },
+      accent: {
+        default: palette.indigo[400],
+        emphasis: palette.blue[400],
+        muted: 'rgba(76, 29, 149, 0.38)',
+        onAccent: palette.violet[50]
+      }
+    },
+    metadata: {
+      version: '1.1.0',
+      source: 'system',
+      tags: ['dark', 'vibrant', 'indigo']
+    }
+  }
+});
+
+const highContrastTheme = createTheme({
+  base: lightTheme,
+  id: 'apphub-high-contrast',
+  label: 'High Contrast',
+  description: 'Accessible, high-contrast preset for focused work sessions.',
+  overrides: {
+    semantics: {
+      surface: {
+        canvas: '#ffffff',
+        canvasMuted: palette.slate[100],
+        raised: '#ffffff',
+        sunken: palette.slate[200],
+        accent: palette.slate[900],
+        backdrop: 'rgba(15, 23, 42, 0.75)'
+      },
+      text: {
+        primary: '#0b1120',
+        secondary: '#111827',
+        muted: '#1f2937',
+        accent: palette.amber[600],
+        onAccent: '#0b1120',
+        success: palette.emerald[700],
+        warning: palette.amber[700],
+        danger: palette.rose[700]
+      },
+      border: {
+        accent: 'rgba(15, 23, 42, 0.65)',
+        focus: 'rgba(245, 158, 11, 0.65)'
+      },
+      overlay: {
+        hover: 'rgba(15, 23, 42, 0.08)',
+        pressed: 'rgba(15, 23, 42, 0.18)'
+      },
+      accent: {
+        default: palette.amber[500],
+        emphasis: palette.rose[500],
+        muted: palette.amber[100],
+        onAccent: '#0b1120'
+      }
+    },
+    metadata: {
+      version: '1.1.0',
+      source: 'system',
+      tags: ['light', 'contrast', 'accessible']
+    }
+  }
+});
+
 export const defaultThemes = deepFreeze({
   light: lightTheme,
   dark: darkTheme
@@ -151,7 +282,10 @@ export const defaultThemes = deepFreeze({
 
 export const defaultThemeRegistry: ThemeRegistry = deepFreeze({
   [lightTheme.id]: lightTheme,
-  [darkTheme.id]: darkTheme
+  [darkTheme.id]: darkTheme,
+  [coastalTheme.id]: coastalTheme,
+  [auroraTheme.id]: auroraTheme,
+  [highContrastTheme.id]: highContrastTheme
 });
 
 export function createTheme(options: CreateThemeOptions): ThemeDefinition {
