@@ -136,7 +136,8 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
   });
 
   const originalSwagger = app.swagger.bind(app);
-  app.decorate('swagger', (opts?: unknown) => {
+  const swaggerApp = app as FastifyInstance & { swagger(opts?: unknown): unknown };
+  swaggerApp.swagger = (opts?: unknown) => {
     const document = originalSwagger(opts) as {
       paths?: Record<string, Record<string, unknown>>;
     };
@@ -160,7 +161,7 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
     }
 
     return document;
-  });
+  };
 
   await app.register(swaggerUI, {
     routePrefix: '/docs',
