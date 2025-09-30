@@ -3,7 +3,9 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   TicketStore,
   newTicketInputSchema,
+  ticketActivityActionSchema,
   ticketIdSchema,
+  ticketPrioritySchema,
   ticketStatusSchema,
   ticketSchema
 } from '@apphub/ticketing';
@@ -12,9 +14,54 @@ const authShape = {
   authToken: z.string().trim().min(1).optional()
 } as const;
 
+const createTicketIdInput = () =>
+  z
+    .string()
+    .trim()
+    .min(3, 'Ticket id must be at least 3 characters long')
+    .max(120, 'Ticket id must be at most 120 characters long')
+    .regex(
+      /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/,
+      'Ticket id must start with an alphanumeric character and contain only alphanumerics, dot, underscore, or dash'
+    );
+
 const createTicketShape = {
   ...authShape,
-  ...newTicketInputSchema.shape,
+  id: createTicketIdInput().optional(),
+  title: z.string().trim().min(1),
+  description: z.string().trim().min(1),
+  status: ticketStatusSchema.optional(),
+  priority: ticketPrioritySchema.optional(),
+  assignees: z.array(z.string().trim().min(1)).optional(),
+  tags: z.array(z.string().trim().min(1)).optional(),
+  dependencies: z.array(createTicketIdInput()).optional(),
+  dueAt: z.string().trim().datetime({ message: 'dueAt must be an ISO-8601 timestamp' }).optional(),
+  links: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1),
+        url: z.string().trim().url(),
+        kind: z
+          .enum(['doc', 'issue', 'pr', 'design', 'spec', 'other'])
+          .optional(),
+        metadata: z.record(z.string(), z.unknown()).optional()
+      })
+    )
+    .optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  fields: z.record(z.string(), z.unknown()).optional(),
+  history: z
+    .array(
+      z.object({
+        id: z.string().trim().min(8),
+        actor: z.string().trim().min(1),
+        action: ticketActivityActionSchema,
+        at: z.string().trim().datetime({ message: 'Activity timestamp must be ISO-8601' }),
+        message: z.string().trim().optional(),
+        payload: z.record(z.string(), z.unknown()).optional()
+      })
+    )
+    .optional(),
   actor: z.string().trim().min(1).optional(),
   message: z.string().trim().optional()
 } as const;
@@ -142,9 +189,9 @@ export const buildToolHandlers = (ctx: TicketingToolContext) => {
   return {
     createTicket: async (input: z.infer<typeof createTicketSchema>) => {
       requireToken(tokens, input.authToken ?? null);
-      const { actor: providedActor, message, authToken: _authToken, ...ticketPayload } = input;
+      const { actor: providedActor, message, authToken: _authToken, ...ticketDraft } = input;
       const actor = providedActor ?? defaultActor;
-      const ticket = await store.createTicket(ticketPayload as z.infer<typeof newTicketInputSchema>, {
+      const ticket = await store.createTicket(newTicketInputSchema.parse(ticketDraft), {
         actor,
         message: message ?? 'Ticket created via MCP tool'
       });
