@@ -26,7 +26,7 @@ The MCP server reuses the ticket store directly, so all changes immediately appe
 
 | Tool | Purpose | Input Schema |
 | --- | --- | --- |
-| `ticket_create` | Create a ticket from the shared schema. | `{ ticket, actor?, message?, authToken? }` |
+| `ticket_create` | Create a ticket from the shared schema. | `{ title, description, id?, status?, priority?, assignees?, tags?, dependencies?, dueAt?, links?, metadata?, fields?, history?, actor?, message?, authToken? }` |
 | `ticket_update_status` | Change a ticket status with optional comment. | `{ id, status, comment?, expectedRevision?, actor?, authToken? }` |
 | `ticket_add_dependency` | Append a dependency, rejecting self-references. | `{ id, dependencyId, expectedRevision?, actor?, authToken? }` |
 | `ticket_comment` | Add a history comment without mutating other fields. | `{ id, comment, expectedRevision?, actor?, authToken? }` |

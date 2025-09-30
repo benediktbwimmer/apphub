@@ -14,7 +14,7 @@ const authShape = {
 
 const createTicketShape = {
   ...authShape,
-  ticket: newTicketInputSchema,
+  ...newTicketInputSchema.shape,
   actor: z.string().trim().min(1).optional(),
   message: z.string().trim().optional()
 } as const;
@@ -142,10 +142,11 @@ export const buildToolHandlers = (ctx: TicketingToolContext) => {
   return {
     createTicket: async (input: z.infer<typeof createTicketSchema>) => {
       requireToken(tokens, input.authToken ?? null);
-      const actor = input.actor ?? defaultActor;
-      const ticket = await store.createTicket(input.ticket, {
+      const { actor: providedActor, message, authToken: _authToken, ...ticketPayload } = input;
+      const actor = providedActor ?? defaultActor;
+      const ticket = await store.createTicket(ticketPayload as z.infer<typeof newTicketInputSchema>, {
         actor,
-        message: input.message ?? 'Ticket created via MCP tool'
+        message: message ?? 'Ticket created via MCP tool'
       });
       return toResult({ ticket }, `Created ticket ${ticket.id}`);
     },

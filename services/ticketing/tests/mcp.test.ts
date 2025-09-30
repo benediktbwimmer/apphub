@@ -42,22 +42,20 @@ test('MCP handlers require auth when tokens configured', async (t) => {
   const handlers = buildToolHandlers({ store, tokens: ['secret'], defaultActor: 'agent' });
 
   await assert.rejects(
-    handlers.createTicket(toolSchemas.createTicket.parse({
-      ticket: {
+    handlers.createTicket(
+      toolSchemas.createTicket.parse({
         title: 'No auth',
         description: 'Should fail'
-      }
-    })),
+      })
+    ),
     /token/i
   );
 
   const created = await handlers.createTicket(
     toolSchemas.createTicket.parse({
       authToken: 'secret',
-      ticket: {
-        title: 'Valid ticket',
-        description: 'Created via handler'
-      }
+      title: 'Valid ticket',
+      description: 'Created via handler'
     })
   );
 
@@ -79,21 +77,17 @@ test('MCP handlers cover status updates, dependencies, assignments, and listing'
 
   await handlers.createTicket(
     toolSchemas.createTicket.parse({
-      ticket: {
-        id: 'ticket-a',
-        title: 'Implement feature',
-        description: 'Initial'
-      }
+      id: 'ticket-a',
+      title: 'Implement feature',
+      description: 'Initial'
     })
   );
 
   await handlers.createTicket(
     toolSchemas.createTicket.parse({
-      ticket: {
-        id: 'ticket-b',
-        title: 'Follow-up',
-        description: 'Depends on A'
-      }
+      id: 'ticket-b',
+      title: 'Follow-up',
+      description: 'Depends on A'
     })
   );
 
