@@ -16,6 +16,7 @@ import { registerStreamRoutes } from './routes/stream';
 import { registerFilestoreRoutes } from './routes/filestore';
 import { initializeFilestoreSync, shutdownFilestoreSync } from './filestore/consumer';
 import { registerSchemaRoutes } from './routes/schemas';
+import { createHttpErrorHandler } from './errors/errorHandler';
 import {
   configureSchemaRegistry,
   startSchemaRegistryRefresh,
@@ -34,6 +35,8 @@ export async function buildApp(options?: BuildAppOptions) {
       level: process.env.LOG_LEVEL ?? 'info'
     }
   });
+
+  app.setErrorHandler(createHttpErrorHandler());
 
   await app.register(cors, {
     origin: true,

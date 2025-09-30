@@ -2,7 +2,7 @@ import type { MetastoreRecord, MetastoreRecordProjection } from '../db/types';
 import type { RecordAuditView } from '../db/auditRepository';
 import type { NamespaceSummary } from '../db/namespacesRepository';
 
-type SerializedRecord = {
+export type SerializedRecord = {
   namespace: string;
   key: string;
   metadata: Record<string, unknown>;

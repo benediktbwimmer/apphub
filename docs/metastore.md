@@ -45,6 +45,21 @@ metastore_record_audits
 GIN indexes exist on `metadata`, `tags`, and `updated_at` to keep search queries responsive without introducing Elasticsearch.
 
 ## API Surface
+## Record Domain Service
+The HTTP layer delegates record mutations to `services/metastore/src/services/recordService.ts`. The service wraps repository calls in transactions, emits record stream messages, and publishes `metastore.record.*` events so API handlers stay thin. Each method accepts a payload plus an `OperationContext` (actor + logger) and returns serialized records ready for JSON responses. When adding new record-facing endpoints, extend the service first so event emission and optimistic locking remain consistent.
+
+### Service responsibilities
+- create/update/delete helpers call the appropriate repository function inside `withTransaction`, capture the updated row, and automatically dispatch stream + event bus notifications
+- read helpers (`fetchRecord`, `searchRecords`) reuse shared query builders to avoid duplicating SQL in routes
+- bulk operations reuse the same mutation helpers and defer event emission until the surrounding transaction succeeds
+- restore helpers encapsulate audit snapshot lookups (by `auditId`/`version`) and publish `restoredFrom` metadata in the update event payload
+
+### Extending the service
+1. Add a method to the service that encapsulates the database work and emits domain events.
+2. Write unit tests at `services/metastore/tests/unit/recordService.test.ts` covering happy paths and error cases.
+3. Update the route handler to call the new method, only handling scope/namespace guards and input validation.
+4. If the method produces new events, update integration tests under `services/metastore/tests/integration` to assert stream or audit side effects.
+
 | Endpoint | Description | Auth Scope |
 | --- | --- | --- |
 | `POST /records` | Create a record (idempotent on key). Returns 201 on first write and 200 on no-op. | `metastore:write` |

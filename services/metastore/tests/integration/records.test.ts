@@ -1,6 +1,7 @@
 import './testEnv';
 
 import assert from 'node:assert/strict';
+import { subscribeToRecordStream, type RecordStreamEvent } from '../../src/events/recordStream';
 import net from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -111,12 +112,21 @@ runE2E(async ({ registerCleanup }) => {
 
   const { app, dataDir, postgres } = await setupMetastore();
 
+  const streamEvents: RecordStreamEvent[] = [];
+  const unsubscribeStream = subscribeToRecordStream((event) => {
+    streamEvents.push(event);
+  });
+
   registerCleanup(async () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 
   registerCleanup(async () => {
     await postgres.stop();
+  });
+
+  registerCleanup(async () => {
+    unsubscribeStream();
   });
 
   registerCleanup(async () => {
@@ -559,6 +569,15 @@ runE2E(async ({ registerCleanup }) => {
     url: '/records/analytics/pipeline-1?includeDeleted=true'
   });
   assert.equal(fetchAfterPurge.statusCode, 404, fetchAfterPurge.body);
+
+  const createdEvent = streamEvents.find((event) => event.action === 'created' && event.key === 'pipeline-1');
+  assert.ok(createdEvent, 'expected created stream event for pipeline-1');
+  const updatedEvents = streamEvents.filter((event) => event.action === 'updated' && event.key === 'pipeline-1');
+  assert.ok(updatedEvents.length >= 1, 'expected at least one updated stream event');
+  const softDeleted = streamEvents.find((event) => event.action === 'deleted' && event.mode === 'soft');
+  assert.ok(softDeleted, 'expected soft delete stream event');
+  const hardDeleted = streamEvents.find((event) => event.action === 'deleted' && event.mode === 'hard');
+  assert.ok(hardDeleted, 'expected hard delete stream event');
 
   const auditAfterPurge = await app.inject({
     method: 'GET',
