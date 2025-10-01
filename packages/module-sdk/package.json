@@ -1,0 +1,22 @@
+{
+  "name": "@apphub/module-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Lightweight runtime contracts and capability shims for AppHub modules.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node --test dist/__tests__/*.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2"
+  }
+}
