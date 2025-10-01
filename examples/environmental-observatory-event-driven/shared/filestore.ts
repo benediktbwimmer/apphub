@@ -22,8 +22,7 @@ export async function ensureFilestoreHierarchy(
       await client.createDirectory({
         backendMountId,
         path: current,
-        principal,
-        idempotencyKey: `ensure-${backendMountId}-${current}`
+        principal
       });
     } catch (error) {
       if (error instanceof FilestoreClientError && error.code === 'NODE_EXISTS') {

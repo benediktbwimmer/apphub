@@ -488,6 +488,9 @@ async function main() {
 
   const normalizeEnvValue = (value) => (typeof value === 'string' ? value.trim() : '');
   const tooling = preflightResult?.tooling ?? {};
+  if (!normalizeEnvValue(baseEnv.APPHUB_DEV_FORCE_DOCKER)) {
+    baseEnv.APPHUB_DEV_FORCE_DOCKER = '1';
+  }
   const preferKubernetes = normalizeEnvValue(baseEnv.APPHUB_DEV_FORCE_KUBERNETES) === '1';
   const preferDocker = normalizeEnvValue(baseEnv.APPHUB_DEV_FORCE_DOCKER) === '1';
   const buildMode = normalizeEnvValue(baseEnv.APPHUB_BUILD_EXECUTION_MODE);
