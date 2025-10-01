@@ -4,6 +4,17 @@ import { useToastHelpers } from '../../components/toast';
 import type { RetentionPolicy, RetentionResponse } from '../types';
 import { formatInstant } from '../utils';
 import { updateRetentionPolicy } from '../api';
+import {
+  FIELD_GROUP,
+  FIELD_LABEL,
+  INPUT,
+  PANEL_SURFACE,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+  STATUS_BANNER_DANGER,
+  STATUS_MESSAGE,
+  STATUS_META
+} from '../timestoreTokens';
 
 interface RetentionPanelProps {
   datasetId: string;
@@ -123,49 +134,49 @@ export function RetentionPanel({ datasetId, retention, loading, error, onRefresh
   }, [effectivePolicy]);
 
   return (
-    <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <div className={`${PANEL_SURFACE} shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md`}>
       <header className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">Retention</span>
-          <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">Dataset retention policy</h4>
+          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-accent">Retention</span>
+          <h4 className="text-scale-base font-weight-semibold text-primary">Dataset retention policy</h4>
         </div>
         <button
           type="button"
           disabled={!canEdit || saving || !retention?.defaultPolicy}
           onClick={handleApplyDefault}
-          className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+          className={SECONDARY_BUTTON_COMPACT}
         >
           Apply defaults
         </button>
       </header>
 
       {loading ? (
-        <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">Loading retention policy…</p>
+        <p className={`mt-4 ${STATUS_MESSAGE}`}>Loading retention policy…</p>
       ) : error ? (
-        <p className="mt-4 text-sm text-rose-600 dark:text-rose-300">{error}</p>
+        <p className={`mt-4 ${STATUS_BANNER_DANGER}`}>{error}</p>
       ) : retention ? (
         <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
           {!canEdit && (
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Editing requires the <code className="font-mono">timestore:admin</code> scope.
+            <p className={STATUS_MESSAGE}>
+              Editing requires the <code className="font-mono text-secondary">timestore:admin</code> scope.
             </p>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Mode</span>
+            <label className={FIELD_GROUP}>
+              <span className={FIELD_LABEL}>Mode</span>
               <select
                 value={fields.mode}
                 onChange={handleChange('mode')}
                 disabled={!canEdit || saving}
-                className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                className={INPUT}
               >
                 <option value="hybrid">Hybrid</option>
                 <option value="time">Time based</option>
                 <option value="size">Size based</option>
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Max age (hours)</span>
+            <label className={FIELD_GROUP}>
+              <span className={FIELD_LABEL}>Max age (hours)</span>
               <input
                 type="number"
                 min={1}
@@ -173,11 +184,11 @@ export function RetentionPanel({ datasetId, retention, loading, error, onRefresh
                 onChange={handleChange('maxAgeHours')}
                 placeholder="Leave blank for default"
                 disabled={!canEdit || saving}
-                className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                className={INPUT}
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Max total bytes</span>
+            <label className={FIELD_GROUP}>
+              <span className={FIELD_LABEL}>Max total bytes</span>
               <input
                 type="number"
                 min={1}
@@ -185,11 +196,11 @@ export function RetentionPanel({ datasetId, retention, loading, error, onRefresh
                 onChange={handleChange('maxTotalBytes')}
                 placeholder="Leave blank for default"
                 disabled={!canEdit || saving}
-                className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                className={INPUT}
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Delete grace (minutes)</span>
+            <label className={FIELD_GROUP}>
+              <span className={FIELD_LABEL}>Delete grace (minutes)</span>
               <input
                 type="number"
                 min={0}
@@ -197,11 +208,11 @@ export function RetentionPanel({ datasetId, retention, loading, error, onRefresh
                 onChange={handleChange('deleteGraceMinutes')}
                 placeholder="Leave blank for default"
                 disabled={!canEdit || saving}
-                className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                className={INPUT}
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Cold storage after (hours)</span>
+            <label className={FIELD_GROUP}>
+              <span className={FIELD_LABEL}>Cold storage after (hours)</span>
               <input
                 type="number"
                 min={1}
@@ -209,31 +220,31 @@ export function RetentionPanel({ datasetId, retention, loading, error, onRefresh
                 onChange={handleChange('coldStorageAfterHours')}
                 placeholder="Leave blank for default"
                 disabled={!canEdit || saving}
-                className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                className={INPUT}
               />
             </label>
           </div>
           <button
             type="submit"
             disabled={!canEdit || saving}
-            className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className={PRIMARY_BUTTON}
           >
             Save retention policy
           </button>
         </form>
       ) : (
-        <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">Retention policy unavailable.</p>
+        <p className={`mt-4 ${STATUS_MESSAGE}`}>Retention policy unavailable.</p>
       )}
 
       {effectiveSummary && (
-        <section className="mt-6 space-y-2 text-sm text-slate-700 dark:text-slate-200">
-          <h5 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Effective policy</h5>
+        <section className="mt-6 space-y-2 text-scale-sm text-secondary">
+          <h5 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">Effective policy</h5>
           <p>Mode: {effectiveSummary.mode}</p>
           <p>Max age: {effectiveSummary.maxAgeHours ?? 'default'} hours</p>
           <p>Max total bytes: {effectiveSummary.maxTotalBytes ?? 'default'}</p>
           <p>Delete grace: {effectiveSummary.deleteGraceMinutes ?? 'default'} minutes</p>
           <p>Cold storage: {effectiveSummary.coldStorageAfterHours ?? 'default'} hours</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Last updated {formatInstant(retention?.updatedAt ?? null)}</p>
+          <p className={STATUS_META}>Last updated {formatInstant(retention?.updatedAt ?? null)}</p>
         </section>
       )}
     </div>

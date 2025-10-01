@@ -99,8 +99,7 @@ describe('useMetastoreRecordStream', () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     if (!original) {
-      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-      delete (globalThis as { EventSource?: unknown }).EventSource;
+      Reflect.deleteProperty(globalThis as { EventSource?: unknown }, 'EventSource');
     }
   });
 

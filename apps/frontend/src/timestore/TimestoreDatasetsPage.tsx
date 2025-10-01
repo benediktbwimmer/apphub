@@ -27,8 +27,28 @@ import { formatInstant } from './utils';
 import { ROUTE_PATHS } from '../routes/paths';
 import { useDatasetDetails } from './hooks/useDatasetDetails';
 import { useDatasetHistory } from './hooks/useDatasetHistory';
+import {
+  CARD_SURFACE,
+  FIELD_LABEL,
+  INPUT,
+  PANEL_SHADOW_ELEVATED,
+  PANEL_SURFACE_LARGE,
+  PRIMARY_BUTTON,
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+  STATUS_BANNER_DANGER,
+  STATUS_MESSAGE,
+  STATUS_META,
+  TABLE_CELL,
+  TABLE_CELL_PRIMARY,
+  TABLE_CONTAINER,
+  TABLE_HEAD_ROW
+} from './timestoreTokens';
 
 const DATASET_POLL_INTERVAL = 30000;
+
+const PANEL_ELEVATED = `${PANEL_SURFACE_LARGE} ${PANEL_SHADOW_ELEVATED}`;
 
 function formatBytes(value: number | null | undefined): string {
   if (!value || value <= 0) {
@@ -334,34 +354,30 @@ export default function TimestoreDatasetsPage() {
   return (
     <>
       <section className="flex flex-col gap-6">
-        <header className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+        <header className={PANEL_ELEVATED}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex flex-col gap-2">
-              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Timestore Datasets</h2>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                Browse curated datasets, inspect manifests, and review recent lifecycle activity.
+              <h2 className="text-scale-lg font-weight-semibold text-primary">Timestore Datasets</h2>
+              <p className={STATUS_MESSAGE}>
+                Browse cataloged datasets, inspect manifests, and review recent lifecycle activity.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Link
                   to={ROUTE_PATHS.servicesTimestoreSql}
-                  className="self-start rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-violet-400 dark:text-violet-300"
+                  className={`${SECONDARY_BUTTON} self-start`}
                 >
                   Open SQL editor
                 </Link>
                 {hasAdminScope && (
-                  <button
-                    type="button"
-                    onClick={handleOpenCreateDialog}
-                    className="self-start rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-                  >
+                  <button type="button" onClick={handleOpenCreateDialog} className={`${PRIMARY_BUTTON} self-start`}>
                     Create dataset
                   </button>
                 )}
               </div>
             </div>
             <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleSubmitSearch}>
-              <div className="flex items-center gap-2">
-                <label htmlFor="timestore-status" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="timestore-status" className={FIELD_LABEL}>
                   Status
                 </label>
                 <select
@@ -370,7 +386,7 @@ export default function TimestoreDatasetsPage() {
                   onChange={(event: ChangeEvent<HTMLSelectElement>) =>
                     setStatusFilter(event.target.value as typeof statusFilter)
                   }
-                  className="rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 text-sm text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                  className={`${INPUT} w-36`}
                 >
                   {(['active', 'inactive', 'all'] as const).map((value) => (
                     <option key={value} value={value}>
@@ -379,35 +395,24 @@ export default function TimestoreDatasetsPage() {
                   ))}
                 </select>
               </div>
-              <div className="flex items-center gap-2">
-                <label htmlFor="timestore-search" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="timestore-search" className={FIELD_LABEL}>
                   Search
                 </label>
-                <div className="flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 shadow-sm focus-within:border-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80">
-                  <input
-                    id="timestore-search"
-                    type="search"
-                    value={searchInput}
-                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                      setSearchInput(event.target.value)
-                    }
-                    placeholder="Search by slug or display name"
-                    className="w-56 bg-transparent text-sm text-slate-700 outline-none dark:text-slate-100"
-                  />
-                  {searchInput && (
-                    <button
-                      type="button"
-                      onClick={handleClearSearch}
-                      className="rounded-full px-2 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <button
-                  type="submit"
-                  className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-                >
+                <input
+                  id="timestore-search"
+                  type="search"
+                  value={searchInput}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchInput(event.target.value)}
+                  placeholder="Search by slug or display name"
+                  className={`${INPUT} w-56`}
+                />
+                {searchInput && (
+                  <button type="button" onClick={handleClearSearch} className={SECONDARY_BUTTON_COMPACT}>
+                    Clear
+                  </button>
+                )}
+                <button type="submit" className={PRIMARY_BUTTON_COMPACT}>
                   Apply
                 </button>
               </div>
@@ -425,7 +430,7 @@ export default function TimestoreDatasetsPage() {
               error={datasetErrorMessage}
               onRetry={refetchDatasets}
             />
-            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <div className={`flex items-center justify-between ${STATUS_META}`}>
               <span>
                 Showing {datasets.length} {datasets.length === 1 ? 'dataset' : 'datasets'}
               </span>
@@ -434,7 +439,7 @@ export default function TimestoreDatasetsPage() {
                   type="button"
                   onClick={handlePreviousPage}
                   disabled={cursorStack.length === 0}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                  className={SECONDARY_BUTTON_COMPACT}
                 >
                   Previous
                 </button>
@@ -442,7 +447,7 @@ export default function TimestoreDatasetsPage() {
                   type="button"
                   onClick={handleNextPage}
                   disabled={!nextCursor}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                  className={SECONDARY_BUTTON_COMPACT}
                 >
                   Next
                 </button>
@@ -453,34 +458,34 @@ export default function TimestoreDatasetsPage() {
           <div className="flex flex-col gap-6">
             {selectedDatasetId ? (
               <>
-                <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+                <div className={PANEL_ELEVATED}>
                   {detailLoading ? (
-                    <div className="flex items-center justify-center py-8 text-sm text-slate-600 dark:text-slate-300">
+                    <div className={`flex items-center justify-center py-8 ${STATUS_MESSAGE}`}>
                       <Spinner label="Loading dataset details" />
                     </div>
                   ) : detailError ? (
-                    <div className="text-sm text-rose-600 dark:text-rose-300">{detailError}</div>
+                    <div className={STATUS_BANNER_DANGER}>{detailError}</div>
                   ) : datasetDetail ? (
                     <div className="flex flex-col gap-6">
                       <div className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
+                        <span className={FIELD_LABEL}>
                           Dataset
                         </span>
-                        <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                        <h3 className="text-scale-lg font-weight-semibold text-primary">
                           {datasetDetail.displayName ?? datasetDetail.name ?? datasetDetail.slug}
                         </h3>
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                        <p className={STATUS_META}>
                           {datasetDetail.slug} • {datasetDetail.status}
                         </p>
                       </div>
                       <dl className="grid gap-4 sm:grid-cols-2">
                         <div className="flex flex-col gap-1">
-                          <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Created</dt>
-                          <dd className="text-sm text-slate-800 dark:text-slate-200">{formatInstant(datasetDetail.createdAt)}</dd>
+                          <dt className={FIELD_LABEL}>Created</dt>
+                          <dd className={`${STATUS_MESSAGE} text-primary`}>{formatInstant(datasetDetail.createdAt)}</dd>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Updated</dt>
-                          <dd className="text-sm text-slate-800 dark:text-slate-200">{formatInstant(datasetDetail.updatedAt)}</dd>
+                          <dt className={FIELD_LABEL}>Updated</dt>
+                          <dd className={`${STATUS_MESSAGE} text-primary`}>{formatInstant(datasetDetail.updatedAt)}</dd>
                         </div>
                       </dl>
                       <DatasetAdminPanel
@@ -491,7 +496,7 @@ export default function TimestoreDatasetsPage() {
                       />
                     </div>
                   ) : (
-                    <div className="text-sm text-slate-600 dark:text-slate-300">Select a dataset to view details.</div>
+                    <div className={STATUS_MESSAGE}>Select a dataset to view details.</div>
                   )}
                 </div>
 
@@ -511,13 +516,11 @@ export default function TimestoreDatasetsPage() {
                   canQuery={hasReadScope}
                 />
 
-                <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-                  <header className="flex items-center justify-between">
+                <div className={PANEL_ELEVATED}>
+                  <header className="flex items-center justify-between gap-3">
                     <div className="flex flex-col gap-1">
-                      <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
-                        Manifest
-                      </span>
-                      <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">Latest published manifest</h4>
+                      <span className={FIELD_LABEL}>Manifest</span>
+                      <h4 className="text-scale-base font-weight-semibold text-primary">Latest published manifest</h4>
                     </div>
                     <button
                       type="button"
@@ -527,77 +530,77 @@ export default function TimestoreDatasetsPage() {
                           void refreshManifest();
                         }
                       }}
-                      className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:text-slate-300"
+                      className={SECONDARY_BUTTON_COMPACT}
                     >
                       Refresh
                     </button>
                   </header>
                   {manifestLoading ? (
-                    <div className="flex items-center justify-center py-8 text-sm text-slate-600 dark:text-slate-300">
+                    <div className={`flex items-center justify-center py-8 ${STATUS_MESSAGE}`}>
                       <Spinner label="Loading manifest" />
                     </div>
                   ) : manifestError ? (
-                    <div className="text-sm text-rose-600 dark:text-rose-300">{manifestError}</div>
+                    <div className={STATUS_BANNER_DANGER}>{manifestError}</div>
                   ) : manifest ? (
                     <div className="flex flex-col gap-6">
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div className="flex flex-col gap-1">
-                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Version</span>
-                          <span className="text-sm text-slate-800 dark:text-slate-200">
+                          <span className={FIELD_LABEL}>Version</span>
+                          <span className={`${STATUS_MESSAGE} text-primary`}>
                             {manifest.manifest.version}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Partitions</span>
-                          <span className="text-sm text-slate-800 dark:text-slate-200">
+                          <span className={FIELD_LABEL}>Partitions</span>
+                          <span className={`${STATUS_MESSAGE} text-primary`}>
                             {manifest.manifest.partitions.length}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Published</span>
-                          <span className="text-sm text-slate-800 dark:text-slate-200">
+                          <span className={FIELD_LABEL}>Published</span>
+                          <span className={`${STATUS_MESSAGE} text-primary`}>
                             {formatInstant(manifest.manifest.createdAt)}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Approximate size</span>
-                          <span className="text-sm text-slate-800 dark:text-slate-200">
+                          <span className={FIELD_LABEL}>Approximate size</span>
+                          <span className={`${STATUS_MESSAGE} text-primary`}>
                             {summarizeSize(manifest.manifest.partitions)}
                           </span>
                         </div>
                       </div>
-                      <div className="overflow-hidden rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
-                        <table className="min-w-full divide-y divide-slate-200/60 text-left text-sm text-slate-600 dark:divide-slate-700/60 dark:text-slate-300">
-                          <thead className="bg-slate-50/80 text-xs uppercase tracking-[0.2em] text-slate-500 dark:bg-slate-800/80 dark:text-slate-400">
+                      <div className={`${TABLE_CONTAINER} overflow-auto`}>
+                        <table className="min-w-full text-left">
+                          <thead className={TABLE_HEAD_ROW}>
                             <tr>
-                              <th className="px-4 py-2">Partition</th>
-                              <th className="px-4 py-2">Path</th>
-                              <th className="px-4 py-2">Size</th>
-                              <th className="px-4 py-2">Created</th>
+                              <th className={TABLE_CELL_PRIMARY}>Partition</th>
+                              <th className={TABLE_CELL_PRIMARY}>Path</th>
+                              <th className={TABLE_CELL_PRIMARY}>Size</th>
+                              <th className={TABLE_CELL_PRIMARY}>Created</th>
                             </tr>
                           </thead>
-                          <tbody>
+                          <tbody className="divide-y divide-subtle">
                             {manifest.manifest.partitions.slice(0, 5).map((partition) => (
-                              <tr key={partition.id} className="border-t border-slate-200/50 dark:border-slate-700/60">
-                                <td className="px-4 py-2 text-slate-700 dark:text-slate-200">
+                              <tr key={partition.id}>
+                                <td className={TABLE_CELL}>
                                   {describePartitionKey(partition.partitionKey)}
                                 </td>
-                                <td className="px-4 py-2 text-slate-500 dark:text-slate-300">{partition.filePath}</td>
-                                <td className="px-4 py-2 text-slate-500 dark:text-slate-300">{formatBytes(partition.fileSizeBytes)}</td>
-                                <td className="px-4 py-2 text-slate-500 dark:text-slate-300">{formatInstant(partition.createdAt)}</td>
+                                <td className={TABLE_CELL}>{partition.filePath}</td>
+                                <td className={TABLE_CELL}>{formatBytes(partition.fileSizeBytes)}</td>
+                                <td className={TABLE_CELL}>{formatInstant(partition.createdAt)}</td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
                         {manifest.manifest.partitions.length > 5 && (
-                          <div className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">
+                          <div className={`px-4 py-2 ${STATUS_META}`}>
                             Showing first 5 of {manifest.manifest.partitions.length} partitions.
                           </div>
                         )}
                       </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-slate-600 dark:text-slate-300">No manifest available.</p>
+                    <p className={STATUS_MESSAGE}>No manifest available.</p>
                   )}
               </div>
 
@@ -625,8 +628,8 @@ export default function TimestoreDatasetsPage() {
                   panelId="timestore-lifecycle"
                 />
               ) : (
-                <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-600 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
-                  Dataset slug unavailable; lifecycle controls disabled.
+                <div className={CARD_SURFACE}>
+                  <p className={STATUS_MESSAGE}>Dataset slug unavailable; lifecycle controls disabled.</p>
                 </div>
               )}
 
@@ -639,8 +642,10 @@ export default function TimestoreDatasetsPage() {
               />
               </>
             ) : (
-              <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-600 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
-                Select a dataset from the list to view its manifest and lifecycle history.
+              <div className={CARD_SURFACE}>
+                <p className={STATUS_MESSAGE}>
+                  Select a dataset from the list to view its manifest and lifecycle history.
+                </p>
               </div>
             )}
           </div>

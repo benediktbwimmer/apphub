@@ -328,14 +328,6 @@ export function useDatasetDetails(datasetId: string | null): UseDatasetDetailsRe
 
       await performFetch(targets, behavior, signal);
 
-      if (import.meta.env.DEV) {
-        fetchCountRef.current += 1;
-        // eslint-disable-next-line no-console
-        console.debug(
-          `[timestore] detail poll #${fetchCountRef.current} dataset=${datasetId} targets=${targets.join(',')}`
-        );
-      }
-
       return { datasetId, completedAt: Date.now(), targets };
     },
     [datasetId, performFetch]

@@ -32,10 +32,39 @@ import {
 import type { SqlHistoryEntry } from './sqlHistory';
 import { SQL_KEYWORDS } from './sqlKeywords';
 import { ROUTE_PATHS } from '../../routes/paths';
+import {
+  CARD_SURFACE,
+  CARD_SURFACE_SOFT,
+  FIELD_LABEL,
+  INPUT,
+  KBD_BADGE,
+  PANEL_SHADOW_ELEVATED,
+  PANEL_SURFACE_LARGE,
+  PRIMARY_BUTTON,
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+  DANGER_SECONDARY_BUTTON,
+  SEGMENTED_GROUP,
+  SEGMENTED_BUTTON_ACTIVE,
+  SEGMENTED_BUTTON_BASE,
+  SEGMENTED_BUTTON_INACTIVE,
+  STATUS_BANNER_DANGER,
+  STATUS_BANNER_WARNING,
+  STATUS_MESSAGE,
+  STATUS_META,
+  TABLE_CELL,
+  TABLE_CELL_PRIMARY,
+  TABLE_CONTAINER,
+  TABLE_HEAD_ROW
+} from '../timestoreTokens';
 
 const DEFAULT_QUERY = 'SELECT\n  dataset_slug,\n  count(*) AS record_count\nFROM\n  timestore_runtime.datasets\nGROUP BY\n  1\nORDER BY\n  record_count DESC\nLIMIT 100;';
 
 const COMPLETION_TRIGGER_CHARACTERS = [' ', '.', '\n'];
+
+const PANEL_ELEVATED = `${PANEL_SURFACE_LARGE} ${PANEL_SHADOW_ELEVATED}`;
+const SEGMENTED_BUTTON = (active: boolean) =>
+  `${SEGMENTED_BUTTON_BASE} ${active ? SEGMENTED_BUTTON_ACTIVE : SEGMENTED_BUTTON_INACTIVE}`;
 
 type CompletionSuggestion = Omit<languages.CompletionItem, 'range'>;
 
@@ -686,47 +715,48 @@ export default function TimestoreSqlEditorPage() {
 
   return (
     <section className="flex flex-col gap-6">
-      <header className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+      <header className={PANEL_ELEVATED}>
         <div className="flex flex-col gap-2">
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">SQL Editor</h2>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Explore Timestore datasets with ad-hoc SQL. Use <kbd className="rounded-md bg-slate-200 px-1 py-0.5 text-xs font-semibold text-slate-700 shadow-sm dark:bg-slate-700 dark:text-slate-100">⌘/Ctrl + Enter</kbd> to run the current statement.
+          <h2 className="text-scale-lg font-weight-semibold text-primary">SQL Editor</h2>
+          <p className={STATUS_MESSAGE}>
+            Explore Timestore datasets with ad-hoc SQL. Use{' '}
+            <kbd className={KBD_BADGE}>⌘/Ctrl + Enter</kbd> to run the current statement.
           </p>
         </div>
       </header>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr),minmax(0,1fr)]">
         <div className="flex flex-col gap-6">
-          <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+          <div className={PANEL_ELEVATED}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => runQueryRef.current()}
                   disabled={isExecuting}
-                  className="rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+                  className={PRIMARY_BUTTON}
                 >
                   {isExecuting ? 'Running…' : 'Run query'}
                 </button>
-                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                  <span className="text-xs uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Max rows</span>
+                <label className="flex items-center gap-2 text-scale-sm text-secondary">
+                  <span className={FIELD_LABEL}>Max rows</span>
                   <input
                     type="number"
                     min={1}
                     value={maxRowsInput}
                     onChange={(event) => setMaxRowsInput(event.target.value)}
-                    className="w-24 rounded-full border border-slate-300/70 bg-white/80 px-3 py-1 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                    className={`${INPUT} w-24`}
                   />
                 </label>
               </div>
-              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-2 text-scale-xs text-muted">
                 <button
                   type="button"
                   onClick={() => {
                     setStatement(DEFAULT_QUERY);
                     editorRef.current?.focus();
                   }}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                  className={SECONDARY_BUTTON_COMPACT}
                 >
                   Reset example
                 </button>
@@ -735,7 +765,7 @@ export default function TimestoreSqlEditorPage() {
                   onClick={() => {
                     void handleCopyQuery();
                   }}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                  className={SECONDARY_BUTTON_COMPACT}
                 >
                   Copy
                 </button>
@@ -752,32 +782,33 @@ export default function TimestoreSqlEditorPage() {
               />
             </div>
             {queryError && (
-              <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{queryError}</p>
+              <div className={`mt-4 ${STATUS_BANNER_DANGER}`}>{queryError}</div>
             )}
           </div>
 
-          <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+          <div className={PANEL_ELEVATED}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Results</h3>
+                <h3 className="text-scale-base font-weight-semibold text-primary">Results</h3>
                 {result?.statistics && (
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                    {result.statistics.rowCount ?? result.rows.length} rows · {result.statistics.elapsedMs ? `${result.statistics.elapsedMs} ms` : 'runtime unknown'}
+                  <p className={STATUS_META}>
+                    {result.statistics.rowCount ?? result.rows.length} rows ·{' '}
+                    {result.statistics.elapsedMs ? `${result.statistics.elapsedMs} ms` : 'runtime unknown'}
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className={SEGMENTED_GROUP}>
                 <button
                   type="button"
                   onClick={() => setResultMode('table')}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${effectiveResultMode === 'table' ? 'bg-violet-600 text-white dark:bg-violet-500' : 'border border-slate-300/70 text-slate-600 dark:border-slate-700/70 dark:text-slate-300'}`}
+                  className={SEGMENTED_BUTTON(effectiveResultMode === 'table')}
                 >
                   Table
                 </button>
                 <button
                   type="button"
                   onClick={() => setResultMode('json')}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${effectiveResultMode === 'json' ? 'bg-violet-600 text-white dark:bg-violet-500' : 'border border-slate-300/70 text-slate-600 dark:border-slate-700/70 dark:text-slate-300'}`}
+                  className={SEGMENTED_BUTTON(effectiveResultMode === 'json')}
                 >
                   JSON
                 </button>
@@ -785,20 +816,20 @@ export default function TimestoreSqlEditorPage() {
                   type="button"
                   onClick={() => setResultMode('chart')}
                   disabled={!canChart}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${effectiveResultMode === 'chart' ? 'bg-violet-600 text-white dark:bg-violet-500' : 'border border-slate-300/70 text-slate-600 dark:border-slate-700/70 dark:text-slate-300'} ${!canChart ? 'opacity-40' : ''}`}
+                  className={`${SEGMENTED_BUTTON(effectiveResultMode === 'chart')} ${!canChart ? 'opacity-50' : ''}`}
                 >
                   Chart
                 </button>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex flex-wrap items-center gap-2 text-scale-xs text-muted">
                 <button
                   type="button"
                   onClick={() => {
                     void handleExportResults('csv', 'download');
                   }}
                   disabled={!canExport}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                  className={SECONDARY_BUTTON_COMPACT}
                 >
                   Download CSV
                 </button>
@@ -808,7 +839,7 @@ export default function TimestoreSqlEditorPage() {
                     void handleExportResults('table', 'download');
                   }}
                   disabled={!canExport}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                  className={SECONDARY_BUTTON_COMPACT}
                 >
                   Download text
                 </button>
@@ -818,7 +849,7 @@ export default function TimestoreSqlEditorPage() {
                     void handleExportResults('table', 'open');
                   }}
                   disabled={!canExport}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                  className={SECONDARY_BUTTON_COMPACT}
                 >
                   Open in new tab
                 </button>
@@ -828,7 +859,7 @@ export default function TimestoreSqlEditorPage() {
                     void handleCopyResults();
                   }}
                   disabled={!hasResults || isExecuting}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                  className={SECONDARY_BUTTON_COMPACT}
                 >
                   Copy results
                 </button>
@@ -837,36 +868,34 @@ export default function TimestoreSqlEditorPage() {
 
             <div className="mt-4">
               {!result && !isExecuting && (
-                <p className="text-sm text-slate-600 dark:text-slate-300">Run a query to see results here.</p>
+                <p className={STATUS_MESSAGE}>Run a query to see results here.</p>
               )}
               {isExecuting && (
-                <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
+                <div className={`flex items-center gap-3 ${STATUS_MESSAGE}`}>
                   <Spinner label="Executing query" />
                   <span>Executing query…</span>
                 </div>
               )}
               {result && !isExecuting && effectiveResultMode === 'table' && (
-                <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-700/70">
-                  <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/70">
-                    <thead className="bg-slate-100/80 text-xs uppercase tracking-[0.25em] text-slate-500 dark:bg-slate-800/70 dark:text-slate-300">
+                <div className={`${TABLE_CONTAINER} max-h-[420px] overflow-auto`}>
+                  <table className="min-w-full divide-y divide-subtle text-left">
+                    <thead className={TABLE_HEAD_ROW}>
                       <tr>
                         {result.columns.map((column) => (
-                          <th key={column.name} className="px-4 py-2 text-left font-semibold">
+                          <th key={column.name} className={`${TABLE_CELL_PRIMARY} text-left font-weight-semibold`}>
                             {column.name}
                             {column.type && (
-                              <span className="ml-2 text-[11px] font-normal uppercase tracking-[0.2em] text-slate-400">
-                                {column.type}
-                              </span>
+                              <span className={`ml-2 ${STATUS_META}`}>{column.type}</span>
                             )}
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200/60 text-sm dark:divide-slate-700/60">
+                    <tbody className="divide-y divide-subtle">
                       {result.rows.map((row, rowIndex) => (
-                        <tr key={rowIndex} className="hover:bg-violet-500/5">
+                        <tr key={rowIndex} className="transition-colors hover:bg-accent-soft/60">
                           {result.columns.map((column) => (
-                            <td key={column.name} className="px-4 py-2 text-slate-700 dark:text-slate-200">
+                            <td key={column.name} className={TABLE_CELL}>
                               {formatCellValue(row[column.name])}
                             </td>
                           ))}
@@ -877,7 +906,7 @@ export default function TimestoreSqlEditorPage() {
                 </div>
               )}
               {result && !isExecuting && effectiveResultMode === 'json' && (
-                <div className="overflow-x-auto rounded-2xl border border-slate-200/70 p-4 dark:border-slate-700/70">
+                <div className={`${CARD_SURFACE_SOFT} overflow-x-auto`}>
                   <JsonSyntaxHighlighter value={result.rows} />
                 </div>
               )}
@@ -885,9 +914,9 @@ export default function TimestoreSqlEditorPage() {
                 <SqlChart rows={result.rows} columns={result.columns} />
               )}
               {result?.warnings && result.warnings.length > 0 && (
-                <div className="mt-4 space-y-2 rounded-2xl border border-amber-400/60 bg-amber-50/60 p-4 text-sm text-amber-700 dark:border-amber-300/60 dark:bg-amber-400/10 dark:text-amber-200">
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.3em]">Warnings</h4>
-                  <ul className="list-disc space-y-1 pl-5">
+                <div className={`mt-4 space-y-2 ${STATUS_BANNER_WARNING}`}>
+                  <h4 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em]">Warnings</h4>
+                  <ul className="list-disc space-y-1 pl-5 text-scale-sm">
                     {result.warnings.map((warning, index) => (
                       <li key={index}>{warning}</li>
                     ))}
@@ -899,53 +928,53 @@ export default function TimestoreSqlEditorPage() {
         </div>
 
         <div className="flex flex-col gap-6">
-          <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+          <div className={PANEL_ELEVATED}>
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Schema</h3>
+              <h3 className="text-scale-base font-weight-semibold text-primary">Schema</h3>
               <button
                 type="button"
                 onClick={() => void refetchSchema()}
-                className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                className={SECONDARY_BUTTON_COMPACT}
               >
                 Refresh
               </button>
             </div>
             {schemaLoading && (
-              <div className="mt-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <div className={`mt-4 flex items-center gap-2 ${STATUS_MESSAGE}`}>
                 <Spinner label="Loading schema" />
                 <span>Loading schema…</span>
               </div>
             )}
             {schemaErrorMessage ? (
-              <p className="mt-4 text-sm text-rose-600 dark:text-rose-300">
+              <div className={`mt-4 ${STATUS_BANNER_DANGER}`}>
                 Failed to load schema: {schemaErrorMessage}
-              </p>
+              </div>
             ) : null}
             {!schemaLoading && !schemaErrorMessage && (
               <div className="mt-4">
-              <input
-                type="search"
-                value={schemaFilter}
-                onChange={(event) => setSchemaFilter(event.target.value)}
-                placeholder="Filter schema"
-                className="w-full rounded-full border border-slate-300/70 bg-white/80 px-4 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-              />
+                <input
+                  type="search"
+                  value={schemaFilter}
+                  onChange={(event) => setSchemaFilter(event.target.value)}
+                  placeholder="Filter schema"
+                  className={`${INPUT} w-full`}
+                />
                 <div className="mt-4 max-h-[320px] space-y-3 overflow-auto pr-1">
                   {filteredTables.map((table) => (
-                    <details key={table.name} open className="rounded-2xl border border-slate-200/70 bg-slate-100/60 p-3 dark:border-slate-700/70 dark:bg-slate-800/60">
-                      <summary className="flex items-center justify-between text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    <details key={table.name} open className={`${CARD_SURFACE_SOFT}`}>
+                      <summary className="flex items-center justify-between text-scale-sm font-weight-semibold text-primary">
                         <span>{table.name}</span>
                         {table.partitionKeys && table.partitionKeys.length > 0 && (
-                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                          <span className={STATUS_META}>
                             partitions: {table.partitionKeys.join(', ')}
                           </span>
                         )}
                       </summary>
-                      <ul className="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                      <ul className="mt-3 space-y-2 text-scale-sm text-secondary">
                         {table.columns.map((column) => (
                           <li key={column.name} className="flex flex-col">
-                            <span className="font-mono text-[13px] text-slate-700 dark:text-slate-200">{column.name}</span>
-                            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                            <span className="font-mono text-scale-xs text-primary">{column.name}</span>
+                            <span className={STATUS_META}>
                               {column.type ?? 'unknown'}
                               {column.nullable === false ? ' • not null' : ''}
                             </span>
@@ -955,7 +984,7 @@ export default function TimestoreSqlEditorPage() {
                     </details>
                   ))}
                   {filteredTables.length === 0 && (
-                    <p className="text-sm text-slate-600 dark:text-slate-300">
+                    <p className={STATUS_MESSAGE}>
                       {schemaTables.length === 0
                         ? 'Schema metadata is not available yet.'
                         : 'No tables match the current filter.'}
@@ -966,13 +995,13 @@ export default function TimestoreSqlEditorPage() {
             )}
           </div>
 
-          <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+          <div className={PANEL_ELEVATED}>
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">History</h3>
+              <h3 className="text-scale-base font-weight-semibold text-primary">History</h3>
               <button
                 type="button"
                 onClick={handleClearHistory}
-                className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                className={SECONDARY_BUTTON_COMPACT}
               >
                 Clear unpinned
               </button>
@@ -983,26 +1012,26 @@ export default function TimestoreSqlEditorPage() {
                 value={historySearch}
                 onChange={(event) => setHistorySearch(event.target.value)}
                 placeholder="Search saved queries"
-                className="w-full rounded-full border border-slate-300/70 bg-white/80 px-4 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                className={`${INPUT} w-full`}
               />
             </div>
             <div className="mt-4 max-h-[320px] space-y-3 overflow-auto pr-1">
               {normalizedHistory.length === 0 && (
-                <p className="text-sm text-slate-600 dark:text-slate-300">Recently executed queries will appear here.</p>
+                <p className={STATUS_MESSAGE}>Recently executed queries will appear here.</p>
               )}
               {normalizedHistory.map((entry) => (
                 <article
                   key={entry.id}
-                  className={`rounded-2xl border px-4 py-3 text-sm shadow-sm transition-shadow ${entry.pinned ? 'border-violet-400/80 bg-violet-50/70 dark:border-violet-400/50 dark:bg-violet-400/10' : 'border-slate-200/70 bg-white/70 dark:border-slate-700/70 dark:bg-slate-900/70'}`}
+                  className={`${CARD_SURFACE} text-scale-sm transition-shadow ${entry.pinned ? 'border-accent bg-accent-soft shadow-elevation-md' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex flex-col gap-1">
-                      <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                      <span className={STATUS_META}>
                         {new Date(entry.createdAt).toLocaleString()}
                       </span>
-                      <pre className="whitespace-pre-wrap font-mono text-xs text-slate-700 dark:text-slate-200">{entry.statement}</pre>
+                      <pre className="whitespace-pre-wrap font-mono text-scale-xs text-primary">{entry.statement}</pre>
                     </div>
-                    <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    <div className={`flex flex-col items-end gap-1 ${STATUS_META}`}>
                       {entry.stats?.rowCount !== undefined && (
                         <span>{entry.stats.rowCount} rows</span>
                       )}
@@ -1011,18 +1040,18 @@ export default function TimestoreSqlEditorPage() {
                       )}
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-scale-xs">
                     <button
                       type="button"
                       onClick={() => handleRunHistoryEntry(entry)}
-                      className="rounded-full bg-violet-600 px-3 py-1 font-semibold text-white hover:bg-violet-500 dark:bg-violet-500 dark:hover:bg-violet-400"
+                      className={PRIMARY_BUTTON_COMPACT}
                     >
                       Run
                     </button>
                     <button
                       type="button"
                       onClick={() => handleLoadHistoryEntry(entry)}
-                      className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300 dark:hover:bg-slate-800/60"
+                      className={SECONDARY_BUTTON_COMPACT}
                     >
                       Load
                     </button>
@@ -1032,7 +1061,7 @@ export default function TimestoreSqlEditorPage() {
                         onClick={() => {
                           void handleShareHistoryEntry(entry);
                         }}
-                        className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300 dark:hover:bg-slate-800/60"
+                        className={SECONDARY_BUTTON_COMPACT}
                       >
                         Share
                       </button>
@@ -1042,7 +1071,7 @@ export default function TimestoreSqlEditorPage() {
                       onClick={() => {
                         void handleRenameHistoryEntry(entry.id);
                       }}
-                      className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300 dark:hover:bg-slate-800/60"
+                      className={SECONDARY_BUTTON_COMPACT}
                     >
                       Rename
                     </button>
@@ -1051,7 +1080,7 @@ export default function TimestoreSqlEditorPage() {
                       onClick={() => {
                         void handleTogglePin(entry.id);
                       }}
-                      className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300 dark:hover:bg-slate-800/60"
+                      className={SECONDARY_BUTTON_COMPACT}
                     >
                       {entry.pinned ? 'Unpin' : 'Pin'}
                     </button>
@@ -1060,13 +1089,13 @@ export default function TimestoreSqlEditorPage() {
                       onClick={() => {
                         void handleDeleteHistoryEntry(entry.id);
                       }}
-                      className="rounded-full border border-rose-400/70 px-3 py-1 font-semibold text-rose-600 hover:bg-rose-500/10 dark:border-rose-400/60 dark:text-rose-300"
+                      className={DANGER_SECONDARY_BUTTON}
                     >
                       Delete
                     </button>
                   </div>
                   {entry.label && (
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                    <p className={`mt-2 ${STATUS_META} font-weight-semibold uppercase tracking-[0.3em]`}>
                       {entry.label}
                     </p>
                   )}
@@ -1087,13 +1116,13 @@ interface SqlChartProps {
 
 function SqlChart({ rows, columns }: SqlChartProps) {
   if (rows.length === 0) {
-    return <p className="text-sm text-slate-600 dark:text-slate-300">No data to chart yet.</p>;
+    return <p className={STATUS_MESSAGE}>No data to chart yet.</p>;
   }
 
   const numericColumn = columns.find((column, index) => isNumericColumn(column, rows, index));
 
   if (!numericColumn) {
-    return <p className="text-sm text-slate-600 dark:text-slate-300">No numeric column available for charting.</p>;
+    return <p className={STATUS_MESSAGE}>No numeric column available for charting.</p>;
   }
 
   const timeColumn = columns.find((column, index) => isTemporalColumn(column, rows, index));
@@ -1106,7 +1135,7 @@ function SqlChart({ rows, columns }: SqlChartProps) {
     .filter((point) => Number.isFinite(point.y));
 
   if (values.length === 0) {
-    return <p className="text-sm text-slate-600 dark:text-slate-300">Unable to plot chart for the current result set.</p>;
+    return <p className={STATUS_MESSAGE}>Unable to plot chart for the current result set.</p>;
   }
 
   const width = 480;
@@ -1152,20 +1181,20 @@ function SqlChart({ rows, columns }: SqlChartProps) {
         <rect x={0} y={0} width={width} height={height} fill="url(#chartGradient)" rx={18} ry={18} opacity={0.15} />
         <defs>
           <linearGradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#7c3aed" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#7c3aed" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--color-accent-default)" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="var(--color-accent-default)" stopOpacity="0" />
           </linearGradient>
         </defs>
         <polyline
           fill="none"
-          stroke="#7c3aed"
+          stroke="var(--color-accent-default)"
           strokeWidth={2.5}
           points={points.join(' ')}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
       </svg>
-      <div className="text-xs text-slate-500 dark:text-slate-400">
+      <div className={STATUS_META}>
         <span className="font-semibold">y-axis:</span> {numericColumn.name}
         {timeColumn && (
           <span className="ml-4">

@@ -41,7 +41,6 @@ const eventHealthResponse = {
 let topologyOrigin: string;
 
 declare global {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface Window {
     __apphubSocketEmit?: (message: unknown) => void;
   }

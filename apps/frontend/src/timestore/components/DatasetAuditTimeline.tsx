@@ -4,6 +4,23 @@ import { Spinner } from '../../components';
 import type { DatasetAccessAuditEvent } from '../types';
 import { formatInstant } from '../utils';
 import { ROUTE_PATHS } from '../../routes/paths';
+import {
+  BADGE_PILL,
+  BADGE_PILL_ACCENT,
+  BADGE_PILL_DANGER,
+  BADGE_PILL_INFO,
+  BADGE_PILL_MUTED,
+  BADGE_PILL_SUCCESS,
+  CARD_SURFACE,
+  CARD_SURFACE_SOFT,
+  FOCUS_RING,
+  PANEL_SURFACE_LARGE,
+  SECONDARY_BUTTON_COMPACT,
+  STATUS_BANNER_DANGER,
+  STATUS_BANNER_WARNING,
+  STATUS_MESSAGE,
+  STATUS_META
+} from '../timestoreTokens';
 
 function normalizeStage(event: DatasetAccessAuditEvent): string {
   const metadataStage = typeof event.metadata?.stage === 'string' ? event.metadata.stage : null;
@@ -25,24 +42,23 @@ function formatStageLabel(event: DatasetAccessAuditEvent): string {
   return stage.charAt(0).toUpperCase() + stage.slice(1);
 }
 
+const STAGE_BADGES: Record<string, string> = {
+  ingest: BADGE_PILL_SUCCESS,
+  query: BADGE_PILL_INFO,
+  lifecycle: BADGE_PILL_ACCENT
+};
+
 function stageBadgeClass(stage: string): string {
-  switch (stage) {
-    case 'ingest':
-      return 'border-emerald-400/60 bg-emerald-400/10 text-emerald-600 dark:border-emerald-400/40 dark:text-emerald-300';
-    case 'query':
-      return 'border-sky-400/60 bg-sky-400/10 text-sky-600 dark:border-sky-400/40 dark:text-sky-300';
-    case 'lifecycle':
-      return 'border-violet-400/60 bg-violet-400/10 text-violet-600 dark:border-violet-400/40 dark:text-violet-300';
-    default:
-      return 'border-slate-400/60 bg-slate-400/10 text-slate-600 dark:border-slate-500/40 dark:text-slate-300';
-  }
+  return STAGE_BADGES[stage] ?? BADGE_PILL_MUTED;
 }
 
 function statusBadgeClass(success: boolean): string {
-  return success
-    ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400/40 dark:text-emerald-300'
-    : 'border-rose-500/60 bg-rose-500/10 text-rose-600 dark:border-rose-400/40 dark:text-rose-300';
+  return success ? BADGE_PILL_SUCCESS : BADGE_PILL_DANGER;
 }
+
+const PANEL_SHADOW = 'shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)]';
+const RAW_METADATA_SURFACE = `${CARD_SURFACE_SOFT} overflow-x-auto font-mono text-scale-xs`;
+const TIMELINE_METADATA = 'flex flex-wrap items-center gap-3 text-scale-xs text-muted';
 
 function formatActionLabel(action: string): string {
   return action
@@ -174,16 +190,16 @@ export function DatasetAuditTimeline({
   };
 
   return (
-    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <section className={`${PANEL_SURFACE_LARGE} ${PANEL_SHADOW}`}>
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
+          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-accent">
             History
           </span>
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+          <h3 className="text-scale-base font-weight-semibold text-primary">
             Ingestion &amp; Query Timeline
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className={STATUS_MESSAGE}>
             Review recent ingest attempts, query executions, and lifecycle signals captured by the access audit API.
           </p>
         </div>
@@ -192,7 +208,7 @@ export function DatasetAuditTimeline({
             type="button"
             onClick={onRetry}
             disabled={!canView || loading}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:text-slate-300"
+            className={SECONDARY_BUTTON_COMPACT}
           >
             Refresh
           </button>
@@ -200,31 +216,31 @@ export function DatasetAuditTimeline({
       </header>
 
       {!canView ? (
-        <p className="mt-6 text-sm text-slate-600 dark:text-slate-300">
-          Viewing audit history requires the <code className="font-mono">timestore:admin</code> scope.
+        <p className={`mt-6 ${STATUS_MESSAGE}`}>
+          Viewing audit history requires the <code className="font-mono text-secondary">timestore:admin</code> scope.
         </p>
       ) : (
         <>
           {error && (
-            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-300">
+            <div className={`mt-4 ${STATUS_BANNER_DANGER}`}>
               {error}
             </div>
           )}
 
           {loadMoreError && (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-600 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-300">
+            <div className={`mt-4 ${STATUS_BANNER_WARNING}`}>
               {loadMoreError}
             </div>
           )}
 
           {loading && sortedEvents.length === 0 ? (
-            <div className="mt-6 text-sm text-slate-600 dark:text-slate-300">
+            <div className={`mt-6 ${STATUS_MESSAGE}`}>
               <Spinner label="Loading audit events" size="xs" />
             </div>
           ) : null}
 
           {!loading && sortedEvents.length === 0 && !error ? (
-            <p className="mt-6 text-sm text-slate-600 dark:text-slate-300">
+            <p className={`mt-6 ${STATUS_MESSAGE}`}>
               No audit history recorded yet.
             </p>
           ) : null}
@@ -247,83 +263,61 @@ export function DatasetAuditTimeline({
                 return (
                   <li
                     key={event.id}
-                    className="flex flex-wrap gap-4 rounded-2xl border border-slate-200/60 bg-white/80 p-4 text-sm shadow-sm transition-colors dark:border-slate-700/60 dark:bg-slate-900/60"
+                    className={`flex flex-wrap gap-4 ${CARD_SURFACE} text-scale-sm text-secondary`}
                   >
-                    <div className="w-40 shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    <div className="w-40 shrink-0 text-scale-xs font-weight-semibold text-muted">
                       {formatInstant(event.createdAt)}
                     </div>
                     <div className="flex-1 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${stageBadgeClass(stage)}`}
-                        >
-                          {stageLabel}
-                        </span>
-                        <span
-                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClass(event.success)}`}
-                        >
+                        <span className={stageBadgeClass(stage)}>{stageLabel}</span>
+                        <span className={statusBadgeClass(event.success)}>
                           {event.success ? 'Success' : 'Failed'}
                         </span>
-                        {metadataSummary.mode && (
-                          <span className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-500 dark:border-slate-600 dark:text-slate-300">
-                            {metadataSummary.mode}
-                          </span>
-                        )}
-                        {metadataSummary.duration && (
-                          <span className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-500 dark:border-slate-600 dark:text-slate-300">
-                            {metadataSummary.duration}
-                          </span>
-                        )}
+                        {metadataSummary.mode ? <span className={BADGE_PILL_MUTED}>{metadataSummary.mode}</span> : null}
+                        {metadataSummary.duration ? <span className={BADGE_PILL}>{metadataSummary.duration}</span> : null}
                       </div>
-                      <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">{actionLabel}</div>
-                      {actorLine && (
-                        <div className="text-xs text-slate-500 dark:text-slate-400">{actorLine}</div>
-                      )}
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                        {metadataSummary.jobLink && (
+                      <div className="text-scale-sm font-weight-semibold text-primary">{actionLabel}</div>
+                      {actorLine ? <div className={STATUS_META}>{actorLine}</div> : null}
+                      <div className={TIMELINE_METADATA}>
+                        {metadataSummary.jobLink ? (
                           <Link
                             to={metadataSummary.jobLink.to}
-                            className="rounded-full border border-violet-400/70 px-3 py-1 font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-violet-400/50 dark:text-violet-200"
+                            className={`${BADGE_PILL_ACCENT} hover:bg-accent-soft ${FOCUS_RING}`}
                           >
                             {metadataSummary.jobLink.label}
                           </Link>
-                        )}
-                        {metadataSummary.queueLink && (
+                        ) : null}
+                        {metadataSummary.queueLink ? (
                           <Link
                             to={metadataSummary.queueLink.to}
-                            className="rounded-full border border-indigo-400/70 px-3 py-1 font-semibold text-indigo-600 transition-colors hover:bg-indigo-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-indigo-400/50 dark:text-indigo-200"
+                            className={`${BADGE_PILL_INFO} hover:bg-status-info-soft ${FOCUS_RING}`}
                           >
                             {metadataSummary.queueLink.label}
                           </Link>
-                        )}
-                        {metadataSummary.manifestId && (
-                          <span className="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-500 dark:border-slate-600 dark:text-slate-300">
-                            Manifest {metadataSummary.manifestId}
-                          </span>
-                        )}
-                        {metadataSummary.ingestId && (
-                          <span className="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-500 dark:border-slate-600 dark:text-slate-300">
-                            Batch {metadataSummary.ingestId}
-                          </span>
-                        )}
+                        ) : null}
+                        {metadataSummary.manifestId ? (
+                          <span className={BADGE_PILL_MUTED}>Manifest {metadataSummary.manifestId}</span>
+                        ) : null}
+                        {metadataSummary.ingestId ? (
+                          <span className={BADGE_PILL_MUTED}>Batch {metadataSummary.ingestId}</span>
+                        ) : null}
                       </div>
-                      {metadataSummary.error && (
-                        <div className="text-xs font-semibold text-rose-600 dark:text-rose-300">
+                      {metadataSummary.error ? (
+                        <div className="text-scale-xs font-weight-semibold text-status-danger">
                           {metadataSummary.error}
                         </div>
-                      )}
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => toggleExpanded(event.id)}
-                        className="text-xs font-semibold text-violet-600 transition-colors hover:text-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:text-violet-300"
+                        className={`text-scale-xs font-weight-semibold text-accent transition-colors hover:text-accent-strong ${FOCUS_RING}`}
                       >
                         {isExpanded ? 'Hide raw metadata' : 'Show raw metadata'}
                       </button>
-                      {isExpanded && (
-                        <pre className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200">
-                          {serializeMetadata(event.metadata ?? {})}
-                        </pre>
-                      )}
+                      {isExpanded ? (
+                        <pre className={RAW_METADATA_SURFACE}>{serializeMetadata(event.metadata ?? {})}</pre>
+                      ) : null}
                     </div>
                   </li>
                 );
@@ -337,7 +331,7 @@ export function DatasetAuditTimeline({
                 type="button"
                 onClick={onLoadMore}
                 disabled={loadMoreLoading}
-                className="rounded-full border border-slate-300/70 px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:text-slate-300"
+                className={SECONDARY_BUTTON_COMPACT}
               >
                 {loadMoreLoading ? 'Loading…' : 'Load more'}
               </button>

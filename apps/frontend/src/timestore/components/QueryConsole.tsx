@@ -5,6 +5,24 @@ import { runDatasetQuery } from '../api';
 import type { DatasetSchemaField, QueryResponse } from '../types';
 import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
 import { formatInstant } from '../utils';
+import {
+  BADGE_PILL,
+  BADGE_PILL_ACCENT,
+  BADGE_PILL_MUTED,
+  CARD_SURFACE,
+  CARD_SURFACE_SOFT,
+  CHECKBOX_INPUT,
+  FIELD_GROUP,
+  FIELD_LABEL,
+  FOCUS_RING,
+  INPUT,
+  PANEL_SURFACE_LARGE,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+  STATUS_BANNER_DANGER,
+  STATUS_MESSAGE,
+  STATUS_META
+} from '../timestoreTokens';
 
 const PRESETS = [
   { id: '1h', label: 'Last 1 hour', ms: 60 * 60 * 1000 },
@@ -20,6 +38,12 @@ type AggregationFn = (typeof AGGREGATION_FUNCS)[number];
 
 const DEFAULT_LIMIT = '500';
 const DEFAULT_PERCENTILE = '0.95';
+
+const PANEL_SHADOW = 'shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)]';
+const FIELD_TYPE_HELPER = 'text-scale-2xs uppercase tracking-[0.2em] text-muted';
+const TABLE_CONTAINER = 'overflow-auto rounded-2xl border border-subtle bg-surface-glass-soft';
+const TABLE_CLASSES = 'min-w-full divide-y divide-subtle text-scale-sm text-secondary';
+const TABLE_HEAD_CELL = 'bg-surface-muted text-scale-2xs font-weight-semibold uppercase tracking-[0.2em] text-muted';
 
 type AggregationRow = {
   id: string;
@@ -354,13 +378,13 @@ export function QueryConsole({
   const rowsToRender = result ? result.response.rows.slice(0, 200) : [];
 
   return (
-    <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <div className={`${PANEL_SURFACE_LARGE} ${PANEL_SHADOW}`}>
       <header className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">Query</span>
-      <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">Ad-hoc query console</h4>
-    </div>
-  </header>
+          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-accent">Query</span>
+          <h4 className="text-scale-base font-weight-semibold text-primary">Ad-hoc query console</h4>
+        </div>
+      </header>
   <form data-testid="query-console-form" className="mt-4 space-y-4" onSubmit={handleRunQuery}>
     <datalist id={columnDatalistId}>
       {schemaFields.map((field) => (
@@ -368,184 +392,177 @@ export function QueryConsole({
       ))}
     </datalist>
     <div className="grid gap-4 md:grid-cols-2">
-      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Time range</span>
+      <label className={FIELD_GROUP}>
+        <span className={FIELD_LABEL}>Time range</span>
         <select
-              value={presetId}
-              onChange={(event) => setPresetId(event.target.value as typeof presetId)}
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-            >
-              {PRESETS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
+          value={presetId}
+          onChange={(event) => setPresetId(event.target.value as typeof presetId)}
+          className={INPUT}
+        >
+          {PRESETS.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
               ))}
             </select>
           </label>
           {presetId === 'custom' && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Start</span>
+              <label className={FIELD_GROUP}>
+                <span className={FIELD_LABEL}>Start</span>
                 <input
                   type="datetime-local"
                   value={customStart}
                   onChange={(event) => setCustomStart(event.target.value)}
-                  className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                  className={INPUT}
                 />
               </label>
-              <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">End</span>
+              <label className={FIELD_GROUP}>
+                <span className={FIELD_LABEL}>End</span>
                 <input
                   type="datetime-local"
                   value={customEnd}
                   onChange={(event) => setCustomEnd(event.target.value)}
-                  className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                  className={INPUT}
                 />
               </label>
             </div>
           )}
         </div>
         <div className="grid gap-4 md:grid-cols-2">
-      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Timestamp column</span>
-        <input
-          type="text"
-          value={timestampColumn}
-          onChange={(event) => setTimestampColumn(event.target.value)}
-          list={columnDatalistId}
-          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-        />
-      </label>
-      <div className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
-        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Columns</span>
-        {schemaFields.length > 0 ? (
-          <>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Timestamp column</span>
             <input
               type="text"
-              value={columnSearch}
-              onChange={(event) => setColumnSearch(event.target.value)}
-              placeholder="Filter columns"
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              value={timestampColumn}
+              onChange={(event) => setTimestampColumn(event.target.value)}
+              list={columnDatalistId}
+              className={INPUT}
             />
-            <div className="flex max-h-40 flex-wrap gap-2 overflow-auto rounded-2xl border border-slate-200/70 bg-white/60 p-3 dark:border-slate-700/60 dark:bg-slate-900/40">
-              {filteredSchemaFields.length === 0 ? (
-                <span className="text-xs text-slate-500 dark:text-slate-400">No columns match your filter.</span>
+          </label>
+          <div className="flex flex-col gap-2 text-scale-sm text-secondary">
+            <span className={FIELD_LABEL}>Columns</span>
+            {schemaFields.length > 0 ? (
+              <>
+                <input
+                  type="text"
+                  value={columnSearch}
+                  onChange={(event) => setColumnSearch(event.target.value)}
+                  placeholder="Filter columns"
+                  className={INPUT}
+                />
+                <div className={`${CARD_SURFACE_SOFT} flex max-h-40 flex-wrap gap-2 overflow-auto`}> 
+                  {filteredSchemaFields.length === 0 ? (
+                    <span className={`text-scale-xs text-muted`}>No columns match your filter.</span>
+                  ) : (
+                    filteredSchemaFields.map((field) => {
+                      const checked = selectedColumns.includes(field.name);
+                      return (
+                        <label
+                          key={field.name}
+                          className={`${checked ? BADGE_PILL_ACCENT : BADGE_PILL_MUTED} cursor-pointer gap-2 transition-colors`}
+                        >
+                          <input
+                            type="checkbox"
+                            className={CHECKBOX_INPUT}
+                            checked={checked}
+                            onChange={() => handleToggleColumn(field.name)}
+                          />
+                          <span className="text-scale-xs font-weight-semibold text-primary">{field.name}</span>
+                          <span className={FIELD_TYPE_HELPER}>{field.type}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className={STATUS_MESSAGE}>
+                Schema metadata unavailable. Add columns manually below or leave empty to select all.
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedColumns.length === 0 ? (
+                <span className={STATUS_META}>All columns will be returned.</span>
               ) : (
-                filteredSchemaFields.map((field) => {
-                  const checked = selectedColumns.includes(field.name);
-                  return (
-                    <label
-                      key={field.name}
-                      className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors ${
-                        checked
-                          ? 'border-violet-500 bg-violet-500/10 text-violet-700 dark:border-violet-400 dark:text-violet-200'
-                          : 'border-slate-300/60 text-slate-600 dark:border-slate-700 dark:text-slate-300'
-                      }`}
+                selectedColumns.map((column) => (
+                  <span key={column} className={`${BADGE_PILL} gap-2`}>
+                    {column}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveColumn(column)}
+                      className="text-muted transition-colors hover:text-status-danger"
+                      aria-label={`Remove column ${column}`}
                     >
-                      <input
-                        type="checkbox"
-                        className="h-3 w-3 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-                        checked={checked}
-                        onChange={() => handleToggleColumn(field.name)}
-                      />
-                      <span>{field.name}</span>
-                      <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">{field.type}</span>
-                    </label>
-                  );
-                })
+                      ×
+                    </button>
+                  </span>
+                ))
               )}
             </div>
-          </>
-        ) : (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Schema metadata unavailable. Add columns manually below or leave empty to select all.
-          </p>
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          {selectedColumns.length === 0 ? (
-            <span className="text-xs text-slate-500 dark:text-slate-400">All columns will be returned.</span>
-          ) : (
-            selectedColumns.map((column) => (
-              <span
-                key={column}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-300/60 bg-white/70 px-3 py-1 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="text"
+                value={customColumnInput}
+                onChange={(event) => setCustomColumnInput(event.target.value)}
+                onKeyDown={handleCustomColumnKeyDown}
+                placeholder="Add column"
+                list={columnDatalistId}
+                className={`${INPUT} flex-1 min-w-[160px]`}
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomColumn}
+                className={SECONDARY_BUTTON_COMPACT}
               >
-                {column}
-                <button
-                  type="button"
-                  onClick={() => handleRemoveColumn(column)}
-                  className="text-slate-400 transition-colors hover:text-rose-500"
-                  aria-label={`Remove column ${column}`}
-                >
-                  ×
-                </button>
-              </span>
-            ))
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            type="text"
-            value={customColumnInput}
-            onChange={(event) => setCustomColumnInput(event.target.value)}
-            onKeyDown={handleCustomColumnKeyDown}
-            placeholder="Add column"
-            list={columnDatalistId}
-            className="flex-1 rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-          />
-          <button
-            type="button"
-            onClick={handleAddCustomColumn}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
-          >
-            Add
-          </button>
-          <button
-            type="button"
-            onClick={handleClearColumns}
-            disabled={selectedColumns.length === 0}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors enabled:hover:bg-slate-200/60 disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Row limit</span>
-        <input
-          type="number"
-          min={1}
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={handleClearColumns}
+                disabled={selectedColumns.length === 0}
+                className={SECONDARY_BUTTON_COMPACT}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Row limit</span>
+            <input
+              type="number"
+              min={1}
               max={10000}
               value={limitInput}
               onChange={(event) => setLimitInput(event.target.value)}
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={INPUT}
             />
           </label>
         </div>
-        <div className="space-y-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 dark:border-slate-700/60 dark:bg-slate-800/60">
-          <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+        <div className={`${CARD_SURFACE_SOFT} space-y-3`}>
+          <label className="inline-flex items-center gap-2 text-scale-sm text-secondary">
             <input
               type="checkbox"
               checked={downsampleEnabled}
               onChange={(event) => setDownsampleEnabled(event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+              className={CHECKBOX_INPUT}
             />
             Enable downsampling
           </label>
-        {downsampleEnabled && (
+          {downsampleEnabled && (
             <div className="space-y-3">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="number"
                   min={1}
                   value={intervalSize}
                   onChange={(event) => setIntervalSize(event.target.value)}
-                  className="w-20 rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                  className={`${INPUT} w-24`}
                 />
                 <select
                   value={intervalUnit}
                   onChange={(event) => setIntervalUnit(event.target.value as typeof intervalUnit)}
-                  className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                  className={INPUT}
                 >
                   <option value="minute">Minutes</option>
                   <option value="hour">Hours</option>
@@ -559,14 +576,14 @@ export function QueryConsole({
                   return (
                     <div
                       key={row.id}
-                      className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-700/60 dark:bg-slate-900/50 md:flex-row md:items-end"
+                      className={`${CARD_SURFACE} flex flex-col gap-3 md:flex-row md:items-end`}
                     >
-                      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Aggregation</span>
+                      <label className={FIELD_GROUP}>
+                        <span className={FIELD_LABEL}>Aggregation</span>
                         <select
                           value={row.fn}
                           onChange={(event) => handleAggregationUpdate(row.id, { fn: event.target.value as AggregationFn })}
-                          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                          className={INPUT}
                         >
                           {AGGREGATION_FUNCS.map((fn) => (
                             <option key={fn} value={fn}>
@@ -575,35 +592,31 @@ export function QueryConsole({
                           ))}
                         </select>
                       </label>
-                      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Column</span>
+                      <label className={FIELD_GROUP}>
+                        <span className={FIELD_LABEL}>Column</span>
                         <input
                           type="text"
                           value={row.column}
                           onChange={(event) => handleAggregationUpdate(row.id, { column: event.target.value })}
                           list={columnDatalistId}
                           placeholder="Column name"
-                          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                          className={INPUT}
                         />
-                        {field && (
-                          <span className="text-[10px] uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500">
-                            {field.type}
-                          </span>
-                        )}
+                        {field ? <span className={FIELD_TYPE_HELPER}>{field.type}</span> : null}
                       </label>
-                      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Alias</span>
+                      <label className={FIELD_GROUP}>
+                        <span className={FIELD_LABEL}>Alias</span>
                         <input
                           type="text"
                           value={row.alias}
                           onChange={(event) => handleAggregationUpdate(row.id, { alias: event.target.value })}
                           placeholder="Optional"
-                          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                          className={INPUT}
                         />
                       </label>
                       {row.fn === 'percentile' && (
-                        <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Percentile</span>
+                        <label className={FIELD_GROUP}>
+                          <span className={FIELD_LABEL}>Percentile</span>
                           <input
                             type="number"
                             min={0.01}
@@ -611,7 +624,7 @@ export function QueryConsole({
                             step="0.01"
                             value={row.percentile}
                             onChange={(event) => handleAggregationUpdate(row.id, { percentile: event.target.value })}
-                            className="w-28 rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                            className={`${INPUT} w-32`}
                           />
                         </label>
                       )}
@@ -619,7 +632,7 @@ export function QueryConsole({
                         <button
                           type="button"
                           onClick={() => handleRemoveAggregation(row.id)}
-                          className="self-start rounded-full border border-rose-200/80 px-3 py-1 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 dark:border-rose-900/40 dark:text-rose-300 dark:hover:bg-rose-900/30"
+                          className={`self-start rounded-full border border-status-danger px-3 py-1 text-scale-xs font-weight-semibold text-status-danger transition-colors hover:bg-status-danger-soft ${FOCUS_RING}`}
                         >
                           Remove
                         </button>
@@ -631,7 +644,7 @@ export function QueryConsole({
                 <button
                   type="button"
                   onClick={handleAddAggregation}
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                  className={`${SECONDARY_BUTTON_COMPACT} inline-flex items-center gap-2`}
                 >
                   + Add aggregation
                 </button>
@@ -639,51 +652,43 @@ export function QueryConsole({
             </div>
           )}
         </div>
-        <button
-          type="submit"
-          disabled={queryLoading}
-          className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
-        >
+        <button type="submit" disabled={queryLoading} className={PRIMARY_BUTTON}>
           Run query
         </button>
       </form>
 
       {queryError && (
-        <p
-          role="alert"
-          data-testid="query-console-error"
-          className="mt-4 text-sm text-rose-600 dark:text-rose-300"
-        >
+        <div role="alert" data-testid="query-console-error" className={`mt-4 ${STATUS_BANNER_DANGER}`}>
           {queryError}
-        </p>
+        </div>
       )}
 
-      {queryLoading && <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">Running query…</p>}
+      {queryLoading && <p className={`mt-4 ${STATUS_MESSAGE}`}>Running query…</p>}
 
       {result && (
         <section className="mt-6 space-y-4">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <div className={`flex items-center justify-between ${STATUS_META}`}>
             <span>
               Returned {result.response.rows.length} rows ({result.response.mode})
             </span>
             <span>Requested {formatInstant(result.requestedAt)}</span>
           </div>
-          <div className="overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-700/60">
-            <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
-              <thead className="bg-slate-100/80 text-xs uppercase tracking-[0.2em] text-slate-500 dark:bg-slate-800/70 dark:text-slate-300">
+          <div className={TABLE_CONTAINER}>
+            <table className={TABLE_CLASSES}>
+              <thead className="bg-surface-muted">
                 <tr>
                   {result.response.columns.map((column) => (
-                    <th key={column} className="px-4 py-2 text-left font-semibold">
+                    <th key={column} className={`px-4 py-2 text-left ${TABLE_HEAD_CELL}`}>
                       {column}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-subtle">
                 {rowsToRender.map((row, rowIndex) => (
-                  <tr key={rowIndex} className="odd:bg-white even:bg-slate-50/80 dark:odd:bg-slate-900/70 dark:even:bg-slate-800/70">
+                  <tr key={rowIndex}>
                     {result.response.columns.map((column) => (
-                      <td key={`${rowIndex}-${column}`} className="px-4 py-2 text-slate-700 dark:text-slate-200">
+                      <td key={`${rowIndex}-${column}`} className="px-4 py-2 text-secondary">
                         {renderCellValue(row[column])}
                       </td>
                     ))}
@@ -692,13 +697,15 @@ export function QueryConsole({
               </tbody>
             </table>
             {result.response.rows.length > rowsToRender.length && (
-              <div className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">
+              <div className={`px-4 py-2 ${STATUS_META}`}>
                 Showing first {rowsToRender.length} rows.
               </div>
             )}
           </div>
-          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
-            <h5 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Response JSON</h5>
+          <div className={CARD_SURFACE_SOFT}>
+            <h5 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
+              Response JSON
+            </h5>
             <div className="mt-2 overflow-x-auto">
               <JsonSyntaxHighlighter value={result.response} />
             </div>

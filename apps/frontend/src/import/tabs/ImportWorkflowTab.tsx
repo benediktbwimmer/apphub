@@ -19,9 +19,19 @@ import {
 import type { WorkflowDefinition } from '../../workflows/types';
 import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
 import type { WorkflowScenario } from '../examples';
+import {
+  BODY_TEXT,
+  CARD_SECTION,
+  CARD_SURFACE_ACTIVE,
+  LINK_ACCENT,
+  POSITIVE_SURFACE,
+  SECTION_LABEL,
+  SECONDARY_BUTTON,
+  STATUS_META,
+  TEXTAREA
+} from '../importTokens';
 
-const INPUT_CLASSES =
-  'min-h-[320px] w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 font-mono text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-300 dark:focus:ring-slate-600/30';
+const JSON_TEXTAREA = `${TEXTAREA} min-h-[320px] font-mono`;
 
 const WORKFLOW_DOC_URL = 'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#workflows';
 
@@ -263,25 +273,19 @@ export default function ImportWorkflowTab({
   return (
     <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
       {scenario ? (
-        <div className="rounded-2xl border border-violet-300/70 bg-violet-50/70 p-4 text-sm text-slate-700 shadow-sm dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-slate-200">
+        <div className={`${CARD_SECTION} ${CARD_SURFACE_ACTIVE} gap-2`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-[0.35em] text-violet-600 dark:text-violet-300">
-                Example scenario active
-              </span>
+            <div className={`flex flex-col gap-1 ${BODY_TEXT}`}>
+              <span className={SECTION_LABEL}>Example scenario active</span>
               <p>
                 Workflow payload sourced from <strong>{scenario.title}</strong>. Review the JSON, adjust parameters, and validate dependencies before importing.
               </p>
             </div>
-            {onScenarioCleared && (
-              <button
-                type="button"
-                className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm transition hover:bg-violet-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-slate-800"
-                onClick={onScenarioCleared}
-              >
+            {onScenarioCleared ? (
+              <button type="button" className={SECONDARY_BUTTON} onClick={onScenarioCleared}>
                 Reset
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -292,12 +296,18 @@ export default function ImportWorkflowTab({
         <FormField
           label="Workflow definition (JSON)"
           hint={
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Use <a className="font-semibold text-violet-600 hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200" href={WORKFLOW_DOC_URL} target="_blank" rel="noreferrer">the workflow guide</a> for field reference.
+            <span className={STATUS_META}>
+              Use
+              {' '}
+              <a className={LINK_ACCENT} href={WORKFLOW_DOC_URL} target="_blank" rel="noreferrer">
+                the workflow guide
+              </a>
+              {' '}
+              for field reference.
             </span>
           }
         >
-          <textarea value={inputText} onChange={handleInputChange} className={INPUT_CLASSES} spellCheck={false} />
+          <textarea value={inputText} onChange={handleInputChange} className={JSON_TEXTAREA} spellCheck={false} />
         </FormField>
 
         {parseError ? (
@@ -322,9 +332,9 @@ export default function ImportWorkflowTab({
             <div className="flex flex-col gap-2">
               <span>{dependencyStatus.message}</span>
               {dependencyStatus.missing.length > 0 ? (
-                <ul className="list-disc space-y-1 pl-5">
+                <ul className={`list-disc space-y-1 pl-5 ${BODY_TEXT}`}>
                   {dependencyStatus.missing.map((slug) => (
-                    <li key={slug} className="text-sm">{slug}</li>
+                    <li key={slug}>{slug}</li>
                   ))}
                 </ul>
               ) : null}
@@ -353,44 +363,40 @@ export default function ImportWorkflowTab({
         </FormActions>
       </FormSection>
 
-      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/70 p-4 text-sm shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-500 dark:text-slate-400">
-            Workflow preview
-          </span>
+      <div className={`${CARD_SECTION} gap-4 text-scale-sm`}>
+        <div className="flex flex-col gap-2">
+          <span className={SECTION_LABEL}>Workflow preview</span>
           {workflowSummary ? (
-            <ul className="text-sm text-slate-600 dark:text-slate-300">
+            <ul className={`space-y-1 ${BODY_TEXT}`}>
               <li>
-                <strong className="font-semibold text-slate-700 dark:text-slate-100">Slug:</strong> {workflowSummary.slug}
+                <strong className="font-weight-semibold text-primary">Slug:</strong> {workflowSummary.slug}
               </li>
               <li>
-                <strong className="font-semibold text-slate-700 dark:text-slate-100">Name:</strong> {workflowSummary.name}
+                <strong className="font-weight-semibold text-primary">Name:</strong> {workflowSummary.name}
               </li>
               <li>
-                <strong className="font-semibold text-slate-700 dark:text-slate-100">Version:</strong> {workflowSummary.version}
+                <strong className="font-weight-semibold text-primary">Version:</strong> {workflowSummary.version}
               </li>
               <li>
-                <strong className="font-semibold text-slate-700 dark:text-slate-100">Steps:</strong> {workflowSummary.stepCount}
+                <strong className="font-weight-semibold text-primary">Steps:</strong> {workflowSummary.stepCount}
               </li>
               <li>
-                <strong className="font-semibold text-slate-700 dark:text-slate-100">Triggers:</strong> {workflowSummary.triggerCount}
+                <strong className="font-weight-semibold text-primary">Triggers:</strong> {workflowSummary.triggerCount}
               </li>
               <li>
-                <strong className="font-semibold text-slate-700 dark:text-slate-100">Job dependencies:</strong>{' '}
+                <strong className="font-weight-semibold text-primary">Job dependencies:</strong>{' '}
                 {requiredJobSlugs.length > 0 ? requiredJobSlugs.join(', ') : 'None'}
               </li>
             </ul>
           ) : (
-            <p className="text-sm text-slate-500 dark:text-slate-400">Paste a workflow JSON payload to see a preview.</p>
+            <p className={BODY_TEXT}>Paste a workflow JSON payload to see a preview.</p>
           )}
         </div>
 
         {importResult ? (
-          <div className="flex flex-col gap-3 rounded-2xl border border-emerald-400/70 bg-emerald-50/80 p-3 text-sm dark:border-emerald-400/60 dark:bg-emerald-500/15 dark:text-emerald-100">
-            <span className="text-xs font-semibold uppercase tracking-[0.35em] text-emerald-600 dark:text-emerald-200">
-              Workflow created
-            </span>
-            <ul className="flex flex-col gap-1 text-emerald-700 dark:text-emerald-100">
+          <div className={POSITIVE_SURFACE}>
+            <span className={SECTION_LABEL}>Workflow created</span>
+            <ul className="flex flex-col gap-1 text-scale-sm">
               <li>
                 <strong>Slug:</strong> {importResult.slug}
               </li>

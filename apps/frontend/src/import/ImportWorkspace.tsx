@@ -15,6 +15,29 @@ import {
   type ImportWizardStep,
   useImportWizardController
 } from './useImportWizardController';
+import {
+  ALERT_DANGER,
+  CARD_CONDENSED,
+  CARD_SECTION,
+  COUNTER_BADGE,
+  COUNTER_VALUE_BADGE,
+  DESTRUCTIVE_BUTTON,
+  PANEL_SURFACE,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON_LARGE,
+  SECTION_LABEL,
+  HEADING_PRIMARY,
+  HEADING_SECONDARY,
+  STATUS_BADGE_DANGER,
+  STATUS_BADGE_INFO,
+  STATUS_BADGE_NEUTRAL,
+  STATUS_BADGE_SUCCESS,
+  STEP_CARD_ACTIVE,
+  STEP_CARD_BASE,
+  STEP_CARD_COMPLETE,
+  STEP_CARD_PENDING,
+  SUBTEXT
+} from './importTokens';
 
 export type ImportWorkspaceProps = {
   onAppRegistered?: (id: string) => void;
@@ -245,17 +268,17 @@ export default function ImportWorkspace({
     return BUNDLE_STAGE_LABELS[status.stage] ?? 'In progress';
   }, []);
 
-  const bundleStatusTone = useCallback((status: ExampleBundleStatus | null) => {
+  const bundleStatusClass = useCallback((status: ExampleBundleStatus | null) => {
     if (!status) {
-      return 'bg-slate-200/80 text-slate-600 dark:bg-slate-700/60 dark:text-slate-200';
+      return STATUS_BADGE_NEUTRAL;
     }
     if (status.state === 'failed') {
-      return 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200';
+      return STATUS_BADGE_DANGER;
     }
     if (status.state === 'completed') {
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200';
+      return STATUS_BADGE_SUCCESS;
     }
-    return 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-200';
+    return STATUS_BADGE_INFO;
   }, []);
 
   const isBundleRunning = useCallback((status: ExampleBundleStatus | null) => {
@@ -389,20 +412,18 @@ export default function ImportWorkspace({
       <div className="flex flex-col gap-8">
         <header className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.35em] text-violet-500 dark:text-violet-300">
-              Import wizard
-            </span>
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+            <span className={SECTION_LABEL}>Import wizard</span>
+            <h1 className={HEADING_PRIMARY}>
               Bring services, apps, jobs, and workflows online in sequence
             </h1>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
+            <p className={SUBTEXT}>
               Move through each stage, resolve example dependencies automatically, and validate imports before operators rely on them.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-900/20 transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100/90 dark:text-slate-900 dark:hover:bg-slate-200"
+              className={PRIMARY_BUTTON}
               onClick={handleOpenPicker}
               disabled={coreLoading || scenarios.length === 0}
             >
@@ -410,33 +431,29 @@ export default function ImportWorkspace({
             </button>
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-400/60 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-violet-400 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:border-violet-300 dark:hover:text-violet-200"
+              className={SECONDARY_BUTTON_LARGE}
               onClick={handleLoadAllExamples}
               disabled={coreLoading || !hasLoadAllScenario}
             >
               Load all examples
             </button>
             {coreLoading ? (
-              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Loading examples…
-              </span>
+              <span className={SUBTEXT}>Loading examples…</span>
             ) : coreError ? (
-              <span className="text-xs font-medium text-rose-500 dark:text-rose-400">
-                Examples unavailable
-              </span>
+              <span className="text-scale-xs font-weight-semibold text-status-danger">Examples unavailable</span>
             ) : null}
-            <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
+            <div className={COUNTER_BADGE}>
               <span>Loaded</span>
-              <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200">
+              <span className={COUNTER_VALUE_BADGE}>
                 Services {loadedScenarioCounts.services}
               </span>
-              <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200">
+              <span className={COUNTER_VALUE_BADGE}>
                 Apps {loadedScenarioCounts.apps}
               </span>
-              <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200">
+              <span className={COUNTER_VALUE_BADGE}>
                 Jobs {loadedScenarioCounts.jobs}
               </span>
-              <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200">
+              <span className={COUNTER_VALUE_BADGE}>
                 Workflows {loadedScenarioCounts.workflows}
               </span>
             </div>
@@ -444,17 +461,15 @@ export default function ImportWorkspace({
         </header>
 
         {autoImportState.status === 'running' ? (
-          <div className="flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-white/70 p-3 text-sm shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60">
-            <span className="inline-flex h-4 w-4 animate-spin rounded-full border-[3px] border-violet-500 border-t-transparent" />
-            <span className="text-slate-600 dark:text-slate-300">
-              {autoImportState.step ?? 'Importing selected examples…'}
-            </span>
+          <div className={CARD_CONDENSED}>
+            <span className="inline-flex h-4 w-4 animate-spin rounded-full border-[3px] border-accent border-t-transparent" />
+            <span>{autoImportState.step ?? 'Importing selected examples…'}</span>
           </div>
         ) : null}
 
         {autoImportState.status === 'error' && autoImportState.errors.length > 0 ? (
-          <div className="flex flex-col gap-2 rounded-2xl border border-rose-300/70 bg-rose-50/80 p-3 text-sm shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-50">
-            <span className="text-xs font-semibold uppercase tracking-[0.3em]">Example import issues</span>
+          <div className={ALERT_DANGER}>
+            <span className={SECTION_LABEL}>Example import issues</span>
             <ul className="list-disc space-y-1 pl-5">
               {autoImportState.errors.map((error) => (
                 <li key={error}>{error}</li>
@@ -468,30 +483,25 @@ export default function ImportWorkspace({
             <ol className="flex flex-col gap-3">
               {stepStatuses.map(({ step, status }, index) => {
                 const { isCurrent, isComplete } = status;
-                const baseClasses =
-                  'flex w-full items-start justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500';
                 const stateClasses = isCurrent
-                  ? 'border-violet-500 bg-violet-50/90 text-violet-700 shadow-sm shadow-violet-500/20 dark:border-violet-400/60 dark:bg-violet-500/10 dark:text-violet-100'
+                  ? STEP_CARD_ACTIVE
                   : isComplete
-                    ? 'border-emerald-400/60 bg-emerald-50/80 text-emerald-700 hover:border-emerald-500 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-100'
-                    : 'border-slate-200/70 bg-white/70 text-slate-600 hover:border-violet-300 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200';
+                    ? STEP_CARD_COMPLETE
+                    : STEP_CARD_PENDING;
+                const badgeClass = stepCounts[step] > 0 ? STATUS_BADGE_SUCCESS : STATUS_BADGE_NEUTRAL;
                 return (
                   <li key={step}>
                     <button
                       type="button"
-                      className={`${baseClasses} ${stateClasses}`}
+                      className={`${STEP_CARD_BASE} ${stateClasses}`}
                       onClick={() => setActiveStep(step)}
                     >
                       <div className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                          Step {index + 1}
-                        </span>
-                        <span className="text-sm font-semibold">{STEP_LABELS[step]}</span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400">{STEP_HELP_TEXT[step]}</span>
+                        <span className={SECTION_LABEL}>Step {index + 1}</span>
+                        <span className={HEADING_SECONDARY}>{STEP_LABELS[step]}</span>
+                        <span className={SUBTEXT}>{STEP_HELP_TEXT[step]}</span>
                       </div>
-                      <span className="rounded-full border border-slate-200/70 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:border-slate-600 dark:text-slate-300">
-                        {stepCounts[step]} loaded
-                      </span>
+                      <span className={badgeClass}>{stepCounts[step]} loaded</span>
                     </button>
                   </li>
                 );
@@ -499,33 +509,25 @@ export default function ImportWorkspace({
             </ol>
           </aside>
 
-          <section className="flex flex-col gap-6 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+          <section className={`${PANEL_SURFACE} flex flex-col gap-6`}>
             {hasDependencies ? (
-              <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+              <div className={`${CARD_SECTION} gap-3`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                      Dependencies
-                    </span>
-                    <span className="text-xs text-slate-600 dark:text-slate-300">
-                      {STEP_LABELS[activeStep]} requires these resources to complete.
-                    </span>
+                    <span className={SECTION_LABEL}>Dependencies</span>
+                    <span className={SUBTEXT}>{STEP_LABELS[activeStep]} requires these resources to complete.</span>
                   </div>
                   {bundleStatusLoading ? (
-                    <span className="text-xs text-slate-500 dark:text-slate-400">Refreshing status…</span>
+                    <span className={SUBTEXT}>Refreshing status…</span>
                   ) : null}
                 </div>
                 {bundleStatusError ? (
-                  <p className="rounded-xl border border-rose-300/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-                    {bundleStatusError}
-                  </p>
+                  <p className={ALERT_DANGER}>{bundleStatusError}</p>
                 ) : null}
                 <div className="flex flex-col gap-3">
                   {dependencyEntries.map(({ step, scenarios }) => (
                     <div key={step} className="flex flex-col gap-2">
-                      <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                        {STEP_LABELS[step]}
-                      </span>
+                      <span className={SECTION_LABEL}>{STEP_LABELS[step]}</span>
                       <ul className="flex flex-col gap-2">
                         {scenarios.map((scenario) => {
                           const loaded = isScenarioEnqueued(step, scenario.id);
@@ -536,23 +538,19 @@ export default function ImportWorkspace({
                           const awaitingPackaging =
                             step === 'jobs' && scenario.type === 'job' && scenario.exampleSlug && !bundleStatus;
                           const retrySlug = scenario.type === 'job' ? scenario.exampleSlug ?? null : null;
+                          const badgeClass = step === 'jobs'
+                            ? bundleStatusClass(bundleStatus)
+                            : loaded
+                              ? STATUS_BADGE_SUCCESS
+                              : STATUS_BADGE_NEUTRAL;
                           return (
-                            <li
-                              key={scenario.id}
-                              className="flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/60"
-                            >
+                            <li key={scenario.id} className={`${CARD_SECTION} gap-2`}>
                               <div className="flex items-start justify-between gap-3">
                                 <div className="flex flex-col">
-                                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                    {scenario.title}
-                                  </span>
-                                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                                    {scenario.summary}
-                                  </span>
+                                  <span className={HEADING_SECONDARY}>{scenario.title}</span>
+                                  <span className={SUBTEXT}>{scenario.summary}</span>
                                 </div>
-                                <span
-                                  className={"inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold " + (step === 'jobs' ? bundleStatusTone(bundleStatus) : loaded ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200' : 'bg-slate-200/80 text-slate-600 dark:bg-slate-700/60 dark:text-slate-200')}
-                                >
+                                <span className={badgeClass}>
                                   {step === 'jobs'
                                     ? bundleStatusLabel(bundleStatus)
                                     : loaded
@@ -563,21 +561,20 @@ export default function ImportWorkspace({
                                   ) : null}
                                 </span>
                               </div>
-                              {bundleStatus?.message ? (
-                                <p className="text-xs text-slate-500 dark:text-slate-300">{bundleStatus.message}</p>
-                              ) : awaitingPackaging ? (
-                                <p className="text-xs text-slate-500 dark:text-slate-300">
+                              {bundleStatus?.message ? <p className={SUBTEXT}>{bundleStatus.message}</p> : null}
+                              {awaitingPackaging ? (
+                                <p className={SUBTEXT}>
                                   Packaging will start automatically when the queue picks up this example.
                                 </p>
                               ) : null}
                               {bundleStatus?.error ? (
-                                <p className="text-xs text-rose-600 dark:text-rose-300">{bundleStatus.error}</p>
+                                <p className="text-scale-xs text-status-danger">{bundleStatus.error}</p>
                               ) : null}
                               {retrySlug && bundleStatus?.state === 'failed' ? (
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
-                                    className="inline-flex items-center gap-2 rounded-full border border-rose-400/60 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:border-rose-500 hover:text-rose-700 dark:border-rose-500/40 dark:text-rose-200 dark:hover:border-rose-400"
+                                    className={DESTRUCTIVE_BUTTON}
                                     onClick={() => handleRetryExampleBundle(retrySlug, scenario.title)}
                                     disabled={retryingSlug === retrySlug}
                                   >
@@ -595,22 +592,22 @@ export default function ImportWorkspace({
               </div>
             ) : null}
             {stepContent}
-            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/70 pt-4 dark:border-slate-700/70">
+            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-subtle pt-4">
               <button
                 type="button"
-                className="inline-flex items-center gap-2 rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-700 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:text-slate-100"
+                className={SECONDARY_BUTTON_LARGE}
                 onClick={() => previousStep && setActiveStep(previousStep)}
                 disabled={!previousStep}
               >
                 Back
               </button>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 dark:text-slate-400">
+                <span className={SUBTEXT}>
                   Stage {currentIndex + 1} of {STEP_ORDER.length}
                 </span>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-violet-500/20 transition hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none dark:bg-violet-500 dark:text-slate-50 dark:hover:bg-violet-400 dark:disabled:bg-slate-700 dark:disabled:text-slate-500"
+                  className={PRIMARY_BUTTON}
                   onClick={() => nextStep && setActiveStep(nextStep)}
                   disabled={!nextStep}
                 >

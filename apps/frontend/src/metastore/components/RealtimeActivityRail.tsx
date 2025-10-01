@@ -101,10 +101,15 @@ export function RealtimeActivityRail({ namespace, enabled }: RealtimeActivityRai
     [events, namespace]
   );
 
+  const previousNamespaceRef = useRef(namespace);
+
   useEffect(() => {
-    setPaused(false);
-    setDisplayed(relevantEvents);
-  }, [namespace]);
+    if (previousNamespaceRef.current !== namespace) {
+      previousNamespaceRef.current = namespace;
+      setPaused(false);
+      setDisplayed(events.filter((event) => event.payload.namespace === namespace));
+    }
+  }, [events, namespace]);
 
   useEffect(() => {
     if (!paused) {

@@ -11,44 +11,43 @@ import { useToasts } from '../../components/toast';
 import { type AppRecord, type IngestionEvent, useImportApp } from '../useImportApp';
 import type { AppScenario } from '../examples';
 import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
+import {
+  BODY_TEXT,
+  CARD_SURFACE_ACTIVE,
+  CARD_SECTION,
+  HEADING_SECONDARY,
+  INPUT,
+  LINK_ACCENT,
+  SECONDARY_BUTTON,
+  SEGMENTED_BUTTON_ACTIVE,
+  SEGMENTED_BUTTON_BASE,
+  SEGMENTED_BUTTON_INACTIVE,
+  STATUS_BADGE_DANGER,
+  STATUS_BADGE_INFO,
+  STATUS_BADGE_NEUTRAL,
+  STATUS_BADGE_SUCCESS,
+  STATUS_BADGE_WARNING,
+  STATUS_MESSAGE,
+  STATUS_META,
+  TAG_BADGE,
+  TAG_BADGE_STRONG,
+  TEXTAREA
+} from '../importTokens';
 
-const INPUT_CLASSES =
-  'rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30';
+const segmentedButtonClass = (active: boolean) =>
+  `${SEGMENTED_BUTTON_BASE} ${active ? SEGMENTED_BUTTON_ACTIVE : SEGMENTED_BUTTON_INACTIVE}`;
 
-const TEXTAREA_CLASSES = `${INPUT_CLASSES} min-h-[120px] resize-y`;
-
-const TOGGLE_BUTTON_BASE =
-  'inline-flex flex-1 items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500';
-
-const TOGGLE_BUTTON_ACTIVE = `${TOGGLE_BUTTON_BASE} bg-violet-600 text-white shadow-lg shadow-violet-500/30 dark:bg-slate-200/20 dark:text-slate-50`;
-
-const TOGGLE_BUTTON_INACTIVE = `${TOGGLE_BUTTON_BASE} bg-white/70 text-slate-600 hover:bg-violet-500/10 hover:text-violet-700 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
-
-const TAG_BUTTON_CLASSES = 'mt-2 inline-flex flex-wrap gap-2';
-
-const HISTORY_CONTAINER_CLASSES =
-  'flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/70 p-4 text-sm shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60';
-
-const STATUS_BADGE_BASE =
-  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em]';
-
-const STATUS_VARIANTS: Record<string, string> = {
-  ready:
-    'border-emerald-400/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-200',
-  failed:
-    'border-rose-400/70 bg-rose-500/15 text-rose-700 dark:border-rose-400/60 dark:bg-rose-500/20 dark:text-rose-200',
-  processing:
-    'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200',
-  pending:
-    'border-amber-300/70 bg-amber-50/80 text-amber-700 dark:border-amber-400/60 dark:bg-amber-500/20 dark:text-amber-200',
-  seed: 'border-slate-300/70 bg-slate-100/70 text-slate-600 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-200'
+const STATUS_BADGE_MAP: Record<string, string> = {
+  ready: STATUS_BADGE_SUCCESS,
+  failed: STATUS_BADGE_DANGER,
+  processing: STATUS_BADGE_INFO,
+  pending: STATUS_BADGE_WARNING,
+  seed: TAG_BADGE_STRONG
 };
 
-const APP_DOC_URL = 'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#apps';
+const resolveStatusBadge = (status: string) => STATUS_BADGE_MAP[status] ?? STATUS_BADGE_NEUTRAL;
 
-function getStatusBadge(status: string) {
-  return `${STATUS_BADGE_BASE} ${STATUS_VARIANTS[status] ?? STATUS_VARIANTS.pending}`;
-}
+const APP_DOC_URL = 'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#apps';
 
 function formatRelativeTime(timestamp: number | null) {
   if (!timestamp) {
@@ -168,33 +167,30 @@ export default function ImportAppsTab({
 
   const renderHistory = (events: IngestionEvent[]) => {
     if (events.length === 0) {
-      return <p className="text-sm text-slate-500 dark:text-slate-400">No ingestion events yet.</p>;
+      return <p className={STATUS_MESSAGE}>No ingestion events yet.</p>;
     }
     return (
-      <ul className="flex flex-col gap-3 text-sm text-slate-600 dark:text-slate-300">
+      <ul className="flex flex-col gap-3 text-scale-sm text-secondary">
         {events.map((event) => (
-          <li
-            key={event.id}
-            className="rounded-2xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/60"
-          >
-            <div className="flex flex-wrap items-center gap-3 text-xs">
-              <span className={getStatusBadge(event.status)}>{event.status}</span>
-              <time className="text-slate-500 dark:text-slate-400" dateTime={event.createdAt}>
+          <li key={event.id} className={`${CARD_SECTION} gap-2`}>
+            <div className="flex flex-wrap items-center gap-3 text-scale-xs text-secondary">
+              <span className={resolveStatusBadge(event.status)}>{event.status}</span>
+              <time className={STATUS_META} dateTime={event.createdAt}>
                 {new Date(event.createdAt).toLocaleString()}
               </time>
-              {event.commitSha && (
-                <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+              {event.commitSha ? (
+                <code className="rounded-full bg-surface-muted px-2.5 py-1 font-mono text-scale-2xs text-secondary">
                   {event.commitSha.slice(0, 10)}
                 </code>
-              )}
+              ) : null}
             </div>
-            <div className="mt-2 space-y-2">
-              <div className="font-medium text-slate-700 dark:text-slate-200">
+            <div className="space-y-2">
+              <div className="font-weight-medium text-primary">
                 {event.message ?? 'No additional message'}
               </div>
-              <div className="flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
-                {event.attempt !== null && <span>Attempt {event.attempt}</span>}
-                {typeof event.durationMs === 'number' && <span>{`${Math.max(event.durationMs, 0)} ms`}</span>}
+              <div className="flex flex-wrap gap-3 text-scale-xs text-muted">
+                {event.attempt !== null ? <span>Attempt {event.attempt}</span> : null}
+                {typeof event.durationMs === 'number' ? <span>{`${Math.max(event.durationMs, 0)} ms`}</span> : null}
               </div>
             </div>
           </li>
@@ -206,17 +202,12 @@ export default function ImportAppsTab({
   const renderSummary = (app: AppRecord | null) => {
     if (!app) {
       return (
-        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/70 p-4 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300">
-          <p>
-            Register a repository to make it discoverable in the core. AppHub will clone the repository, queue an
+        <div className={`${CARD_SECTION} text-scale-sm`}>
+          <p className={BODY_TEXT}>
+            Register a repository to make it discoverable in the catalog. AppHub will clone the repository, queue an
             ingestion run, and surface build history alongside detected integrations.
           </p>
-          <a
-            className="inline-flex items-center gap-1 text-sm font-semibold text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
-            href={APP_DOC_URL}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <a className={LINK_ACCENT} href={APP_DOC_URL} target="_blank" rel="noreferrer">
             View app onboarding guide
             <span aria-hidden="true">→</span>
           </a>
@@ -225,51 +216,38 @@ export default function ImportAppsTab({
     }
 
     return (
-      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60">
+      <div className={`${CARD_SECTION} gap-4`}>
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold uppercase tracking-[0.35em] text-emerald-500 dark:text-emerald-300">
-            Registration queued
-          </span>
+          <span className={SECTION_LABEL}>Registration queued</span>
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{app.name}</h2>
-            <span className={getStatusBadge(app.ingestStatus)}>{app.ingestStatus}</span>
+            <h2 className={HEADING_SECONDARY}>{app.name}</h2>
+            <span className={resolveStatusBadge(app.ingestStatus)}>{app.ingestStatus}</span>
           </div>
-          {app.ingestError && (
-            <p className="text-sm font-medium text-rose-600 dark:text-rose-300">{app.ingestError}</p>
-          )}
+          {app.ingestError ? (
+            <p className="text-scale-sm font-weight-medium text-status-danger">{app.ingestError}</p>
+          ) : null}
         </div>
-        <dl className="grid gap-3 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-2">
+        <dl className="grid gap-3 text-scale-sm text-secondary sm:grid-cols-2">
           <div className="flex flex-col gap-1">
-            <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-              App slug
-            </dt>
-            <dd className="font-mono text-xs text-slate-700 dark:text-slate-200">{app.id}</dd>
+            <dt className={SECTION_LABEL}>App slug</dt>
+            <dd className="font-mono text-scale-xs text-primary">{app.id}</dd>
           </div>
           <div className="flex flex-col gap-1">
-            <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-              Repository
-            </dt>
-            <dd className="break-all font-mono text-xs text-slate-700 dark:text-slate-200">{app.repoUrl}</dd>
+            <dt className={SECTION_LABEL}>Repository</dt>
+            <dd className="break-all font-mono text-scale-xs text-primary">{app.repoUrl}</dd>
           </div>
           <div className="flex flex-col gap-1">
-            <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-              Dockerfile
-            </dt>
-            <dd className="font-mono text-xs text-slate-700 dark:text-slate-200">{app.dockerfilePath}</dd>
+            <dt className={SECTION_LABEL}>Dockerfile</dt>
+            <dd className="font-mono text-scale-xs text-primary">{app.dockerfilePath}</dd>
           </div>
           <div className="flex flex-col gap-1">
-            <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-              Tags
-            </dt>
-            <dd className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <dt className={SECTION_LABEL}>Tags</dt>
+            <dd className="flex flex-wrap gap-2 text-scale-xs text-secondary">
               {app.tags.length > 0
                 ? app.tags.map((tag) => (
-                    <span
-                      key={`${tag.key}:${tag.value}`}
-                      className="inline-flex items-center gap-2 rounded-full bg-slate-200/70 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700/60 dark:text-slate-200"
-                    >
+                    <span key={`${tag.key}:${tag.value}`} className={TAG_BADGE}>
                       {tag.key}
-                      <span className="text-slate-400">:</span>
+                      <span aria-hidden="true">:</span>
                       {tag.value}
                     </span>
                   ))
@@ -277,23 +255,15 @@ export default function ImportAppsTab({
             </dd>
           </div>
           <div className="flex flex-col gap-1">
-            <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-              Metadata strategy
-            </dt>
-            <dd className="text-xs text-slate-600 dark:text-slate-300">
-              {app.metadataStrategy === 'explicit' ? 'Use provided values' : 'Auto-discover' }
+            <dt className={SECTION_LABEL}>Metadata strategy</dt>
+            <dd className={STATUS_MESSAGE}>
+              {app.metadataStrategy === 'explicit' ? 'Use provided values' : 'Auto-discover'}
             </dd>
           </div>
         </dl>
         <div className="flex flex-wrap gap-2">
-          <FormButton
-            size="sm"
-            onClick={() => {
-              onViewCore?.();
-            }}
-            type="button"
-          >
-            View in core
+          <FormButton size="sm" type="button" onClick={() => onViewCore?.()}>
+            View in catalog
           </FormButton>
           <FormButton size="sm" variant="secondary" type="button" onClick={() => fetchHistory(app.id)}>
             Refresh history
@@ -306,64 +276,49 @@ export default function ImportAppsTab({
   return (
     <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
       {scenario ? (
-        <div className="rounded-2xl border border-violet-300/70 bg-violet-50/70 p-4 text-sm text-slate-700 shadow-sm dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-slate-200">
+        <div className={`${CARD_SECTION} ${CARD_SURFACE_ACTIVE} gap-2`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-[0.35em] text-violet-600 dark:text-violet-300">
-                Example scenario active
-              </span>
-              <p>
+            <div className="flex flex-col gap-1 text-scale-sm text-secondary">
+              <span className={SECTION_LABEL}>Example scenario active</span>
+              <p className={BODY_TEXT}>
                 Fields prefilled from <strong>{scenario.title}</strong>. Fine-tune anything before submitting.
               </p>
-              {(scenario.requiresServices?.length || scenario.requiresApps?.length) && (
-                <ul className="mt-1 space-y-1 text-xs text-slate-600 dark:text-slate-300">
-                  {scenario.requiresServices?.length ? (
-                    <li>
-                      <strong>Requires services:</strong> {scenario.requiresServices.join(', ')}
-                    </li>
-                  ) : null}
-                  {scenario.requiresApps?.length ? (
-                    <li>
-                      <strong>Requires apps:</strong> {scenario.requiresApps.join(', ')}
-                    </li>
-                  ) : null}
-                </ul>
-              )}
             </div>
-            {onScenarioCleared && (
-              <button
-                type="button"
-                className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm transition hover:bg-violet-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-slate-800"
-                onClick={onScenarioCleared}
-              >
+            {onScenarioCleared ? (
+              <button type="button" className={SECONDARY_BUTTON} onClick={onScenarioCleared}>
                 Reset
               </button>
-            )}
+            ) : null}
           </div>
+          {(scenario.requiresServices?.length || scenario.requiresApps?.length) ? (
+            <ul className="space-y-1 text-scale-xs text-secondary">
+              {scenario.requiresServices?.length ? (
+                <li>
+                  <strong>Requires services:</strong> {scenario.requiresServices.join(', ')}
+                </li>
+              ) : null}
+              {scenario.requiresApps?.length ? (
+                <li>
+                  <strong>Requires apps:</strong> {scenario.requiresApps.join(', ')}
+                </li>
+              ) : null}
+            </ul>
+          ) : null}
         </div>
       ) : null}
       <ScenarioSwitcher options={scenarioOptions ?? []} activeId={activeScenarioId ?? null} onSelect={onScenarioSelected} />
       <FormSection as="form" onSubmit={handleSubmit} aria-label="Register application">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Application details</h2>
-          {draftStatus && (
-            <span className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400 dark:text-slate-500">
-              Draft saved {draftStatus}
-            </span>
-          )}
+          <h2 className={HEADING_SECONDARY}>Application details</h2>
+          {draftStatus ? <span className={STATUS_META}>Draft saved {draftStatus}</span> : null}
         </div>
-        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200">
-          <p className="leading-relaxed">
+        <div className={`${CARD_SECTION} text-scale-sm`}>
+          <p className={BODY_TEXT}>
             <strong>Apps</strong> represent container workloads that AppHub builds from a Dockerfile. Provide the repository URL
             and the Dockerfile path relative to the repo root. For registering network endpoints or shared manifests, use the
-            <span className="font-semibold"> Service manifests</span> tab.
+            <strong> Service manifests</strong> tab.
           </p>
-          <a
-            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
-            href={APP_DOC_URL}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <a className={LINK_ACCENT} href={APP_DOC_URL} target="_blank" rel="noreferrer">
             View app onboarding guide
             <span aria-hidden="true">→</span>
           </a>
@@ -371,7 +326,7 @@ export default function ImportAppsTab({
         <FormField label="Application name" htmlFor="app-name">
           <input
             id="app-name"
-            className={INPUT_CLASSES}
+            className={INPUT}
             value={form.name}
             onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
             placeholder="My Awesome App"
@@ -381,7 +336,7 @@ export default function ImportAppsTab({
         <FormField label="Application ID" htmlFor="app-id" hint="Optional – auto-generated from name">
           <input
             id="app-id"
-            className={INPUT_CLASSES}
+            className={INPUT}
             value={form.id}
             onChange={(event) => setForm((prev) => ({ ...prev, id: event.target.value }))}
             placeholder="leave blank to auto-generate"
@@ -392,7 +347,7 @@ export default function ImportAppsTab({
         <FormField label="Description" htmlFor="app-description">
           <textarea
             id="app-description"
-            className={TEXTAREA_CLASSES}
+            className={TEXTAREA}
             value={form.description}
             onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
             placeholder="Short summary shown in the core"
@@ -400,18 +355,18 @@ export default function ImportAppsTab({
           />
         </FormField>
         <div className="flex flex-col gap-2">
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Repository source</span>
-          <div className="flex gap-2 rounded-full border border-slate-200/70 bg-slate-100/70 p-1 dark:border-slate-700/60 dark:bg-slate-800/60">
+          <span className={HEADING_SECONDARY}>Repository source</span>
+          <div className="flex gap-2 rounded-full border border-subtle bg-surface-glass-soft p-1">
             <button
               type="button"
-              className={sourceType === 'remote' ? TOGGLE_BUTTON_ACTIVE : TOGGLE_BUTTON_INACTIVE}
+              className={segmentedButtonClass(sourceType === 'remote')}
               onClick={() => setSourceType('remote')}
             >
               Remote (git/https)
             </button>
             <button
               type="button"
-              className={sourceType === 'local' ? TOGGLE_BUTTON_ACTIVE : TOGGLE_BUTTON_INACTIVE}
+              className={segmentedButtonClass(sourceType === 'local')}
               onClick={() => setSourceType('local')}
             >
               Local path
@@ -419,21 +374,21 @@ export default function ImportAppsTab({
           </div>
         </div>
         <div className="flex flex-col gap-2">
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Metadata strategy</span>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <span className={HEADING_SECONDARY}>Metadata strategy</span>
+          <p className={STATUS_MESSAGE}>
             Auto-discover pulls name, description, and tags from package manifests and README files. Use provided values to keep the details you enter here.
           </p>
-          <div className="flex gap-2 rounded-full border border-slate-200/70 bg-slate-100/70 p-1 dark:border-slate-700/60 dark:bg-slate-800/60">
+          <div className="flex gap-2 rounded-full border border-subtle bg-surface-glass-soft p-1">
             <button
               type="button"
-              className={form.metadataStrategy === 'auto' ? TOGGLE_BUTTON_ACTIVE : TOGGLE_BUTTON_INACTIVE}
+              className={segmentedButtonClass(form.metadataStrategy === 'auto')}
               onClick={() => setForm((prev) => ({ ...prev, metadataStrategy: 'auto' }))}
             >
               Auto-discover
             </button>
             <button
               type="button"
-              className={form.metadataStrategy === 'explicit' ? TOGGLE_BUTTON_ACTIVE : TOGGLE_BUTTON_INACTIVE}
+              className={segmentedButtonClass(form.metadataStrategy === 'explicit')}
               onClick={() => setForm((prev) => ({ ...prev, metadataStrategy: 'explicit' }))}
             >
               Use provided values
@@ -451,7 +406,7 @@ export default function ImportAppsTab({
         >
           <input
             id="repo-url"
-            className={INPUT_CLASSES}
+            className={INPUT}
             value={form.repoUrl}
             onChange={(event) => setForm((prev) => ({ ...prev, repoUrl: event.target.value }))}
             placeholder={
@@ -467,7 +422,7 @@ export default function ImportAppsTab({
         >
           <input
             id="dockerfile-path"
-            className={INPUT_CLASSES}
+            className={INPUT}
             value={form.dockerfilePath}
             onChange={(event) => setForm((prev) => ({ ...prev, dockerfilePath: event.target.value }))}
             placeholder="Dockerfile"
@@ -477,19 +432,19 @@ export default function ImportAppsTab({
           />
         </FormField>
         <div className="flex flex-col gap-3">
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Tags</span>
+          <span className={HEADING_SECONDARY}>Tags</span>
           <div className="flex flex-col gap-3">
             {form.tags.map((tag, index) => (
               <div key={index} className="flex flex-wrap items-center gap-3">
                 <input
-                  className={`${INPUT_CLASSES} flex-1 min-w-[120px]`}
+                  className={`${INPUT} flex-1 min-w-[120px]`}
                   value={tag.key}
                   onChange={(event) => handleTagChange(index, 'key', event.target.value)}
                   placeholder="key"
                 />
-                <span className="text-lg font-semibold text-slate-400 dark:text-slate-500">:</span>
+                <span className="text-scale-lg font-weight-semibold text-muted">:</span>
                 <input
-                  className={`${INPUT_CLASSES} flex-1 min-w-[160px]`}
+                  className={`${INPUT} flex-1 min-w-[160px]`}
                   value={tag.value}
                   onChange={(event) => handleTagChange(index, 'value', event.target.value)}
                   placeholder="value"
@@ -507,7 +462,7 @@ export default function ImportAppsTab({
               </div>
             ))}
           </div>
-          <div className={TAG_BUTTON_CLASSES}>
+          <div className="mt-2 flex flex-wrap gap-2">
             <FormButton type="button" size="sm" variant="tertiary" onClick={addTagField}>
               Add tag
             </FormButton>
@@ -528,15 +483,15 @@ export default function ImportAppsTab({
       </FormSection>
 
       <FormSection>
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Registration status</h2>
+        <h2 className={HEADING_SECONDARY}>Registration status</h2>
         {renderSummary(currentApp)}
-        <div className={HISTORY_CONTAINER_CLASSES}>
+        <div className={`${CARD_SECTION} gap-3`}>
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Ingestion history</h3>
+            <h3 className={HEADING_SECONDARY}>Ingestion history</h3>
             {currentApp && (
               <button
                 type="button"
-                className="text-xs font-semibold uppercase tracking-[0.25em] text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
+                className={SECONDARY_BUTTON}
                 onClick={() => fetchHistory(currentApp.id)}
               >
                 Refresh
@@ -544,7 +499,7 @@ export default function ImportAppsTab({
             )}
           </div>
           {historyLoading && (
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className={STATUS_MESSAGE}>
               <Spinner label="Loading history…" size="xs" />
             </p>
           )}

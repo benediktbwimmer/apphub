@@ -7,6 +7,20 @@ import {
   uploadFormReducer,
   validateRelativePath
 } from '../commandForms';
+import {
+  CHECKBOX_INPUT,
+  DIALOG_SURFACE,
+  ERROR_TEXT,
+  HEADER_SUBTITLE,
+  HEADER_TITLE,
+  INPUT_LABEL,
+  INPUT_LABEL_CAPTION,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+  TEXTAREA_INPUT,
+  TEXT_INPUT
+} from './dialogTokens';
 
 type UploadFileDialogProps = {
   open: boolean;
@@ -21,6 +35,11 @@ type UploadFileDialogProps = {
     checksum?: string;
   }) => Promise<void>;
 };
+
+const DROPZONE_BASE =
+  'flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-8 text-scale-sm transition-colors';
+const DROPZONE_ACTIVE = 'border-accent bg-accent-soft text-accent shadow-elevation-md';
+const DROPZONE_IDLE = 'border-subtle bg-surface-glass-soft text-secondary';
 
 export default function UploadFileDialog({ open, basePath, disabled = false, onClose, onSubmit }: UploadFileDialogProps) {
   const [state, dispatch] = useReducer(uploadFormReducer, createUploadFormState({ path: basePath ?? '' }));
@@ -111,22 +130,22 @@ export default function UploadFileDialog({ open, basePath, disabled = false, onC
       onClose={handleClose}
       labelledBy="upload-file-dialog-title"
       className="items-start justify-center px-4 py-8 sm:items-center"
-      contentClassName="w-full max-w-xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/70 dark:bg-slate-900/80"
+      contentClassName={DIALOG_SURFACE}
     >
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
         <header className="flex items-start justify-between gap-4">
           <div>
-            <h2 id="upload-file-dialog-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h2 id="upload-file-dialog-title" className={HEADER_TITLE}>
               Upload file
             </h2>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            <p className={HEADER_SUBTITLE}>
               Drop a file or browse from disk. Provide the final path relative to the mount root and optional checksum.
             </p>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-sm font-semibold text-slate-600 transition hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+            className={SECONDARY_BUTTON_COMPACT}
           >
             Close
           </button>
@@ -145,14 +164,12 @@ export default function UploadFileDialog({ open, basePath, disabled = false, onC
             setDragActive(false);
           }}
           onDrop={handleDrop}
-          className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-8 text-sm transition ${
-            dragActive ? 'border-violet-500 bg-violet-50/70 dark:border-violet-400 dark:bg-violet-500/10' : 'border-slate-300/70 bg-slate-50/60 dark:border-slate-700/70 dark:bg-slate-800/60'
-          }`}
+          className={`${DROPZONE_BASE} ${dragActive ? DROPZONE_ACTIVE : DROPZONE_IDLE}`}
         >
-          <p className="text-slate-600 dark:text-slate-300">
+          <p className="text-secondary">
             {state.file ? `Selected file: ${state.file.name}` : 'Drag & drop file here'}
           </p>
-          <label className="mt-2 inline-flex items-center gap-2 rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300">
+          <label className={`mt-2 inline-flex items-center gap-2 ${SECONDARY_BUTTON}`}>
             <input
               type="file"
               className="hidden"
@@ -166,47 +183,47 @@ export default function UploadFileDialog({ open, basePath, disabled = false, onC
           </label>
         </div>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-300">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">File path</span>
+        <label className={INPUT_LABEL}>
+          <span className={INPUT_LABEL_CAPTION}>File path</span>
           <input
             type="text"
             value={state.path}
             onChange={(event) => dispatch({ type: 'setPath', path: event.target.value })}
             placeholder={normalizedBasePath ? `${normalizedBasePath}/example.csv` : 'datasets/example.csv'}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            className={TEXT_INPUT}
             disabled={disabled || state.submitting}
           />
         </label>
-        {state.error ? <p className="text-xs text-rose-600 dark:text-rose-300">{state.error}</p> : null}
+        {state.error ? <p className={ERROR_TEXT}>{state.error}</p> : null}
 
-        <label className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-300">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Overwrite existing file</span>
+        <label className={INPUT_LABEL}>
+          <span className={INPUT_LABEL_CAPTION}>Overwrite existing file</span>
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
               checked={state.overwrite}
               onChange={(event) => dispatch({ type: 'setOverwrite', overwrite: event.target.checked })}
               disabled={disabled || state.submitting}
-              className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600"
+              className={CHECKBOX_INPUT}
             />
-            <span>Replace if a file already exists at this path.</span>
+            <span className="text-secondary">Replace if a file already exists at this path.</span>
           </div>
         </label>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-300">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Checksum (optional)</span>
+        <label className={INPUT_LABEL}>
+          <span className={INPUT_LABEL_CAPTION}>Checksum (optional)</span>
           <input
             type="text"
             value={state.checksum}
             onChange={(event) => dispatch({ type: 'setChecksum', checksum: event.target.value })}
             placeholder="sha256:abcdef"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            className={TEXT_INPUT}
             disabled={disabled || state.submitting}
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-300">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Metadata (JSON)</span>
+        <label className={INPUT_LABEL}>
+          <span className={INPUT_LABEL_CAPTION}>Metadata (JSON)</span>
           <textarea
             value={state.metadata}
             onChange={(event) => dispatch({ type: 'setMetadata', metadata: event.target.value })}
@@ -214,24 +231,24 @@ export default function UploadFileDialog({ open, basePath, disabled = false, onC
             placeholder={`{
   "owner": "ops"
 }`}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            className={TEXTAREA_INPUT}
             disabled={disabled || state.submitting}
           />
         </label>
-        {state.metadataError ? <p className="text-xs text-rose-600 dark:text-rose-300">{state.metadataError}</p> : null}
+        {state.metadataError ? <p className={ERROR_TEXT}>{state.metadataError}</p> : null}
 
         <div className="flex justify-end gap-3">
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+            className={SECONDARY_BUTTON}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={disabled || state.submitting}
-            className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className={PRIMARY_BUTTON}
           >
             {state.submitting ? 'Uploading…' : 'Upload file'}
           </button>

@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState, type FormEventHandler } from 'react';
 import { useAiBuilderSettings } from '../ai/useAiBuilderSettings';
 import type { AiBuilderProvider } from '../ai/types';
 import {
+  SETTINGS_ALERT_ERROR_CLASSES,
+  SETTINGS_ALERT_SUCCESS_CLASSES,
   SETTINGS_CARD_CONTAINER_CLASSES,
   SETTINGS_FORM_INPUT_CLASSES,
   SETTINGS_FORM_LABEL_CLASSES,
@@ -234,7 +236,7 @@ export default function AiBuilderSettingsPage() {
               Clear key
             </button>
             {hasOpenAiApiKey ? (
-              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-300">Key stored</span>
+              <span className="text-scale-xs font-weight-semibold text-status-success">Key stored</span>
             ) : (
               <span className={SETTINGS_SECTION_HELPER_CLASSES}>No key stored</span>
             )}
@@ -242,11 +244,10 @@ export default function AiBuilderSettingsPage() {
         </form>
         {feedback ? (
           <div
-            className={`rounded-2xl border px-4 py-3 text-xs font-semibold shadow-sm ${
-              feedback.tone === 'success'
-                ? 'border-emerald-300/70 bg-emerald-50/70 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
-                : 'border-rose-300/70 bg-rose-50/70 text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300'
-            }`}
+            className={classNames(
+              feedback.tone === 'success' ? SETTINGS_ALERT_SUCCESS_CLASSES : SETTINGS_ALERT_ERROR_CLASSES,
+              'text-scale-xs font-weight-semibold'
+            )}
           >
             {feedback.message}
           </div>

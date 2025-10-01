@@ -4,6 +4,19 @@ import FormButton from '../components/form/FormButton';
 import FormActions from '../components/form/FormActions';
 import { Modal } from '../components';
 import type { WorkflowScheduleSummary, ScheduleCreateInput, ScheduleUpdateInput } from './api';
+import {
+  SCHEDULE_ALERT_DANGER,
+  SCHEDULE_CHECKBOX,
+  SCHEDULE_DIALOG_SURFACE,
+  SCHEDULE_FORM_HELPER,
+  SCHEDULE_FORM_LABEL,
+  SCHEDULE_FORM_SECTION,
+  SCHEDULE_INPUT,
+  SCHEDULE_SECONDARY_BUTTON_SMALL,
+  SCHEDULE_SUBTITLE,
+  SCHEDULE_TEXTAREA,
+  SCHEDULE_TITLE
+} from './scheduleTokens';
 
 type WorkflowOption = {
   id: string;
@@ -193,33 +206,31 @@ export default function ScheduleFormDialog({
       labelledBy={dialogTitleId}
       closeOnBackdrop={false}
       className="items-start justify-center px-4 py-6 sm:items-center"
-      contentClassName="relative w-full max-w-2xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/60 dark:bg-slate-900/80 max-h-[calc(100vh-3rem)] overflow-y-auto"
+      contentClassName={SCHEDULE_DIALOG_SURFACE}
     >
       <>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 id={dialogTitleId} className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h2 id={dialogTitleId} className={SCHEDULE_TITLE}>
               {dialogTitle}
             </h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-            Configure the schedule cadence and parameters.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-full border border-slate-300/70 px-3 py-1 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-400"
-          disabled={submitting}
-        >
-          Close
-        </button>
+            <p className={SCHEDULE_SUBTITLE}>Configure the schedule cadence and parameters.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className={SCHEDULE_SECONDARY_BUTTON_SMALL}
+            disabled={submitting}
+          >
+            Close
+          </button>
         </div>
 
         <div className="mt-6 flex flex-col gap-4">
-          <FormField label={workflowLabel}>
+          <FormField label={<span className={SCHEDULE_FORM_LABEL}>{workflowLabel}</span>}>
             {mode === 'create' ? (
               <select
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"
+                className={SCHEDULE_INPUT}
                 value={workflowSlug}
                 onChange={(event) => {
                   const nextSlug = event.target.value;
@@ -240,65 +251,71 @@ export default function ScheduleFormDialog({
                 ))}
               </select>
             ) : (
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+              <div className={SCHEDULE_FORM_SECTION}>
                 {schedule?.workflow.name ?? 'Unknown workflow'}
               </div>
             )}
           </FormField>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Display name (optional)">
+            <FormField label={<span className={SCHEDULE_FORM_LABEL}>Display name (optional)</span>}>
               <input
                 type="text"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 disabled={submitting}
                 placeholder="Morning refresh"
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"
+                className={SCHEDULE_INPUT}
               />
             </FormField>
-            <FormField label="Description (optional)">
+            <FormField label={<span className={SCHEDULE_FORM_LABEL}>Description (optional)</span>}>
               <input
                 type="text"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 disabled={submitting}
                 placeholder="Daily summary at 9am"
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"
+                className={SCHEDULE_INPUT}
               />
             </FormField>
           </div>
 
-          <FormField label="Cron expression" hint="Use five-field cron syntax. Example: 0 9 * * *">
+          <FormField
+            label={<span className={SCHEDULE_FORM_LABEL}>Cron expression</span>}
+            hint={<span className={SCHEDULE_FORM_HELPER}>Use five-field cron syntax. Example: 0 9 * * *</span>}
+          >
             <input
               type="text"
               value={cron}
               onChange={(event) => setCron(event.target.value)}
               disabled={submitting}
               placeholder="0 9 * * *"
-              className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"
+              className={SCHEDULE_INPUT}
             />
           </FormField>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Timezone (optional)" hint="IANA timezone identifier, e.g. UTC or America/New_York">
+            <FormField
+              label={<span className={SCHEDULE_FORM_LABEL}>Timezone (optional)</span>}
+              hint={<span className={SCHEDULE_FORM_HELPER}>IANA timezone identifier, e.g. UTC or America/New_York</span>}
+            >
               <input
                 type="text"
                 value={timezone}
                 onChange={(event) => setTimezone(event.target.value)}
                 disabled={submitting}
                 placeholder="UTC"
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"
+                className={SCHEDULE_INPUT}
               />
             </FormField>
-            <FormField label="Catch up missed runs">
-              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <FormField label={<span className={SCHEDULE_FORM_LABEL}>Catch up missed runs</span>}>
+              <label className="flex items-center gap-2 text-scale-sm text-secondary">
                 <input
                   type="checkbox"
                   checked={catchUp}
                   onChange={(event) => setCatchUp(event.target.checked)}
                   disabled={submitting}
-                  className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  className={SCHEDULE_CHECKBOX}
                 />
                 Allow scheduler to backfill missed windows
               </label>
@@ -306,29 +323,35 @@ export default function ScheduleFormDialog({
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Start window (optional)" hint="ISO timestamp restricting earliest execution window">
+            <FormField
+              label={<span className={SCHEDULE_FORM_LABEL}>Start window (optional)</span>}
+              hint={<span className={SCHEDULE_FORM_HELPER}>ISO timestamp restricting earliest execution window</span>}
+            >
               <input
                 type="text"
                 value={startWindow}
                 onChange={(event) => setStartWindow(event.target.value)}
                 disabled={submitting}
                 placeholder="2024-05-01T09:00:00Z"
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"
+                className={SCHEDULE_INPUT}
               />
             </FormField>
-            <FormField label="End window (optional)" hint="ISO timestamp to stop scheduling">
+            <FormField
+              label={<span className={SCHEDULE_FORM_LABEL}>End window (optional)</span>}
+              hint={<span className={SCHEDULE_FORM_HELPER}>ISO timestamp to stop scheduling</span>}
+            >
               <input
                 type="text"
                 value={endWindow}
                 onChange={(event) => setEndWindow(event.target.value)}
                 disabled={submitting}
                 placeholder="2024-06-01T09:00:00Z"
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"
+                className={SCHEDULE_INPUT}
               />
             </FormField>
           </div>
 
-          <FormField label="Parameters (JSON object)">
+          <FormField label={<span className={SCHEDULE_FORM_LABEL}>Parameters (JSON object)</span>}>
             <textarea
               value={parametersText}
               onChange={(event) => {
@@ -337,25 +360,25 @@ export default function ScheduleFormDialog({
               }}
               disabled={submitting}
               rows={6}
-              className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 font-mono text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"
+              className={SCHEDULE_TEXTAREA}
             />
           </FormField>
 
           <FormField>
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <label className="flex items-center gap-2 text-scale-sm text-secondary">
               <input
                 type="checkbox"
                 checked={isActive}
                 onChange={(event) => setIsActive(event.target.checked)}
                 disabled={submitting}
-                className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                className={SCHEDULE_CHECKBOX}
               />
               Schedule is active
             </label>
           </FormField>
 
           {formError ? (
-            <div className="rounded-2xl border border-rose-200/70 bg-rose-50/70 px-4 py-3 text-sm text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
+            <div className={SCHEDULE_ALERT_DANGER}>
               {formError}
             </div>
           ) : null}

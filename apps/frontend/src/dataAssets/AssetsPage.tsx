@@ -16,6 +16,12 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useToastHelpers } from '../components/toast';
 import { Spinner } from '../components';
 import { AssetRecomputeDialog } from './components/AssetRecomputeDialog';
+import {
+  DATA_ASSET_ALERT_ERROR,
+  DATA_ASSET_EMPTY_STATE,
+  DATA_ASSET_PAGE_SUBTITLE,
+  DATA_ASSET_PAGE_TITLE
+} from './dataAssetsTokens';
 
 function buildPendingKey(action: string, slug: string, partitionKey: string | null): string {
   return `${action}:${slug}:${partitionKey ?? '::default::'}`;
@@ -430,20 +436,16 @@ export default function AssetsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-800 dark:text-slate-100">Assets</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <h1 className={DATA_ASSET_PAGE_TITLE}>Assets</h1>
+        <p className={DATA_ASSET_PAGE_SUBTITLE}>
           Explore workflow data assets, dependencies, and partition freshness from a unified graph.
         </p>
       </div>
 
-      {error && (
-        <div className="rounded-2xl border border-rose-400/60 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-          {error}
-        </div>
-      )}
+      {error && <div className={DATA_ASSET_ALERT_ERROR}>{error}</div>}
 
       {loading ? (
-        <div className="flex h-[520px] items-center justify-center rounded-3xl border border-slate-200/70 bg-white/70 text-sm text-slate-500 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/40 dark:text-slate-300">
+        <div className={DATA_ASSET_EMPTY_STATE}>
           <Spinner label="Loading asset graph…" />
         </div>
       ) : (

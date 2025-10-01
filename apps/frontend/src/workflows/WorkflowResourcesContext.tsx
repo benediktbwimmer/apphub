@@ -128,7 +128,6 @@ export function WorkflowResourcesProvider({ children }: PropsWithChildren<unknow
   return <WorkflowResourcesContext.Provider value={value}>{children}</WorkflowResourcesContext.Provider>;
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useWorkflowResources(): WorkflowResourcesContextValue {
   const context = useContext(WorkflowResourcesContext);
   if (!context) {

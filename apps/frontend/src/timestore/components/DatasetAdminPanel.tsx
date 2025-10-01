@@ -2,12 +2,26 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
 import { Modal } from '../../components';
 import { useToastHelpers } from '../../components/toast';
-import {
-  archiveDataset,
-  updateDataset
-} from '../api';
+import { archiveDataset, updateDataset } from '../api';
 import type { ArchiveDatasetRequest, DatasetRecord, PatchDatasetRequest } from '../types';
 import { archiveDatasetRequestSchema, patchDatasetRequestSchema } from '../types';
+import {
+  DANGER_BUTTON,
+  DANGER_SECONDARY_BUTTON,
+  DIALOG_SURFACE_DANGER,
+  FIELD_GROUP,
+  FIELD_LABEL,
+  INPUT,
+  PANEL_SURFACE,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+  STATUS_BANNER_DANGER,
+  STATUS_META,
+  STATUS_MESSAGE,
+  SUCCESS_BUTTON,
+  TEXTAREA
+} from '../timestoreTokens';
 
 interface DatasetAdminPanelProps {
   dataset: DatasetRecord;
@@ -285,12 +299,12 @@ export function DatasetAdminPanel({ dataset, canEdit, onDatasetChange, onRequire
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="rounded-2xl border border-slate-200/60 bg-white/70 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+      <section className={PANEL_SURFACE}>
         <header className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex flex-col">
-            <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Status</span>
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{dataset.status === 'active' ? 'Active' : 'Inactive'}</span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">Last updated {new Date(dataset.updatedAt).toLocaleString()}</span>
+            <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">Status</span>
+            <span className="text-scale-sm font-weight-semibold text-primary">{dataset.status === 'active' ? 'Active' : 'Inactive'}</span>
+            <span className={STATUS_META}>Last updated {new Date(dataset.updatedAt).toLocaleString()}</span>
           </div>
           {canEdit ? (
             dataset.status === 'active' ? (
@@ -298,7 +312,7 @@ export function DatasetAdminPanel({ dataset, canEdit, onDatasetChange, onRequire
                 type="button"
                 onClick={openArchiveDialog}
                 disabled={statusChanging}
-                className="rounded-full border border-rose-400/60 px-4 py-2 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40 dark:border-rose-400/40 dark:text-rose-300"
+                className={DANGER_SECONDARY_BUTTON}
               >
                 Archive dataset
               </button>
@@ -307,104 +321,110 @@ export function DatasetAdminPanel({ dataset, canEdit, onDatasetChange, onRequire
                 type="button"
                 onClick={handleReactivate}
                 disabled={statusChanging}
-                className="rounded-full border border-emerald-400/60 px-4 py-2 text-sm font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-400/40 dark:text-emerald-300"
+                className={SUCCESS_BUTTON}
               >
                 Reactivate dataset
               </button>
             )
           ) : (
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Editing requires the <code className="font-mono">timestore:admin</code> scope.
+            <span className="text-scale-xs text-muted">
+              Editing requires the <code className="font-mono text-secondary">timestore:admin</code> scope.
             </span>
           )}
         </header>
-        {statusChanging && (
-          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Applying status change…</p>
-        )}
+        {statusChanging ? <p className={`mt-3 ${STATUS_MESSAGE}`}>Applying status change…</p> : null}
       </section>
 
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Name</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Name</span>
             <input
               type="text"
               value={fields.name}
               onChange={handleFieldChange('name')}
               disabled={!canEdit || saving}
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={INPUT}
             />
-            {fieldErrors.name && <span className="text-xs text-rose-600 dark:text-rose-300">{fieldErrors.name}</span>}
+            {fieldErrors.name ? (
+              <span className="text-scale-xs text-status-danger">{fieldErrors.name}</span>
+            ) : null}
           </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Default storage target</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Default storage target</span>
             <input
               type="text"
               value={fields.defaultStorageTargetId}
               onChange={handleFieldChange('defaultStorageTargetId')}
               disabled={!canEdit || saving}
               placeholder="st-001"
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={INPUT}
             />
-            {fieldErrors.defaultStorageTargetId && (
-              <span className="text-xs text-rose-600 dark:text-rose-300">{fieldErrors.defaultStorageTargetId}</span>
-            )}
+            {fieldErrors.defaultStorageTargetId ? (
+              <span className="text-scale-xs text-status-danger">{fieldErrors.defaultStorageTargetId}</span>
+            ) : null}
           </label>
-          <label className="sm:col-span-2 flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Description</span>
+          <label className={`sm:col-span-2 ${FIELD_GROUP}`}>
+            <span className={FIELD_LABEL}>Description</span>
             <textarea
               value={fields.description}
               onChange={handleFieldChange('description')}
               rows={3}
               disabled={!canEdit || saving}
-              className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={TEXTAREA}
               placeholder="Describe the dataset purpose and key consumers."
             />
-            {fieldErrors.description && <span className="text-xs text-rose-600 dark:text-rose-300">{fieldErrors.description}</span>}
+            {fieldErrors.description ? (
+              <span className="text-scale-xs text-status-danger">{fieldErrors.description}</span>
+            ) : null}
           </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Read scopes</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Read scopes</span>
             <textarea
               value={fields.readScopes}
               onChange={handleFieldChange('readScopes')}
               rows={3}
               disabled={!canEdit || saving}
-              className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={TEXTAREA}
               placeholder="timestore:read"
             />
-            <span className="text-xs text-slate-500 dark:text-slate-400">Separate scopes with commas or new lines.</span>
-            {fieldErrors.readScopes && <span className="text-xs text-rose-600 dark:text-rose-300">{fieldErrors.readScopes}</span>}
+            <span className="text-scale-xs text-muted">Separate scopes with commas or new lines.</span>
+            {fieldErrors.readScopes ? (
+              <span className="text-scale-xs text-status-danger">{fieldErrors.readScopes}</span>
+            ) : null}
           </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Write scopes</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Write scopes</span>
             <textarea
               value={fields.writeScopes}
               onChange={handleFieldChange('writeScopes')}
               rows={3}
               disabled={!canEdit || saving}
-              className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={TEXTAREA}
               placeholder="timestore:write"
             />
-            <span className="text-xs text-slate-500 dark:text-slate-400">Separate scopes with commas or new lines.</span>
-            {fieldErrors.writeScopes && <span className="text-xs text-rose-600 dark:text-rose-300">{fieldErrors.writeScopes}</span>}
+            <span className="text-scale-xs text-muted">Separate scopes with commas or new lines.</span>
+            {fieldErrors.writeScopes ? (
+              <span className="text-scale-xs text-status-danger">{fieldErrors.writeScopes}</span>
+            ) : null}
           </label>
         </div>
 
-        {fieldErrors.general && <p className="text-sm text-rose-600 dark:text-rose-300">{fieldErrors.general}</p>}
+        {fieldErrors.general ? <p className={STATUS_BANNER_DANGER}>{fieldErrors.general}</p> : null}
 
         <div className="flex flex-wrap justify-end gap-3">
           <button
             type="button"
             onClick={handleReset}
             disabled={!hasChanges || saving}
-            className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+            className={SECONDARY_BUTTON}
           >
             Reset
           </button>
           <button
             type="submit"
             disabled={!hasChanges || saving || !canEdit}
-            className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className={PRIMARY_BUTTON}
           >
             Save changes
           </button>
@@ -416,15 +436,15 @@ export function DatasetAdminPanel({ dataset, canEdit, onDatasetChange, onRequire
         onClose={closeArchiveDialog}
         labelledBy="dataset-archive-dialog-title"
         className="items-start justify-center px-4 py-6 sm:items-center"
-        contentClassName="w-full max-w-lg rounded-3xl border border-rose-200/70 bg-white/95 p-6 shadow-xl dark:border-rose-400/40 dark:bg-slate-900/90"
+        contentClassName={DIALOG_SURFACE_DANGER}
       >
         <form className="flex flex-col gap-4" onSubmit={handleArchiveSubmit}>
           <header className="flex items-start justify-between gap-4">
             <div className="flex flex-col gap-1">
-              <h2 id="dataset-archive-dialog-title" className="text-lg font-semibold text-rose-600 dark:text-rose-300">
+              <h2 id="dataset-archive-dialog-title" className="text-scale-lg font-weight-semibold text-status-danger">
                 Archive dataset
               </h2>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
+              <p className="text-scale-sm text-secondary">
                 Users lose access when a dataset is archived. Provide an optional reason for auditing.
               </p>
             </div>
@@ -432,7 +452,7 @@ export function DatasetAdminPanel({ dataset, canEdit, onDatasetChange, onRequire
               type="button"
               onClick={closeArchiveDialog}
               disabled={archiveDialog.submitting}
-              className="rounded-full border border-slate-300/70 px-3 py-1 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+              className={SECONDARY_BUTTON_COMPACT}
             >
               Close
             </button>
@@ -442,23 +462,23 @@ export function DatasetAdminPanel({ dataset, canEdit, onDatasetChange, onRequire
             onChange={(event) => setArchiveDialog((prev) => ({ ...prev, reason: event.target.value }))}
             rows={3}
             disabled={archiveDialog.submitting}
-            className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+            className={TEXTAREA}
             placeholder="Explain why the dataset is being archived (optional)."
           />
-          {archiveDialog.error && <p className="text-sm text-rose-600 dark:text-rose-300">{archiveDialog.error}</p>}
+          {archiveDialog.error ? <p className={STATUS_BANNER_DANGER}>{archiveDialog.error}</p> : null}
           <div className="flex justify-end gap-3">
             <button
               type="button"
               onClick={closeArchiveDialog}
               disabled={archiveDialog.submitting}
-              className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+              className={SECONDARY_BUTTON}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={archiveDialog.submitting}
-              className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+              className={DANGER_BUTTON}
             >
               Confirm archive
             </button>

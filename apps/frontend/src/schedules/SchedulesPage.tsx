@@ -16,10 +16,17 @@ import { fetchWorkflowDefinitions } from '../workflows/api';
 import type { WorkflowDefinition, WorkflowSchedule } from '../workflows/types';
 import { formatTimestamp } from '../workflows/formatters';
 import ScheduleFormDialog from './ScheduleFormDialog';
-
-const TABLE_HEADER_CLASSES =
-  'px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300';
-const TABLE_CELL_CLASSES = 'px-4 py-2 text-sm text-slate-700 dark:text-slate-200 align-top';
+import {
+  SCHEDULE_ALERT_DANGER,
+  SCHEDULE_EMPTY_STATE,
+  SCHEDULE_PAGE_CARD,
+  SCHEDULE_PAGE_SUBTITLE,
+  SCHEDULE_PAGE_TITLE,
+  SCHEDULE_STATUS_BADGE_ACTIVE,
+  SCHEDULE_STATUS_BADGE_PAUSED,
+  SCHEDULE_TABLE_CELL,
+  SCHEDULE_TABLE_HEADER
+} from './scheduleTokens';
 
 function formatNextRun(schedule: WorkflowSchedule): string {
   if (!schedule.nextRunAt) {
@@ -203,10 +210,8 @@ export default function SchedulesPage(): JSX.Element {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Schedules</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Review and manage automated workflow schedules.
-          </p>
+          <h1 className={SCHEDULE_PAGE_TITLE}>Schedules</h1>
+          <p className={SCHEDULE_PAGE_SUBTITLE}>Review and manage automated workflow schedules.</p>
         </div>
         <div className="flex items-center gap-2">
           <FormButton variant="secondary" size="sm" onClick={handleRefresh} disabled={loading}>
@@ -223,64 +228,63 @@ export default function SchedulesPage(): JSX.Element {
           <Spinner />
         </div>
       ) : error ? (
-        <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-sm text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
-          {error}
-        </div>
+        <div className={SCHEDULE_ALERT_DANGER}>{error}</div>
       ) : schedules.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-10 text-center text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
-          No schedules found. Create one to automate workflow runs.
-        </div>
+        <div className={SCHEDULE_EMPTY_STATE}>No schedules found. Create one to automate workflow runs.</div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white/80 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60">
-          <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700/60">
-            <thead className="bg-slate-50/70 dark:bg-slate-800/70">
+        <div className={SCHEDULE_PAGE_CARD}>
+          <table className="min-w-full divide-y divide-subtle text-left">
+            <thead>
               <tr>
-                <th className={TABLE_HEADER_CLASSES}>Workflow</th>
-                <th className={TABLE_HEADER_CLASSES}>Name</th>
-                <th className={TABLE_HEADER_CLASSES}>Cron</th>
-                <th className={TABLE_HEADER_CLASSES}>Timezone</th>
-                <th className={TABLE_HEADER_CLASSES}>Next Run</th>
-                <th className={TABLE_HEADER_CLASSES}>Catch Up</th>
-                <th className={TABLE_HEADER_CLASSES}>Active</th>
-                <th className={TABLE_HEADER_CLASSES}>Parameters</th>
-                <th className={TABLE_HEADER_CLASSES}>Actions</th>
+                <th className={SCHEDULE_TABLE_HEADER}>Workflow</th>
+                <th className={SCHEDULE_TABLE_HEADER}>Name</th>
+                <th className={SCHEDULE_TABLE_HEADER}>Cron</th>
+                <th className={SCHEDULE_TABLE_HEADER}>Timezone</th>
+                <th className={SCHEDULE_TABLE_HEADER}>Next Run</th>
+                <th className={SCHEDULE_TABLE_HEADER}>Catch Up</th>
+                <th className={SCHEDULE_TABLE_HEADER}>Active</th>
+                <th className={SCHEDULE_TABLE_HEADER}>Parameters</th>
+                <th className={SCHEDULE_TABLE_HEADER}>Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 bg-white/80 dark:divide-slate-700/60 dark:bg-slate-900/40">
+            <tbody className="divide-y divide-subtle">
               {schedules.map((entry) => (
                 <tr key={entry.schedule.id}>
-                  <td className={TABLE_CELL_CLASSES}>
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-slate-800 dark:text-slate-100">{entry.workflow.name}</span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">{entry.workflow.slug}</span>
+                  <td className={SCHEDULE_TABLE_CELL}>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-scale-sm font-weight-semibold text-primary">{entry.workflow.name}</span>
+                      <span className={SCHEDULE_PAGE_SUBTITLE}>{entry.workflow.slug}</span>
                     </div>
                   </td>
-                  <td className={TABLE_CELL_CLASSES}>{entry.schedule.name ?? '—'}</td>
-                  <td className={TABLE_CELL_CLASSES}>
-                    <code className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                  <td className={SCHEDULE_TABLE_CELL}>{entry.schedule.name ?? '—'}</td>
+                  <td className={SCHEDULE_TABLE_CELL}>
+                    <code className="rounded bg-surface-muted px-2 py-1 text-scale-xs text-secondary">
                       {entry.schedule.cron}
                     </code>
                   </td>
-                  <td className={TABLE_CELL_CLASSES}>{entry.schedule.timezone ?? '—'}</td>
-                  <td className={TABLE_CELL_CLASSES}>{formatNextRun(entry.schedule)}</td>
-                  <td className={TABLE_CELL_CLASSES}>{entry.schedule.catchUp ? 'Yes' : 'No'}</td>
-                  <td className={TABLE_CELL_CLASSES}>{entry.schedule.isActive ? 'Yes' : 'No'}</td>
-                  <td className={`${TABLE_CELL_CLASSES} max-w-xs whitespace-pre-wrap`}>{formatParameters(entry.schedule.parameters)}</td>
-                  <td className={`${TABLE_CELL_CLASSES} w-32`}
-                  >
+                  <td className={SCHEDULE_TABLE_CELL}>{entry.schedule.timezone ?? '—'}</td>
+                  <td className={SCHEDULE_TABLE_CELL}>{formatNextRun(entry.schedule)}</td>
+                  <td className={SCHEDULE_TABLE_CELL}>
+                    {entry.schedule.catchUp ? (
+                      <span className={SCHEDULE_STATUS_BADGE_ACTIVE}>Enabled</span>
+                    ) : (
+                      <span className={SCHEDULE_STATUS_BADGE_PAUSED}>Disabled</span>
+                    )}
+                  </td>
+                  <td className={SCHEDULE_TABLE_CELL}>
+                    {entry.schedule.isActive ? (
+                      <span className={SCHEDULE_STATUS_BADGE_ACTIVE}>Active</span>
+                    ) : (
+                      <span className={SCHEDULE_STATUS_BADGE_PAUSED}>Paused</span>
+                    )}
+                  </td>
+                  <td className={`${SCHEDULE_TABLE_CELL} max-w-xs whitespace-pre-wrap`}>{formatParameters(entry.schedule.parameters)}</td>
+                  <td className={`${SCHEDULE_TABLE_CELL} w-32`}>
                     <div className="flex flex-wrap gap-2">
-                      <FormButton
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => handleOpenEdit(entry)}
-                      >
+                      <FormButton variant="secondary" size="sm" onClick={() => handleOpenEdit(entry)}>
                         Edit
                       </FormButton>
-                      <FormButton
-                        variant="tertiary"
-                        size="sm"
-                        onClick={() => void handleDelete(entry)}
-                      >
+                      <FormButton variant="tertiary" size="sm" onClick={() => void handleDelete(entry)}>
                         Delete
                       </FormButton>
                     </div>

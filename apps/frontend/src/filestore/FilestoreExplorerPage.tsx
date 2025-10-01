@@ -83,11 +83,11 @@ const STATE_LABEL: Record<FilestoreNodeState, string> = {
   unknown: 'Unknown'
 };
 const STATE_BADGE_CLASS: Record<FilestoreNodeState, string> = {
-  active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200',
-  inconsistent: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
-  missing: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
-  deleted: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200',
-  unknown: 'bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
+  active: 'bg-status-success-soft text-status-success shadow-elevation-sm',
+  inconsistent: 'bg-status-warning-soft text-status-warning shadow-elevation-sm',
+  missing: 'bg-status-danger-soft text-status-danger shadow-elevation-sm',
+  deleted: 'bg-surface-muted text-muted shadow-elevation-sm',
+  unknown: 'bg-surface-glass-soft text-secondary shadow-elevation-sm'
 };
 const MOUNT_STATE_LABEL: Record<FilestoreBackendMountState, string> = {
   active: 'Active',
@@ -98,12 +98,12 @@ const MOUNT_STATE_LABEL: Record<FilestoreBackendMountState, string> = {
   unknown: 'Unknown'
 };
 const MOUNT_STATE_BADGE_CLASS: Record<FilestoreBackendMountState, string> = {
-  active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200',
-  inactive: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200',
-  offline: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
-  degraded: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
-  error: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
-  unknown: 'bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
+  active: 'bg-status-success-soft text-status-success shadow-elevation-sm',
+  inactive: 'bg-surface-muted text-muted shadow-elevation-sm',
+  offline: 'bg-status-danger-soft text-status-danger shadow-elevation-sm',
+  degraded: 'bg-status-warning-soft text-status-warning shadow-elevation-sm',
+  error: 'bg-status-danger-soft text-status-danger shadow-elevation-sm',
+  unknown: 'bg-surface-glass-soft text-secondary shadow-elevation-sm'
 };
 const JOB_STATUS_OPTIONS: FilestoreReconciliationJobStatus[] = [
   'queued',
@@ -122,12 +122,12 @@ const JOB_STATUS_LABEL: Record<FilestoreReconciliationJobStatus, string> = {
   cancelled: 'Cancelled'
 };
 const JOB_STATUS_BADGE_CLASS: Record<FilestoreReconciliationJobStatus, string> = {
-  queued: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200',
-  running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200',
-  succeeded: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200',
-  failed: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
-  skipped: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
-  cancelled: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
+  queued: 'bg-surface-glass-soft text-secondary shadow-elevation-sm',
+  running: 'bg-status-info-soft text-status-info shadow-elevation-sm',
+  succeeded: 'bg-status-success-soft text-status-success shadow-elevation-sm',
+  failed: 'bg-status-danger-soft text-status-danger shadow-elevation-sm',
+  skipped: 'bg-status-warning-soft text-status-warning shadow-elevation-sm',
+  cancelled: 'bg-surface-muted text-muted shadow-elevation-sm'
 };
 const ROLLUP_STATE_OPTIONS: FilestoreRollupState[] = filestoreRollupStateSchema.options;
 const ROLLUP_STATE_LABEL: Record<FilestoreRollupState, string> = {
@@ -141,6 +141,26 @@ const CONSISTENCY_LABEL: Record<string, string> = {
   inconsistent: 'Drift',
   missing: 'Missing'
 };
+const PANEL_SURFACE = 'rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-lg';
+const CARD_SURFACE = 'rounded-2xl border border-subtle bg-surface-glass px-4 py-3 shadow-elevation-sm';
+const CARD_SURFACE_SOFT = 'rounded-2xl border border-subtle bg-surface-glass-soft px-4 py-3 shadow-elevation-sm';
+const PRIMARY_ACTION_BUTTON =
+  'rounded-full border border-accent bg-accent px-3 py-1.5 text-scale-xs font-weight-semibold text-on-accent shadow-elevation-sm transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60';
+const SECONDARY_ACTION_BUTTON =
+  'rounded-full border border-subtle px-3 py-1.5 text-scale-xs font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60';
+const DANGER_ACTION_BUTTON =
+  'rounded-full border border-status-danger bg-status-danger px-3 py-1.5 text-scale-xs font-weight-semibold text-status-danger-on shadow-elevation-sm transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60';
+const FOCUS_RING = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const FILTER_PILL_ACTIVE =
+  `rounded-full border border-accent bg-accent px-3 py-1 text-scale-xs font-weight-medium text-on-accent shadow-elevation-sm transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
+const FILTER_PILL_INACTIVE =
+  `rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs font-weight-medium text-secondary shadow-elevation-sm transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
+const FILTER_PILL_REMOVABLE =
+  `inline-flex items-center gap-1 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs text-secondary shadow-elevation-sm transition-colors hover:border-accent hover:text-accent ${FOCUS_RING}`;
+const CHECKBOX_INPUT =
+  `h-4 w-4 rounded border border-subtle bg-surface-glass text-accent transition-colors ${FOCUS_RING}`;
+const STATUS_BANNER_DANGER =
+  'rounded-lg border border-status-danger bg-status-danger-soft px-3 py-2 text-scale-xs text-status-danger shadow-elevation-sm';
 type EventCategory = 'nodes' | 'commands' | 'drift' | 'reconciliation' | 'downloads';
 
 const EVENT_CATEGORY_ORDER: EventCategory[] = ['nodes', 'commands', 'drift', 'reconciliation', 'downloads'];
@@ -2588,12 +2608,12 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Filestore explorer</h2>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <h2 className="text-scale-xl font-weight-semibold text-primary">Filestore explorer</h2>
+          <p className="text-scale-sm text-secondary">
             Browse nodes, inspect rollups, monitor live activity, and trigger reconciliation runs.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <div className="flex items-center gap-2 text-scale-xs text-muted">
           <span>Polling every 20s</span>
           <span aria-hidden="true">•</span>
           <button
@@ -2603,7 +2623,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
               void refetchNode();
               void refetchChildren();
             }}
-            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:text-slate-100"
+            className="rounded-full border border-subtle px-3 py-1 text-scale-xs font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent"
           >
             Refresh now
           </button>
@@ -2611,31 +2631,31 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       </header>
 
       {pendingCommand ? (
-        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-200">
+        <div className={`${CARD_SURFACE_SOFT} text-scale-sm text-secondary`}>
           <div className="flex items-center justify-between gap-3">
-            <span className="font-semibold text-slate-700 dark:text-slate-100">Running filestore command…</span>
-            <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{pendingCommand.key.slice(-12)}</span>
+            <span className="font-weight-semibold text-primary">Running filestore command…</span>
+            <span className="font-mono text-scale-xs text-muted">{pendingCommand.key.slice(-12)}</span>
           </div>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{pendingCommand.description}</p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">List and detail panes are read-only while the command completes.</p>
+          <p className="mt-1 text-scale-sm text-secondary">{pendingCommand.description}</p>
+          <p className="mt-1 text-scale-xs text-muted">List and detail panes are read-only while the command completes.</p>
         </div>
       ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)_minmax(0,320px)]">
         <section
-          className={`flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm transition dark:border-slate-700/70 dark:bg-slate-900/70 ${
+          className={`flex flex-col gap-4 ${PANEL_SURFACE} transition ${
             pendingCommand ? 'pointer-events-none opacity-75' : ''
           }`}
           aria-busy={pendingCommand ? true : undefined}
         >
-          <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Mount & Filters</h3>
+          <h3 className="text-scale-sm font-weight-semibold uppercase tracking-[0.25em] text-muted">Mount & Filters</h3>
           <div className="space-y-3">
             <div>
-              <label htmlFor="filestore-mount" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              <label htmlFor="filestore-mount" className="text-scale-xs font-weight-medium text-muted">
                 Backend mount
               </label>
               {mountsLoading ? (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Loading mounts…</p>
+                <p className="mt-2 text-scale-xs text-muted">Loading mounts…</p>
               ) : hasMountOptions ? (
                 <div className="mt-2 space-y-2">
                   <input
@@ -2643,7 +2663,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     value={mountSearch}
                     onChange={(event) => setMountSearch(event.target.value)}
                     placeholder="Search by name, key, or label"
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="w-full rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   />
                   <select
                     id="filestore-mount"
@@ -2660,7 +2680,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                         applyBackendMountSelection(next, 'select');
                       }
                     }}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="w-full rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-secondary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {backendMountId === null ? (
                       <option value="" disabled>
@@ -2674,33 +2694,31 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     ))}
                   </select>
                   {filteredMountOptions.length === 0 ? (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <p className="text-scale-xs text-muted">
                       No mounts matched “{mountSearch.trim()}”.
                     </p>
                   ) : null}
                 </div>
               ) : (
-                <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                  <p className="font-medium">No backend mounts detected.</p>
-                  <p className="mt-1 text-xs">
+                <div className="mt-2 rounded-lg border border-dashed border-subtle bg-surface-glass-soft px-4 py-3 text-scale-sm text-secondary">
+                  <p className="font-weight-medium">No backend mounts detected.</p>
+                  <p className="mt-1 text-scale-xs text-muted">
                     Register a mount in the filestore service (see the repo docs) or via the CLI, then refresh this page.
                   </p>
                 </div>
               )}
-              {mountsError ? (
-                <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{mountsError}</p>
-              ) : null}
+              {mountsError ? <p className="mt-2 text-scale-xs text-status-danger">{mountsError}</p> : null}
             </div>
             <div>
-              <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400">Mount details</h4>
+              <h4 className="text-scale-xs font-weight-medium text-muted">Mount details</h4>
               {selectedMount ? (
-                <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div className={`mt-2 space-y-3 ${CARD_SURFACE}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      <p className="text-scale-sm font-weight-semibold text-primary">
                         {selectedMount.displayName ?? selectedMount.mountKey}
                       </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{selectedMount.mountKey}</p>
+                      <p className="text-scale-xs text-muted">{selectedMount.mountKey}</p>
                     </div>
                     <span
                       className={`rounded-full px-2 py-1 text-xs font-medium ${MOUNT_STATE_BADGE_CLASS[selectedMount.state]}`}
@@ -2708,17 +2726,17 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                       {MOUNT_STATE_LABEL[selectedMount.state]}
                     </span>
                   </div>
-                  <dl className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                  <dl className="space-y-2 text-scale-xs text-secondary">
                     <div>
-                      <dt className="font-medium text-slate-500 dark:text-slate-400">Access</dt>
+                      <dt className="font-weight-medium text-muted">Access</dt>
                       <dd>{selectedMount.accessMode === 'rw' ? 'Read & write' : 'Read only'}</dd>
                     </div>
                     <div>
-                      <dt className="font-medium text-slate-500 dark:text-slate-400">Backend</dt>
+                      <dt className="font-weight-medium text-muted">Backend</dt>
                       <dd>{selectedMount.backendKind === 'local' ? 'Local filesystem' : 'Amazon S3'}</dd>
                     </div>
                     <div>
-                      <dt className="font-medium text-slate-500 dark:text-slate-400">Location</dt>
+                      <dt className="font-weight-medium text-muted">Location</dt>
                       <dd>
                         {selectedMount.backendKind === 'local'
                           ? selectedMount.rootPath ?? '—'
@@ -2729,18 +2747,18 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     </div>
                     {selectedMount.contact ? (
                       <div>
-                        <dt className="font-medium text-slate-500 dark:text-slate-400">Contact</dt>
+                        <dt className="font-weight-medium text-muted">Contact</dt>
                         <dd>{selectedMount.contact}</dd>
                       </div>
                     ) : null}
                     {selectedMount.labels.length > 0 ? (
                       <div>
-                        <dt className="font-medium text-slate-500 dark:text-slate-400">Labels</dt>
+                        <dt className="font-weight-medium text-muted">Labels</dt>
                         <dd className="mt-1 flex flex-wrap gap-1">
                           {selectedMount.labels.map((label) => (
                             <span
                               key={`mount-label-${label}`}
-                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                              className="rounded-full bg-surface-glass px-2 py-0.5 text-[11px] font-weight-medium text-secondary"
                             >
                               {label}
                             </span>
@@ -2750,13 +2768,13 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     ) : null}
                   </dl>
                   {selectedMount.state !== 'active' ? (
-                    <p className="text-xs text-amber-600 dark:text-amber-300">
+                    <p className="text-scale-xs text-status-warning">
                       {selectedMount.stateReason ?? 'Mount is not active. Review backend health before writing data.'}
                     </p>
                   ) : null}
                 </div>
               ) : (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Select a mount to view metadata.</p>
+                <p className="mt-2 text-scale-xs text-muted">Select a mount to view metadata.</p>
               )}
             </div>
 
@@ -2765,11 +2783,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 type="button"
                 onClick={() => setShowCreateDialog(true)}
                 disabled={writeDisabled}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                  writeDisabled
-                    ? 'cursor-not-allowed border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600'
-                    : 'border-slate-300 bg-slate-900 text-white hover:border-slate-400 hover:bg-slate-800 dark:border-slate-600 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200'
-                }`}
+                className={writeDisabled ? `${PRIMARY_ACTION_BUTTON} opacity-60` : PRIMARY_ACTION_BUTTON}
               >
                 New directory
               </button>
@@ -2777,19 +2791,15 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 type="button"
                 onClick={() => setShowUploadDialog(true)}
                 disabled={writeDisabled}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                  writeDisabled
-                    ? 'cursor-not-allowed border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600'
-                    : 'border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100'
-                }`}
+                className={writeDisabled ? `${SECONDARY_ACTION_BUTTON} opacity-60` : SECONDARY_ACTION_BUTTON}
               >
                 Upload file
               </button>
             </div>
             {!hasWriteScope ? (
-              <p className="text-xs text-rose-600 dark:text-rose-300">Filestore write scope is required for mutations.</p>
+              <p className="text-scale-xs text-status-danger">Filestore write scope is required for mutations.</p>
             ) : backendMountId === null ? (
-              <p className="text-xs text-slate-500 dark:text-slate-400">Select a backend mount to enable write actions.</p>
+              <p className="text-scale-xs text-muted">Select a backend mount to enable write actions.</p>
             ) : null}
 
             <form
@@ -2799,7 +2809,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 handleApplyPath(pathDraft);
               }}
             >
-              <label htmlFor="filestore-path" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              <label htmlFor="filestore-path" className="text-scale-xs font-weight-medium text-muted">
                 Path filter
               </label>
               <div className="flex gap-2">
@@ -2808,16 +2818,16 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   value={pathDraft}
                   onChange={(event) => setPathDraft(event.target.value)}
                   placeholder="datasets/observatory"
-                  className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                 />
                 <button
                   type="submit"
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                  className="rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed"
                 >
                   Apply
                 </button>
               </div>
-              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center justify-between text-scale-xs text-muted">
                 <div className="flex items-center gap-2">
                   <label htmlFor="filestore-depth">Depth</label>
                   <input
@@ -2833,7 +2843,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                         setOffset(0);
                       }
                     }}
-                    className="w-16 rounded border border-slate-200 bg-transparent px-2 py-1 text-xs text-slate-600 focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:text-slate-300"
+                    className="w-16 rounded border border-subtle bg-transparent px-2 py-1 text-scale-xs text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   />
                 </div>
                 {activePath ? (
@@ -2844,7 +2854,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                       setPathDraft('');
                       setOffset(0);
                     }}
-                    className="text-xs font-medium text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                    className="text-scale-xs font-weight-medium text-secondary underline decoration-dotted underline-offset-2 hover:text-accent"
                   >
                     Clear
                   </button>
@@ -2855,11 +2865,11 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
             <div className="space-y-4">
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Advanced filters</span>
+                  <span className="text-scale-xs font-weight-medium text-muted">Advanced filters</span>
                   <button
                     type="button"
                     onClick={handleResetFilters}
-                    className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                    className="text-scale-xs text-muted underline decoration-dotted underline-offset-2 hover:text-accent"
                   >
                     Reset all
                   </button>
@@ -2871,7 +2881,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                         key={chip.key}
                         type="button"
                         onClick={chip.onRemove}
-                        className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100"
+                        className={FILTER_PILL_REMOVABLE}
                       >
                         <span>{chip.label}</span>
                         <span aria-hidden="true">×</span>
@@ -2879,7 +2889,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">No advanced filters applied.</p>
+                  <p className="mt-2 text-scale-xs text-muted">No advanced filters applied.</p>
                 )}
               </div>
 
@@ -2890,7 +2900,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   handleApplyQuery(queryDraft);
                 }}
               >
-                <label htmlFor="filestore-query" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                <label htmlFor="filestore-query" className="text-scale-xs font-weight-medium text-muted">
                   Search query
                 </label>
                 <div className="flex gap-2">
@@ -2899,11 +2909,11 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     value={queryDraft}
                     onChange={(event) => setQueryDraft(event.target.value)}
                     placeholder="name includes…"
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                   <button
                     type="submit"
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                    className="rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed"
                   >
                     Apply
                   </button>
@@ -2912,7 +2922,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   <button
                     type="button"
                     onClick={() => handleApplyQuery('')}
-                    className="text-xs font-medium text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                    className="text-scale-xs font-weight-medium text-secondary underline decoration-dotted underline-offset-2 hover:text-accent"
                   >
                     Clear query
                   </button>
@@ -2921,12 +2931,12 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Metadata filters</span>
+                  <span className="text-scale-xs font-weight-medium text-muted">Metadata filters</span>
                   {advancedFilters.metadata && advancedFilters.metadata.length > 0 ? (
                     <button
                       type="button"
                       onClick={handleClearMetadataFilters}
-                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                      className="text-scale-xs text-muted underline decoration-dotted underline-offset-2 hover:text-accent"
                     >
                       Clear metadata
                     </button>
@@ -2937,18 +2947,18 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     value={metadataKeyDraft}
                     onChange={(event) => setMetadataKeyDraft(event.target.value)}
                     placeholder="key"
-                    className="w-28 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className={`w-28 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm transition-colors ${FOCUS_RING}`}
                   />
                   <input
                     value={metadataValueDraft}
                     onChange={(event) => setMetadataValueDraft(event.target.value)}
                     placeholder="value"
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                   <button
                     type="button"
                     onClick={handleAddMetadataFilter}
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                    className="rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed"
                   >
                     Add
                   </button>
@@ -2963,14 +2973,14 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 }}
               >
                 <div className="flex items-center justify-between">
-                  <label htmlFor="filestore-size-min" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  <label htmlFor="filestore-size-min" className="text-scale-xs font-weight-medium text-muted">
                     Size (bytes)
                   </label>
                   {advancedFilters.size ? (
                     <button
                       type="button"
                       onClick={handleClearSizeFilter}
-                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                      className="text-scale-xs text-muted underline decoration-dotted underline-offset-2 hover:text-accent"
                     >
                       Clear size
                     </button>
@@ -2982,17 +2992,17 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     value={sizeMinDraft}
                     onChange={(event) => setSizeMinDraft(event.target.value)}
                     placeholder="Min (e.g. 10GB)"
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                   <input
                     value={sizeMaxDraft}
                     onChange={(event) => setSizeMaxDraft(event.target.value)}
                     placeholder="Max"
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                   <button
                     type="submit"
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                    className="rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed"
                   >
                     Apply
                   </button>
@@ -3007,14 +3017,14 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 }}
               >
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  <label className="text-scale-xs font-weight-medium text-muted">
                     Last seen window
                   </label>
                   {advancedFilters.lastSeenAt ? (
                     <button
                       type="button"
                       onClick={handleClearLastSeenFilter}
-                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                      className="text-scale-xs text-muted underline decoration-dotted underline-offset-2 hover:text-accent"
                     >
                       Clear last seen
                     </button>
@@ -3025,17 +3035,17 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     type="datetime-local"
                     value={lastSeenAfterDraft}
                     onChange={(event) => setLastSeenAfterDraft(event.target.value)}
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                   <input
                     type="datetime-local"
                     value={lastSeenBeforeDraft}
                     onChange={(event) => setLastSeenBeforeDraft(event.target.value)}
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                   <button
                     type="submit"
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                    className="rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed"
                   >
                     Apply
                   </button>
@@ -3050,14 +3060,14 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 }}
               >
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  <label className="text-scale-xs font-weight-medium text-muted">
                     Rollup filters
                   </label>
                   {advancedFilters.rollup ? (
                     <button
                       type="button"
                       onClick={handleClearRollupFilter}
-                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                      className="text-scale-xs text-muted underline decoration-dotted underline-offset-2 hover:text-accent"
                     >
                       Clear rollup
                     </button>
@@ -3078,11 +3088,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                             return [...prev, state];
                           });
                         }}
-                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                          active
-                            ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
-                        }`}
+                        className={active ? FILTER_PILL_ACTIVE : FILTER_PILL_INACTIVE}
                       >
                         {ROLLUP_STATE_LABEL[state]}
                       </button>
@@ -3094,13 +3100,13 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     value={rollupMinChildDraft}
                     onChange={(event) => setRollupMinChildDraft(event.target.value)}
                     placeholder="Min children"
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                   <input
                     value={rollupMaxChildDraft}
                     onChange={(event) => setRollupMaxChildDraft(event.target.value)}
                     placeholder="Max children"
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                 </div>
                 <div className="flex gap-2">
@@ -3108,17 +3114,17 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     type="datetime-local"
                     value={rollupLastCalculatedAfterDraft}
                     onChange={(event) => setRollupLastCalculatedAfterDraft(event.target.value)}
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                   <input
                     type="datetime-local"
                     value={rollupLastCalculatedBeforeDraft}
                     onChange={(event) => setRollupLastCalculatedBeforeDraft(event.target.value)}
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                   />
                   <button
                     type="submit"
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                    className="rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed"
                   >
                     Apply
                   </button>
@@ -3128,14 +3134,14 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Node states</span>
+                <span className="text-scale-xs font-weight-medium text-muted">Node states</span>
                 <button
                   type="button"
                   onClick={() => {
                     setStateFilters([]);
                     setOffset(0);
                   }}
-                  className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                  className="text-scale-xs text-muted underline decoration-dotted underline-offset-2 hover:text-accent"
                 >
                   Reset
                 </button>
@@ -3146,11 +3152,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     key={`state-${state}`}
                     type="button"
                     onClick={() => handleToggleState(state)}
-                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                      stateFilterSet.has(state)
-                        ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
-                    }`}
+                    className={stateFilterSet.has(state) ? FILTER_PILL_ACTIVE : FILTER_PILL_INACTIVE}
                   >
                     {STATE_LABEL[state]}
                   </button>
@@ -3158,7 +3160,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <label className="flex items-center gap-2 text-scale-xs font-weight-medium text-muted">
               <input
                 type="checkbox"
                 checked={driftOnly}
@@ -3166,14 +3168,14 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   setDriftOnly(event.target.checked);
                   setOffset(0);
                 }}
-                className="h-4 w-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                className={CHECKBOX_INPUT}
               />
               Drift only
             </label>
           </div>
 
-          <div className="mt-4 flex-1 overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/60">
-            <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+          <div className="mt-4 flex-1 overflow-hidden rounded-2xl border border-subtle bg-surface-glass-soft">
+            <div className="flex items-center justify-between border-b border-subtle bg-surface-glass px-4 py-3 text-scale-xs font-weight-medium text-muted">
               <span>Nodes</span>
               <span>
                 {pagination ? `${pagination.total} total` : listLoading ? 'Loading…' : `${nodes.length} loaded`}
@@ -3181,35 +3183,35 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
             </div>
             <div className="max-h-80 overflow-y-auto">
               {listLoading && nodes.length === 0 ? (
-                <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">Loading nodes…</div>
+                <div className="px-4 py-6 text-scale-sm text-secondary">Loading nodes…</div>
               ) : backendMountId === null ? (
-                <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">
+                <div className="px-4 py-6 text-scale-sm text-secondary">
                   Select a backend mount to browse nodes.
                 </div>
               ) : nodes.length === 0 ? (
-                <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">No nodes matched the current filters.</div>
+                <div className="px-4 py-6 text-scale-sm text-secondary">No nodes matched the current filters.</div>
               ) : (
-                <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                <ul className="divide-y divide-subtle">
                   {nodes.map((node) => (
                     <li key={`node-${node.id}`}>
                       <button
                         type="button"
                         onClick={() => setSelectedNodeId(node.id)}
-                        className={`flex w-full flex-col items-start gap-1 px-4 py-3 text-left transition ${
+                        className={`flex w-full flex-col items-start gap-1 px-4 py-3 text-left transition-colors ${
                           selectedNodeId === node.id
-                            ? 'bg-slate-900/5 hover:bg-slate-900/10 dark:bg-slate-100/10 dark:hover:bg-slate-100/15'
-                            : 'hover:bg-slate-900/5 dark:hover:bg-slate-100/10'
+                            ? 'bg-surface-glass hover:bg-surface-glass-soft'
+                            : 'hover:bg-surface-glass-soft'
                         }`}
                       >
                         <div className="flex w-full items-center justify-between gap-2">
-                          <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                          <span className="truncate text-scale-sm font-weight-medium text-primary">
                             {node.path}
                           </span>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${STATE_BADGE_CLASS[node.state]}`}>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-weight-semibold uppercase ${STATE_BADGE_CLASS[node.state]}`}>
                             {STATE_LABEL[node.state]}
                           </span>
                         </div>
-                        <div className="flex w-full flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                        <div className="flex w-full flex-wrap items-center gap-3 text-scale-xs text-muted">
                           <span>{KIND_LABEL[node.kind]}</span>
                           <span aria-hidden="true">•</span>
                           <span>{formatBytes(node.rollup?.sizeBytes ?? node.sizeBytes ?? 0)}</span>
@@ -3225,23 +3227,23 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
               )}
             </div>
             {pagination ? (
-              <div className="flex items-center justify-between border-t border-slate-100 bg-white px-4 py-2 text-xs dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex items-center justify-between border-t border-subtle bg-surface-glass px-4 py-2 text-scale-xs text-muted">
                 <button
                   type="button"
                   onClick={() => handlePaginationChange(Math.max(pagination.offset - LIST_PAGE_SIZE, 0))}
                   disabled={pagination.offset === 0}
-                  className="rounded-lg border border-slate-200 px-3 py-1 font-medium text-slate-600 transition disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
+                  className="rounded-full border border-subtle px-3 py-1 text-scale-xs font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Previous
                 </button>
-                <span className="text-slate-500 dark:text-slate-400">
+                <span className="text-scale-xs text-muted">
                   Page {Math.floor(pagination.offset / LIST_PAGE_SIZE) + 1}
                 </span>
                 <button
                   type="button"
                   onClick={() => handlePaginationChange(pagination.nextOffset)}
                   disabled={!pagination.nextOffset && pagination.nextOffset !== 0}
-                  className="rounded-lg border border-slate-200 px-3 py-1 font-medium text-slate-600 transition disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
+                  className="rounded-full border border-subtle px-3 py-1 text-scale-xs font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Next
                 </button>
@@ -3249,38 +3251,36 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
             ) : null}
           </div>
           {listErrorMessage ? (
-            <p className="rounded-lg border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
-              {listErrorMessage}
-            </p>
+            <p className={STATUS_BANNER_DANGER}>{listErrorMessage}</p>
           ) : null}
         </section>
 
         <section
-          className={`flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm transition dark:border-slate-700/70 dark:bg-slate-900/70 ${
+          className={`flex flex-col gap-4 ${PANEL_SURFACE} transition ${
             pendingCommand ? 'pointer-events-none opacity-75' : ''
           }`}
           aria-busy={pendingCommand ? true : undefined}
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Node detail</h3>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              <h3 className="text-scale-sm font-weight-semibold uppercase tracking-[0.25em] text-muted">Node detail</h3>
+              <p className="mt-1 text-scale-sm text-secondary">
                 Metadata, rollup stats, and subdirectory inspection for the selected node.
               </p>
             </div>
             {selectedNode ? (
-              <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase ${STATE_BADGE_CLASS[selectedNode.state]}`}>
+              <span className={`rounded-full px-3 py-1 text-[11px] font-weight-semibold uppercase ${STATE_BADGE_CLASS[selectedNode.state]}`}>
                 {STATE_LABEL[selectedNode.state]}
               </span>
             ) : null}
           </div>
 
           {nodeLoading && !selectedNode ? (
-            <div className="rounded-2xl border border-slate-100 bg-slate-50/70 px-4 py-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+            <div className={`${CARD_SURFACE_SOFT} text-scale-sm text-secondary`}>
               Loading node…
             </div>
           ) : !selectedNode ? (
-            <div className="rounded-2xl border border-slate-100 bg-slate-50/70 px-4 py-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+            <div className={`${CARD_SURFACE_SOFT} text-scale-sm text-secondary`}>
               Select a node from the list to view details.
             </div>
           ) : (
@@ -3290,11 +3290,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   type="button"
                   onClick={() => setShowMoveDialog(true)}
                   disabled={nodeWriteDisabled}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    nodeWriteDisabled
-                      ? 'cursor-not-allowed border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600'
-                      : 'border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100'
-                  }`}
+                  className={nodeWriteDisabled ? `${SECONDARY_ACTION_BUTTON} opacity-60` : SECONDARY_ACTION_BUTTON}
                 >
                   Move node
                 </button>
@@ -3302,11 +3298,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   type="button"
                   onClick={() => setShowCopyDialog(true)}
                   disabled={nodeWriteDisabled}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    nodeWriteDisabled
-                      ? 'cursor-not-allowed border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600'
-                      : 'border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100'
-                  }`}
+                  className={nodeWriteDisabled ? `${SECONDARY_ACTION_BUTTON} opacity-60` : SECONDARY_ACTION_BUTTON}
                 >
                   Copy node
                 </button>
@@ -3314,30 +3306,26 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   type="button"
                   onClick={() => setShowDeleteDialog(true)}
                   disabled={nodeWriteDisabled}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    nodeWriteDisabled
-                      ? 'cursor-not-allowed border-rose-200 text-rose-300/70 dark:border-rose-800 dark:text-rose-500/70'
-                      : 'border-rose-300 text-rose-600 hover:border-rose-400 hover:text-rose-700 dark:border-rose-600 dark:text-rose-300 dark:hover:border-rose-500 dark:hover:text-rose-200'
-                  }`}
+                  className={nodeWriteDisabled ? `${DANGER_ACTION_BUTTON} opacity-60` : DANGER_ACTION_BUTTON}
                 >
                   Soft-delete
                 </button>
               </div>
-              <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-                <dl className="grid gap-3 text-sm text-slate-600 dark:text-slate-300">
+              <article className={CARD_SURFACE}>
+                <dl className="grid gap-3 text-scale-sm text-secondary">
                   <div>
-                    <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Path</dt>
-                    <dd className="mt-1 font-mono text-[13px] text-slate-800 dark:text-slate-100">{selectedNode.path}</dd>
+                    <dt className="text-scale-xs uppercase tracking-wide text-muted">Path</dt>
+                    <dd className="mt-1 font-mono text-[13px] text-primary">{selectedNode.path}</dd>
                   </div>
                   {selectedNode.download ? (
                     <div>
-                      <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Download</dt>
-                      <dd className="mt-1 flex flex-wrap items-center gap-3 text-slate-700 dark:text-slate-200">
+                      <dt className="text-scale-xs uppercase tracking-wide text-muted">Download</dt>
+                      <dd className="mt-1 flex flex-wrap items-center gap-3 text-secondary">
                         <button
                           type="button"
                           disabled={selectedDownloadState?.state === 'pending'}
                           onClick={() => void handleDownload(selectedNode, 'detail')}
-                          className="rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                          className="rounded border border-subtle px-2 py-1 text-scale-xs font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {selectedDownloadState?.state === 'pending'
                             ? selectedDownloadState.mode === 'stream'
@@ -3350,55 +3338,55 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                         {selectedDownloadState?.mode === 'stream' &&
                         selectedDownloadState.state === 'pending' &&
                         typeof selectedDownloadState.progress === 'number' ? (
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                          <span className="text-scale-xs text-muted">
                             {Math.round(selectedDownloadState.progress * 100)}%
                           </span>
                         ) : null}
                       </dd>
                       {selectedDownloadState?.state === 'error' ? (
-                        <dd className="mt-1 text-xs text-rose-600 dark:text-rose-400">{selectedDownloadState.error}</dd>
+                        <dd className="mt-1 text-scale-xs text-status-danger">{selectedDownloadState.error}</dd>
                       ) : null}
                     </div>
                   ) : null}
-                  <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 text-scale-xs md:grid-cols-4 text-secondary">
                     <div>
-                      <dt className="uppercase tracking-wide text-slate-400 dark:text-slate-500">Backend</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">#{selectedNode.backendMountId}</dd>
+                      <dt className="uppercase tracking-wide text-muted">Backend</dt>
+                      <dd className="mt-1 text-secondary">#{selectedNode.backendMountId}</dd>
                     </div>
                     <div>
-                      <dt className="uppercase tracking-wide text-slate-400 dark:text-slate-500">Kind</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{KIND_LABEL[selectedNode.kind]}</dd>
+                      <dt className="uppercase tracking-wide text-muted">Kind</dt>
+                      <dd className="mt-1 text-secondary">{KIND_LABEL[selectedNode.kind]}</dd>
                     </div>
                     <div>
-                      <dt className="uppercase tracking-wide text-slate-400 dark:text-slate-500">Consistency</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{CONSISTENCY_LABEL[selectedNode.consistencyState] ?? selectedNode.consistencyState}</dd>
+                      <dt className="uppercase tracking-wide text-muted">Consistency</dt>
+                      <dd className="mt-1 text-secondary">{CONSISTENCY_LABEL[selectedNode.consistencyState] ?? selectedNode.consistencyState}</dd>
                     </div>
                     <div>
-                      <dt className="uppercase tracking-wide text-slate-400 dark:text-slate-500">Version</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{selectedNode.version}</dd>
+                      <dt className="uppercase tracking-wide text-muted">Version</dt>
+                      <dd className="mt-1 text-secondary">{selectedNode.version}</dd>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 text-scale-xs md:grid-cols-4 text-secondary">
                     <div>
-                      <dt className="uppercase tracking-wide text-slate-400 dark:text-slate-500">Last seen</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{formatTimestamp(selectedNode.lastSeenAt)}</dd>
+                      <dt className="uppercase tracking-wide text-muted">Last seen</dt>
+                      <dd className="mt-1 text-secondary">{formatTimestamp(selectedNode.lastSeenAt)}</dd>
                     </div>
                     <div>
-                      <dt className="uppercase tracking-wide text-slate-400 dark:text-slate-500">Last modified</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{formatTimestamp(selectedNode.lastModifiedAt)}</dd>
+                      <dt className="uppercase tracking-wide text-muted">Last modified</dt>
+                      <dd className="mt-1 text-secondary">{formatTimestamp(selectedNode.lastModifiedAt)}</dd>
                     </div>
                     <div>
-                      <dt className="uppercase tracking-wide text-slate-400 dark:text-slate-500">Last reconciled</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{formatTimestamp(selectedNode.lastReconciledAt)}</dd>
+                      <dt className="uppercase tracking-wide text-muted">Last reconciled</dt>
+                      <dd className="mt-1 text-secondary">{formatTimestamp(selectedNode.lastReconciledAt)}</dd>
                     </div>
                     <div>
-                      <dt className="uppercase tracking-wide text-slate-400 dark:text-slate-500">Last drift</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{formatTimestamp(selectedNode.lastDriftDetectedAt)}</dd>
+                      <dt className="uppercase tracking-wide text-muted">Last drift</dt>
+                      <dd className="mt-1 text-secondary">{formatTimestamp(selectedNode.lastDriftDetectedAt)}</dd>
                     </div>
                   </div>
                   <div>
                     <div className="flex items-center justify-between">
-                      <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Metadata</dt>
+                      <dt className="text-scale-xs uppercase tracking-wide text-muted">Metadata</dt>
                       <button
                         type="button"
                         onClick={() => {
@@ -3410,29 +3398,29 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                             setMetadataEditing(true);
                           }
                         }}
-                        className="rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                        className={`rounded border border-subtle px-2 py-1 text-scale-xs font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent ${FOCUS_RING}`}
                       >
                         {metadataEditing ? 'Discard changes' : 'Edit'}
                       </button>
                     </div>
-                    <dd className="mt-1 max-h-60 overflow-y-auto rounded border border-slate-100 bg-slate-50/80 p-3 text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200">
+                    <dd className="mt-1 max-h-60 overflow-y-auto rounded border border-subtle bg-surface-glass-soft p-3 text-scale-xs text-secondary">
                       {metadataEditing ? (
                         <div className="flex flex-col gap-3">
                           <textarea
                             value={metadataDraft}
                             onChange={(event) => setMetadataDraft(event.target.value)}
                             rows={8}
-                            className="w-full rounded border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-950/80 dark:text-slate-200 dark:focus:border-slate-500"
+                            className={`w-full rounded-lg border border-subtle bg-surface-glass px-3 py-2 font-mono text-scale-xs text-primary shadow-sm transition-colors ${FOCUS_RING}`}
                           />
                           {metadataErrorMessage ? (
-                            <p className="text-xs text-rose-600 dark:text-rose-300">{metadataErrorMessage}</p>
+                            <p className="text-scale-xs text-status-danger">{metadataErrorMessage}</p>
                           ) : null}
                           <div className="flex gap-2">
                             <button
                               type="button"
                               disabled={metadataPending}
                               onClick={() => void handleMetadataSave()}
-                              className="rounded-lg border border-slate-300 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900"
+                              className={PRIMARY_ACTION_BUTTON}
                             >
                               {metadataPending ? 'Saving…' : 'Save metadata'}
                             </button>
@@ -3443,7 +3431,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                                 setMetadataDraft(JSON.stringify(selectedNode.metadata ?? {}, null, 2));
                                 setMetadataErrorMessage(null);
                               }}
-                              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                              className={SECONDARY_ACTION_BUTTON}
                             >
                               Cancel
                             </button>
@@ -3461,16 +3449,16 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
               {playbookContext ? (
                 playbook ? (
-                  <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+                  <article className={CARD_SURFACE}>
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                      <h4 className="text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">
                         Drift playbook
                       </h4>
-                      <span className="text-[11px] font-semibold uppercase text-slate-400 dark:text-slate-500">
+                      <span className="text-[11px] font-weight-semibold uppercase text-muted">
                         {STATE_LABEL[playbookContext.node.state]}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-600 dark:text-slate-300">{playbook.summary}</p>
+                    <p className="text-scale-sm text-secondary">{playbook.summary}</p>
                     <div className="mt-3 space-y-3">
                       {playbook.actions.map((action) => {
                         if (action.type === 'reconcile') {
@@ -3479,12 +3467,12 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                           return (
                             <div
                               key={action.id}
-                              className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-900/40"
+                              className="rounded-xl border border-subtle bg-surface-glass-soft px-4 py-3 text-scale-sm text-secondary"
                             >
                               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                  <p className="font-medium text-slate-700 dark:text-slate-200">{action.label}</p>
-                                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{action.description}</p>
+                                  <p className="font-medium text-secondary">{action.label}</p>
+                                  <p className="mt-1 text-scale-xs text-muted">{action.description}</p>
                                 </div>
                                 <button
                                   type="button"
@@ -3499,7 +3487,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                                       playbookId: playbook.id
                                     })
                                   }
-                                  className="self-start rounded-lg border border-slate-300 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900"
+                                  className={`self-start ${PRIMARY_ACTION_BUTTON}`}
                                 >
                                   {pending ? 'Enqueuing…' : 'Enqueue job'}
                                 </button>
@@ -3522,19 +3510,19 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                           return (
                             <div
                               key={action.id}
-                              className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-900/40"
+                              className="rounded-xl border border-subtle bg-surface-glass-soft px-4 py-3 text-scale-sm text-secondary"
                             >
                               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                  <p className="font-medium text-slate-700 dark:text-slate-200">{action.label}</p>
-                                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{action.description}</p>
-                                  <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">{helperText}</p>
+                                  <p className="font-medium text-secondary">{action.label}</p>
+                                  <p className="mt-1 text-scale-xs text-muted">{action.description}</p>
+                                  <p className="mt-1 text-[11px] text-muted">{helperText}</p>
                                 </div>
                                 <button
                                   type="button"
                                   disabled={disabled}
                                   onClick={() => void runPlaybookWorkflow(action, playbook.id, selectedNode)}
-                                  className="self-start rounded-lg border border-slate-300 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900"
+                                  className={`self-start ${PRIMARY_ACTION_BUTTON}`}
                                 >
                                   {pending ? 'Triggering…' : 'Trigger workflow'}
                                 </button>
@@ -3546,12 +3534,12 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                         return (
                           <div
                             key={action.id}
-                            className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-900/40"
+                            className="rounded-xl border border-subtle bg-surface-glass-soft px-4 py-3 text-scale-sm text-secondary"
                           >
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <div>
-                                <p className="font-medium text-slate-700 dark:text-slate-200">{action.label}</p>
-                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{action.description}</p>
+                                <p className="font-medium text-secondary">{action.label}</p>
+                                <p className="mt-1 text-scale-xs text-muted">{action.description}</p>
                               </div>
                               <a
                                 href={href}
@@ -3566,7 +3554,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                                     state: selectedNode.state
                                   })
                                 }
-                                className="self-start rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100"
+                                className={`self-start rounded-full border border-subtle px-3 py-1.5 text-scale-xs font-weight-semibold text-secondary transition-colors hover:border-accent hover:text-accent ${FOCUS_RING}`}
                               >
                                 Open
                               </a>
@@ -3576,75 +3564,75 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                       })}
                     </div>
                     {playbook.note ? (
-                      <p className="mt-4 text-[11px] text-slate-400 dark:text-slate-500">{playbook.note}</p>
+                      <p className="mt-4 text-[11px] text-muted">{playbook.note}</p>
                     ) : null}
                   </article>
                 ) : fallbackPlaybookMessage ? (
-                  <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  <article className={CARD_SURFACE}>
+                    <h4 className="text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">
                       Drift playbook
                     </h4>
-                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{fallbackPlaybookMessage}</p>
+                    <p className="mt-2 text-scale-sm text-secondary">{fallbackPlaybookMessage}</p>
                   </article>
                 ) : null
               ) : null}
 
-              <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-                <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <article className={CARD_SURFACE}>
+                <h4 className="mb-3 text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">
                   Rollup summary
                 </h4>
                 {selectedNode.rollup ? (
-                  <dl className="grid grid-cols-2 gap-4 text-sm text-slate-600 dark:text-slate-300 md:grid-cols-4">
+                  <dl className="grid grid-cols-2 gap-4 text-scale-sm text-secondary md:grid-cols-4">
                     <div>
-                      <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Size</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{formatBytes(selectedNode.rollup.sizeBytes)}</dd>
+                      <dt className="text-scale-xs uppercase tracking-wide text-muted">Size</dt>
+                      <dd className="mt-1 text-secondary">{formatBytes(selectedNode.rollup.sizeBytes)}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Files</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{selectedNode.rollup.fileCount}</dd>
+                      <dt className="text-scale-xs uppercase tracking-wide text-muted">Files</dt>
+                      <dd className="mt-1 text-secondary">{selectedNode.rollup.fileCount}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Directories</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{selectedNode.rollup.directoryCount}</dd>
+                      <dt className="text-scale-xs uppercase tracking-wide text-muted">Directories</dt>
+                      <dd className="mt-1 text-secondary">{selectedNode.rollup.directoryCount}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Children</dt>
-                      <dd className="mt-1 text-slate-700 dark:text-slate-200">{selectedNode.rollup.childCount}</dd>
+                      <dt className="text-scale-xs uppercase tracking-wide text-muted">Children</dt>
+                      <dd className="mt-1 text-secondary">{selectedNode.rollup.childCount}</dd>
                     </div>
                   </dl>
                 ) : (
-                  <p className="text-sm text-slate-500 dark:text-slate-300">No rollup data available for this node.</p>
+                  <p className="text-scale-sm text-secondary">No rollup data available for this node.</p>
                 )}
               </article>
 
-              <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+              <article className={CARD_SURFACE}>
                 <div className="mb-3 flex items-center justify-between">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Immediate children</h4>
+                  <h4 className="text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">Immediate children</h4>
                   <button
                     type="button"
                     onClick={() => void refetchChildren()}
-                    className="rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                    className={`rounded border border-subtle px-2 py-1 text-scale-xs font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent ${FOCUS_RING}`}
                   >
                     Refresh
                   </button>
                 </div>
                 {childrenLoading && !childrenData ? (
-                  <p className="text-sm text-slate-500 dark:text-slate-300">Loading children…</p>
+                  <p className="text-scale-sm text-secondary">Loading children…</p>
                 ) : childrenData && childrenData.children.length > 0 ? (
-                  <ul className="divide-y divide-slate-100 border border-slate-100 dark:divide-slate-800 dark:border-slate-800">
+                  <ul className="divide-y divide-subtle rounded-xl border border-subtle bg-surface-glass-soft">
                     {childrenData.children.map((child) => {
                       const childDownloadState = downloadStatusByNode[child.id];
                       return (
-                        <li key={`child-${child.id}`} className="px-3 py-2 text-sm">
+                        <li key={`child-${child.id}`} className="px-3 py-2 text-scale-sm">
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex flex-1 items-center gap-2">
-                              <span className="truncate text-slate-700 dark:text-slate-200">{child.path}</span>
+                              <span className="truncate text-secondary">{child.path}</span>
                               {child.download ? (
                                 <button
                                   type="button"
                                   disabled={childDownloadState?.state === 'pending'}
                                   onClick={() => void handleDownload(child, 'child')}
-                                  className="rounded border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                                  className={`rounded border border-subtle px-2 py-0.5 text-[11px] font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`}
                                 >
                                   {childDownloadState?.state === 'pending'
                                     ? childDownloadState.mode === 'stream'
@@ -3656,11 +3644,11 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                                 </button>
                               ) : null}
                             </div>
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${STATE_BADGE_CLASS[child.state]}`}>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-weight-semibold uppercase ${STATE_BADGE_CLASS[child.state]}`}>
                               {STATE_LABEL[child.state]}
                             </span>
                           </div>
-                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                          <div className="mt-1 flex flex-wrap gap-2 text-scale-xs text-muted">
                             <span>{KIND_LABEL[child.kind]}</span>
                             <span aria-hidden="true">•</span>
                             <span>{formatBytes(child.rollup?.sizeBytes ?? child.sizeBytes ?? 0)}</span>
@@ -3670,37 +3658,35 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                           {childDownloadState?.mode === 'stream' &&
                           childDownloadState.state === 'pending' &&
                           typeof childDownloadState.progress === 'number' ? (
-                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            <div className="mt-1 text-scale-xs text-muted">
                               Progress {Math.round(childDownloadState.progress * 100)}%
                             </div>
                           ) : null}
                           {childDownloadState?.state === 'error' ? (
-                            <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">{childDownloadState.error}</div>
+                            <div className="mt-1 text-scale-xs text-status-danger">{childDownloadState.error}</div>
                           ) : null}
                         </li>
                       );
                     })}
                   </ul>
                 ) : (
-                  <p className="text-sm text-slate-500 dark:text-slate-300">No direct children recorded.</p>
+                  <p className="text-scale-sm text-secondary">No direct children recorded.</p>
                 )}
                 {childrenErrorMessage ? (
-                  <p className="mt-2 rounded border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
-                    {childrenErrorMessage}
-                  </p>
+                  <p className={`mt-2 ${STATUS_BANNER_DANGER}`}>{childrenErrorMessage}</p>
                 ) : null}
               </article>
 
-              <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+              <article className={CARD_SURFACE}>
                 <div className="mb-3 flex items-center justify-between">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  <h4 className="text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">
                     Reconciliation controls
                   </h4>
                   {!hasWriteScope ? (
-                    <span className="text-[11px] font-semibold uppercase text-amber-600 dark:text-amber-300">Read only</span>
+                    <span className="text-[11px] font-weight-semibold uppercase text-status-warning">Read only</span>
                   ) : null}
                 </div>
-                <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+                <div className="space-y-3 text-scale-xs text-secondary">
                   <div className="flex gap-2">
                     <label className="flex items-center gap-2">
                       <input
@@ -3759,31 +3745,27 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                       source: 'manual-controls'
                     })
                   }
-                  className="mt-3 w-full rounded-lg border border-slate-300 bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900"
+                  className={`mt-3 w-full ${PRIMARY_ACTION_BUTTON}`}
                 >
                   {pendingReconcileActionId !== null ? 'Enqueuing…' : 'Enqueue reconciliation'}
                 </button>
               </article>
             </div>
           )}
-          {nodeErrorMessage ? (
-            <p className="rounded-lg border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
-              {nodeErrorMessage}
-            </p>
-          ) : null}
+          {nodeErrorMessage ? <p className={STATUS_BANNER_DANGER}>{nodeErrorMessage}</p> : null}
         </section>
 
         <div className="flex h-full flex-col gap-4">
-          <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+          <section className="flex flex-col gap-4 ${PANEL_SURFACE}">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Reconciliation jobs</h3>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Monitor queue progress and inspect individual runs.</p>
+                <h3 className="text-scale-sm font-weight-semibold uppercase tracking-[0.25em] text-muted">Reconciliation jobs</h3>
+                <p className="mt-1 text-scale-sm text-secondary">Monitor queue progress and inspect individual runs.</p>
               </div>
-              <span className="text-xs text-slate-400 dark:text-slate-500">Live SSE updates</span>
+              <span className="text-scale-xs text-muted">Live SSE updates</span>
             </div>
             {!hasWriteScope ? (
-              <p className="rounded-lg border border-slate-200/70 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-300">
+              <p className="rounded-lg border border-subtle bg-surface-glass-soft px-3 py-2 text-scale-xs text-secondary">
                 Provide a token with the filestore:write scope to review reconciliation jobs.
               </p>
             ) : (
@@ -3795,7 +3777,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     handleApplyJobPath(jobPathDraft);
                   }}
                 >
-                  <label htmlFor="filestore-job-path" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  <label htmlFor="filestore-job-path" className="text-scale-xs font-weight-medium text-muted">
                     Filter by path prefix
                   </label>
                   <div className="flex gap-2">
@@ -3804,11 +3786,11 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                       value={jobPathDraft}
                       onChange={(event) => setJobPathDraft(event.target.value)}
                       placeholder="datasets/observatory"
-                      className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                      className="flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
                     />
                     <button
                       type="submit"
-                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                      className="rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed"
                     >
                       Apply
                     </button>
@@ -3821,7 +3803,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                         setJobPathDraft('');
                         setJobListOffset(0);
                       }}
-                      className="text-xs font-medium text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                      className="text-scale-xs font-weight-medium text-secondary underline decoration-dotted underline-offset-2 hover:text-accent"
                     >
                       Clear path filter
                     </button>
@@ -3830,14 +3812,14 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Statuses</span>
+                    <span className="text-scale-xs font-weight-medium text-muted">Statuses</span>
                     <button
                       type="button"
                       onClick={() => {
                         setJobStatusFilters([]);
                         setJobListOffset(0);
                       }}
-                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                      className="text-scale-xs text-muted underline decoration-dotted underline-offset-2 hover:text-accent"
                     >
                       Reset
                     </button>
@@ -3848,11 +3830,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                         key={`job-status-${status}`}
                         type="button"
                         onClick={() => handleToggleJobStatus(status)}
-                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                          jobStatusFilterSet.has(status)
-                            ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
-                        }`}
+                        className={jobStatusFilterSet.has(status) ? FILTER_PILL_ACTIVE : FILTER_PILL_INACTIVE}
                       >
                         {JOB_STATUS_LABEL[status]}
                       </button>
@@ -3860,8 +3838,8 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   </div>
                 </div>
 
-                <div className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/60">
-                  <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                <div className="overflow-hidden rounded-2xl border border-subtle bg-surface-glass-soft">
+                  <div className="flex items-center justify-between border-b border-subtle bg-surface-glass px-4 py-3 text-scale-xs font-weight-medium text-muted">
                     <span>Recent jobs</span>
                     <span>
                       {jobListLoading && jobList.length === 0
@@ -3873,11 +3851,11 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     {jobListLoading && jobList.length === 0 ? (
-                      <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">Loading reconciliation jobs…</div>
+                      <div className="px-4 py-6 text-scale-sm text-secondary">Loading reconciliation jobs…</div>
                     ) : jobList.length === 0 ? (
-                      <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">No jobs matched the current filters.</div>
+                      <div className="px-4 py-6 text-scale-sm text-secondary">No jobs matched the current filters.</div>
                     ) : (
-                      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                      <ul className="divide-y divide-subtle">
                         {jobList.map((job) => {
                           const isSelected = selectedJobId === job.id;
                           const outcome =
@@ -3889,26 +3867,26 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                               <button
                                 type="button"
                                 onClick={() => setSelectedJobId(job.id)}
-                                className={`flex w-full flex-col items-start gap-1 px-4 py-3 text-left transition ${
+                                className={`flex w-full flex-col items-start gap-1 px-4 py-3 text-left transition-colors ${
                                   isSelected
-                                    ? 'bg-slate-900/5 hover:bg-slate-900/10 dark:bg-slate-100/10 dark:hover:bg-slate-100/15'
-                                    : 'hover:bg-slate-900/5 dark:hover:bg-slate-100/10'
+                                    ? 'bg-surface-glass hover:bg-surface-glass-soft'
+                                    : 'hover:bg-surface-glass-soft'
                                 }`}
                               >
                                 <div className="flex w-full items-center justify-between gap-2">
                                   <div className="flex items-center gap-2">
                                     {job.status === 'running' ? (
-                                      <span className="h-2 w-2 animate-ping rounded-full bg-blue-500/80" aria-hidden="true" />
+                                      <span className="h-2 w-2 animate-ping rounded-full bg-status-info" aria-hidden="true" />
                                     ) : null}
-                                    <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                                    <span className="truncate text-scale-sm font-weight-medium text-primary">
                                       {job.path}
                                     </span>
                                   </div>
-                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${JOB_STATUS_BADGE_CLASS[job.status]}`}>
+                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-weight-semibold uppercase ${JOB_STATUS_BADGE_CLASS[job.status]}`}>
                                     {JOB_STATUS_LABEL[job.status]}
                                   </span>
                                 </div>
-                                <div className="flex w-full flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                <div className="flex w-full flex-wrap items-center gap-2 text-scale-xs text-muted">
                                   <span>Mount {job.backendMountId}</span>
                                   <span aria-hidden="true">•</span>
                                   <span>{formatTimestamp(job.enqueuedAt)}</span>
@@ -3929,23 +3907,23 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     )}
                   </div>
                   {jobPagination ? (
-                    <div className="flex items-center justify-between border-t border-slate-100 bg-white px-4 py-2 text-xs dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex items-center justify-between border-t border-subtle bg-surface-glass px-4 py-2 text-scale-xs text-muted">
                       <button
                         type="button"
                         onClick={() => handleJobPaginationChange(Math.max(jobPagination.offset - jobPageSize, 0))}
                         disabled={jobPagination.offset === 0}
-                        className="rounded-lg border border-slate-200 px-3 py-1 font-medium text-slate-600 transition disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
+                        className="rounded-full border border-subtle px-3 py-1 text-scale-xs font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         Previous
                       </button>
-                      <span className="text-slate-500 dark:text-slate-400">
+                      <span className="text-scale-xs text-muted">
                         Page {Math.floor(jobPagination.offset / jobPageSize) + 1}
                       </span>
                       <button
                         type="button"
                         onClick={() => handleJobPaginationChange(jobPagination.nextOffset ?? null)}
                         disabled={jobPagination.nextOffset == null}
-                        className="rounded-lg border border-slate-200 px-3 py-1 font-medium text-slate-600 transition disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
+                        className="rounded-full border border-subtle px-3 py-1 text-scale-xs font-weight-medium text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         Next
                       </button>
@@ -3953,30 +3931,24 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   ) : null}
                 </div>
 
-                {jobListErrorMessage ? (
-                  <p className="rounded-lg border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
-                    {jobListErrorMessage}
-                  </p>
-                ) : null}
+                {jobListErrorMessage ? <p className={STATUS_BANNER_DANGER}>{jobListErrorMessage}</p> : null}
 
-                <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                <article className={CARD_SURFACE}>
+                  <h4 className="mb-3 text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">
                     Job detail
                   </h4>
                   {jobDetailLoading && selectedJobId !== null ? (
-                    <p className="text-sm text-slate-500 dark:text-slate-300">Loading job details…</p>
+                    <p className="text-scale-sm text-secondary">Loading job details…</p>
                   ) : jobDetailErrorMessage ? (
-                    <p className="rounded-lg border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
-                      {jobDetailErrorMessage}
-                    </p>
+                    <p className={STATUS_BANNER_DANGER}>{jobDetailErrorMessage}</p>
                   ) : !selectedJob ? (
-                    <p className="text-sm text-slate-500 dark:text-slate-300">Select a reconciliation job to inspect details.</p>
+                    <p className="text-scale-sm text-secondary">Select a reconciliation job to inspect details.</p>
                   ) : (
                     <div className="space-y-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{selectedJob.path}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                          <p className="text-scale-sm font-weight-medium text-secondary">{selectedJob.path}</p>
+                          <p className="text-scale-xs text-muted">
                             Mount {selectedJob.backendMountId} · Reason {selectedJob.reason}
                           </p>
                         </div>
@@ -3984,50 +3956,52 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                           {JOB_STATUS_LABEL[selectedJob.status]}
                         </span>
                       </div>
-                      <dl className="grid grid-cols-2 gap-3 text-xs text-slate-500 dark:text-slate-400">
+                      <dl className="grid grid-cols-2 gap-3 text-scale-xs text-muted">
                         <div>
                           <dt className="uppercase tracking-wide text-[10px]">Node</dt>
-                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{selectedJob.nodeId ?? '—'}</dd>
+                          <dd className="mt-1 text-secondary">{selectedJob.nodeId ?? '—'}</dd>
                         </div>
                         <div>
                           <dt className="uppercase tracking-wide text-[10px]">Attempt</dt>
-                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{selectedJob.attempt}</dd>
+                          <dd className="mt-1 text-secondary">{selectedJob.attempt}</dd>
                         </div>
                         <div>
                           <dt className="uppercase tracking-wide text-[10px]">Enqueued</dt>
-                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{formatTimestamp(selectedJob.enqueuedAt)}</dd>
+                          <dd className="mt-1 text-secondary">{formatTimestamp(selectedJob.enqueuedAt)}</dd>
                         </div>
                         <div>
                           <dt className="uppercase tracking-wide text-[10px]">Started</dt>
-                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{formatTimestamp(selectedJob.startedAt)}</dd>
+                          <dd className="mt-1 text-secondary">{formatTimestamp(selectedJob.startedAt)}</dd>
                         </div>
                         <div>
                           <dt className="uppercase tracking-wide text-[10px]">Completed</dt>
-                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{formatTimestamp(selectedJob.completedAt)}</dd>
+                          <dd className="mt-1 text-secondary">{formatTimestamp(selectedJob.completedAt)}</dd>
                         </div>
                         <div>
                           <dt className="uppercase tracking-wide text-[10px]">Duration</dt>
-                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{formatDurationMs(selectedJob.durationMs)}</dd>
+                          <dd className="mt-1 text-secondary">{formatDurationMs(selectedJob.durationMs)}</dd>
                         </div>
                       </dl>
                       {selectedJob.result &&
                       typeof selectedJob.result === 'object' &&
                       'outcome' in selectedJob.result &&
                       (selectedJob.result as Record<string, unknown>).outcome ? (
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                        <p className="text-scale-xs text-muted">
                           Outcome {(selectedJob.result as Record<string, unknown>).outcome as string}
                         </p>
                       ) : null}
                       {selectedJob.error && typeof selectedJob.error === 'object' ? (
-                        <div className="rounded-lg border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
-                          <p className="font-semibold">{String((selectedJob.error as Record<string, unknown>).message ?? 'Reconciliation failed')}</p>
-                          <p className="mt-1">
+                        <div className={`${STATUS_BANNER_DANGER} space-y-1`}>
+                          <p className="font-weight-semibold">
+                            {String((selectedJob.error as Record<string, unknown>).message ?? 'Reconciliation failed')}
+                          </p>
+                          <p>
                             Review reconciliation worker logs or retry the job after addressing the underlying issue.
                           </p>
                         </div>
                       ) : null}
                       {selectedJob.status === 'running' ? (
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Job is currently running. Updates will appear automatically.</p>
+                        <p className="text-scale-xs text-muted">Job is currently running. Updates will appear automatically.</p>
                       ) : null}
                     </div>
                   )}
@@ -4036,10 +4010,10 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
             )}
           </section>
 
-          <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+          <section className="flex flex-col gap-4 ${PANEL_SURFACE}">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Activity feed</h3>
-              <span className="text-xs text-slate-400 dark:text-slate-500">
+              <h3 className="text-scale-sm font-weight-semibold uppercase tracking-[0.25em] text-muted">Activity feed</h3>
+              <span className="text-scale-xs text-muted">
                 {sseActive ? 'Scoped SSE updates' : 'Polling updates'}
               </span>
             </div>
@@ -4054,34 +4028,30 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     aria-pressed={enabled}
                     title={definition.description}
                     onClick={() => toggleEventCategory(category)}
-                    className={
-                      enabled
-                        ? 'rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-900/40 dark:text-blue-100'
-                        : 'rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200'
-                    }
+                    className={enabled ? FILTER_PILL_ACTIVE : FILTER_PILL_INACTIVE}
                   >
                     {definition.label}
                   </button>
                 );
               })}
             </div>
-            <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/60">
+            <div className="flex-1 overflow-y-auto rounded-2xl border border-subtle bg-surface-glass-soft">
               {enabledEventTypes.length === 0 ? (
-                <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">
+                <div className="px-4 py-6 text-scale-sm text-secondary">
                   Enable at least one event category to receive live updates.
                 </div>
               ) : visibleActivity.length === 0 ? (
-                <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">Awaiting incoming events…</div>
+                <div className="px-4 py-6 text-scale-sm text-secondary">Awaiting incoming events…</div>
               ) : (
-                <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                <ul className="divide-y divide-subtle">
                   {visibleActivity.map((entry) => (
-                    <li key={entry.id} className="px-4 py-3 text-sm">
+                    <li key={entry.id} className="px-4 py-3 text-scale-sm">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium text-slate-700 dark:text-slate-200">{entry.label}</span>
-                        <span className="text-[11px] text-slate-400 dark:text-slate-500">Mount {entry.backendMountId ?? '–'}</span>
+                        <span className="font-medium text-secondary">{entry.label}</span>
+                        <span className="text-[11px] text-muted">Mount {entry.backendMountId ?? '–'}</span>
                       </div>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{entry.detail}</p>
-                      <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">{formatTimestamp(entry.timestamp)}</p>
+                      <p className="mt-1 text-scale-xs text-muted">{entry.detail}</p>
+                      <p className="mt-1 text-[11px] text-muted">{formatTimestamp(entry.timestamp)}</p>
                     </li>
                   ))}
                 </ul>

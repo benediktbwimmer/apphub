@@ -1,6 +1,14 @@
 import { useMemo } from 'react';
 import type { LifecycleMetricsSnapshot } from '../types';
 import { findMetricValue, formatInstant, parsePrometheusMetrics, sumMetricValues } from '../utils';
+import {
+  CARD_SURFACE_SOFT,
+  PANEL_SURFACE_LARGE,
+  SECONDARY_BUTTON_COMPACT,
+  STATUS_BANNER_DANGER,
+  STATUS_MESSAGE,
+  STATUS_META
+} from '../timestoreTokens';
 
 interface MetricsSummaryProps {
   lifecycleMetrics: LifecycleMetricsSnapshot | null;
@@ -30,6 +38,8 @@ function formatDuration(value: number | null): string {
   }
   return `${(value * 1000).toFixed(0)} ms`;
 }
+
+const PANEL_SHADOW = 'shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)]';
 
 export function MetricsSummary({ lifecycleMetrics, metricsText, loading, error, onRefresh }: MetricsSummaryProps) {
   const derived = useMemo(() => {
@@ -62,24 +72,20 @@ export function MetricsSummary({ lifecycleMetrics, metricsText, loading, error, 
   }, [metricsText]);
 
   return (
-    <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <div className={`${PANEL_SURFACE_LARGE} ${PANEL_SHADOW}`}>
       <header className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">Metrics</span>
-          <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">Operational snapshot</h4>
+          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-accent">Metrics</span>
+          <h4 className="text-scale-base font-weight-semibold text-primary">Operational snapshot</h4>
         </div>
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
-        >
+        <button type="button" onClick={onRefresh} className={SECONDARY_BUTTON_COMPACT}>
           Refresh
         </button>
       </header>
       {loading ? (
-        <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">Loading metrics…</p>
+        <p className={`mt-4 ${STATUS_MESSAGE}`}>Loading metrics…</p>
       ) : error ? (
-        <p className="mt-4 text-sm text-rose-600 dark:text-rose-300">{error}</p>
+        <div className={`mt-4 ${STATUS_BANNER_DANGER}`}>{error}</div>
       ) : (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <MetricCard
@@ -121,11 +127,11 @@ interface MetricCardProps {
 
 function MetricCard({ title, primary, secondary, tertiary }: MetricCardProps) {
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
-      <h5 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">{title}</h5>
-      <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">{primary}</p>
-      <p className="text-xs text-slate-500 dark:text-slate-400">{secondary}</p>
-      <p className="text-xs text-slate-500 dark:text-slate-400">{tertiary}</p>
+    <div className={`${CARD_SURFACE_SOFT} text-scale-sm`}>
+      <h5 className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted">{title}</h5>
+      <p className="mt-2 text-scale-lg font-weight-semibold text-primary">{primary}</p>
+      <p className={STATUS_META}>{secondary}</p>
+      <p className={STATUS_META}>{tertiary}</p>
     </div>
   );
 }

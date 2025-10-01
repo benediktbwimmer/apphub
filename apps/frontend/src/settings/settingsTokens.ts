@@ -112,3 +112,18 @@ export const SETTINGS_TAB_ACTIVE_CLASSES =
 
 export const SETTINGS_TAB_INACTIVE_CLASSES =
   'rounded-full border border-transparent px-4 py-2 text-scale-sm font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+export const SETTINGS_THEME_CARD_BASE =
+  'group relative flex cursor-pointer flex-col gap-3 rounded-2xl border border-subtle bg-surface-glass p-4 text-primary shadow-elevation-sm transition-all duration-200 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent';
+export const SETTINGS_THEME_CARD_SELECTED = 'border-accent shadow-elevation-xl';
+export const SETTINGS_THEME_CARD_UNSELECTED = 'hover:border-accent-soft hover:shadow-elevation-md';
+
+export const SETTINGS_THEME_OPTION_LABEL = 'text-scale-sm font-weight-semibold text-primary';
+export const SETTINGS_THEME_OPTION_DESCRIPTION = 'text-scale-xs text-muted';
+export const SETTINGS_THEME_PREVIEW_LABEL =
+  'text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted';
+export const SETTINGS_THEME_PREVIEW_FRAME =
+  'flex flex-1 items-center gap-2 rounded-xl border border-subtle bg-surface-muted p-2 shadow-inner transition-colors';
+export const SETTINGS_THEME_PREVIEW_TILE = 'flex-1 rounded-lg p-3 text-secondary transition-colors';
+export const SETTINGS_THEME_PREVIEW_TILE_BORDER = 'border border-subtle';
+export const SETTINGS_THEME_SELECTED_RING = 'ring-2 ring-accent';

@@ -58,6 +58,44 @@ type EventsFilterBarProps = {
   onOpenSchemaBrowser: () => void;
 };
 
+const PAGE_TITLE_CLASSES = 'text-scale-2xl font-weight-semibold text-primary';
+const PAGE_SUBTITLE_CLASSES = 'text-scale-sm text-muted';
+const OUTLINE_FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const SECONDARY_PILL_BUTTON =
+  `rounded-full border border-subtle text-scale-sm font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:bg-surface-glass-soft ${OUTLINE_FOCUS}`;
+const NEUTRAL_PILL_BUTTON =
+  `rounded-full border border-subtle text-scale-xs font-weight-semibold text-secondary transition-colors hover:bg-surface-glass-soft ${OUTLINE_FOCUS}`;
+const PRIMARY_PILL_BUTTON =
+  `rounded-full bg-accent text-scale-sm font-weight-semibold text-on-accent shadow-elevation-md transition-colors hover:bg-accent-strong ${OUTLINE_FOCUS}`;
+const GHOST_PILL_BUTTON =
+  `rounded-full text-scale-xs font-weight-semibold transition-colors ${OUTLINE_FOCUS}`;
+const SECTION_CONTAINER = 'rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-lg backdrop-blur-md';
+const INPUT_LABEL_CLASSES = 'flex flex-col text-scale-xs font-weight-semibold text-secondary';
+const TEXT_INPUT_CLASSES =
+  'mt-1 rounded-xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const DATA_PANEL_CLASSES = 'rounded-2xl border border-subtle bg-surface-glass-soft p-4';
+const PRESET_ACTIVE_CLASSES = 'bg-accent text-on-accent shadow-elevation-md';
+const PRESET_INACTIVE_CLASSES = 'border border-subtle text-secondary hover:bg-surface-glass-soft';
+const SEVERITY_ACTIVE_CLASSES: Record<string, string> = {
+  critical: 'bg-status-danger-soft text-status-danger shadow-elevation-sm',
+  error: 'bg-status-danger-soft text-status-danger shadow-elevation-sm',
+  warning: 'bg-status-warning-soft text-status-warning shadow-elevation-sm',
+  info: 'bg-status-info-soft text-status-info shadow-elevation-sm',
+  debug: 'bg-status-neutral-soft text-secondary shadow-elevation-sm'
+};
+const SEVERITY_BADGE_CLASSES: Record<string, string> = {
+  critical: 'bg-status-danger text-status-danger-on',
+  error: 'bg-status-danger text-status-danger-on',
+  warning: 'bg-status-warning text-status-warning-on',
+  info: 'bg-status-info text-status-info-on',
+  debug: 'bg-status-neutral text-status-neutral-on'
+};
+const CONNECTION_BADGE_CLASSES: Record<AppHubConnectionStatus, string> = {
+  connected: 'bg-status-success-soft text-status-success',
+  connecting: 'bg-status-warning-soft text-status-warning',
+  offline: 'bg-status-danger-soft text-status-danger'
+};
+
 function formatDateTime(value: string): string {
   try {
     const date = new Date(value);
@@ -222,8 +260,8 @@ export default function EventsExplorerPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">Events Explorer</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <h1 className={PAGE_TITLE_CLASSES}>Events Explorer</h1>
+          <p className={PAGE_SUBTITLE_CLASSES}>
             Inspect live platform events, filter by envelope metadata, and drill into payload details.
           </p>
         </div>
@@ -232,7 +270,7 @@ export default function EventsExplorerPage() {
           <button
             type="button"
             onClick={handleRefresh}
-            className="rounded-full border border-slate-200/70 px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+            className={`${SECONDARY_PILL_BUTTON} px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60`}
             disabled={loading}
           >
             Refresh feed
@@ -269,7 +307,7 @@ export default function EventsExplorerPage() {
           />
 
           {error ? (
-            <div className="rounded-2xl border border-rose-200/70 bg-rose-50/60 px-4 py-3 text-sm text-rose-700 dark:border-rose-400/30 dark:bg-rose-500/10 dark:text-rose-200">
+            <div className="rounded-2xl border border-status-danger bg-status-danger-soft px-4 py-3 text-scale-sm text-status-danger">
               {error}
             </div>
           ) : null}
@@ -290,7 +328,7 @@ export default function EventsExplorerPage() {
                 type="button"
                 onClick={handleLoadMore}
                 disabled={loadingMore}
-                className="rounded-full border border-slate-200/70 px-5 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+                className={`${SECONDARY_PILL_BUTTON} px-5 py-2 disabled:cursor-not-allowed disabled:opacity-60`}
               >
                 {loadingMore ? 'Loading…' : 'Load older events'}
               </button>
@@ -352,19 +390,17 @@ function EventsFilterBar({
   };
 
   return (
-    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.45)] backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/70">
+    <section className={SECTION_CONTAINER}>
       <div className="flex flex-wrap items-center gap-2">
         {presets.map((preset) => (
           <button
             key={preset.id}
             type="button"
-          onClick={() => {
-            void onPresetSelect(preset.id);
-          }}
-            className={`rounded-full px-3 py-1 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-              activePresetId === preset.id
-                ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30'
-                : 'border border-slate-200/70 text-slate-600 hover:bg-violet-50 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800'
+            onClick={() => {
+              void onPresetSelect(preset.id);
+            }}
+            className={`${GHOST_PILL_BUTTON} px-3 py-1 ${
+              activePresetId === preset.id ? PRESET_ACTIVE_CLASSES : `${PRESET_INACTIVE_CLASSES}`
             }`}
           >
             {preset.label}
@@ -373,55 +409,55 @@ function EventsFilterBar({
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <label className={INPUT_LABEL_CLASSES}>
           Event type
           <input
             type="text"
             value={draftFilters.type}
             onChange={(event) => handleInputChange('type', event.target.value)}
             placeholder="metastore.record.updated"
-            className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+            className={TEXT_INPUT_CLASSES}
           />
         </label>
-        <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <label className={INPUT_LABEL_CLASSES}>
           Source
           <input
             type="text"
             value={draftFilters.source}
             onChange={(event) => handleInputChange('source', event.target.value)}
             placeholder="metastore.api"
-            className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+            className={TEXT_INPUT_CLASSES}
           />
         </label>
-        <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <label className={INPUT_LABEL_CLASSES}>
           Correlation ID
           <input
             type="text"
             value={draftFilters.correlationId}
             onChange={(event) => handleInputChange('correlationId', event.target.value)}
             placeholder="req-41ac2fd3"
-            className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+            className={TEXT_INPUT_CLASSES}
           />
         </label>
-        <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <label className={INPUT_LABEL_CLASSES}>
           From
           <input
             type="datetime-local"
             value={toLocalInputValue(draftFilters.from)}
             onChange={(event) => handleInputChange('from', fromLocalInputValue(event.target.value))}
-            className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+            className={TEXT_INPUT_CLASSES}
           />
         </label>
-        <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <label className={INPUT_LABEL_CLASSES}>
           To
           <input
             type="datetime-local"
             value={toLocalInputValue(draftFilters.to)}
             onChange={(event) => handleInputChange('to', fromLocalInputValue(event.target.value))}
-            className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+            className={TEXT_INPUT_CLASSES}
           />
         </label>
-        <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <label className={INPUT_LABEL_CLASSES}>
           JSONPath filter
           <input
             type="text"
@@ -429,7 +465,7 @@ function EventsFilterBar({
             value={draftFilters.jsonPath}
             onChange={(event) => handleInputChange('jsonPath', event.target.value)}
             placeholder="$.payload.assetId"
-            className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+            className={TEXT_INPUT_CLASSES}
           />
           <datalist id="events-jsonpath-options">
             {jsonPathSuggestions.map((option) => (
@@ -447,10 +483,8 @@ function EventsFilterBar({
               key={severity}
               type="button"
               onClick={() => toggleSeverity(severity)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold capitalize transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-                active
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
-                  : 'border border-slate-200/70 text-slate-600 hover:bg-indigo-50 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800'
+              className={`${GHOST_PILL_BUTTON} px-3 py-1 capitalize ${
+                active ? SEVERITY_ACTIVE_CLASSES[severity] ?? PRESET_ACTIVE_CLASSES : PRESET_INACTIVE_CLASSES
               }`}
             >
               {severity}
@@ -460,7 +494,7 @@ function EventsFilterBar({
         <button
           type="button"
           onClick={() => onChange({ ...draftFilters, severity: [] })}
-          className="rounded-full border border-slate-200/70 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+          className={`${NEUTRAL_PILL_BUTTON} px-3 py-1`}
         >
           Clear severities
         </button>
@@ -472,7 +506,7 @@ function EventsFilterBar({
           onClick={() => {
             void onApply();
           }}
-          className="rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 transition hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+          className={`${PRIMARY_PILL_BUTTON} px-5 py-2`}
         >
           Apply filters
         </button>
@@ -481,7 +515,7 @@ function EventsFilterBar({
           onClick={() => {
             void onReset();
           }}
-          className="rounded-full border border-slate-200/70 px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+          className={`${SECONDARY_PILL_BUTTON} px-4 py-2`}
         >
           Reset
         </button>
@@ -493,7 +527,7 @@ function EventsFilterBar({
             }
           }}
           disabled={!schema}
-          className="rounded-full border border-slate-200/70 px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+          className={`${SECONDARY_PILL_BUTTON} px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60`}
         >
           Browse schema
         </button>
@@ -522,8 +556,8 @@ function EventsExplorerList({
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Live events</h2>
-        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <h2 className="text-scale-lg font-weight-semibold text-primary">Live events</h2>
+        <div className="flex items-center gap-2 text-scale-xs text-muted">
           {refreshing ? (
             <span className="inline-flex items-center gap-2">
               <Spinner size="xs" /> Refreshing…
@@ -536,14 +570,14 @@ function EventsExplorerList({
 
       <div
         ref={containerRef}
-        className="h-[28rem] overflow-y-auto rounded-3xl border border-slate-200/70 bg-white/60 shadow-inner dark:border-slate-700/60 dark:bg-slate-900/60"
+        className="h-[28rem] overflow-y-auto rounded-3xl border border-subtle bg-surface-glass-soft shadow-inner"
       >
         {loading ? (
           <div className="flex h-full items-center justify-center">
             <Spinner />
           </div>
         ) : events.length === 0 ? (
-          <div className="flex h-full items-center justify-center px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
+          <div className="flex h-full items-center justify-center px-4 py-6 text-scale-sm text-muted">
             No events match the current filters.
           </div>
         ) : (
@@ -565,29 +599,25 @@ function EventsExplorerList({
                     width: '100%',
                     transform: `translateY(${virtualRow.start}px)`
                   }}
-                  className={`cursor-pointer px-6 py-4 transition ${
-                    isSelected
-                      ? 'bg-violet-50/80 dark:bg-slate-800/80'
-                      : 'border-b border-slate-200/70 dark:border-slate-800/60'
-                  } ${isHighlighted ? 'shadow-[0_0_0_2px_rgba(129,140,248,0.6)]' : ''}`}
+                  className={`cursor-pointer border-b border-subtle px-6 py-4 transition ${
+                    isSelected ? 'bg-accent-soft shadow-elevation-sm' : 'bg-transparent'
+                  } ${isHighlighted ? 'shadow-[0_0_0_2px_var(--color-accent-default)]' : ''}`}
                   onClick={() => onSelect(event)}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <SeverityBadge severity={event.severity} />
-                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{event.type}</h3>
+                      <h3 className="text-scale-sm font-weight-semibold text-primary">{event.type}</h3>
                       {isHighlighted ? (
-                        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
+                        <span className="rounded-full bg-status-success-soft px-2 py-0.5 text-[10px] font-weight-semibold uppercase tracking-wide text-status-success">
                           New
                         </span>
                       ) : null}
                     </div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      {formatDateTime(event.occurredAt)}
-                    </span>
+                    <span className="text-scale-xs text-muted">{formatDateTime(event.occurredAt)}</span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-slate-800">{event.source}</span>
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-scale-xs text-muted">
+                    <span className="rounded-full bg-surface-glass px-2 py-0.5 text-secondary">{event.source}</span>
                     {event.correlationId ? <span>Correlation: {event.correlationId}</span> : null}
                     <span>Received: {formatDateTime(event.receivedAt)}</span>
                   </div>
@@ -605,15 +635,12 @@ function SeverityBadge({ severity }: { severity: WorkflowEventSample['severity']
   if (!severity) {
     return null;
   }
-  const colorMap: Record<string, string> = {
-    critical: 'bg-rose-600 text-white',
-    error: 'bg-rose-500 text-white',
-    warning: 'bg-amber-500 text-black',
-    info: 'bg-sky-500 text-white',
-    debug: 'bg-slate-500 text-white'
-  };
-  const classes = colorMap[severity] ?? 'bg-slate-500 text-white';
-  return <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classes}`}>{severity}</span>;
+  const classes = SEVERITY_BADGE_CLASSES[severity] ?? 'bg-status-neutral text-status-neutral-on';
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[10px] font-weight-semibold uppercase tracking-wide ${classes}`}>
+      {severity}
+    </span>
+  );
 }
 
 function EventDetailDrawer({ event, open, onClose }: EventDetailDrawerProps) {
@@ -625,78 +652,78 @@ function EventDetailDrawer({ event, open, onClose }: EventDetailDrawerProps) {
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
                 <SeverityBadge severity={event.severity} />
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{event.type}</h2>
+                <h2 className="text-scale-lg font-weight-semibold text-primary">{event.type}</h2>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-scale-xs text-muted">
                 {event.source} · {formatDateTime(event.occurredAt)}
               </p>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full border border-slate-200/70 px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+              className={`${NEUTRAL_PILL_BUTTON} px-3 py-1`}
             >
               Close
             </button>
           </div>
 
-          <div className="grid gap-3 text-xs text-slate-600 dark:text-slate-300 md:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200/70 bg-white p-4 dark:border-slate-700/60 dark:bg-slate-900">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Envelope</h3>
+          <div className="grid gap-3 text-scale-xs text-secondary md:grid-cols-2">
+            <div className={DATA_PANEL_CLASSES}>
+              <h3 className="text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">Envelope</h3>
               <dl className="mt-2 space-y-1">
                 <div>
-                  <dt className="font-semibold">Event ID</dt>
-                  <dd className="break-all text-slate-500 dark:text-slate-400">{event.id}</dd>
+                  <dt className="font-weight-semibold text-secondary">Event ID</dt>
+                  <dd className="break-all text-muted">{event.id}</dd>
                 </div>
                 <div>
-                  <dt className="font-semibold">Source</dt>
+                  <dt className="font-weight-semibold text-secondary">Source</dt>
                   <dd>{event.source}</dd>
                 </div>
                 {event.correlationId ? (
                   <div>
-                    <dt className="font-semibold">Correlation</dt>
-                    <dd className="break-all text-slate-500 dark:text-slate-400">{event.correlationId}</dd>
+                    <dt className="font-weight-semibold text-secondary">Correlation</dt>
+                    <dd className="break-all text-muted">{event.correlationId}</dd>
                   </div>
                 ) : null}
                 <div>
-                  <dt className="font-semibold">Occurred</dt>
+                  <dt className="font-weight-semibold text-secondary">Occurred</dt>
                   <dd>{formatDateTime(event.occurredAt)}</dd>
                 </div>
                 <div>
-                  <dt className="font-semibold">Received</dt>
+                  <dt className="font-weight-semibold text-secondary">Received</dt>
                   <dd>{formatDateTime(event.receivedAt)}</dd>
                 </div>
                 {event.ttlMs !== null ? (
                   <div>
-                    <dt className="font-semibold">TTL (ms)</dt>
+                    <dt className="font-weight-semibold text-secondary">TTL (ms)</dt>
                     <dd>{event.ttlMs}</dd>
                   </div>
                 ) : null}
               </dl>
             </div>
-            <div className="rounded-2xl border border-slate-200/70 bg-white p-4 dark:border-slate-700/60 dark:bg-slate-900">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Links</h3>
+            <div className={DATA_PANEL_CLASSES}>
+              <h3 className="text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">Links</h3>
               {event.links ? (
-                <pre className="mt-2 max-h-40 overflow-auto text-xs text-slate-600 dark:text-slate-300">
+                <pre className="mt-2 max-h-40 overflow-auto text-scale-xs text-secondary">
                   {JSON.stringify(event.links, null, 2)}
                 </pre>
               ) : (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">No related resources recorded.</p>
+                <p className="mt-2 text-scale-xs text-muted">No related resources recorded.</p>
               )}
             </div>
           </div>
 
           <div className="flex flex-col gap-3 overflow-hidden">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payload</h3>
-            <pre className="max-h-60 overflow-auto rounded-2xl border border-slate-200/70 bg-white p-4 text-xs text-slate-700 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-300">
+            <h3 className="text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">Payload</h3>
+            <pre className="max-h-60 overflow-auto rounded-2xl border border-subtle bg-surface-glass-soft p-4 text-scale-xs text-primary">
               {JSON.stringify(event.payload, null, 2)}
             </pre>
           </div>
 
           {event.metadata ? (
             <div className="flex flex-col gap-3 overflow-hidden">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Metadata</h3>
-              <pre className="max-h-40 overflow-auto rounded-2xl border border-slate-200/70 bg-white p-4 text-xs text-slate-700 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-300">
+              <h3 className="text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">Metadata</h3>
+              <pre className="max-h-40 overflow-auto rounded-2xl border border-subtle bg-surface-glass-soft p-4 text-scale-xs text-primary">
                 {JSON.stringify(event.metadata, null, 2)}
               </pre>
             </div>
@@ -704,8 +731,8 @@ function EventDetailDrawer({ event, open, onClose }: EventDetailDrawerProps) {
 
           {event.derived ? (
             <div className="flex flex-col gap-3 overflow-hidden">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Derived</h3>
-              <pre className="max-h-40 overflow-auto rounded-2xl border border-slate-200/70 bg-white p-4 text-xs text-slate-700 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-300">
+              <h3 className="text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">Derived</h3>
+              <pre className="max-h-40 overflow-auto rounded-2xl border border-subtle bg-surface-glass-soft p-4 text-scale-xs text-primary">
                 {JSON.stringify(event.derived, null, 2)}
               </pre>
             </div>
@@ -721,16 +748,16 @@ function SchemaBrowser({ schema, open, onClose, onApply }: SchemaBrowserProps) {
     <Modal open={open} onClose={onClose} contentClassName="max-w-5xl">
       <div className="flex max-h-[80vh] flex-col gap-4 overflow-hidden p-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Event schema</h2>
+          <h2 className="text-scale-lg font-weight-semibold text-primary">Event schema</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full border border-slate-200/70 px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+            className={`${NEUTRAL_PILL_BUTTON} px-3 py-1`}
           >
             Close
           </button>
         </div>
-        <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200/70 bg-white dark:border-slate-700/60 dark:bg-slate-900">
+        <div className="flex-1 overflow-hidden rounded-2xl border border-subtle bg-surface-glass">
           {schema ? (
             <EventSchemaExplorer
               schema={schema}
@@ -740,7 +767,7 @@ function SchemaBrowser({ schema, open, onClose, onApply }: SchemaBrowserProps) {
               }}
             />
           ) : (
-            <div className="flex h-full items-center justify-center px-6 text-sm text-slate-500 dark:text-slate-400">
+            <div className="flex h-full items-center justify-center px-6 text-scale-sm text-muted">
               Schema metadata is not available for the selected filters.
             </div>
           )}
@@ -758,16 +785,9 @@ function ConnectionBadge({
   refreshing: boolean;
 }) {
   const label = status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting' : 'Offline';
-  const baseClasses =
-    'inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500';
-  const palette =
-    status === 'connected'
-      ? 'bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200'
-      : status === 'connecting'
-      ? 'bg-amber-500/20 text-amber-600 dark:bg-amber-500/30 dark:text-amber-200'
-      : 'bg-rose-500/20 text-rose-600 dark:bg-rose-500/30 dark:text-rose-200';
+  const baseClasses = `${GHOST_PILL_BUTTON} inline-flex items-center gap-2 px-3 py-1 text-scale-xs font-weight-semibold`;
   return (
-    <span className={`${baseClasses} ${palette}`}>
+    <span className={`${baseClasses} ${CONNECTION_BADGE_CLASSES[status]}`}>
       {refreshing ? <Spinner size="xs" /> : null}
       {label}
     </span>

@@ -2,21 +2,30 @@ import { useMemo } from 'react';
 import { Spinner } from '../../components';
 import { formatInstant } from '../utils';
 import type { DatasetAccessAuditEvent } from '../types';
-
-const BADGE_BASE =
-  'inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em]';
-
-const BADGE_VARIANTS: Record<'success' | 'failure', string> = {
-  success:
-    'border border-emerald-400/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-200',
-  failure:
-    'border border-rose-400/70 bg-rose-500/15 text-rose-700 dark:border-rose-400/60 dark:bg-rose-500/20 dark:text-rose-200'
-};
+import {
+  BADGE_PILL_DANGER,
+  BADGE_PILL_MUTED,
+  BADGE_PILL_SUCCESS,
+  CARD_SURFACE,
+  CARD_SURFACE_SOFT,
+  PANEL_SURFACE_LARGE,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+  STATUS_BANNER_DANGER,
+  STATUS_BANNER_WARNING,
+  STATUS_MESSAGE,
+  STATUS_META
+} from '../timestoreTokens';
 
 type HistoryEntryLink = {
   label: string;
   value: string;
   href?: string;
+};
+
+const EVENT_STATUS_BADGE: Record<'success' | 'failure', string> = {
+  success: BADGE_PILL_SUCCESS,
+  failure: BADGE_PILL_DANGER
 };
 
 interface DatasetHistoryPanelProps {
@@ -172,30 +181,26 @@ export default function DatasetHistoryPanel({
   const statusLabel = useMemo(() => (lastFetchedAt ? `Updated ${formatInstant(lastFetchedAt)}` : null), [lastFetchedAt]);
 
   return (
-    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <section className={`${PANEL_SURFACE_LARGE} shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)]`}> 
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
+          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-accent">
             History
           </span>
-          <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          <h4 className="text-scale-base font-weight-semibold text-primary">
             Access & ingestion timeline
           </h4>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <p className={STATUS_MESSAGE}>
             Recent ingestion attempts, queries, and administrative changes recorded for this dataset.
           </p>
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
-          {statusLabel && (
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-              {statusLabel}
-            </span>
-          )}
+          {statusLabel ? <span className={STATUS_META}>{statusLabel}</span> : null}
           <button
             type="button"
             onClick={onRefresh}
             disabled={!canView || loading}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:text-slate-300"
+            className={SECONDARY_BUTTON_COMPACT}
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -203,27 +208,25 @@ export default function DatasetHistoryPanel({
       </header>
 
       {!canView ? (
-        <p className="mt-4 rounded-2xl border border-amber-300/70 bg-amber-100/60 p-4 text-sm text-amber-800 dark:border-amber-400/60 dark:bg-amber-500/15 dark:text-amber-200">
-          The <code className="font-mono">timestore:admin</code> scope is required to review dataset access history.
+        <p className={`mt-4 ${STATUS_BANNER_WARNING}`}>
+          The <code className="font-mono text-scale-xs text-secondary">timestore:admin</code> scope is required to review dataset access history.
         </p>
       ) : (
         <div className="mt-4 space-y-4">
           {loading && events.length === 0 && (
-            <div className="rounded-2xl border border-slate-200/70 bg-slate-100/70 p-4 text-sm text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-300">
+            <div className={`${CARD_SURFACE_SOFT} text-scale-sm text-secondary`}>
               <Spinner label="Loading history" size="sm" />
             </div>
           )}
 
           {error && (
-            <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 p-4 text-sm font-medium text-rose-700 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-200">
-              {error}
-            </div>
+            <div className={STATUS_BANNER_DANGER}>{error}</div>
           )}
 
           {!loading && !error && events.length === 0 && (
-            <p className="rounded-2xl border border-slate-200/70 bg-slate-100/70 p-4 text-sm text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-300">
+            <div className={`${CARD_SURFACE_SOFT} text-scale-sm text-secondary`}>
               No history recorded yet.
-            </p>
+            </div>
           )}
 
           {events.length > 0 && (
@@ -234,39 +237,34 @@ export default function DatasetHistoryPanel({
                   ? event.actorScopes.filter((scope) => scope.trim().length > 0)
                   : [];
                 return (
-                  <li
-                    key={event.id}
-                    className="rounded-2xl border border-slate-200/60 bg-slate-50/80 p-4 text-sm dark:border-slate-700/60 dark:bg-slate-800/60"
+                  <li key={event.id} className={`${CARD_SURFACE} flex flex-wrap gap-4 text-scale-sm text-secondary`}
                   >
-                    <div className="flex flex-wrap items-center gap-3 text-xs">
-                      <span className={`${BADGE_BASE} ${BADGE_VARIANTS[event.success ? 'success' : 'failure']}`}>
+                    <div className="flex flex-wrap items-center gap-3 text-scale-xs text-muted">
+                      <span className={`${EVENT_STATUS_BADGE[event.success ? 'success' : 'failure']} uppercase tracking-[0.2em]`}>
                         {event.success ? 'Success' : 'Failure'}
                       </span>
-                      <span className="font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                      <span className="font-weight-semibold uppercase tracking-[0.2em] text-muted">
                         {formatActionLabel(event)}
                       </span>
-                      <time className="text-slate-500 dark:text-slate-400" dateTime={event.createdAt}>
+                      <time className={STATUS_META} dateTime={event.createdAt}>
                         {formatInstant(event.createdAt)}
                       </time>
                     </div>
-                    <p className="mt-2 text-sm font-medium text-slate-800 dark:text-slate-200">
+                    <p className="mt-2 text-scale-sm font-weight-medium text-primary">
                       {formatEventSummary(event)}
                     </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-scale-xs text-muted">
                       <span>
                         Actor:{' '}
-                        <code className="rounded-full bg-slate-200/70 px-2 py-0.5 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                        <span className={`${BADGE_PILL_MUTED} font-mono`}>
                           {event.actorId ?? 'system'}
-                        </code>
+                        </span>
                       </span>
                       {actorScopes.length > 0 && (
                         <span className="inline-flex flex-wrap items-center gap-1">
                           Scopes:
                           {actorScopes.map((scope) => (
-                            <span
-                              key={`${event.id}-${scope}`}
-                              className="rounded-full bg-slate-200/70 px-2 py-0.5 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200"
-                            >
+                            <span key={`${event.id}-${scope}`} className={`${BADGE_PILL_MUTED} font-mono`}>
                               {scope}
                             </span>
                           ))}
@@ -274,18 +272,13 @@ export default function DatasetHistoryPanel({
                       )}
                     </div>
                     {metadataEntries.length > 0 && (
-                      <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <dl className="mt-3 grid gap-2 text-scale-sm text-secondary sm:grid-cols-2">
                         {metadataEntries.map((entry) => (
                           <div key={`${event.id}-${entry.label}`} className="flex flex-col gap-1">
-                            <dt className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                              {entry.label}
-                            </dt>
-                            <dd className="text-sm text-slate-700 dark:text-slate-300">
+                            <dt className={STATUS_META}>{entry.label}</dt>
+                            <dd>
                               {entry.href ? (
-                                <a
-                                  href={entry.href}
-                                  className="text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
-                                >
+                                <a href={entry.href} className="text-accent transition-colors hover:text-accent-strong">
                                   {entry.value}
                                 </a>
                               ) : (
@@ -308,7 +301,7 @@ export default function DatasetHistoryPanel({
                 type="button"
                 onClick={onLoadMore}
                 disabled={loadingMore}
-                className="rounded-full border border-slate-300/70 px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:text-slate-300"
+                className={PRIMARY_BUTTON}
               >
                 {loadingMore ? 'Loading more…' : 'Load older events'}
               </button>

@@ -1,8 +1,34 @@
+import classNames from 'classnames';
 import type { AssetGraphNode } from '../types';
 import type { WorkflowAssetPartitions } from '../../workflows/types';
 import { formatTimestamp } from '../../workflows/formatters';
 import StatusBadge from '../../workflows/components/StatusBadge';
 import { Spinner } from '../../components';
+import {
+  DATA_ASSET_ACTION_PILL_ACCENT,
+  DATA_ASSET_ACTION_PILL_SUCCESS,
+  DATA_ASSET_ACTION_PILL_WARNING,
+  DATA_ASSET_ALERT_ERROR,
+  DATA_ASSET_ALERT_INFO,
+  DATA_ASSET_CARD,
+  DATA_ASSET_DETAIL_PANEL,
+  DATA_ASSET_DETAIL_SUBTITLE,
+  DATA_ASSET_DETAIL_TITLE,
+  DATA_ASSET_EMPTY_STATE,
+  DATA_ASSET_NOTE,
+  DATA_ASSET_PARTITION_META,
+  DATA_ASSET_SECTION_TEXT,
+  DATA_ASSET_SECTION_TITLE,
+  DATA_ASSET_SELECT,
+  DATA_ASSET_SELECT_LABEL,
+  DATA_ASSET_STATUS_BADGE_FRESH,
+  DATA_ASSET_STATUS_BADGE_REFRESH,
+  DATA_ASSET_STATUS_BADGE_STALE,
+  DATA_ASSET_TABLE_CELL,
+  DATA_ASSET_TABLE_CONTAINER,
+  DATA_ASSET_TABLE_HEADER,
+  DATA_ASSET_TABLE_ROW_HIGHLIGHT
+} from '../dataAssetsTokens';
 
 type AssetDetailsPanelProps = {
   asset: AssetGraphNode | null;
@@ -35,8 +61,10 @@ export function AssetDetailsPanel({
 }: AssetDetailsPanelProps) {
   if (!asset) {
     return (
-      <div className="flex h-[520px] flex-col items-center justify-center gap-2 rounded-3xl border border-slate-200/70 bg-white/80 text-sm text-slate-500 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/40 dark:text-slate-300">
-        <span>Select an asset from the graph to view details.</span>
+      <div className={DATA_ASSET_EMPTY_STATE}>
+        <span className="text-center">
+          Select an asset from the graph to view details.
+        </span>
       </div>
     );
   }
@@ -52,40 +80,32 @@ export function AssetDetailsPanel({
     : null;
 
   return (
-    <div className="flex h-[520px] flex-col gap-4 overflow-hidden rounded-3xl border border-slate-200/70 bg-white/90 p-5 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/40">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
+    <div className={DATA_ASSET_DETAIL_PANEL}>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">{asset.assetId}</h2>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-              {asset.normalizedAssetId}
-            </p>
+            <h2 className={DATA_ASSET_DETAIL_TITLE}>{asset.assetId}</h2>
+            <p className={DATA_ASSET_DETAIL_SUBTITLE}>{asset.normalizedAssetId}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            {asset.hasOutdatedUpstreams && (
-              <span className="inline-flex items-center rounded-full bg-sky-200 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-500/20 dark:text-sky-200">
-                Needs refresh
-              </span>
-            )}
-            {asset.hasStalePartitions && (
-              <span className="inline-flex items-center rounded-full bg-amber-200 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
-                Stale partitions
-              </span>
-            )}
+            {asset.hasOutdatedUpstreams ? (
+              <span className={DATA_ASSET_STATUS_BADGE_REFRESH}>Needs refresh</span>
+            ) : null}
+            {asset.hasStalePartitions ? (
+              <span className={DATA_ASSET_STATUS_BADGE_STALE}>Stale partitions</span>
+            ) : null}
           </div>
         </div>
 
         {outdatedUpstreamMessage ? (
-          <div className="rounded-xl border border-sky-400/50 bg-sky-50 px-3 py-2 text-sm text-sky-700 shadow-sm dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200">
-            {outdatedUpstreamMessage}
-          </div>
+          <div className={DATA_ASSET_ALERT_INFO}>{outdatedUpstreamMessage}</div>
         ) : null}
 
-        {producers.length > 0 && (
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        {producers.length > 0 ? (
+          <label className={DATA_ASSET_SELECT_LABEL}>
             Producer workflow
             <select
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              className={DATA_ASSET_SELECT}
               value={selectedProducer?.workflowSlug ?? producers[0]?.workflowSlug ?? ''}
               onChange={(event) => onSelectWorkflow(event.target.value)}
             >
@@ -96,32 +116,30 @@ export function AssetDetailsPanel({
               ))}
             </select>
           </label>
-        )}
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-3 overflow-y-auto pr-1">
         <section className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Producers
-          </h3>
+          <h3 className={DATA_ASSET_SECTION_TITLE}>Producers</h3>
           {producers.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">No producing steps declared.</p>
+            <p className={DATA_ASSET_SECTION_TEXT}>No producing steps declared.</p>
           ) : (
             <ul className="space-y-2">
               {producers.map((producer) => (
                 <li
                   key={`${producer.workflowSlug}:${producer.stepId}`}
-                  className="rounded-xl border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200"
+                  className={classNames(DATA_ASSET_CARD, 'px-3 py-2')}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-700 dark:text-slate-100">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-scale-sm font-weight-semibold text-primary">
                       {producer.workflowName}
                     </span>
-                    <span className="uppercase text-xs tracking-wide text-slate-400 dark:text-slate-500">
+                    <span className="text-scale-2xs font-weight-semibold uppercase tracking-[0.28em] text-muted">
                       {producer.stepType}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{producer.stepName}</p>
+                  <p className={DATA_ASSET_NOTE}>{producer.stepName}</p>
                 </li>
               ))}
             </ul>
@@ -129,27 +147,25 @@ export function AssetDetailsPanel({
         </section>
 
         <section className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Consumers
-          </h3>
+          <h3 className={DATA_ASSET_SECTION_TITLE}>Consumers</h3>
           {consumers.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">No consumers declared.</p>
+            <p className={DATA_ASSET_SECTION_TEXT}>No consumers declared.</p>
           ) : (
             <ul className="space-y-2">
               {consumers.map((consumer) => (
                 <li
                   key={`${consumer.workflowSlug}:${consumer.stepId}`}
-                  className="rounded-xl border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200"
+                  className={classNames(DATA_ASSET_CARD, 'px-3 py-2')}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-700 dark:text-slate-100">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-scale-sm font-weight-semibold text-primary">
                       {consumer.workflowName}
                     </span>
-                    <span className="uppercase text-xs tracking-wide text-slate-400 dark:text-slate-500">
+                    <span className="text-scale-2xs font-weight-semibold uppercase tracking-[0.28em] text-muted">
                       {consumer.stepType}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{consumer.stepName}</p>
+                  <p className={DATA_ASSET_NOTE}>{consumer.stepName}</p>
                 </li>
               ))}
             </ul>
@@ -158,41 +174,27 @@ export function AssetDetailsPanel({
 
         <section className="space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Partitions
-            </h3>
+            <h3 className={DATA_ASSET_SECTION_TITLE}>Partitions</h3>
           </div>
-          {partitionsError && (
-            <p className="text-sm text-rose-600 dark:text-rose-400">{partitionsError}</p>
-          )}
-          {partitionsLoading && (
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+          {partitionsError ? <div className={DATA_ASSET_ALERT_ERROR}>{partitionsError}</div> : null}
+          {partitionsLoading ? (
+            <p className={DATA_ASSET_SECTION_TEXT}>
               <Spinner label="Loading partitions…" size="xs" />
             </p>
-          )}
-          {!partitionsLoading && !partitionsError && partitions && (
-            <div className="overflow-hidden rounded-xl border border-slate-200/70 dark:border-slate-700/60">
-              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead className="bg-slate-50/80 dark:bg-slate-800/80">
+          ) : null}
+          {!partitionsLoading && !partitionsError && partitions ? (
+            <div className={DATA_ASSET_TABLE_CONTAINER}>
+              <table className="min-w-full divide-y divide-subtle">
+                <thead className="bg-surface-muted">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Partition
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Status
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Latest Run
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Produced
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Actions
-                    </th>
+                    <th className={DATA_ASSET_TABLE_HEADER}>Partition</th>
+                    <th className={DATA_ASSET_TABLE_HEADER}>Status</th>
+                    <th className={DATA_ASSET_TABLE_HEADER}>Latest Run</th>
+                    <th className={DATA_ASSET_TABLE_HEADER}>Produced</th>
+                    <th className={DATA_ASSET_TABLE_HEADER}>Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                <tbody className="divide-y divide-subtle">
                   {partitions.partitions.map((partition) => {
                     const partitionKey = partition.partitionKey ?? null;
                     const markKey = buildActionKey('mark', partitionKey);
@@ -219,30 +221,26 @@ export function AssetDetailsPanel({
                     const parameterUpdatedAt = partition.parametersUpdatedAt
                       ? formatTimestamp(partition.parametersUpdatedAt)
                       : null;
+                    const rowClassName = classNames(partition.isStale ? DATA_ASSET_TABLE_ROW_HIGHLIGHT : null);
                     return (
-                      <tr
-                        key={partitionKey ?? 'default'}
-                        className={partition.isStale ? 'bg-amber-50/70 dark:bg-amber-500/10' : undefined}
-                      >
-                        <td className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-100">
+                      <tr key={partitionKey ?? 'default'} className={rowClassName}>
+                        <td className={classNames(DATA_ASSET_TABLE_CELL, 'font-weight-semibold text-primary')}>
                           <div className="flex flex-col gap-1">
                             <span>{partitionKey ?? '—'}</span>
-                            {parameterSourceLabel && (
-                              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                            {parameterSourceLabel ? (
+                              <span className={DATA_ASSET_PARTITION_META}>
                                 {parameterSourceLabel}
                                 {parameterUpdatedAt ? ` · ${parameterUpdatedAt}` : ''}
                               </span>
-                            )}
+                            ) : null}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        <td className={DATA_ASSET_TABLE_CELL}>
                           {partition.isStale ? (
                             <div className="flex flex-col gap-1">
-                              <span className="inline-flex w-fit items-center rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
-                                Stale
-                              </span>
-                              {partition.staleMetadata && (
-                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                              <span className={DATA_ASSET_STATUS_BADGE_STALE}>Stale</span>
+                              {partition.staleMetadata ? (
+                                <span className={DATA_ASSET_PARTITION_META}>
                                   Since {formatTimestamp(partition.staleMetadata.requestedAt)}
                                   {partition.staleMetadata.note
                                     ? ` · ${partition.staleMetadata.note}`
@@ -250,37 +248,33 @@ export function AssetDetailsPanel({
                                     ? ` · ${partition.staleMetadata.requestedBy}`
                                     : ''}
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           ) : (
-                            <span className="text-xs text-slate-500 dark:text-slate-400">Fresh</span>
+                            <span className={DATA_ASSET_STATUS_BADGE_FRESH}>Fresh</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        <td className={DATA_ASSET_TABLE_CELL}>
                           {latest ? (
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-2">
                                 <StatusBadge status={latest.runStatus} />
-                                <span className="text-xs text-slate-500 dark:text-slate-400">
-                                  {latest.stepName}
-                                </span>
+                                <span className={DATA_ASSET_PARTITION_META}>{latest.stepName}</span>
                               </div>
-                              <span className="text-xs text-slate-500 dark:text-slate-400">
-                                Step {latest.stepStatus}
-                              </span>
+                              <span className={DATA_ASSET_PARTITION_META}>Step {latest.stepStatus}</span>
                             </div>
                           ) : (
-                            <span className="text-xs text-slate-500 dark:text-slate-400">No runs yet</span>
+                            <span className={DATA_ASSET_PARTITION_META}>No runs yet</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        <td className={DATA_ASSET_TABLE_CELL}>
                           {latest ? formatTimestamp(latest.producedAt) : '—'}
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
+                        <td className={classNames(DATA_ASSET_TABLE_CELL, 'text-scale-2xs')}>
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
-                              className="inline-flex items-center rounded-full border border-amber-500/60 bg-amber-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-800 transition-colors hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-400/50 dark:bg-amber-500/10 dark:text-amber-200"
+                              className={DATA_ASSET_ACTION_PILL_WARNING}
                               onClick={() => onMarkStale(partitionKey)}
                               disabled={partition.isStale || pendingActionKeys.has(markKey)}
                             >
@@ -288,7 +282,7 @@ export function AssetDetailsPanel({
                             </button>
                             <button
                               type="button"
-                              className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 transition-colors hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-400/50 dark:bg-emerald-500/10 dark:text-emerald-200"
+                              className={DATA_ASSET_ACTION_PILL_SUCCESS}
                               onClick={() => onClearStale(partitionKey)}
                               disabled={!partition.isStale || pendingActionKeys.has(clearKey)}
                             >
@@ -296,7 +290,7 @@ export function AssetDetailsPanel({
                             </button>
                             <button
                               type="button"
-                              className="inline-flex items-center rounded-full border border-indigo-500/70 bg-indigo-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700 transition-colors hover:bg-indigo-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400/60 dark:bg-indigo-500/10 dark:text-indigo-200"
+                              className={DATA_ASSET_ACTION_PILL_ACCENT}
                               onClick={() => onTriggerRun(partition)}
                               disabled={pendingActionKeys.has(runKey) || pendingActionKeys.has(paramsKey)}
                             >
@@ -310,7 +304,7 @@ export function AssetDetailsPanel({
                 </tbody>
               </table>
             </div>
-          )}
+          ) : null}
         </section>
       </div>
     </div>

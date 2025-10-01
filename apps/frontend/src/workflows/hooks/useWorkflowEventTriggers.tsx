@@ -156,7 +156,10 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
   }, [eventTriggers, selectedTriggerId]);
 
   const triggerDeliveriesEntry = selectedEventTrigger ? triggerDeliveryState[selectedEventTrigger.id] : undefined;
-  const triggerDeliveries = triggerDeliveriesEntry?.items ?? [];
+  const triggerDeliveries = useMemo(
+    () => triggerDeliveriesEntry?.items ?? [],
+    [triggerDeliveriesEntry]
+  );
   const triggerDeliveriesLoading = triggerDeliveriesEntry?.loading ?? false;
   const triggerDeliveriesError = triggerDeliveriesEntry?.error ?? null;
   const triggerDeliveriesLimit = triggerDeliveriesEntry?.limit ?? 50;

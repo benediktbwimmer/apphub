@@ -4,6 +4,19 @@ import dagre from 'dagre';
 import type { AssetGraphData } from '../types';
 import 'reactflow/dist/style.css';
 import { useIsDarkMode } from '../../hooks/useIsDarkMode';
+import {
+  DATA_ASSET_EMPTY_STATE,
+  DATA_ASSET_GRAPH_CONTAINER,
+  DATA_ASSET_GRAPH_CONTROLS,
+  DATA_ASSET_GRAPH_EDGE,
+  DATA_ASSET_GRAPH_EDGE_LABEL_BACKGROUND,
+  DATA_ASSET_GRAPH_EDGE_LABEL_BORDER,
+  DATA_ASSET_GRAPH_EDGE_LABEL_TEXT,
+  DATA_ASSET_GRAPH_GRID_COLOR,
+  DATA_ASSET_GRAPH_NODE,
+  DATA_ASSET_STATUS_BADGE_REFRESH,
+  DATA_ASSET_STATUS_BADGE_STALE
+} from '../dataAssetsTokens';
 
 type AssetGraphViewProps = {
   data: AssetGraphData | null;
@@ -14,60 +27,20 @@ type AssetGraphViewProps = {
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 90;
 
-type NodeVisualTokens = {
+type NodeVisualStyle = {
   border: string;
   background: string;
   shadow: string;
 };
 
-const LIGHT_NODE_BASE: NodeVisualTokens = {
-  border: '1px solid rgba(148, 163, 184, 0.6)',
-  background: '#ffffff',
-  shadow: '0 18px 32px -24px rgba(15, 23, 42, 0.45)'
-};
-
-const LIGHT_NODE_OUTDATED: NodeVisualTokens = {
-  border: '2px solid #0ea5e9',
-  background: 'rgba(224, 242, 254, 0.65)',
-  shadow: '0 22px 40px -28px rgba(14, 165, 233, 0.45)'
-};
-
-const LIGHT_NODE_STALE: NodeVisualTokens = {
-  border: '2px solid #f97316',
-  background: 'rgba(254, 215, 170, 0.35)',
-  shadow: '0 22px 40px -28px rgba(249, 115, 22, 0.4)'
-};
-
-const DARK_NODE_BASE: NodeVisualTokens = {
-  border: '1px solid rgba(148, 163, 184, 0.45)',
-  background: 'rgba(15, 23, 42, 0.78)',
-  shadow: '0 28px 48px -32px rgba(15, 23, 42, 0.85)'
-};
-
-const DARK_NODE_OUTDATED: NodeVisualTokens = {
-  border: '2px solid rgba(56, 189, 248, 0.85)',
-  background: 'rgba(14, 165, 233, 0.18)',
-  shadow: '0 28px 48px -30px rgba(14, 165, 233, 0.55)'
-};
-
-const DARK_NODE_STALE: NodeVisualTokens = {
-  border: '2px solid rgba(251, 146, 60, 0.85)',
-  background: 'rgba(249, 115, 22, 0.22)',
-  shadow: '0 28px 48px -30px rgba(251, 146, 60, 0.55)'
-};
-
-function resolveNodeTokens(
-  hasStalePartitions: boolean,
-  hasOutdatedUpstreams: boolean,
-  darkMode: boolean
-): NodeVisualTokens {
+function resolveNodeStyle(hasStalePartitions: boolean, hasOutdatedUpstreams: boolean): NodeVisualStyle {
   if (hasStalePartitions) {
-    return darkMode ? DARK_NODE_STALE : LIGHT_NODE_STALE;
+    return { ...DATA_ASSET_GRAPH_NODE.base, ...DATA_ASSET_GRAPH_NODE.stale };
   }
   if (hasOutdatedUpstreams) {
-    return darkMode ? DARK_NODE_OUTDATED : LIGHT_NODE_OUTDATED;
+    return { ...DATA_ASSET_GRAPH_NODE.base, ...DATA_ASSET_GRAPH_NODE.refresh };
   }
-  return darkMode ? DARK_NODE_BASE : LIGHT_NODE_BASE;
+  return { ...DATA_ASSET_GRAPH_NODE.base };
 }
 
 function buildGraphKey(data: AssetGraphData | null, darkMode: boolean): string {
@@ -125,12 +98,13 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
       return { nodes: [] as Node[], edges: [] as Edge[] };
     }
 
-    const edgeStroke = isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(71, 85, 105, 0.8)';
-    const edgeLabelBgStyle = isDarkMode
-      ? { fill: 'rgba(15, 23, 42, 0.92)', stroke: 'rgba(51, 65, 85, 0.85)' }
-      : { fill: '#f8fafc', stroke: '#e2e8f0' };
+    const edgeStroke = DATA_ASSET_GRAPH_EDGE;
+    const edgeLabelBgStyle = {
+      fill: DATA_ASSET_GRAPH_EDGE_LABEL_BACKGROUND,
+      stroke: DATA_ASSET_GRAPH_EDGE_LABEL_BORDER
+    };
     const edgeLabelStyle = {
-      color: isDarkMode ? '#e2e8f0' : '#334155'
+      color: DATA_ASSET_GRAPH_EDGE_LABEL_TEXT
     };
 
     const coreNodes: Node[] = data.assets.map((asset) => {
@@ -139,7 +113,7 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
         badges.push(
           <span
             key="needs-refresh"
-            className="inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:bg-sky-500/10 dark:text-sky-200"
+            className={DATA_ASSET_STATUS_BADGE_REFRESH}
           >
             Needs refresh
           </span>
@@ -149,14 +123,14 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
         badges.push(
           <span
             key="stale"
-            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/10 dark:text-amber-200"
+            className={DATA_ASSET_STATUS_BADGE_STALE}
           >
             Stale partitions
           </span>
         );
       }
 
-      const tokens = resolveNodeTokens(asset.hasStalePartitions, asset.hasOutdatedUpstreams, isDarkMode);
+      const nodeStyle = resolveNodeStyle(asset.hasStalePartitions, asset.hasOutdatedUpstreams);
 
       return {
         id: asset.normalizedAssetId,
@@ -164,10 +138,10 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
           label: (
             <div className="flex h-full flex-col justify-between text-left">
               <div>
-                <div className="text-sm font-semibold leading-5 text-slate-700 dark:text-slate-100">
+                <div className="text-scale-sm font-weight-semibold leading-5 text-primary">
                   {asset.assetId}
                 </div>
-                <div className="text-[11px] uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500">
+                <div className="text-scale-2xs uppercase tracking-[0.18em] text-muted">
                   {asset.normalizedAssetId}
                 </div>
               </div>
@@ -185,9 +159,9 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
           width: NODE_WIDTH,
           height: NODE_HEIGHT,
           borderRadius: 18,
-          border: tokens.border,
-          background: tokens.background,
-          boxShadow: tokens.shadow,
+          border: nodeStyle.border,
+          background: nodeStyle.background,
+          boxShadow: nodeStyle.shadow,
           padding: 12,
           transition: 'border 120ms ease, box-shadow 120ms ease'
         }
@@ -213,13 +187,13 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
     }));
 
     return layoutGraph(coreNodes, coreEdges);
-  }, [data, isDarkMode]);
+  }, [data]);
 
   const graphKey = useMemo(() => buildGraphKey(data, isDarkMode), [data, isDarkMode]);
 
   if (!data) {
     return (
-      <div className="flex h-[520px] items-center justify-center rounded-3xl border border-slate-200/70 bg-white/80 text-sm text-slate-500 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/40 dark:text-slate-300">
+      <div className={DATA_ASSET_EMPTY_STATE}>
         Asset graph will appear once assets are declared.
       </div>
     );
@@ -227,7 +201,7 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
 
   if (nodes.length === 0) {
     return (
-      <div className="flex h-[520px] items-center justify-center rounded-3xl border border-slate-200/70 bg-white/80 text-sm text-slate-500 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/40 dark:text-slate-300">
+      <div className={DATA_ASSET_EMPTY_STATE}>
         No asset dependencies found yet.
       </div>
     );
@@ -237,12 +211,7 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
     const isSelected = selectedAssetId === node.id;
     const baseStyle = { ...(node.style ?? {}) };
     if (isSelected) {
-      Object.assign(baseStyle, {
-        border: isDarkMode ? '2px solid rgba(129, 140, 248, 0.85)' : '2px solid #4f46e5',
-        boxShadow: isDarkMode
-          ? '0 30px 48px -30px rgba(129, 140, 248, 0.6)'
-          : '0 22px 40px -24px rgba(79, 70, 229, 0.45)'
-      });
+      Object.assign(baseStyle, DATA_ASSET_GRAPH_NODE.selected);
     }
     return {
       ...node,
@@ -251,7 +220,7 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
   });
 
   return (
-    <div className="h-[520px] rounded-3xl border border-slate-200/70 bg-white/90 shadow-inner dark:border-slate-700/70 dark:bg-slate-900/40">
+    <div className={DATA_ASSET_GRAPH_CONTAINER}>
       <ReactFlow
         key={graphKey}
         nodes={mappedNodes}
@@ -267,11 +236,11 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
         minZoom={0.25}
         maxZoom={1.6}
       >
-        <Background gap={24} color={isDarkMode ? '#1e293b' : '#dbeafe'} size={1} />
+        <Background gap={24} color={DATA_ASSET_GRAPH_GRID_COLOR} size={1} />
         <Controls
           showInteractive={false}
           position="top-right"
-          className="rounded-xl border border-slate-200/60 bg-white/80 text-slate-500 shadow-[0_18px_32px_-24px_rgba(15,23,42,0.55)] backdrop-blur-sm dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-300"
+          className={DATA_ASSET_GRAPH_CONTROLS}
         />
       </ReactFlow>
     </div>

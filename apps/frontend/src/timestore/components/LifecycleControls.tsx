@@ -5,6 +5,15 @@ import { formatInstant } from '../utils';
 import { runLifecycleJob, rescheduleLifecycleJob } from '../api';
 import type { LifecycleJobSummary, LifecycleMaintenanceReport } from '../types';
 import { LifecycleJobTimeline } from './LifecycleJobTimeline';
+import {
+  CARD_SURFACE_SOFT,
+  CHECKBOX_INPUT,
+  OUTLINE_ACCENT_BUTTON,
+  PANEL_SURFACE_LARGE,
+  PRIMARY_BUTTON_COMPACT,
+  STATUS_MESSAGE,
+  STATUS_META
+} from '../timestoreTokens';
 
 const DEFAULT_OPERATIONS: readonly LifecycleJobSummary['operations'][number][] = [
   'compaction',
@@ -107,21 +116,18 @@ export function LifecycleControls({
   };
 
   return (
-    <div
-      id={panelId}
-      className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70"
-    >
+    <div id={panelId} className={`${PANEL_SURFACE_LARGE} shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)]`}>
       <header className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">Lifecycle</span>
-          <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">Maintenance controls</h4>
+          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-accent">Lifecycle</span>
+          <h4 className="text-scale-base font-weight-semibold text-primary">Maintenance controls</h4>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             disabled={!canRun || submitting}
             onClick={() => void handleRun('inline')}
-            className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className={PRIMARY_BUTTON_COMPACT}
           >
             Run inline
           </button>
@@ -129,7 +135,7 @@ export function LifecycleControls({
             type="button"
             disabled={!canRun || submitting}
             onClick={() => void handleRun('queue')}
-            className="rounded-full border border-violet-500 px-4 py-2 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 disabled:cursor-not-allowed disabled:opacity-40 dark:border-violet-400 dark:text-violet-300"
+            className={OUTLINE_ACCENT_BUTTON}
           >
             Enqueue run
           </button>
@@ -137,23 +143,23 @@ export function LifecycleControls({
       </header>
 
       {!canRun && (
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
-          Lifecycle operations require the <code className="font-mono">timestore:admin</code> scope.
+        <p className={`mt-3 ${STATUS_MESSAGE}`}>
+          Lifecycle operations require the <code className="font-mono text-secondary">timestore:admin</code> scope.
         </p>
       )}
 
       <section className="mt-4 space-y-3">
-        <h5 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Operations</h5>
+        <h5 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">Operations</h5>
         <div className="flex flex-wrap gap-3">
           {DEFAULT_OPERATIONS.map((operation) => {
             const checked = selectedOperations.includes(operation);
             return (
-              <label key={operation} className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <label key={operation} className="inline-flex items-center gap-2 text-scale-sm text-secondary">
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => toggleOperation(operation)}
-                  className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  className={CHECKBOX_INPUT}
                 />
                 <span className="capitalize">{operation}</span>
               </label>
@@ -163,14 +169,14 @@ export function LifecycleControls({
       </section>
 
       {lastReport && (
-        <section className="mt-5 space-y-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
-          <h6 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Last inline run</h6>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Job {lastReport.jobId} • {formatInstant(resolveReportTimestamp(lastReport))}</p>
+        <section className={`mt-5 space-y-3 ${CARD_SURFACE_SOFT} text-scale-sm text-secondary`}>
+          <h6 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">Last inline run</h6>
+          <p className={STATUS_META}>Job {lastReport.jobId} • {formatInstant(resolveReportTimestamp(lastReport))}</p>
           <ul className="space-y-2">
             {lastReport.operations.map((operation) => (
               <li key={operation.operation} className="flex items-center justify-between">
-                <span className="capitalize text-slate-700 dark:text-slate-200">{operation.operation}</span>
-                <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">{operation.status}</span>
+                <span className="capitalize text-secondary">{operation.operation}</span>
+                <span className="text-scale-xs uppercase tracking-[0.2em] text-muted">{operation.status}</span>
               </li>
             ))}
           </ul>

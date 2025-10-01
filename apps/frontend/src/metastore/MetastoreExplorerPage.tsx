@@ -213,7 +213,7 @@ export default function MetastoreExplorerPage() {
       setTagPatchText('');
       setDetailError(null);
     },
-    [stringifyMetadata]
+    []
   );
 
   useEffect(() => {
@@ -408,7 +408,7 @@ export default function MetastoreExplorerPage() {
     immediate: true
   });
 
-  const records = searchData?.records ?? [];
+  const records = useMemo(() => searchData?.records ?? [], [searchData]);
   const namespaceTotal = searchData?.pagination.total ?? 0;
   const totalPages = namespaceTotal === 0 ? 1 : Math.max(Math.ceil(namespaceTotal / PAGE_SIZE), 1);
 

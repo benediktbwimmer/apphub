@@ -125,7 +125,7 @@ export default function AutoMaterializePanel({
   onRefresh,
   assetInventory
 }: AutoMaterializePanelProps) {
-  const runs = ops?.runs ?? [];
+  const runs = useMemo(() => ops?.runs ?? [], [ops]);
   const runsWithTriggers = useMemo(
     () =>
       runs.map((run) => ({

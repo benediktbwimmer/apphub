@@ -3,6 +3,18 @@ import { Modal } from '../../components';
 import { useToastHelpers } from '../../components/toast';
 import type { CreateDatasetRequest, DatasetStatus } from '../types';
 import { createDatasetRequestSchema } from '../types';
+import {
+  DIALOG_SURFACE,
+  FIELD_GROUP,
+  FIELD_LABEL,
+  INPUT,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+  STATUS_BANNER_DANGER,
+  STATUS_MESSAGE,
+  TEXTAREA
+} from '../timestoreTokens';
 
 interface DatasetCreateDialogProps {
   open: boolean;
@@ -170,15 +182,15 @@ export function DatasetCreateDialog({ open, onClose, onCreate, busy = false }: D
       onClose={handleClose}
       labelledBy={dialogTitleId}
       className="items-start justify-center px-4 py-6 sm:items-center"
-      contentClassName="w-full max-w-3xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/60 dark:bg-slate-900/80"
+      contentClassName={DIALOG_SURFACE}
     >
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
         <header className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <h2 id={dialogTitleId} className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h2 id={dialogTitleId} className="text-scale-lg font-weight-semibold text-primary">
               Create dataset
             </h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
+            <p className={STATUS_MESSAGE}>
               Provide dataset metadata and IAM scopes. Fields marked with * are required.
             </p>
           </div>
@@ -186,15 +198,15 @@ export function DatasetCreateDialog({ open, onClose, onCreate, busy = false }: D
             type="button"
             onClick={handleClose}
             disabled={isBusy}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+            className={SECONDARY_BUTTON_COMPACT}
           >
             Close
           </button>
         </header>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Slug *</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Slug *</span>
             <input
               type="text"
               value={fields.slug}
@@ -202,13 +214,13 @@ export function DatasetCreateDialog({ open, onClose, onCreate, busy = false }: D
               placeholder="observatory-events"
               autoComplete="off"
               disabled={isBusy}
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={INPUT}
             />
-            {fieldError.slug && <span className="text-xs text-rose-600 dark:text-rose-300">{fieldError.slug}</span>}
+            {fieldError.slug ? <span className="text-scale-xs text-status-danger">{fieldError.slug}</span> : null}
           </label>
 
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Name *</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Name *</span>
             <input
               type="text"
               value={fields.name}
@@ -216,109 +228,111 @@ export function DatasetCreateDialog({ open, onClose, onCreate, busy = false }: D
               placeholder="Observatory events"
               autoComplete="off"
               disabled={isBusy}
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={INPUT}
             />
-            {fieldError.name && <span className="text-xs text-rose-600 dark:text-rose-300">{fieldError.name}</span>}
+            {fieldError.name ? <span className="text-scale-xs text-status-danger">{fieldError.name}</span> : null}
           </label>
 
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Write format</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Write format</span>
             <select
               value={fields.writeFormat}
               onChange={handleChange('writeFormat')}
               disabled={isBusy}
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={INPUT}
             >
               <option value="duckdb">DuckDB</option>
               <option value="parquet">Parquet</option>
             </select>
           </label>
 
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Status</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Status</span>
             <select
               value={fields.status}
               onChange={handleChange('status')}
               disabled={isBusy}
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={INPUT}
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
           </label>
 
-          <label className="sm:col-span-2 flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Description</span>
+          <label className={`sm:col-span-2 ${FIELD_GROUP}`}>
+            <span className={FIELD_LABEL}>Description</span>
             <textarea
               value={fields.description}
               onChange={handleChange('description')}
               rows={3}
               disabled={isBusy}
-              className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={TEXTAREA}
               placeholder="Explain what this dataset contains and how it is used."
             />
-            {fieldError.description && <span className="text-xs text-rose-600 dark:text-rose-300">{fieldError.description}</span>}
+            {fieldError.description ? (
+              <span className="text-scale-xs text-status-danger">{fieldError.description}</span>
+            ) : null}
           </label>
 
-          <label className="sm:col-span-2 flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Default storage target</span>
+          <label className={`sm:col-span-2 ${FIELD_GROUP}`}>
+            <span className={FIELD_LABEL}>Default storage target</span>
             <input
               type="text"
               value={fields.defaultStorageTargetId}
               onChange={handleChange('defaultStorageTargetId')}
               placeholder="st-001"
               disabled={isBusy}
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={INPUT}
             />
-            {fieldError.defaultStorageTargetId && (
-              <span className="text-xs text-rose-600 dark:text-rose-300">{fieldError.defaultStorageTargetId}</span>
-            )}
+            {fieldError.defaultStorageTargetId ? (
+              <span className="text-scale-xs text-status-danger">{fieldError.defaultStorageTargetId}</span>
+            ) : null}
           </label>
 
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Read scopes</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Read scopes</span>
             <textarea
               value={fields.readScopes}
               onChange={handleChange('readScopes')}
               rows={3}
               placeholder="timestore:read"
               disabled={isBusy}
-              className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={TEXTAREA}
             />
-            <span className="text-xs text-slate-500 dark:text-slate-400">Separate scopes with commas or new lines.</span>
-            {fieldError.readScopes && <span className="text-xs text-rose-600 dark:text-rose-300">{fieldError.readScopes}</span>}
+            <span className="text-scale-xs text-muted">Separate scopes with commas or new lines.</span>
+            {fieldError.readScopes ? <span className="text-scale-xs text-status-danger">{fieldError.readScopes}</span> : null}
           </label>
 
-          <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Write scopes</span>
+          <label className={FIELD_GROUP}>
+            <span className={FIELD_LABEL}>Write scopes</span>
             <textarea
               value={fields.writeScopes}
               onChange={handleChange('writeScopes')}
               rows={3}
               placeholder="timestore:write"
               disabled={isBusy}
-              className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={TEXTAREA}
             />
-            <span className="text-xs text-slate-500 dark:text-slate-400">Separate scopes with commas or new lines.</span>
-            {fieldError.writeScopes && <span className="text-xs text-rose-600 dark:text-rose-300">{fieldError.writeScopes}</span>}
+            <span className="text-scale-xs text-muted">Separate scopes with commas or new lines.</span>
+            {fieldError.writeScopes ? <span className="text-scale-xs text-status-danger">{fieldError.writeScopes}</span> : null}
           </label>
         </div>
 
-        {fieldError.general && <p className="text-sm text-rose-600 dark:text-rose-300">{fieldError.general}</p>}
+        {fieldError.general ? <p className={STATUS_BANNER_DANGER}>{fieldError.general}</p> : null}
 
         <div className="flex justify-end gap-3">
           <button
             type="button"
             onClick={handleClose}
             disabled={isBusy}
-            className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+            className={SECONDARY_BUTTON}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={isBusy}
-            className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className={PRIMARY_BUTTON}
           >
             Create dataset
           </button>

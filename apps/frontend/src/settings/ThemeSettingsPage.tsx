@@ -1,7 +1,22 @@
+import classNames from 'classnames';
 import { useEffect, useMemo, useState } from 'react';
 import type { ThemeDefinition } from '@apphub/shared/designTokens';
 import { useTheme, type ThemePreference } from '../theme';
 import ThemeCustomizationPanel from './ThemeCustomizationPanel';
+import {
+  SETTINGS_HEADER_SUBTITLE_CLASSES,
+  SETTINGS_HEADER_TITLE_CLASSES,
+  SETTINGS_THEME_CARD_BASE,
+  SETTINGS_THEME_CARD_SELECTED,
+  SETTINGS_THEME_CARD_UNSELECTED,
+  SETTINGS_THEME_OPTION_DESCRIPTION,
+  SETTINGS_THEME_OPTION_LABEL,
+  SETTINGS_THEME_PREVIEW_FRAME,
+  SETTINGS_THEME_PREVIEW_LABEL,
+  SETTINGS_THEME_PREVIEW_TILE,
+  SETTINGS_THEME_PREVIEW_TILE_BORDER,
+  SETTINGS_THEME_SELECTED_RING
+} from './settingsTokens';
 
 type ThemeOption = {
   readonly preference: ThemePreference;
@@ -61,8 +76,8 @@ export default function ThemeSettingsPage() {
   return (
     <section className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold text-[var(--color-text-primary, #0f172a)]">Appearance</h2>
-        <p className="max-w-3xl text-sm text-[var(--color-text-muted, #475569)]">
+        <h2 className={SETTINGS_HEADER_TITLE_CLASSES}>Appearance</h2>
+        <p className={classNames('max-w-3xl', SETTINGS_HEADER_SUBTITLE_CLASSES)}>
           Switch between AppHub themes or follow your operating system. Theme changes apply instantly across charts, graphs, editors, and navigation chrome.
         </p>
       </header>
@@ -109,15 +124,11 @@ function ThemeOptionCard({ option, isSelected, onSelect, activeThemeId }: ThemeO
 
   return (
     <label
-      className={`group relative flex cursor-pointer flex-col gap-3 rounded-2xl border p-4 transition-all duration-200 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 ${
-        isSelected
-          ? 'border-transparent shadow-[0_12px_32px_-18px_rgba(124,58,237,0.45)] outline-violet-500'
-          : 'border-[var(--color-border-subtle,#e2e8f0)] hover:border-[var(--color-border-default,#cbd5f5)]'
-      }`}
-      style={{
-        background: 'var(--color-surface-raised, rgba(255,255,255,0.85))',
-        color: 'var(--color-text-primary, #0f172a)'
-      }}
+      className={classNames(
+        SETTINGS_THEME_CARD_BASE,
+        isSelected ? SETTINGS_THEME_CARD_SELECTED : SETTINGS_THEME_CARD_UNSELECTED,
+        isSelected ? SETTINGS_THEME_SELECTED_RING : undefined
+      )}
     >
       <input
         type="radio"
@@ -129,8 +140,8 @@ function ThemeOptionCard({ option, isSelected, onSelect, activeThemeId }: ThemeO
       />
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <span className="text-sm font-semibold">{label}</span>
-          <span className="text-xs text-[var(--color-text-muted,#64748b)]">{description}</span>
+          <span className={SETTINGS_THEME_OPTION_LABEL}>{label}</span>
+          <span className={SETTINGS_THEME_OPTION_DESCRIPTION}>{description}</span>
         </div>
         {isSelected && <SelectedBadge />}
       </div>
@@ -146,38 +157,30 @@ function ThemeSwatch({ theme, isActive }: { theme: ThemeDefinition; isActive: bo
 
   return (
     <div className="flex items-center gap-3" aria-hidden="true">
-      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-text-muted,#94a3b8)]">
-        Preview
-      </span>
-      <div className="flex flex-1 items-center gap-2 rounded-xl border border-[var(--color-border-subtle,#cbd5f5)] bg-[var(--color-surface-sunken,#f1f5f9)] p-2">
+      <span className={SETTINGS_THEME_PREVIEW_LABEL}>Preview</span>
+      <div className={SETTINGS_THEME_PREVIEW_FRAME}>
         <div
-          className="flex-1 rounded-lg p-3"
+          className={classNames(
+            SETTINGS_THEME_PREVIEW_TILE,
+            isActive ? SETTINGS_THEME_SELECTED_RING : SETTINGS_THEME_PREVIEW_TILE_BORDER
+          )}
           style={{
             background: surface.raised,
-            color: text.primary,
-            boxShadow: isActive
-              ? '0 0 0 2px rgba(124, 58, 237, 0.45)'
-              : '0 0 0 1px rgba(148, 163, 184, 0.45)'
+            color: text.primary
           }}
         >
-          <div className="text-xs font-semibold" style={{ color: text.muted }}>
+          <div className={SETTINGS_THEME_OPTION_DESCRIPTION} style={{ color: text.muted }}>
             Navigation
           </div>
           <div className="mt-2 h-1.5 w-16 rounded-full" style={{ background: accent.default }} />
         </div>
         <div
-          className="h-10 w-12 rounded-md"
-          style={{
-            background: surface.canvas,
-            boxShadow: 'inset 0 0 0 1px rgba(148, 163, 184, 0.35)'
-          }}
+          className="h-10 w-12 rounded-md border border-subtle"
+          style={{ background: surface.canvas }}
         />
         <div
-          className="h-10 w-12 rounded-md"
-          style={{
-            background: surface.accent,
-            boxShadow: 'inset 0 0 0 1px rgba(148, 163, 184, 0.25)'
-          }}
+          className="h-10 w-12 rounded-md border border-subtle"
+          style={{ background: surface.accent }}
         />
       </div>
     </div>
@@ -187,15 +190,15 @@ function ThemeSwatch({ theme, isActive }: { theme: ThemeDefinition; isActive: bo
 function SystemSwatch() {
   return (
     <div className="flex items-center gap-3" aria-hidden="true">
-      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-text-muted,#94a3b8)]">
-        Preview
-      </span>
-      <div className="flex flex-1 items-center gap-2 rounded-xl border border-[var(--color-border-subtle,#cbd5f5)] bg-[var(--color-surface-sunken,#f1f5f9)] p-2">
-        <div className="flex-1 rounded-lg bg-gradient-to-r from-[rgba(255,255,255,0.9)] to-[rgba(148,163,184,0.25)] p-3 text-xs font-semibold text-[var(--color-text-secondary,#475569)]">
-          Follows system
+      <span className={SETTINGS_THEME_PREVIEW_LABEL}>Preview</span>
+      <div className={SETTINGS_THEME_PREVIEW_FRAME}>
+        <div
+          className={classNames(SETTINGS_THEME_PREVIEW_TILE, SETTINGS_THEME_PREVIEW_TILE_BORDER, 'bg-surface-glass')}
+        >
+          <span className={SETTINGS_THEME_OPTION_DESCRIPTION}>Follows system</span>
         </div>
-        <div className="h-10 w-12 rounded-md bg-gradient-to-br from-[rgba(15,23,42,0.85)] to-[rgba(88,28,135,0.45)]" />
-        <div className="h-10 w-12 rounded-md bg-gradient-to-br from-[rgba(248,250,252,0.95)] to-[rgba(148,163,184,0.35)]" />
+        <div className="h-10 w-12 rounded-md border border-subtle bg-surface-glass" />
+        <div className="h-10 w-12 rounded-md border border-subtle bg-surface-muted" />
       </div>
     </div>
   );
@@ -203,7 +206,7 @@ function SystemSwatch() {
 
 function SelectedBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-accent-default,#7c3aed)] px-2 py-1 text-[11px] font-semibold text-[var(--color-accent-onAccent,#f5f3ff)]">
+    <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-1 text-scale-2xs font-weight-semibold text-on-accent">
       <CheckIcon /> Selected
     </span>
   );

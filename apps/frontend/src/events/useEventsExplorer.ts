@@ -316,13 +316,14 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
   });
 
   useEffect(() => {
+    const { current: highlightTimers } = highlightTimersRef;
     return () => {
       if (typeof window !== 'undefined') {
-        highlightTimersRef.current.forEach((timer) => {
+        highlightTimers.forEach((timer) => {
           window.clearTimeout(timer);
         });
       }
-      highlightTimersRef.current.clear();
+      highlightTimers.clear();
     };
   }, []);
 

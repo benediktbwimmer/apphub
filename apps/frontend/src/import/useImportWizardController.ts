@@ -1214,7 +1214,15 @@ export function useImportWizardController() {
         }
       }
     },
-    [appScenarioState.all, getNextScenarioToken, jobScenarioState.all, serviceScenarioState.all, trackEvent, workflowScenarioState.all]
+    [
+      appScenarioState.all,
+      getNextScenarioToken,
+      jobScenarioState.all,
+      scenarioById,
+      serviceScenarioState.all,
+      trackEvent,
+      workflowScenarioState.all
+    ]
   );
 
   const handleOpenPicker = useCallback(() => {

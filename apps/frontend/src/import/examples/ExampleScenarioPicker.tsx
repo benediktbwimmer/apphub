@@ -1,22 +1,33 @@
 import { useMemo, useState } from 'react';
 import { Modal } from '../../components';
+import {
+  BODY_TEXT,
+  CARD_SURFACE,
+  CARD_SURFACE_ACTIVE,
+  DRAWER_SURFACE,
+  FILTER_BUTTON_ACTIVE,
+  FILTER_BUTTON_BASE,
+  FILTER_BUTTON_INACTIVE,
+  HEADING_SECONDARY,
+  LINK_ACCENT,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  SECTION_LABEL,
+  SUBTEXT,
+  TAG_BADGE
+} from '../importTokens';
 import type { ExampleScenario, ExampleScenarioType } from './types';
 import { groupScenariosByType } from './types';
 
-const PANEL_CLASSES =
-  'fixed inset-0 z-30 flex items-end justify-end bg-slate-900/40 px-4 pb-6 pt-12 backdrop-blur-sm sm:items-start sm:pt-20';
+const PANEL_CLASSES = 'items-end justify-end px-4 pb-6 pt-12 sm:items-start sm:pt-20';
 
-const DRAWER_CLASSES =
-  'w-full max-w-4xl rounded-3xl border border-slate-200/80 bg-white/95 shadow-2xl shadow-slate-900/20 ring-1 ring-white/40 backdrop-blur lg:grid lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] dark:border-slate-700/80 dark:bg-slate-900/90';
+const DRAWER_CLASSES = `${DRAWER_SURFACE} max-w-4xl lg:grid lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]`;
 
-const SECTION_HEADER_CLASSES =
-  'text-xs font-semibold uppercase tracking-[0.35em] text-slate-500 dark:text-slate-400';
+const SECTION_HEADER_CLASSES = SECTION_LABEL;
 
-const SCENARIO_CARD_CLASSES =
-  'flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white/60 p-4 transition hover:border-violet-400 hover:bg-violet-50/80 dark:border-slate-700/70 dark:bg-slate-900/70 dark:hover:border-violet-300/60 dark:hover:bg-slate-800/80';
+const SCENARIO_CARD_CLASSES = CARD_SURFACE;
 
-const TAG_CLASSES =
-  'inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 dark:bg-slate-800/80 dark:text-slate-300';
+const TAG_CLASSES = TAG_BADGE;
 
 type ExampleScenarioPickerProps = {
   open: boolean;
@@ -53,11 +64,9 @@ function TypeFilterButton({
   count: number;
   onClick: () => void;
 }) {
-  const baseClasses =
-    'inline-flex w-full items-center justify-between rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500';
-  const activeClasses = 'bg-violet-600 text-white shadow-lg shadow-violet-500/20 dark:bg-violet-500/30';
-  const inactiveClasses =
-    'bg-white/70 text-slate-600 hover:bg-violet-500/10 hover:text-violet-700 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-700/70 dark:hover:text-slate-100';
+  const baseClasses = FILTER_BUTTON_BASE;
+  const activeClasses = FILTER_BUTTON_ACTIVE;
+  const inactiveClasses = FILTER_BUTTON_INACTIVE;
   return (
     <button
       type="button"
@@ -65,7 +74,7 @@ function TypeFilterButton({
       onClick={onClick}
     >
       <span>{TYPE_LABELS[type]}</span>
-      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{count}</span>
+      <span className="text-scale-xs font-weight-semibold text-muted">{count}</span>
     </button>
   );
 }
@@ -88,17 +97,17 @@ function ScenarioCard({
     : [];
 
   return (
-    <article className={`${SCENARIO_CARD_CLASSES} ${isActive ? 'ring-2 ring-violet-500/60' : ''}`}>
+    <article className={`${SCENARIO_CARD_CLASSES} ${isActive ? CARD_SURFACE_ACTIVE : ''}`}>
       <header className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
-          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">{scenario.title}</h3>
+          <h3 className={HEADING_SECONDARY}>{scenario.title}</h3>
           {scenario.difficulty && (
             <span className={TAG_CLASSES}>{DIFFICULTY_LABELS[scenario.difficulty]}</span>
           )}
         </div>
-        <p className="text-sm text-slate-600 dark:text-slate-300">{scenario.summary}</p>
+        <p className={BODY_TEXT}>{scenario.summary}</p>
       </header>
-      <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">{scenario.description}</p>
+      <p className={`${BODY_TEXT} leading-6`}>{scenario.description}</p>
       {scenario.tags && scenario.tags.length > 0 && (
         <ul className="flex flex-wrap gap-2">
           {scenario.tags.map((tag) => (
@@ -109,15 +118,15 @@ function ScenarioCard({
         </ul>
       )}
       {(scenario.docs?.length || scenario.assets?.length || includedScenarios.length > 0) && (
-        <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <div className="flex flex-col gap-2 text-scale-xs text-muted">
           {includedScenarios.length > 0 ? (
             <div className="flex flex-col gap-1">
               <span className={SECTION_HEADER_CLASSES}>Loads the following</span>
               <ul className="flex flex-col gap-1">
                 {includedScenarios.map((included) => (
-                  <li key={included.id} className="text-slate-600 dark:text-slate-300">
-                    <strong className="text-slate-700 dark:text-slate-100">{included.title}</strong>
-                    <span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-400 dark:text-slate-500">
+                  <li key={included.id} className="text-secondary">
+                    <strong className="text-primary">{included.title}</strong>
+                    <span className="ml-2 text-scale-2xs font-weight-semibold uppercase tracking-[0.25em] text-muted">
                       {TYPE_LABELS[included.type] ?? included.type}
                     </span>
                   </li>
@@ -131,7 +140,7 @@ function ScenarioCard({
               {scenario.docs.map((doc) => (
                 <a
                   key={doc.label}
-                  className="inline-flex items-center gap-1 font-semibold text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
+                  className={LINK_ACCENT}
                   href={doc.href}
                   target="_blank"
                   rel="noreferrer"
@@ -147,10 +156,10 @@ function ScenarioCard({
               <span className={SECTION_HEADER_CLASSES}>Included assets</span>
               <ul className="flex flex-col gap-1">
                 {scenario.assets.map((asset) => (
-                  <li key={asset.label} className="text-slate-600 dark:text-slate-300">
+                  <li key={asset.label} className="text-secondary">
                     {asset.href ? (
                       <a
-                        className="inline-flex items-center gap-1 font-semibold text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
+                        className={LINK_ACCENT}
                         href={asset.href}
                         target="_blank"
                         rel="noreferrer"
@@ -172,7 +181,7 @@ function ScenarioCard({
       <footer className="mt-2 flex flex-wrap gap-2">
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-violet-500/30 transition hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+          className={PRIMARY_BUTTON}
           onClick={() => onApply(scenario)}
         >
           {isActive ? 'Reload scenario' : 'Load this scenario'}
@@ -217,19 +226,15 @@ export function ExampleScenarioPicker({
       className={PANEL_CLASSES}
       contentClassName={`${DRAWER_CLASSES} border-0`}
     >
-        <aside className="flex flex-col gap-4 border-b border-slate-200/70 p-5 lg:border-b-0 lg:border-r dark:border-slate-700/70">
+        <aside className="flex flex-col gap-4 border-b border-subtle p-5 lg:border-b-0 lg:border-r">
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1">
               <span className={SECTION_HEADER_CLASSES}>Example scenarios</span>
-              <h2 id={dialogTitleId} className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+              <h2 id={dialogTitleId} className={HEADING_SECONDARY}>
                 Jump straight into a seeded workflow
               </h2>
             </div>
-            <button
-              type="button"
-              className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-              onClick={onClose}
-            >
+            <button type="button" className={SECONDARY_BUTTON} onClick={onClose}>
               Close
             </button>
           </div>
@@ -244,14 +249,14 @@ export function ExampleScenarioPicker({
               />
             ))}
           </nav>
-          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+          <p className={`${SUBTEXT} leading-5`}>
             Forms are pre-populated with curated examples from this repository. You can adjust any field before running a
             preview or import.
           </p>
         </aside>
         <section className="flex max-h-[70vh] flex-col gap-4 overflow-auto px-5 py-6">
           {scenarioList.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">No scenarios available for this category yet.</p>
+            <p className={BODY_TEXT}>No scenarios available for this category yet.</p>
           ) : (
             scenarioList.map((scenario) => (
               <ScenarioCard

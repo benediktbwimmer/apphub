@@ -1,6 +1,21 @@
 import { useEffect, useMemo, useReducer } from 'react';
 import Modal from '../../components/Modal';
 import { createDeleteFormState, deleteFormReducer } from '../commandForms';
+import {
+  ALERT_SURFACE_DANGER,
+  CHECKBOX_INPUT,
+  CODE_SURFACE_DANGER,
+  DIALOG_SURFACE_DANGER,
+  ERROR_TEXT,
+  HEADER_SUBTITLE,
+  HEADER_TITLE_DANGER,
+  INPUT_LABEL,
+  INPUT_LABEL_CAPTION,
+  PRIMARY_BUTTON_DANGER,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+  TEXT_INPUT_DANGER
+} from './dialogTokens';
 
 type DeleteNodeDialogProps = {
   open: boolean;
@@ -56,74 +71,74 @@ export default function DeleteNodeDialog({ open, path, disabled = false, onClose
       labelledBy="delete-node-dialog-title"
       role="alertdialog"
       className="items-start justify-center px-4 py-8 sm:items-center"
-      contentClassName="w-full max-w-lg rounded-3xl border border-rose-200/80 bg-white/95 p-6 shadow-xl dark:border-rose-700/50 dark:bg-slate-900/80"
+      contentClassName={DIALOG_SURFACE_DANGER}
     >
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
         <header className="flex items-start justify-between gap-4">
           <div>
-            <h2 id="delete-node-dialog-title" className="text-lg font-semibold text-rose-700 dark:text-rose-200">
+            <h2 id="delete-node-dialog-title" className={HEADER_TITLE_DANGER}>
               Soft-delete node
             </h2>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              This marks the node as deleted in the core. Content removal is performed asynchronously by workers.
+            <p className={HEADER_SUBTITLE}>
+              This marks the node as deleted in the catalog. Content removal is performed asynchronously by workers.
             </p>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-full border border-rose-200/80 px-3 py-1 text-sm font-semibold text-rose-600 transition hover:bg-rose-100/60 dark:border-rose-700/60 dark:text-rose-200"
+            className={SECONDARY_BUTTON_COMPACT}
           >
             Close
           </button>
         </header>
 
-        <div className="space-y-2 rounded-2xl border border-rose-200/80 bg-rose-50/70 p-4 text-sm text-rose-700 dark:border-rose-700/50 dark:bg-rose-900/30 dark:text-rose-200">
+        <div className={ALERT_SURFACE_DANGER}>
           <p>
             Confirming will delete
-            <code className="mx-1 rounded bg-white/60 px-1.5 py-0.5 font-mono text-xs text-rose-700 dark:bg-rose-900/60 dark:text-rose-200">
+            <code className={CODE_SURFACE_DANGER}>
               {effectivePath || '—'}
             </code>
             and all descendants if recursive deletion is enabled.
           </p>
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+        <label className="flex items-center gap-2 text-scale-sm text-secondary">
           <input
             type="checkbox"
             checked={state.recursive}
             onChange={(event) => dispatch({ type: 'setRecursive', recursive: event.target.checked })}
             disabled={disabled || state.submitting}
-            className="h-4 w-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500 dark:border-rose-600"
+            className={`${CHECKBOX_INPUT} text-status-danger focus-visible:outline-status-danger`}
           />
           Delete descendants recursively
         </label>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-300">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <label className={INPUT_LABEL}>
+          <span className={INPUT_LABEL_CAPTION}>
             Type "{requiredConfirmation}" to confirm
           </span>
           <input
             type="text"
             value={state.confirmation}
             onChange={(event) => dispatch({ type: 'setConfirmation', confirmation: event.target.value })}
-            className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-rose-500 focus:outline-none dark:border-rose-700 dark:bg-slate-900 dark:text-slate-100"
+            className={TEXT_INPUT_DANGER}
             disabled={disabled || state.submitting}
           />
         </label>
-        {state.error ? <p className="text-xs text-rose-600 dark:text-rose-300">{state.error}</p> : null}
+        {state.error ? <p className={ERROR_TEXT}>{state.error}</p> : null}
 
         <div className="flex justify-end gap-3">
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-full border border-rose-200/80 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100/60 dark:border-rose-700/60 dark:text-rose-200"
+            className={SECONDARY_BUTTON}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={disabled || state.submitting}
-            className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className={PRIMARY_BUTTON_DANGER}
           >
             {state.submitting ? 'Deleting…' : 'Soft-delete'}
           </button>
@@ -132,4 +147,3 @@ export default function DeleteNodeDialog({ open, path, disabled = false, onClose
     </Modal>
   );
 }
-

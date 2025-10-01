@@ -7,6 +7,21 @@ import {
   normalizeRelativePath,
   validateRelativePath
 } from '../commandForms';
+import {
+  CHECKBOX_INPUT,
+  CODE_SURFACE,
+  DIALOG_SURFACE,
+  ERROR_TEXT,
+  HEADER_SUBTITLE,
+  HEADER_TITLE,
+  INPUT_LABEL,
+  INPUT_LABEL_CAPTION,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+  SELECT_INPUT,
+  TEXT_INPUT
+} from './dialogTokens';
 
 type MoveCopyDialogProps = {
   mode: 'move' | 'copy';
@@ -94,15 +109,15 @@ export default function MoveCopyDialog({
       onClose={handleClose}
       labelledBy={`${mode}-node-dialog-title`}
       className="items-start justify-center px-4 py-8 sm:items-center"
-      contentClassName="w-full max-w-xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/70 dark:bg-slate-900/80"
+      contentClassName={DIALOG_SURFACE}
     >
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
         <header className="flex items-start justify-between gap-4">
           <div>
-            <h2 id={`${mode}-node-dialog-title`} className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h2 id={`${mode}-node-dialog-title`} className={HEADER_TITLE}>
               {mode === 'move' ? 'Move node' : 'Copy node'}
             </h2>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            <p className={HEADER_SUBTITLE}>
               {mode === 'move'
                 ? 'Relocate the node to a new path. Moving will remove the original entry.'
                 : 'Duplicate the node to a new path. Copying keeps the original entry.'}
@@ -111,43 +126,41 @@ export default function MoveCopyDialog({
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-sm font-semibold text-slate-600 transition hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+            className={SECONDARY_BUTTON_COMPACT}
           >
             Close
           </button>
         </header>
 
-        <div className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Source path</span>
-          <code className="block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+        <div className="space-y-1 text-scale-sm text-secondary">
+          <span className={INPUT_LABEL_CAPTION}>Source path</span>
+          <code className={CODE_SURFACE}>
             {initialSourcePath || '—'}
           </code>
         </div>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-300">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Target path
-          </span>
+        <label className={INPUT_LABEL}>
+          <span className={INPUT_LABEL_CAPTION}>Target path</span>
           <input
             type="text"
             value={state.targetPath}
             onChange={(event) => dispatch({ type: 'setTargetPath', path: event.target.value })}
             placeholder="datasets/archive/report.csv"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            className={TEXT_INPUT}
             disabled={disabled || state.submitting}
           />
         </label>
-        {state.error ? <p className="text-xs text-rose-600 dark:text-rose-300">{state.error}</p> : null}
+        {state.error ? <p className={ERROR_TEXT}>{state.error}</p> : null}
 
-        <label className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-300">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Target mount</span>
+        <label className={INPUT_LABEL}>
+          <span className={INPUT_LABEL_CAPTION}>Target mount</span>
           <select
             value={state.targetMountId ?? ''}
             onChange={(event) => {
               const value = event.target.value;
               dispatch({ type: 'setTargetMountId', mountId: value ? Number(value) : null });
             }}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            className={SELECT_INPUT}
             disabled={disabled || state.submitting}
           >
             <option value="">Same mount</option>
@@ -159,13 +172,13 @@ export default function MoveCopyDialog({
           </select>
         </label>
 
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+        <label className="flex items-center gap-2 text-scale-sm text-secondary">
           <input
             type="checkbox"
             checked={state.overwrite}
             onChange={(event) => dispatch({ type: 'setOverwrite', overwrite: event.target.checked })}
             disabled={disabled || state.submitting}
-            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600"
+            className={CHECKBOX_INPUT}
           />
           Overwrite target if it already exists
         </label>
@@ -174,14 +187,14 @@ export default function MoveCopyDialog({
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+            className={SECONDARY_BUTTON}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={disabled || state.submitting}
-            className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className={PRIMARY_BUTTON}
           >
             {state.submitting ? (mode === 'move' ? 'Moving…' : 'Copying…') : mode === 'move' ? 'Move node' : 'Copy node'}
           </button>
@@ -190,4 +203,3 @@ export default function MoveCopyDialog({
     </Modal>
   );
 }
-

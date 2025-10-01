@@ -35,6 +35,11 @@ export const SERVICE_PREVIEW_DETAIL_VALUE_CLASSES = 'text-[12px] font-weight-med
 
 export const SERVICE_PREVIEW_NOTES_CLASSES = 'text-scale-xs text-secondary';
 
+export const SERVICE_ROUTE_ERROR_CONTAINER =
+  'rounded-3xl border border-status-danger bg-status-danger-soft p-6 text-left shadow-elevation-lg backdrop-blur-md';
+export const SERVICE_ROUTE_ERROR_TITLE = 'text-scale-lg font-weight-semibold text-status-danger';
+export const SERVICE_ROUTE_ERROR_MESSAGE = 'mt-2 text-scale-sm text-status-danger';
+
 export const SERVICE_HEADER_LABEL_CLASSES =
   'text-scale-xs font-weight-semibold uppercase tracking-[0.35em] text-accent-strong';
 

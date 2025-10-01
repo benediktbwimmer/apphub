@@ -1,8 +1,36 @@
+import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv';
 import { Editor, Modal, Spinner } from '../../components';
 import { formatTimestamp } from '../../workflows/formatters';
 import type { WorkflowAssetPartitionSummary } from '../../workflows/types';
+import {
+  DATA_ASSET_ALERT_ERROR,
+  DATA_ASSET_BUTTON_GHOST,
+  DATA_ASSET_BUTTON_PRIMARY,
+  DATA_ASSET_BUTTON_SECONDARY,
+  DATA_ASSET_BUTTON_TERTIARY,
+  DATA_ASSET_CARD,
+  DATA_ASSET_CHECKBOX,
+  DATA_ASSET_DIALOG_CLOSE_BUTTON,
+  DATA_ASSET_DIALOG_HEADER,
+  DATA_ASSET_DIALOG_META,
+  DATA_ASSET_DIALOG_SURFACE,
+  DATA_ASSET_DIALOG_TITLE,
+  DATA_ASSET_EDITOR,
+  DATA_ASSET_EDITOR_ERROR,
+  DATA_ASSET_FORM_ARRAY_NOTICE,
+  DATA_ASSET_FORM_FIELD,
+  DATA_ASSET_FORM_HELPER,
+  DATA_ASSET_FORM_INPUT,
+  DATA_ASSET_FORM_LABEL,
+  DATA_ASSET_FORM_UNSUPPORTED,
+  DATA_ASSET_NOTE,
+  DATA_ASSET_SEGMENTED_BUTTON,
+  DATA_ASSET_SEGMENTED_BUTTON_ACTIVE,
+  DATA_ASSET_SEGMENTED_BUTTON_INACTIVE,
+  DATA_ASSET_SEGMENTED_GROUP
+} from '../dataAssetsTokens';
 
 const ajv = new Ajv({ allErrors: true, allowUnionTypes: true, strict: false, strictTuples: false });
 
@@ -128,14 +156,14 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
           type="checkbox"
           checked={checked}
           onChange={(event) => handlePrimitiveChange(event.target.checked)}
-          className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+          className={classNames('mt-1', DATA_ASSET_CHECKBOX)}
         />
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <div className="flex flex-col gap-1">
+          <span className={DATA_ASSET_FORM_LABEL}>
             {title}
-            {required ? <span className="ml-1 text-rose-500">*</span> : null}
+            {required ? <span className="ml-1 text-status-danger">*</span> : null}
           </span>
-          {description && <span className="text-xs text-slate-500 dark:text-slate-400">{description}</span>}
+          {description ? <span className={DATA_ASSET_FORM_HELPER}>{description}</span> : null}
         </div>
       </label>
     );
@@ -144,16 +172,16 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
   if (type === 'string' || type === 'number' || type === 'integer') {
     if (enumValues && enumValues.length > 0) {
       return (
-        <div className="flex flex-col gap-1">
-          <label htmlFor={fieldId} className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <div className={DATA_ASSET_FORM_FIELD}>
+          <label htmlFor={fieldId} className={DATA_ASSET_FORM_LABEL}>
             {title}
-            {required ? <span className="ml-1 text-rose-500">*</span> : null}
+            {required ? <span className="ml-1 text-status-danger">*</span> : null}
           </label>
           <select
             id={fieldId}
             value={value as string | number | undefined}
             onChange={(event) => handlePrimitiveChange(event.target.value)}
-            className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+            className={DATA_ASSET_FORM_INPUT}
           >
             <option value="">Select…</option>
             {enumValues.map((entry) => (
@@ -162,7 +190,7 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
               </option>
             ))}
           </select>
-          {description && <span className="text-xs text-slate-500 dark:text-slate-400">{description}</span>}
+          {description ? <span className={DATA_ASSET_FORM_HELPER}>{description}</span> : null}
         </div>
       );
     }
@@ -177,10 +205,10 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
           ? value
           : undefined;
     return (
-      <div className="flex flex-col gap-1">
-        <label htmlFor={fieldId} className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+      <div className={DATA_ASSET_FORM_FIELD}>
+        <label htmlFor={fieldId} className={DATA_ASSET_FORM_LABEL}>
           {title}
-          {required ? <span className="ml-1 text-rose-500">*</span> : null}
+          {required ? <span className="ml-1 text-status-danger">*</span> : null}
         </label>
         <input
           id={fieldId}
@@ -194,9 +222,9 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
               handlePrimitiveChange(numeric === '' ? undefined : Number(numeric));
             }
           }}
-          className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+          className={DATA_ASSET_FORM_INPUT}
         />
-        {description && <span className="text-xs text-slate-500 dark:text-slate-400">{description}</span>}
+        {description ? <span className={DATA_ASSET_FORM_HELPER}>{description}</span> : null}
       </div>
     );
   }
@@ -208,8 +236,8 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
 
     if (!itemsSchema || (itemType !== 'string' && itemType !== 'number')) {
       return (
-        <div className="flex flex-col gap-1 rounded-2xl border border-amber-300/50 bg-amber-50/40 px-3 py-3 text-xs text-amber-600 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-          <span className="font-semibold">{title}</span>
+        <div className={DATA_ASSET_FORM_ARRAY_NOTICE}>
+          <span className="font-weight-semibold">{title}</span>
           <span>
             Complex array schemas are best edited via the JSON editor. Switch to the JSON tab to modify this value.
           </span>
@@ -221,15 +249,15 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <span className={DATA_ASSET_FORM_LABEL}>
               {title}
-              {required ? <span className="ml-1 text-rose-500">*</span> : null}
+              {required ? <span className="ml-1 text-status-danger">*</span> : null}
             </span>
-            {description && <p className="text-xs text-slate-500 dark:text-slate-400">{description}</p>}
+            {description ? <p className={DATA_ASSET_FORM_HELPER}>{description}</p> : null}
           </div>
           <button
             type="button"
-            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+            className={DATA_ASSET_BUTTON_SECONDARY}
             onClick={() => onChange(path, [...currentItems, itemType === 'number' ? 0 : ''])}
           >
             Add value
@@ -247,11 +275,14 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
                   nextItems[index] = nextValue;
                   onChange(path, nextItems);
                 }}
-                className="flex-1 rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+                className={classNames('flex-1', DATA_ASSET_FORM_INPUT)}
               />
               <button
                 type="button"
-                className="rounded-full border border-slate-200/70 bg-white/70 px-2 py-1 text-xs font-semibold text-slate-500 transition-colors hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-rose-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
+                className={classNames(
+                  DATA_ASSET_BUTTON_TERTIARY,
+                  'text-status-danger hover:text-status-danger'
+                )}
                 onClick={() => {
                   const nextItems = [...currentItems];
                   nextItems.splice(index, 1);
@@ -277,9 +308,12 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
     const currentObject = isRecord(value) ? value : {};
 
     return (
-      <fieldset className="flex flex-col gap-4 rounded-2xl border border-slate-200/60 bg-slate-50/40 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
-        <legend className="px-2 text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</legend>
-        {description && <p className="text-xs text-slate-500 dark:text-slate-400">{description}</p>}
+      <fieldset className={classNames(DATA_ASSET_CARD, 'flex flex-col gap-4')}>
+        <legend className={classNames(DATA_ASSET_FORM_LABEL, 'px-2')}>
+          {title}
+          {required ? <span className="ml-1 text-status-danger">*</span> : null}
+        </legend>
+        {description ? <p className={DATA_ASSET_FORM_HELPER}>{description}</p> : null}
         {propertyEntries.map(([key, childSchema]) => (
           <FieldRenderer
             key={key}
@@ -295,8 +329,8 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
   }
 
   return (
-    <div className="flex flex-col gap-1 rounded-2xl border border-slate-200/60 bg-slate-50/40 px-3 py-3 text-xs text-slate-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300">
-      <span className="font-semibold text-slate-600 dark:text-slate-200">{title}</span>
+    <div className={DATA_ASSET_FORM_UNSUPPORTED}>
+      <span className="font-weight-semibold text-primary">{title}</span>
       <span>
         This field uses a schema type that is not supported by the visual editor. Switch to the JSON tab to modify it directly.
       </span>
@@ -540,11 +574,11 @@ export function AssetRecomputeDialog({
     }
   };
 
-  const editorClassName = `rounded-2xl border ${
-    parseError
-      ? 'border-rose-400 ring-2 ring-rose-400 ring-offset-2 ring-offset-rose-50 dark:border-rose-500/70 dark:ring-rose-500/50 dark:ring-offset-slate-900'
-      : 'border-slate-200/70 dark:border-slate-700/60'
-  } bg-white/80 dark:bg-slate-900/70`;
+  const editorClassName = classNames(
+    DATA_ASSET_EDITOR,
+    'min-h-[260px] font-mono',
+    parseError ? DATA_ASSET_EDITOR_ERROR : null
+  );
 
   const resetButtonsDisabled = submitting || clearing || workflowParametersLoading;
 
@@ -556,53 +590,50 @@ export function AssetRecomputeDialog({
       onClose={handleClose}
       labelledBy={dialogTitleId}
       className="items-start justify-center p-4 pt-10 sm:items-center sm:p-6"
-      contentClassName="flex max-w-2xl flex-col overflow-hidden border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900"
+      contentClassName={DATA_ASSET_DIALOG_SURFACE}
     >
-        <header className="flex items-start justify-between gap-4 border-b border-slate-200/60 bg-slate-50/60 px-6 py-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+        <header className={DATA_ASSET_DIALOG_HEADER}>
           <div className="space-y-1">
-            <h2 id={dialogTitleId} className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h2 id={dialogTitleId} className={DATA_ASSET_DIALOG_TITLE}>
               Trigger workflow run
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className={DATA_ASSET_DIALOG_META}>
               {workflowSlug ? `${workflowSlug} · ` : ''}
               {assetId ?? 'Unknown asset'} · Partition {partitionKey ?? 'default'}
             </p>
-            {sourceDescription && (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+            {sourceDescription ? (
+              <p className={DATA_ASSET_DIALOG_META}>
                 {sourceDescription}
                 {updatedLabel ? ` · ${updatedLabel}` : ''}
               </p>
-            )}
+            ) : null}
           </div>
-          <button
-            type="button"
-            className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
-            onClick={handleClose}
-          >
+          <button type="button" className={DATA_ASSET_DIALOG_CLOSE_BUTTON} onClick={handleClose}>
             Close
           </button>
         </header>
 
         <div className="flex flex-col gap-4 px-6 py-5">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Workflow parameters
-                {requiredKeys.length > 0 ? (
-                  <span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">
-                    Required keys: {requiredKeys.join(', ')}
-                  </span>
-                ) : null}
-              </label>
-              <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className={DATA_ASSET_FORM_LABEL}>
+              Workflow parameters
+              {requiredKeys.length > 0 ? (
+                <span className={classNames('ml-2 font-weight-regular', DATA_ASSET_FORM_HELPER)}>
+                  Required keys: {requiredKeys.join(', ')}
+                </span>
+              ) : null}
+            </label>
+              <div className={DATA_ASSET_SEGMENTED_GROUP}>
                 {canUseForm && (
                   <button
                     type="button"
-                    className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
+                    className={classNames(
+                      DATA_ASSET_SEGMENTED_BUTTON,
                       mode === 'form'
-                        ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30'
-                        : 'border border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
-                    }`}
+                        ? DATA_ASSET_SEGMENTED_BUTTON_ACTIVE
+                        : DATA_ASSET_SEGMENTED_BUTTON_INACTIVE
+                    )}
                     onClick={() => setMode('form')}
                     disabled={workflowParametersLoading || submitting || clearing}
                   >
@@ -611,11 +642,12 @@ export function AssetRecomputeDialog({
                 )}
                 <button
                   type="button"
-                  className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
+                  className={classNames(
+                    DATA_ASSET_SEGMENTED_BUTTON,
                     mode === 'json' || !canUseForm
-                      ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30'
-                      : 'border border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
-                  }`}
+                      ? DATA_ASSET_SEGMENTED_BUTTON_ACTIVE
+                      : DATA_ASSET_SEGMENTED_BUTTON_INACTIVE
+                  )}
                   onClick={() => setMode('json')}
                   disabled={workflowParametersLoading || submitting || clearing}
                 >
@@ -624,17 +656,15 @@ export function AssetRecomputeDialog({
               </div>
             </div>
 
-            {workflowParametersError && (
-              <p className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-2 text-xs font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
-                {workflowParametersError}
-              </p>
-            )}
+            {workflowParametersError ? (
+              <div className={DATA_ASSET_ALERT_ERROR}>{workflowParametersError}</div>
+            ) : null}
 
-            {workflowParametersLoading && (
-              <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-xs text-slate-500 dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-400">
+            {workflowParametersLoading ? (
+              <div className={classNames(DATA_ASSET_CARD, 'text-scale-xs text-secondary')}>
                 <Spinner label="Loading workflow defaults…" size="xs" />
               </div>
-            )}
+            ) : null}
 
             {!workflowParametersLoading && mode === 'form' && canUseForm && schema && (
               <div className="flex flex-col gap-3">
@@ -642,7 +672,7 @@ export function AssetRecomputeDialog({
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                    className={DATA_ASSET_BUTTON_SECONDARY}
                     onClick={resetToDefaults}
                     disabled={resetButtonsDisabled}
                   >
@@ -651,7 +681,7 @@ export function AssetRecomputeDialog({
                   {hasStoredParameters && (
                     <button
                       type="button"
-                      className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                      className={DATA_ASSET_BUTTON_SECONDARY}
                       onClick={loadStoredParameters}
                       disabled={resetButtonsDisabled}
                     >
@@ -677,7 +707,7 @@ export function AssetRecomputeDialog({
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                      className={DATA_ASSET_BUTTON_SECONDARY}
                       onClick={resetToDefaults}
                       disabled={resetButtonsDisabled}
                     >
@@ -686,7 +716,7 @@ export function AssetRecomputeDialog({
                     {hasStoredParameters && (
                       <button
                         type="button"
-                        className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                        className={DATA_ASSET_BUTTON_SECONDARY}
                         onClick={loadStoredParameters}
                         disabled={resetButtonsDisabled}
                       >
@@ -694,38 +724,43 @@ export function AssetRecomputeDialog({
                       </button>
                     )}
                   </div>
-                  {parseError && (
-                    <span role="alert" className="text-xs font-semibold text-rose-600 dark:text-rose-300">
+                  {parseError ? (
+                    <span
+                      role="alert"
+                      className={classNames(DATA_ASSET_NOTE, 'font-weight-semibold text-status-danger')}
+                    >
                       Unable to parse JSON: {parseError}
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             )}
 
-            {validationErrors.length > 0 && (
-              <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
-                <p>Validation issues:</p>
+            {validationErrors.length > 0 ? (
+              <div className={DATA_ASSET_ALERT_ERROR}>
+                <p className="font-weight-semibold">Validation issues:</p>
                 <ul className="list-disc pl-4">
                   {validationErrors.map((issue, index) => (
                     <li key={issue.path ?? index}>
                       {issue.message}
-                      {issue.path && <span className="ml-1 text-[10px] uppercase tracking-widest text-rose-400">{issue.path}</span>}
+                      {issue.path ? (
+                        <span className="ml-1 text-[10px] uppercase tracking-[0.3em] text-status-danger">
+                          {issue.path}
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
 
-            {submitError && (
-              <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">{submitError}</p>
-            )}
+            {submitError ? <div className={DATA_ASSET_ALERT_ERROR}>{submitError}</div> : null}
           </div>
 
-          <label className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
+          <label className="flex items-center gap-3 text-scale-sm text-secondary">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+              className={DATA_ASSET_CHECKBOX}
               checked={persistParameters}
               onChange={(event) => setPersistParameters(event.target.checked)}
               disabled={submitting || clearing}
@@ -734,11 +769,14 @@ export function AssetRecomputeDialog({
           </label>
         </div>
 
-        <footer className="flex flex-col gap-3 border-t border-slate-200/60 bg-slate-50/60 px-6 py-4 dark:border-slate-700/60 dark:bg-slate-900/60 sm:flex-row sm:items-center sm:justify-between">
+        <footer className="flex flex-col gap-3 border-t border-subtle bg-surface-glass-soft px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
           {onClearStored && partition.parameters ? (
             <button
               type="button"
-              className="text-xs font-semibold text-slate-500 hover:text-rose-600 disabled:opacity-60 dark:text-slate-400 dark:hover:text-rose-400"
+              className={classNames(
+                DATA_ASSET_BUTTON_GHOST,
+                'text-status-danger hover:text-status-danger'
+              )}
               onClick={handleClearStored}
               disabled={submitting || clearing}
             >
@@ -750,7 +788,7 @@ export function AssetRecomputeDialog({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              className={DATA_ASSET_BUTTON_SECONDARY}
               onClick={handleClose}
               disabled={submitting || clearing}
             >
@@ -758,7 +796,7 @@ export function AssetRecomputeDialog({
             </button>
             <button
               type="button"
-              className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-60"
+              className={DATA_ASSET_BUTTON_PRIMARY}
               onClick={handleSubmit}
               disabled={
                 submitting ||
