@@ -414,8 +414,7 @@ const stringPartitionPredicateSchema: OpenAPIV3.SchemaObject = {
   properties: {
     type: {
       type: 'string',
-      enum: ['string'],
-      default: 'string'
+      enum: ['string']
     },
     eq: nullable(stringSchema()),
     in: nullable({

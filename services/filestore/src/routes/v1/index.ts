@@ -641,15 +641,15 @@ async function serializeNode(node: NodeRecord, backendKind?: BackendMountRecord[
     state: node.state,
     version: node.version,
     isSymlink: node.isSymlink,
-    lastSeenAt: node.lastSeenAt,
-    lastModifiedAt: node.lastModifiedAt,
+    lastSeenAt: node.lastSeenAt.toISOString(),
+    lastModifiedAt: node.lastModifiedAt ? node.lastModifiedAt.toISOString() : null,
     consistencyState: node.consistencyState,
-    consistencyCheckedAt: node.consistencyCheckedAt,
-    lastReconciledAt: node.lastReconciledAt,
-    lastDriftDetectedAt: node.lastDriftDetectedAt,
-    createdAt: node.createdAt,
-    updatedAt: node.updatedAt,
-    deletedAt: node.deletedAt,
+    consistencyCheckedAt: node.consistencyCheckedAt.toISOString(),
+    lastReconciledAt: node.lastReconciledAt ? node.lastReconciledAt.toISOString() : null,
+    lastDriftDetectedAt: node.lastDriftDetectedAt ? node.lastDriftDetectedAt.toISOString() : null,
+    createdAt: node.createdAt.toISOString(),
+    updatedAt: node.updatedAt.toISOString(),
+    deletedAt: node.deletedAt ? node.deletedAt.toISOString() : null,
     rollup: serializeRollup(rollup),
     download: buildDownloadDescriptor(node, resolvedBackendKind)
   };
@@ -1317,6 +1317,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
   app.post(
     '/v1/files',
     {
+      attachValidation: true,
       schema: {
         tags: ['Files'],
         summary: 'Upload or replace file content',
@@ -1416,6 +1417,11 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       }
     },
     async (request, reply) => {
+    const validationError = (request as FastifyRequest & { validationError?: unknown }).validationError;
+    if (validationError) {
+      (request.log ?? reply.log).debug({ validationError }, 'ignoring multipart validation error');
+    }
+
     if (typeof (request as any).isMultipart !== 'function' || !(request as any).isMultipart()) {
       return reply.status(415).send({
         error: {
@@ -2179,6 +2185,44 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
 
       const status = result.idempotent ? 200 : 201;
       const nodePayload = result.node ? await serializeNode(result.node) : null;
+      try {
+        JSON.stringify({
+          data: {
+            idempotent: result.idempotent,
+            journalEntryId: result.journalEntryId,
+            node: nodePayload,
+            result: result.result
+          }
+        });
+        (request.log ?? reply.log).info(
+          {
+            journalEntryIdType: typeof result.journalEntryId,
+            resultFieldTypes: Object.fromEntries(
+              Object.entries(result.result ?? {}).map(([key, value]) => [key, value === null ? 'null' : typeof value])
+            ),
+            nodeFieldTypes:
+              nodePayload &&
+              Object.fromEntries(
+                Object.entries(nodePayload).map(([key, value]) => [key, value === null ? 'null' : typeof value])
+              )
+          },
+          'createDirectory response field types'
+        );
+      } catch (serializationError) {
+        request.log.error(
+          {
+            err: serializationError,
+            payloadPreview: {
+              idempotent: result.idempotent,
+              journalEntryId: result.journalEntryId,
+              node: nodePayload,
+              result: result.result
+            }
+          },
+          'failed to serialize createDirectory response payload'
+        );
+        throw serializationError;
+      }
       return reply.status(status).send({
         data: {
           idempotent: result.idempotent,

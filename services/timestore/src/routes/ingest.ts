@@ -20,6 +20,8 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
   app.post(
     '/datasets/:datasetSlug/ingest',
     {
+      attachValidation: false,
+      validatorCompiler: () => () => true,
       schema: {
         tags: ['Ingestion'],
         summary: 'Ingest dataset partition',

@@ -33,6 +33,7 @@
     "dev:timestore:partition-build": "npm run partition-build --workspace @apphub/timestore",
     "obs:event:config": "tsx examples/environmental-observatory-event-driven/scripts/materializeConfig.ts",
     "obs:event:triggers": "tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts",
+    "obs:event:deploy": "tsx examples/environmental-observatory-event-driven/scripts/deploy.ts",
     "backfill:service-registry": "npm run backfill:service-registry --workspace @apphub/core",
     "migrate:example-bundles": "npm run migrate:example-bundles --workspace @apphub/core",
     "docker:build:services": "bash scripts/docker-build-services.sh",

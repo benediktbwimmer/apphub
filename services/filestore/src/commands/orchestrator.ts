@@ -73,6 +73,17 @@ const MS_PER_DAY = 86_400_000;
 let lastJournalPruneAt = 0;
 let journalPruneInFlight: Promise<void> | null = null;
 
+function toInteger(value: unknown, label: string): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) {
+    throw new Error(`${label} must be a finite integer`);
+  }
+  if (!Number.isSafeInteger(numeric)) {
+    throw new Error(`${label} exceeds JavaScript safe integer range`);
+  }
+  return numeric;
+}
+
 function scheduleJournalPrune(): void {
   const config = loadServiceConfig();
   const retentionDays = config.journal.retentionDays;
@@ -1125,13 +1136,17 @@ async function findIdempotentResult(
 
   const payload = row.result ?? {};
   let node: NodeRecord | null = null;
-  const nodeId = typeof payload.nodeId === 'number' ? payload.nodeId : null;
-  if (nodeId) {
+  const rawNodeId = payload.nodeId as unknown;
+  const nodeId =
+    rawNodeId === undefined || rawNodeId === null
+      ? null
+      : toInteger(rawNodeId, 'nodeId');
+  if (nodeId !== null) {
     node = await getNodeById(client, nodeId);
   }
 
   return {
-    journalEntryId: row.id,
+    journalEntryId: toInteger(row.id, 'journalEntryId'),
     result: payload,
     node
   };
@@ -1200,7 +1215,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
       ]
     );
 
-    const journalEntryId = journalInsert.rows[0].id;
+    const journalEntryId = toInteger(journalInsert.rows[0].id, 'journalEntryId');
     const startTime = process.hrtime.bigint();
 
     const execution = await executeCommand(client, backend, parsed, runtimeExecutor);

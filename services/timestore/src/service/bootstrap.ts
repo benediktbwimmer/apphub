@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   getStorageTargetByName,
   upsertStorageTarget,
@@ -11,6 +10,7 @@ const DEFAULT_STORAGE_TARGET_PREFIX = 'timestore-default';
 export async function ensureDefaultStorageTarget(): Promise<StorageTargetRecord> {
   const config = loadServiceConfig();
   const name = getDefaultStorageTargetName(config.storage.driver);
+  const id = getDefaultStorageTargetId(config.storage.driver);
   const existing = await getStorageTargetByName(name);
   if (existing) {
     return existing;
@@ -18,7 +18,7 @@ export async function ensureDefaultStorageTarget(): Promise<StorageTargetRecord>
 
   if (config.storage.driver === 'local') {
     return upsertStorageTarget({
-      id: `st-${randomUUID()}`,
+      id,
       name,
       kind: 'local',
       description: 'Default local timestore storage target',
@@ -52,7 +52,7 @@ export async function ensureDefaultStorageTarget(): Promise<StorageTargetRecord>
     }
 
     return upsertStorageTarget({
-      id: `st-${randomUUID()}`,
+      id,
       name,
       kind: 's3',
       description: 'Default S3 timestore storage target',
@@ -87,7 +87,7 @@ export async function ensureDefaultStorageTarget(): Promise<StorageTargetRecord>
     }
 
     return upsertStorageTarget({
-      id: `st-${randomUUID()}`,
+      id,
       name,
       kind: 'gcs',
       description: 'Default GCS timestore storage target',
@@ -120,7 +120,7 @@ export async function ensureDefaultStorageTarget(): Promise<StorageTargetRecord>
     }
 
     return upsertStorageTarget({
-      id: `st-${randomUUID()}`,
+      id,
       name,
       kind: 'azure_blob',
       description: 'Default Azure Blob timestore storage target',
@@ -133,4 +133,8 @@ export async function ensureDefaultStorageTarget(): Promise<StorageTargetRecord>
 
 export function getDefaultStorageTargetName(driver: ServiceConfig['storage']['driver']): string {
   return `${DEFAULT_STORAGE_TARGET_PREFIX}-${driver}`;
+}
+
+export function getDefaultStorageTargetId(driver: ServiceConfig['storage']['driver']): string {
+  return `st-${getDefaultStorageTargetName(driver)}`;
 }

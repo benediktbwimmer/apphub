@@ -79,7 +79,7 @@ type TimestoreLoaderParameters = {
   filestoreBackendId: number;
   filestorePrincipal?: string;
   stagingPrefix: string;
-  rawAsset: RawAsset;
+  rawAsset: RawAsset | null;
   idempotencyKey?: string;
   calibrationsBaseUrl?: string;
   calibrationsNamespace?: string;
@@ -246,9 +246,24 @@ async function readStreamToString(stream: NodeJS.ReadableStream): Promise<string
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function parseRawAsset(raw: unknown): RawAsset {
+function parseRawAsset(raw: unknown): RawAsset | null {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return null;
+    }
+    try {
+      return parseRawAsset(JSON.parse(trimmed));
+    } catch {
+      return null;
+    }
+  }
+
   if (!isRecord(raw)) {
-    throw new Error('rawAsset parameter must be an object');
+    return null;
   }
 
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key ?? raw.hour);
@@ -304,7 +319,7 @@ function parseRawAsset(raw: unknown): RawAsset {
   );
 
   if (!partitionKey || !minute) {
-    throw new Error('rawAsset must include partitionKey and minute');
+    return null;
   }
 
   return {
@@ -346,12 +361,11 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
   }
 
   const idempotencyKey = ensureString(raw.idempotencyKey ?? raw.idempotency_key ?? minute);
-  const rawAsset = parseRawAsset(raw.rawAsset ?? raw.raw_asset);
+  let rawAsset = parseRawAsset(raw.rawAsset ?? raw.raw_asset);
 
   const filestoreBaseUrl = ensureString(
     raw.filestoreBaseUrl ??
       raw.filestore_base_url ??
-      (rawAsset ? (raw as Record<string, unknown>).filestoreBaseUrl : undefined) ??
       process.env.OBSERVATORY_FILESTORE_BASE_URL ??
       process.env.FILESTORE_BASE_URL ??
       ''
@@ -359,21 +373,22 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
   const filestoreToken = ensureString(
     raw.filestoreToken ?? raw.filestore_token ?? process.env.OBSERVATORY_FILESTORE_TOKEN ?? ''
   );
-  const filestoreBackendId = ensureNumber(
-    raw.filestoreBackendId ?? raw.filestore_backend_id ?? rawAsset.backendMountId ?? null
-  );
+  const explicitBackendId = ensureNumber(raw.filestoreBackendId ?? raw.filestore_backend_id);
+  const fallbackBackendId = rawAsset ? rawAsset.backendMountId : null;
+  const filestoreBackendId = explicitBackendId ?? fallbackBackendId;
   if (!filestoreBaseUrl) {
     throw new Error('filestoreBaseUrl parameter is required');
   }
   if (filestoreBackendId === null) {
     throw new Error('filestoreBackendId parameter is required');
   }
-  const stagingPrefix = ensureString(
-    raw.stagingPrefix ?? raw.staging_prefix ?? rawAsset.stagingPrefix ?? ''
+  const stagingPrefixInput = ensureString(
+    raw.stagingPrefix ?? raw.staging_prefix ?? rawAsset?.stagingPrefix ?? ''
   );
-  if (!stagingPrefix) {
+  if (!stagingPrefixInput) {
     throw new Error('stagingPrefix parameter is required');
   }
+  const stagingPrefix = stagingPrefixInput.replace(/\/+$/g, '');
   const filestorePrincipal = ensureString(
     raw.filestorePrincipal ?? raw.filestore_principal ?? raw.principal ?? ''
   );
@@ -412,11 +427,17 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
   const finalCalibrationsBaseUrl = calibrationsBaseUrlCandidate || '';
   const finalCalibrationsAuthToken = calibrationsAuthTokenCandidate || '';
 
-  if (!rawAsset.backendMountId || rawAsset.backendMountId <= 0) {
-    rawAsset.backendMountId = filestoreBackendId;
-  }
-  if (!rawAsset.stagingPrefix) {
-    rawAsset.stagingPrefix = stagingPrefix;
+  if (rawAsset) {
+    if (!rawAsset.backendMountId || rawAsset.backendMountId <= 0) {
+      rawAsset.backendMountId = filestoreBackendId;
+    }
+    if (!rawAsset.stagingPrefix) {
+      rawAsset.stagingPrefix = stagingPrefix;
+    }
+    if (!rawAsset.stagingMinutePrefix) {
+      const minuteKey = minute.replace(/:/g, '-');
+      rawAsset.stagingMinutePrefix = `${stagingPrefix}/${minuteKey}`;
+    }
   }
 
   return {
@@ -442,6 +463,112 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
       (calibrationsNamespace || 'observatory.calibrations').trim() || 'observatory.calibrations',
     calibrationsAuthToken: finalCalibrationsAuthToken || undefined
   } satisfies TimestoreLoaderParameters;
+}
+
+function inferInstrumentFromFilename(path: string): string | undefined {
+  const name = path.split('/').pop() ?? '';
+  const match = name.match(/([A-Za-z0-9_-]+)_\d+/);
+  return match ? match[1] : undefined;
+}
+
+async function discoverRawAssetFromStaging(
+  parameters: TimestoreLoaderParameters,
+  filestoreClient: FilestoreClient,
+  logger: JobRunContext['logger']
+): Promise<RawAsset> {
+  const normalizedStagingPrefix = parameters.stagingPrefix.replace(/\/+$/g, '');
+  const minuteKey = parameters.minute.replace(/:/g, '-');
+  const stagingMinutePrefix = `${normalizedStagingPrefix}/${minuteKey}`;
+  logger('rawAsset parameter missing; discovering staging files for timestore loader', {
+    stagingMinutePrefix,
+    backendMountId: parameters.filestoreBackendId
+  });
+
+  const files: RawAssetFile[] = [];
+  const calibrations: CalibrationReference[] = [];
+  let normalizedAt: string | undefined;
+  let offset = 0;
+  const pageSize = 100;
+
+  while (true) {
+    const page = await filestoreClient.listNodes({
+      backendMountId: parameters.filestoreBackendId,
+      path: stagingMinutePrefix,
+      depth: 1,
+      limit: pageSize,
+      offset
+    });
+
+    for (const node of page.nodes) {
+      if (node.kind !== 'file') {
+        continue;
+      }
+      const metadata = (node.metadata ?? {}) as Record<string, unknown>;
+      const instrumentCandidate = ensureString(metadata.instrumentId ?? metadata.instrument_id ?? '');
+      const instrumentId = instrumentCandidate || inferInstrumentFromFilename(node.path);
+      const siteCandidate = ensureString(metadata.site ?? metadata.location ?? '');
+      const rowsCandidate = ensureNumber(metadata.rows ?? metadata.recordCount ?? metadata.rowCount ?? null);
+      const calibration = parseCalibrationReference(
+        metadata.calibration ?? metadata.calibrationMetadata ?? metadata.calibration_reference,
+        instrumentId ?? ''
+      );
+      const normalizedAtCandidate = ensureString(metadata.normalizedAt ?? metadata.normalized_at ?? '');
+      if (!normalizedAt && normalizedAtCandidate) {
+        normalizedAt = normalizeIsoString(normalizedAtCandidate) ?? normalizedAtCandidate;
+      }
+      if (calibration) {
+        calibrations.push(calibration);
+      }
+
+      files.push({
+        path: node.path,
+        nodeId: node.id,
+        site: siteCandidate || undefined,
+        instrumentId: instrumentId || undefined,
+        rows: rowsCandidate ?? undefined,
+        sizeBytes: Number.isFinite(node.sizeBytes) ? node.sizeBytes : undefined,
+        checksum: typeof node.checksum === 'string' && node.checksum.length > 0 ? node.checksum : undefined,
+        calibration
+      });
+    }
+
+    if (page.nextOffset === null || page.nextOffset === page.offset) {
+      break;
+    }
+    offset = page.nextOffset;
+  }
+
+  if (files.length === 0) {
+    throw new Error(`No staging files found under ${stagingMinutePrefix}`);
+  }
+
+  const recordCount = files.reduce((total, file) => total + (file.rows ?? 0), 0);
+  const instrumentIds = new Set<string>();
+  for (const file of files) {
+    if (file.instrumentId) {
+      instrumentIds.add(file.instrumentId);
+    }
+  }
+
+  const uniqueCalibrations = calibrations.filter((entry, index, list) => {
+    if (!entry) {
+      return false;
+    }
+    return list.findIndex((candidate) => candidate && candidate.calibrationId === entry.calibrationId) === index;
+  });
+
+  return {
+    partitionKey: parameters.minute,
+    minute: parameters.minute,
+    backendMountId: parameters.filestoreBackendId,
+    stagingPrefix: normalizedStagingPrefix,
+    stagingMinutePrefix,
+    files,
+    recordCount: recordCount || undefined,
+    instrumentCount: instrumentIds.size || undefined,
+    normalizedAt,
+    calibrationsApplied: uniqueCalibrations.length > 0 ? uniqueCalibrations : undefined
+  } satisfies RawAsset;
 }
 
 function toCalibrationConfig(parameters: TimestoreLoaderParameters): CalibrationLookupConfig | null {
@@ -617,7 +744,24 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     token: parameters.filestoreToken,
     userAgent: 'observatory-timestore-loader/0.2.0'
   });
-  const backendMountId = parameters.filestoreBackendId || parameters.rawAsset.backendMountId;
+  if (!parameters.rawAsset) {
+    try {
+      parameters.rawAsset = await discoverRawAssetFromStaging(parameters, filestoreClient, context.logger);
+    } catch (error) {
+      context.logger('Failed to infer rawAsset from staging prefix', {
+        minute: parameters.minute,
+        stagingPrefix: parameters.stagingPrefix,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  const rawAsset = parameters.rawAsset;
+  if (!rawAsset) {
+    throw new Error('Unable to resolve rawAsset for timestore loader');
+  }
+  const backendMountId = parameters.filestoreBackendId || rawAsset.backendMountId;
   if (!backendMountId || backendMountId <= 0) {
     throw new Error('filestoreBackendId must be provided for timestore loader');
   }
@@ -669,7 +813,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     }
 
     const state: InstrumentCalibrationState = {
-      reference: findCalibrationReference(parameters.rawAsset, key),
+      reference: findCalibrationReference(rawAsset, key),
       snapshot: null
     };
 
@@ -733,7 +877,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     const instrumentBuckets = new Map<string, InstrumentBucket>();
     let totalRows = 0;
 
-    if (parameters.rawAsset.files.length === 0) {
+    if (rawAsset.files.length === 0) {
       context.logger('No source files provided for Timestore ingestion; skipping', {
         minute: parameters.minute,
         datasetSlug: parameters.datasetSlug
@@ -750,7 +894,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       } satisfies JobRunResult;
     }
 
-    for (const source of parameters.rawAsset.files) {
+    for (const source of rawAsset.files) {
       const { rows, minTimestamp, maxTimestamp } = await ingestableRowsFromCsv(
         filestoreClient,
         backendMountId,
