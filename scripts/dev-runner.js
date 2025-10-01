@@ -4,6 +4,8 @@
 const fs = require('node:fs');
 const fsPromises = require('node:fs/promises');
 const path = require('node:path');
+const net = require('node:net');
+const { spawnSync } = require('node:child_process');
 const { concurrently, Logger } = require('concurrently');
 const stripAnsi = require('strip-ansi');
 const { runPreflight } = require('./dev-preflight');
@@ -19,6 +21,67 @@ const sanitizeLogSlug = (value, index) => {
   return slug || `command-${index + 1}`;
 };
 const DEFAULT_REDIS_URL = process.env.APPHUB_DEV_REDIS_URL ?? 'redis://127.0.0.1:6379';
+
+const parsePort = (value, fallback) => {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const DEV_POSTGRES = {
+  container: process.env.APPHUB_DEV_POSTGRES_CONTAINER ?? 'apphub-dev-postgres',
+  image: process.env.APPHUB_DEV_POSTGRES_IMAGE ?? 'postgres:16-alpine',
+  volume: process.env.APPHUB_DEV_POSTGRES_VOLUME ?? 'apphub-dev-postgres',
+  host: process.env.APPHUB_DEV_POSTGRES_HOST ?? '127.0.0.1',
+  port: parsePort(process.env.APPHUB_DEV_POSTGRES_PORT, 5432),
+  user: process.env.APPHUB_DEV_POSTGRES_USER ?? 'apphub',
+  password: process.env.APPHUB_DEV_POSTGRES_PASSWORD ?? 'apphub',
+  database: process.env.APPHUB_DEV_POSTGRES_DB ?? 'apphub'
+};
+
+const DEV_MINIO = {
+  container: process.env.APPHUB_DEV_MINIO_CONTAINER ?? 'apphub-dev-minio',
+  image: process.env.APPHUB_DEV_MINIO_IMAGE ?? 'minio/minio:latest',
+  volume: process.env.APPHUB_DEV_MINIO_VOLUME ?? 'apphub-dev-minio',
+  apiPort: parsePort(process.env.APPHUB_DEV_MINIO_PORT, 9000),
+  consolePort: parsePort(process.env.APPHUB_DEV_MINIO_CONSOLE_PORT, 9001),
+  rootUser: process.env.APPHUB_DEV_MINIO_ROOT_USER ?? 'apphub',
+  rootPassword: process.env.APPHUB_DEV_MINIO_ROOT_PASSWORD ?? 'apphub123',
+  mcImage: process.env.APPHUB_DEV_MINIO_MC_IMAGE ?? 'minio/mc:latest',
+  buckets: (process.env.APPHUB_DEV_MINIO_BUCKETS ?? 'apphub-example-bundles,apphub-filestore,apphub-timestore')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+};
+
+const MINIO_API_ENDPOINT = `http://127.0.0.1:${DEV_MINIO.apiPort}`;
+const DEFAULT_DATABASE_URL = `postgres://${DEV_POSTGRES.user}:${encodeURIComponent(
+  DEV_POSTGRES.password
+)}@${DEV_POSTGRES.host}:${DEV_POSTGRES.port}/${DEV_POSTGRES.database}`;
+
+const DEV_CONTAINERS = [
+  {
+    name: DEV_POSTGRES.container,
+    image: DEV_POSTGRES.image,
+    volumes: [`${DEV_POSTGRES.volume}:/var/lib/postgresql/data`],
+    ports: [`${DEV_POSTGRES.port}:5432`],
+    env: {
+      POSTGRES_USER: DEV_POSTGRES.user,
+      POSTGRES_PASSWORD: DEV_POSTGRES.password,
+      POSTGRES_DB: DEV_POSTGRES.database
+    }
+  },
+  {
+    name: DEV_MINIO.container,
+    image: DEV_MINIO.image,
+    volumes: [`${DEV_MINIO.volume}:/data`],
+    ports: [`${DEV_MINIO.apiPort}:9000`, `${DEV_MINIO.consolePort}:9001`],
+    env: {
+      MINIO_ROOT_USER: DEV_MINIO.rootUser,
+      MINIO_ROOT_PASSWORD: DEV_MINIO.rootPassword
+    },
+    args: ['server', '/data', '--address', ':9000', '--console-address', ':9001']
+  }
+];
 
 const BASE_COMMANDS = [
   {
@@ -97,6 +160,201 @@ const BASE_COMMANDS = [
   }
 ];
 
+function runDocker(args, options = {}) {
+  const stdio = options.stdio ?? 'pipe';
+  const spawnOptions = {
+    ...options,
+    stdio,
+    encoding: stdio === 'pipe' ? 'utf8' : undefined
+  };
+  const result = spawnSync('docker', args, spawnOptions);
+  if (result.error) {
+    throw result.error;
+  }
+  if (typeof result.status === 'number' && result.status !== 0) {
+    const stderr = result.stderr ? result.stderr.toString() : '';
+    const stdout = result.stdout ? result.stdout.toString() : '';
+    throw new Error(`docker ${args.join(' ')} failed: ${(stderr || stdout || '').trim()}`);
+  }
+  return stdio === 'pipe' ? (result.stdout ?? '').toString().trim() : '';
+}
+
+function ensureDockerAvailable() {
+  try {
+    runDocker(['version', '--format', '{{.Server.Version}}'], { stdio: 'pipe' });
+  } catch (err) {
+    throw new Error(
+      '[dev-runner] Docker CLI is required to manage dev containers. Install Docker Desktop or set APPHUB_DEV_SKIP_CONTAINERS=1 to bypass container management.'
+    );
+  }
+}
+
+function dockerVolumeExists(name) {
+  const result = spawnSync('docker', ['volume', 'inspect', name], { stdio: 'ignore' });
+  return result.status === 0;
+}
+
+function ensureVolume(name) {
+  if (!name || name.startsWith('/')) {
+    return;
+  }
+  if (dockerVolumeExists(name)) {
+    return;
+  }
+  console.log(`[dev-runner] Creating Docker volume ${name}...`);
+  runDocker(['volume', 'create', name], { stdio: 'ignore' });
+}
+
+function containerExists(name) {
+  const output = runDocker(['ps', '-a', '-q', '--filter', `name=^/${name}$`], { stdio: 'pipe' });
+  return output.length > 0;
+}
+
+function containerRunning(name) {
+  try {
+    const state = runDocker(['inspect', '-f', '{{.State.Running}}', name], { stdio: 'pipe' });
+    return state.trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForPort(host, port, timeoutMs, label) {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const attempt = await new Promise((resolve) => {
+      const socket = net.connect({ host, port });
+      const done = (success) => {
+        socket.removeAllListeners();
+        socket.destroy();
+        resolve(success);
+      };
+      socket.once('connect', () => done(true));
+      socket.once('timeout', () => done(false));
+      socket.once('error', () => done(false));
+      socket.setTimeout(2000);
+    });
+    if (attempt) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`[dev-runner] Timed out waiting for ${label} on ${host}:${port}`);
+    }
+    await sleep(500);
+  }
+}
+
+function ensureMinioBuckets() {
+  if (DEV_MINIO.buckets.length === 0) {
+    return;
+  }
+  if (!containerRunning(DEV_MINIO.container)) {
+    return;
+  }
+  const encodedUser = encodeURIComponent(DEV_MINIO.rootUser);
+  const encodedPassword = encodeURIComponent(DEV_MINIO.rootPassword);
+  const endpointEnv = `MC_HOST_local=http://${encodedUser}:${encodedPassword}@127.0.0.1:${DEV_MINIO.apiPort}`;
+  for (const bucket of DEV_MINIO.buckets) {
+    try {
+      runDocker(
+        [
+          'run',
+          '--rm',
+          '--network',
+          `container:${DEV_MINIO.container}`,
+          '-e',
+          endpointEnv,
+          DEV_MINIO.mcImage,
+          'mb',
+          '--ignore-existing',
+          `local/${bucket}`
+        ],
+        { stdio: 'ignore' }
+      );
+    } catch (err) {
+      console.warn(`[dev-runner] Failed to ensure MinIO bucket ${bucket}: ${err.message ?? err}`);
+    }
+  }
+}
+
+async function setupDevContainers() {
+  if ((process.env.APPHUB_DEV_SKIP_CONTAINERS ?? '').trim() === '1') {
+    console.log('[dev-runner] Skipping Docker-managed dependencies (APPHUB_DEV_SKIP_CONTAINERS=1).');
+    return null;
+  }
+
+  ensureDockerAvailable();
+
+  const managed = [];
+
+  try {
+    for (const config of DEV_CONTAINERS) {
+      for (const volumeSpec of config.volumes ?? []) {
+        const [volumeName] = volumeSpec.split(':', 1);
+        ensureVolume(volumeName);
+      }
+
+      if (!containerExists(config.name)) {
+        console.log(`[dev-runner] Creating container ${config.name} (${config.image})...`);
+        const args = ['run', '-d', '--name', config.name];
+        for (const volumeSpec of config.volumes ?? []) {
+          args.push('-v', volumeSpec);
+        }
+        for (const portSpec of config.ports ?? []) {
+          args.push('-p', portSpec);
+        }
+        for (const [key, value] of Object.entries(config.env ?? {})) {
+          args.push('-e', `${key}=${value}`);
+        }
+        args.push(config.image);
+        if (Array.isArray(config.args) && config.args.length > 0) {
+          args.push(...config.args);
+        }
+        runDocker(args, { stdio: 'inherit' });
+        managed.push(config.name);
+        continue;
+      }
+
+      if (!containerRunning(config.name)) {
+        console.log(`[dev-runner] Starting container ${config.name}...`);
+        runDocker(['start', config.name], { stdio: 'ignore' });
+        managed.push(config.name);
+      } else {
+        console.log(`[dev-runner] Reusing running container ${config.name}.`);
+      }
+    }
+
+    await waitForPort(DEV_POSTGRES.host, DEV_POSTGRES.port, 20000, 'PostgreSQL');
+    await waitForPort('127.0.0.1', DEV_MINIO.apiPort, 20000, 'MinIO');
+    ensureMinioBuckets();
+
+    return {
+      async cleanup() {
+        for (const name of managed.reverse()) {
+          try {
+            runDocker(['stop', name], { stdio: 'ignore' });
+          } catch (err) {
+            console.warn(`[dev-runner] Failed to stop container ${name}: ${err.message ?? err}`);
+          }
+        }
+      }
+    };
+  } catch (err) {
+    for (const name of managed.reverse()) {
+      try {
+        runDocker(['stop', name], { stdio: 'ignore' });
+      } catch (stopErr) {
+        console.warn(`[dev-runner] Failed to stop container ${name}: ${stopErr?.message ?? stopErr}`);
+      }
+    }
+    throw err;
+  }
+}
+
 async function main() {
   let preflightResult;
   try {
@@ -116,6 +374,9 @@ async function main() {
   if (!baseEnv.APPHUB_SESSION_SECRET || baseEnv.APPHUB_SESSION_SECRET.trim() === '') {
     baseEnv.APPHUB_SESSION_SECRET = 'dev-session-secret';
   }
+  let containerManager = null;
+  let containersCleaned = false;
+  let cleanupContainers = async () => {};
   const normalizedRedis = baseEnv.REDIS_URL?.trim();
   if (!normalizedRedis || normalizedRedis === '127.0.0.1' || normalizedRedis === 'localhost') {
     baseEnv.REDIS_URL = DEFAULT_REDIS_URL;
@@ -142,47 +403,88 @@ async function main() {
     }
   };
 
+  ensureEnv('DATABASE_URL', baseEnv.DATABASE_URL ?? DEFAULT_DATABASE_URL);
+  for (const alias of ['FILESTORE_DATABASE_URL', 'METASTORE_DATABASE_URL', 'TIMESTORE_DATABASE_URL']) {
+    ensureEnv(alias, baseEnv[alias] ?? baseEnv.DATABASE_URL ?? DEFAULT_DATABASE_URL);
+  }
+  ensureEnv('PGHOST', DEV_POSTGRES.host);
+  ensureEnv('PGPORT', String(DEV_POSTGRES.port));
+  ensureEnv('PGUSER', DEV_POSTGRES.user);
+  ensureEnv('PGPASSWORD', DEV_POSTGRES.password);
+  ensureEnv('PGDATABASE', DEV_POSTGRES.database);
+
   // Core bundle storage (example bundles + job bundles) now defaults to MinIO.
   ensureEnv('APPHUB_BUNDLE_STORAGE_BACKEND', 's3');
   ensureEnv('APPHUB_BUNDLE_STORAGE_BUCKET', 'apphub-example-bundles');
-  ensureEnv('APPHUB_BUNDLE_STORAGE_ENDPOINT', 'http://127.0.0.1:9000');
+  ensureEnv('APPHUB_BUNDLE_STORAGE_ENDPOINT', MINIO_API_ENDPOINT);
   ensureEnv('APPHUB_BUNDLE_STORAGE_REGION', 'us-east-1');
   ensureEnv('APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE', 'true');
-  ensureEnv('APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID', 'apphub');
-  ensureEnv('APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY', 'apphub123');
+  ensureEnv('APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID', DEV_MINIO.rootUser);
+  ensureEnv('APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY', DEV_MINIO.rootPassword);
 
   ensureEnv('APPHUB_JOB_BUNDLE_STORAGE_BACKEND', 's3');
   ensureEnv('APPHUB_JOB_BUNDLE_S3_BUCKET', 'apphub-example-bundles');
-  ensureEnv('APPHUB_JOB_BUNDLE_S3_ENDPOINT', 'http://127.0.0.1:9000');
+  ensureEnv('APPHUB_JOB_BUNDLE_S3_ENDPOINT', MINIO_API_ENDPOINT);
   ensureEnv('APPHUB_JOB_BUNDLE_S3_REGION', 'us-east-1');
   ensureEnv('APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE', 'true');
   ensureEnv(
     'APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID',
-    baseEnv.APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID ?? baseEnv.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ?? 'apphub'
+    baseEnv.APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID ?? baseEnv.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ?? DEV_MINIO.rootUser
   );
   ensureEnv(
     'APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY',
-    baseEnv.APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY ?? baseEnv.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ?? 'apphub123'
+    baseEnv.APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY ?? baseEnv.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ?? DEV_MINIO.rootPassword
   );
 
   // Timestore partitions and exports rely on the shared MinIO instance as well.
   ensureEnv('TIMESTORE_STORAGE_DRIVER', 's3');
   ensureEnv('TIMESTORE_S3_BUCKET', 'apphub-timestore');
-  ensureEnv('TIMESTORE_S3_ENDPOINT', 'http://127.0.0.1:9000');
+  ensureEnv('TIMESTORE_S3_ENDPOINT', MINIO_API_ENDPOINT);
   ensureEnv('TIMESTORE_S3_REGION', 'us-east-1');
   ensureEnv('TIMESTORE_S3_FORCE_PATH_STYLE', 'true');
-  ensureEnv('TIMESTORE_S3_ACCESS_KEY_ID', baseEnv.TIMESTORE_S3_ACCESS_KEY_ID ?? baseEnv.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ?? 'apphub');
-  ensureEnv('TIMESTORE_S3_SECRET_ACCESS_KEY', baseEnv.TIMESTORE_S3_SECRET_ACCESS_KEY ?? baseEnv.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ?? 'apphub123');
+  ensureEnv(
+    'TIMESTORE_S3_ACCESS_KEY_ID',
+    baseEnv.TIMESTORE_S3_ACCESS_KEY_ID ?? baseEnv.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ?? DEV_MINIO.rootUser
+  );
+  ensureEnv(
+    'TIMESTORE_S3_SECRET_ACCESS_KEY',
+    baseEnv.TIMESTORE_S3_SECRET_ACCESS_KEY ?? baseEnv.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ?? DEV_MINIO.rootPassword
+  );
 
   // Provide defaults for observatory tooling that now provisions an S3-backed mount.
   ensureEnv('OBSERVATORY_FILESTORE_BASE_URL', baseEnv.APPHUB_FILESTORE_BASE_URL);
   ensureEnv('OBSERVATORY_FILESTORE_TOKEN', baseEnv.FILESTORE_TOKEN ?? '');
   ensureEnv('OBSERVATORY_FILESTORE_S3_BUCKET', 'apphub-filestore');
-  ensureEnv('OBSERVATORY_FILESTORE_S3_ENDPOINT', 'http://127.0.0.1:9000');
+  ensureEnv('OBSERVATORY_FILESTORE_S3_ENDPOINT', MINIO_API_ENDPOINT);
   ensureEnv('OBSERVATORY_FILESTORE_S3_REGION', 'us-east-1');
   ensureEnv('OBSERVATORY_FILESTORE_S3_FORCE_PATH_STYLE', 'true');
-  ensureEnv('OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID', baseEnv.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ?? 'apphub');
-  ensureEnv('OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY', baseEnv.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ?? 'apphub123');
+  ensureEnv(
+    'OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID',
+    baseEnv.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ?? DEV_MINIO.rootUser
+  );
+  ensureEnv(
+    'OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY',
+    baseEnv.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ?? DEV_MINIO.rootPassword
+  );
+
+  try {
+    containerManager = await setupDevContainers();
+    if (containerManager) {
+      cleanupContainers = async () => {
+        if (containersCleaned) {
+          return;
+        }
+        containersCleaned = true;
+        try {
+          await containerManager.cleanup();
+        } catch (err) {
+          console.warn('[dev-runner] Failed to stop dev containers', err?.message ?? err);
+        }
+      };
+    }
+  } catch (err) {
+    throw err;
+  }
 
   const normalizeEnvValue = (value) => (typeof value === 'string' ? value.trim() : '');
   const tooling = preflightResult?.tooling ?? {};
@@ -391,6 +693,10 @@ async function main() {
       .catch((err) => {
         console.warn('[dev-runner] Failed to finalize logs', err);
       })
+      .then(() => cleanupContainers())
+      .catch((err) => {
+        console.warn('[dev-runner] Failed to clean up dev containers', err);
+      })
       .finally(() => {
         process.exit(code);
       });
@@ -411,6 +717,12 @@ async function main() {
     }
   } finally {
     finalizeAndExit(exitCode);
+  }
+
+  try {
+    await cleanupContainers();
+  } catch (err) {
+    console.warn('[dev-runner] Failed to clean up dev containers', err?.message ?? err);
   }
 }
 
