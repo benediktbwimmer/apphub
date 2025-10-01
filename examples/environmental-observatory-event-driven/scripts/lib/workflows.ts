@@ -84,13 +84,14 @@ async function getWorkflow(baseUrl: string, token: string, slug: string): Promis
   return response.json();
 }
 
-async function ensureWorkflow(
+export async function ensureWorkflow(
   baseUrl: string,
   token: string,
   slug: string,
   config: EventDrivenObservatoryConfig,
   repoRoot: string,
-  logger: SyncLogger
+  logger: SyncLogger,
+  options: { omitProvisioningSchedules?: boolean } = {}
 ): Promise<void> {
   const workflowFiles: Record<string, string> = {
     'observatory-minute-data-generator': 'workflows/observatory-minute-data-generator.json',
@@ -111,6 +112,10 @@ async function ensureWorkflow(
   const contents = await readFile(absolutePath, 'utf8');
   const definition = JSON.parse(contents) as WorkflowDefinitionTemplate;
   applyObservatoryWorkflowDefaults(definition, config);
+
+  if (options.omitProvisioningSchedules && definition.metadata?.provisioning?.schedules) {
+    definition.metadata.provisioning.schedules = [];
+  }
 
   const existing = await getWorkflow(baseUrl, token, slug);
   if (!existing) {
@@ -335,6 +340,9 @@ function buildTriggerDefinitions(config: EventDrivenObservatoryConfig): TriggerD
 
 function resolveWorkflowSlugs(config: EventDrivenObservatoryConfig): Set<string> {
   const slugs = new Set<string>();
+  if (config.workflows.generatorSlug) {
+    slugs.add(config.workflows.generatorSlug);
+  }
   slugs.add(config.workflows.ingestSlug);
   slugs.add(config.workflows.publicationSlug);
   if (config.workflows.aggregateSlug) {
@@ -358,6 +366,7 @@ export async function synchronizeObservatoryWorkflowsAndTriggers(
     coreToken: string;
     repoRoot?: string;
     logger?: SyncLogger;
+    omitGeneratorSchedule?: boolean;
   }
 ): Promise<void> {
   const { config, logger = {} } = options;
@@ -370,9 +379,13 @@ export async function synchronizeObservatoryWorkflowsAndTriggers(
   const repoRoot = options.repoRoot ?? path.resolve(__dirname, '..', '..');
   const workflowDir = path.resolve(repoRoot, 'workflows');
   const absoluteRepo = path.resolve(workflowDir, '..');
+  const generatorSlug = config.workflows.generatorSlug?.trim() || 'observatory-minute-data-generator';
 
   for (const slug of resolveWorkflowSlugs(config)) {
-    await ensureWorkflow(coreBaseUrl, coreToken, slug, config, absoluteRepo, logger);
+    const omitProvisioningSchedules = options.omitGeneratorSchedule === true && slug === generatorSlug;
+    await ensureWorkflow(coreBaseUrl, coreToken, slug, config, absoluteRepo, logger, {
+      omitProvisioningSchedules
+    });
   }
 
   const triggers = buildTriggerDefinitions(config);

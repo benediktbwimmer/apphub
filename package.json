@@ -43,7 +43,9 @@
     "minikube:down": "node scripts/minikube-down.mjs",
     "minikube:verify": "node scripts/minikube-verify.mjs",
     "obs:event:plan": "tsx examples/environmental-observatory-event-driven/scripts/runCalibrationPlan.ts",
-    "obs:event:reprocess": "tsx examples/environmental-observatory-event-driven/scripts/runCalibrationReprocess.ts"
+    "obs:event:reprocess": "tsx examples/environmental-observatory-event-driven/scripts/runCalibrationReprocess.ts",
+    "e2e": "tsx tests/e2e/runSmoke.ts",
+    "bench": "tsx tests/e2e/runBench.ts"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

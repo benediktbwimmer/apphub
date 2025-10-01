@@ -1,0 +1,57 @@
+name: apphub-e2e
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: apphub
+      POSTGRES_PASSWORD: apphub
+      POSTGRES_DB: apphub
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apphub"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - "--save"
+      - ""
+      - "--appendonly"
+      - "no"
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+
+  minio:
+    image: minio/minio:RELEASE.2024-11-13T22-33-08Z
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: apphub
+      MINIO_ROOT_PASSWORD: apphub123
+    command:
+      - server
+      - /data
+      - "--console-address"
+      - ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+volumes:
+  minio-data:
+    driver: local

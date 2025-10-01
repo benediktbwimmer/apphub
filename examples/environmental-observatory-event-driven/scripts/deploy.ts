@@ -8,7 +8,7 @@ import {
   type EventDrivenObservatoryConfig
 } from '@apphub/examples';
 import { materializeObservatoryConfig } from './lib/config';
-import { synchronizeObservatoryWorkflowsAndTriggers } from './lib/workflows';
+import { synchronizeObservatoryWorkflowsAndTriggers, type SyncLogger } from './lib/workflows';
 
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const DEFAULT_BUNDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -18,10 +18,10 @@ async function coreRequest<T>(
   baseUrl: string,
   token: string | null,
   method: 'GET' | 'POST' | 'PATCH',
-  path: string,
+  requestPath: string,
   body?: unknown
 ): Promise<T> {
-  const response = await fetch(new URL(path, baseUrl), {
+  const response = await fetch(new URL(requestPath, baseUrl), {
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -175,12 +175,27 @@ async function importServiceManifests(
   await coreRequest(baseUrl, token, 'POST', '/service-config/import', payload);
 }
 
-async function main(): Promise<void> {
-  const repoRoot = path.resolve(__dirname, '..', '..');
+export type DeployObservatoryOptions = {
+  repoRoot?: string;
+  skipGeneratorSchedule?: boolean;
+  logger?: SyncLogger;
+};
 
+export type DeployObservatoryResult = {
+  config: EventDrivenObservatoryConfig;
+  configPath: string;
+  coreBaseUrl: string;
+  coreToken: string;
+};
+
+export async function deployEnvironmentalObservatoryExample(
+  options: DeployObservatoryOptions = {}
+): Promise<DeployObservatoryResult> {
+  const repoRoot = path.resolve(options.repoRoot ?? path.join(__dirname, '..', '..'));
   const { config, outputPath } = await materializeObservatoryConfig({ repoRoot });
   const coreBaseUrl = (config.core?.baseUrl ?? 'http://127.0.0.1:4000').replace(/\/+$/, '');
   const coreToken = config.core?.apiToken ?? '';
+
   if (!coreToken) {
     throw new Error('Core API token missing. Set core.apiToken in the observatory config.');
   }
@@ -191,9 +206,21 @@ async function main(): Promise<void> {
     config,
     coreBaseUrl,
     coreToken,
-    repoRoot
+    repoRoot,
+    logger: options.logger,
+    omitGeneratorSchedule: options.skipGeneratorSchedule
   });
 
+  return {
+    config,
+    configPath: outputPath,
+    coreBaseUrl,
+    coreToken
+  };
+}
+
+async function main(): Promise<void> {
+  await deployEnvironmentalObservatoryExample();
   console.log('Observatory example deployment complete.');
 }
 
