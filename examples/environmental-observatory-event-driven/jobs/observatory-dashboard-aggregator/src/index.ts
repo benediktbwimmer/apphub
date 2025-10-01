@@ -1,5 +1,10 @@
 import { FilestoreClient } from '@apphub/filestore-client';
-import { ensureFilestoreHierarchy, uploadTextFile } from '../../shared/filestore';
+import {
+  ensureFilestoreHierarchy,
+  ensureResolvedBackendId,
+  uploadTextFile,
+  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+} from '../../shared/filestore';
 import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
@@ -26,7 +31,8 @@ type AggregatorParameters = {
   timestoreDatasetSlug: string;
   timestoreAuthToken?: string;
   filestoreBaseUrl: string;
-  filestoreBackendId: number;
+  filestoreBackendId: number | null;
+  filestoreBackendKey: string;
   filestoreToken?: string;
   filestorePrincipal?: string;
   reportsPrefix: string;
@@ -137,6 +143,16 @@ function parseParameters(raw: unknown): AggregatorParameters {
   if (!filestoreBaseUrl) {
     throw new Error('filestoreBaseUrl parameter is required');
   }
+  const filestoreBackendKey = ensureString(
+    raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      raw.backendMountKey ??
+      raw.backend_mount_key ??
+      process.env.OBSERVATORY_FILESTORE_BACKEND_KEY ??
+      process.env.OBSERVATORY_FILESTORE_MOUNT_KEY ??
+      DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+    DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+  );
   const backendRaw =
     raw.filestoreBackendId ??
     raw.filestore_backend_id ??
@@ -144,10 +160,10 @@ function parseParameters(raw: unknown): AggregatorParameters {
     raw.backend_mount_id ??
     process.env.OBSERVATORY_FILESTORE_BACKEND_ID ??
     process.env.FILESTORE_BACKEND_ID;
-  const filestoreBackendId = backendRaw ? Number(backendRaw) : NaN;
-  if (!Number.isFinite(filestoreBackendId) || filestoreBackendId <= 0) {
-    throw new Error('filestoreBackendId parameter is required');
-  }
+  const backendIdCandidate = backendRaw ? Number(backendRaw) : Number.NaN;
+  const filestoreBackendId = Number.isFinite(backendIdCandidate) && backendIdCandidate > 0
+    ? backendIdCandidate
+    : null;
   const filestoreToken = ensureString(raw.filestoreToken ?? raw.filestore_token ?? '');
   const filestorePrincipal = ensureString(raw.filestorePrincipal ?? raw.filestore_principal ?? '');
   const reportsPrefix = ensureString(
@@ -174,6 +190,7 @@ function parseParameters(raw: unknown): AggregatorParameters {
     timestoreAuthToken: timestoreAuthToken || undefined,
     filestoreBaseUrl,
     filestoreBackendId,
+    filestoreBackendKey,
     filestoreToken: filestoreToken || undefined,
     filestorePrincipal: filestorePrincipal || undefined,
     reportsPrefix: reportsPrefix.replace(/\/+$/g, ''),
@@ -455,6 +472,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     token: parameters.filestoreToken,
     userAgent: 'observatory-dashboard-aggregator/0.2.0'
   });
+  const backendMountId = await ensureResolvedBackendId(filestoreClient, parameters);
   const generatedAt = new Date().toISOString();
 
   try {
@@ -480,7 +498,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
     await ensureFilestoreHierarchy(
       filestoreClient,
-      parameters.filestoreBackendId,
+      backendMountId,
       parameters.overviewPrefix,
       parameters.filestorePrincipal
     );
@@ -502,7 +520,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     const [dataNode, htmlNode] = await Promise.all([
       uploadTextFile({
         client: filestoreClient,
-        backendMountId: parameters.filestoreBackendId,
+        backendMountId,
+        backendMountKey: parameters.filestoreBackendKey,
         path: dashboardJsonPath,
         content: JSON.stringify(dashboardData, null, 2),
         contentType: 'application/json',
@@ -517,7 +536,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         const html = buildDashboardHtml(dashboardData);
         return uploadTextFile({
           client: filestoreClient,
-          backendMountId: parameters.filestoreBackendId,
+          backendMountId,
+          backendMountKey: parameters.filestoreBackendKey,
           path: dashboardHtmlPath,
           content: html,
           contentType: 'text/html; charset=utf-8',

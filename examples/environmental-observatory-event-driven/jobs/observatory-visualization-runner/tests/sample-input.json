@@ -8,6 +8,7 @@
     "filestorePrincipal": "observatory-visualization-runner",
     "visualizationsPrefix": "datasets/observatory/visualizations",
     "partitionKey": "2025-08-01T09:00",
-    "lookbackMinutes": 180
+    "lookbackMinutes": 180,
+    "filestoreBackendKey": "observatory-event-driven-s3"
   }
 }

@@ -19,6 +19,7 @@
         "instrumentId": "instrument_bravo",
         "site": "east-ridge"
       }
-    ]
+    ],
+    "filestoreBackendKey": "observatory-event-driven-s3"
   }
 }

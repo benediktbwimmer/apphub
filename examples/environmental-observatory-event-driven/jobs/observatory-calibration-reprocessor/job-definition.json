@@ -13,31 +13,82 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "planPath": { "type": "string" },
-      "planNodeId": { "type": "number", "minimum": 1 },
-      "planId": { "type": "string" },
-      "mode": { "type": "string", "enum": ["all", "selected"] },
+      "planPath": {
+        "type": "string"
+      },
+      "planNodeId": {
+        "type": "number",
+        "minimum": 1
+      },
+      "planId": {
+        "type": "string"
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "all",
+          "selected"
+        ]
+      },
       "selectedPartitions": {
         "type": "array",
-        "items": { "type": "string", "minLength": 1 }
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "pollIntervalMs": { "type": "number", "minimum": 250, "maximum": 10000 },
-      "coreBaseUrl": { "type": "string", "minLength": 1 },
-      "coreApiToken": { "type": "string" },
-      "ingestWorkflowSlug": { "type": "string", "minLength": 1 },
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "filestorePrincipal": { "type": "string" },
-      "metastoreBaseUrl": { "type": "string" },
-      "metastoreNamespace": { "type": "string" },
-      "metastoreAuthToken": { "type": "string" }
+      "pollIntervalMs": {
+        "type": "number",
+        "minimum": 250,
+        "maximum": 10000
+      },
+      "coreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "coreApiToken": {
+        "type": "string"
+      },
+      "ingestWorkflowSlug": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "filestorePrincipal": {
+        "type": "string"
+      },
+      "metastoreBaseUrl": {
+        "type": "string"
+      },
+      "metastoreNamespace": {
+        "type": "string"
+      },
+      "metastoreAuthToken": {
+        "type": "string"
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "required": [
       "coreBaseUrl",
       "ingestWorkflowSlug",
       "filestoreBaseUrl",
-      "filestoreBackendId"
+      "filestoreBackendKey"
     ]
   },
   "defaultParameters": {
@@ -52,30 +103,69 @@
     "filestorePrincipal": "observatory-calibration-reprocessor",
     "metastoreBaseUrl": null,
     "metastoreNamespace": "observatory.reprocess.plans",
-    "metastoreAuthToken": null
+    "metastoreAuthToken": null,
+    "filestoreBackendKey": "observatory-event-driven-s3"
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string" },
-      "planPath": { "type": "string" },
-      "processedPartitions": { "type": "number" },
-      "succeeded": { "type": "number" },
-      "failed": { "type": "number" },
-      "mode": { "type": "string" },
-      "state": { "type": "string" },
+      "planId": {
+        "type": "string"
+      },
+      "planPath": {
+        "type": "string"
+      },
+      "processedPartitions": {
+        "type": "number"
+      },
+      "succeeded": {
+        "type": "number"
+      },
+      "failed": {
+        "type": "number"
+      },
+      "mode": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string"
+      },
       "runs": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "partitionKey": { "type": ["string", "null"] },
-            "minute": { "type": ["string", "null"] },
-            "runId": { "type": ["string", "null"] },
-            "status": { "type": "string" },
-            "errorMessage": { "type": ["string", "null"] }
+            "partitionKey": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "minute": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "runId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "type": "string"
+            },
+            "errorMessage": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           },
-          "required": ["status"]
+          "required": [
+            "status"
+          ]
         }
       },
       "assets": {
@@ -83,12 +173,29 @@
         "items": {
           "type": "object",
           "properties": {
-            "assetId": { "type": "string" },
-            "partitionKey": { "type": ["string", "null"] },
-            "producedAt": { "type": "string", "format": "date-time" },
-            "payload": { "type": "object", "additionalProperties": true }
+            "assetId": {
+              "type": "string"
+            },
+            "partitionKey": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "producedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": true
+            }
           },
-          "required": ["assetId", "producedAt", "payload"]
+          "required": [
+            "assetId",
+            "producedAt",
+            "payload"
+          ]
         }
       }
     },

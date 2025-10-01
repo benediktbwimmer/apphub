@@ -13,30 +13,77 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "minute": { "type": "string", "minLength": 1 },
-      "maxFiles": { "type": "number", "minimum": 1, "maximum": 2000 },
-      "commandPath": { "type": "string" },
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "inboxPrefix": { "type": "string", "minLength": 1 },
-      "stagingPrefix": { "type": "string", "minLength": 1 },
-      "archivePrefix": { "type": "string", "minLength": 1 },
-      "principal": { "type": "string" },
-      "metastoreBaseUrl": { "type": "string" },
-      "metastoreNamespace": { "type": "string" },
-      "metastoreAuthToken": { "type": "string" },
-      "calibrationsBaseUrl": { "type": "string" },
-      "calibrationsNamespace": { "type": "string" },
-      "calibrationsAuthToken": { "type": "string" }
+      "minute": {
+        "type": "string",
+        "minLength": 1
+      },
+      "maxFiles": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 2000
+      },
+      "commandPath": {
+        "type": "string"
+      },
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "inboxPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "stagingPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "archivePrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "principal": {
+        "type": "string"
+      },
+      "metastoreBaseUrl": {
+        "type": "string"
+      },
+      "metastoreNamespace": {
+        "type": "string"
+      },
+      "metastoreAuthToken": {
+        "type": "string"
+      },
+      "calibrationsBaseUrl": {
+        "type": "string"
+      },
+      "calibrationsNamespace": {
+        "type": "string"
+      },
+      "calibrationsAuthToken": {
+        "type": "string"
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "required": [
       "minute",
       "filestoreBaseUrl",
-      "filestoreBackendId",
       "inboxPrefix",
       "stagingPrefix",
-      "archivePrefix"
+      "archivePrefix",
+      "filestoreBackendKey"
     ]
   },
   "defaultParameters": {
@@ -52,57 +99,133 @@
     "metastoreAuthToken": null,
     "calibrationsBaseUrl": null,
     "calibrationsNamespace": "observatory.calibrations",
-    "calibrationsAuthToken": null
+    "calibrationsAuthToken": null,
+    "filestoreBackendKey": "observatory-event-driven-s3"
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "partitionKey": { "type": "string" },
-      "minute": { "type": "string" },
-      "instrumentCount": { "type": "number" },
-      "recordCount": { "type": "number" },
-      "backendMountId": { "type": "number" },
-      "stagingPrefix": { "type": "string" },
-      "stagingMinutePrefix": { "type": "string" },
+      "partitionKey": {
+        "type": "string"
+      },
+      "minute": {
+        "type": "string"
+      },
+      "instrumentCount": {
+        "type": "number"
+      },
+      "recordCount": {
+        "type": "number"
+      },
+      "backendMountId": {
+        "type": "number"
+      },
+      "stagingPrefix": {
+        "type": "string"
+      },
+      "stagingMinutePrefix": {
+        "type": "string"
+      },
       "files": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "path": { "type": "string" },
-            "nodeId": { "type": "number" },
-            "site": { "type": "string" },
-            "instrumentId": { "type": "string" },
-            "rows": { "type": "number" },
-            "sizeBytes": { "type": "number" },
-            "checksum": { "type": "string" },
+            "path": {
+              "type": "string"
+            },
+            "nodeId": {
+              "type": "number"
+            },
+            "site": {
+              "type": "string"
+            },
+            "instrumentId": {
+              "type": "string"
+            },
+            "rows": {
+              "type": "number"
+            },
+            "sizeBytes": {
+              "type": "number"
+            },
+            "checksum": {
+              "type": "string"
+            },
             "calibration": {
-              "type": ["object", "null"],
+              "type": [
+                "object",
+                "null"
+              ],
               "properties": {
-                "calibrationId": { "type": "string" },
-                "instrumentId": { "type": "string" },
-                "effectiveAt": { "type": "string", "format": "date-time" },
-                "metastoreVersion": { "type": ["number", "null"] }
+                "calibrationId": {
+                  "type": "string"
+                },
+                "instrumentId": {
+                  "type": "string"
+                },
+                "effectiveAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "metastoreVersion": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
               },
-              "required": ["calibrationId", "instrumentId", "effectiveAt"]
+              "required": [
+                "calibrationId",
+                "instrumentId",
+                "effectiveAt"
+              ]
             }
           },
-          "required": ["path", "rows"]
+          "required": [
+            "path",
+            "rows"
+          ]
         }
       },
-      "normalizedAt": { "type": "string", "format": "date-time" },
+      "normalizedAt": {
+        "type": "string",
+        "format": "date-time"
+      },
       "calibrationsApplied": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "calibrationId": { "type": "string" },
-            "instrumentId": { "type": "string" },
-            "effectiveAt": { "type": "string", "format": "date-time" },
-            "metastoreVersion": { "type": ["number", "null"] }
+            "calibrationId": {
+              "type": "string"
+            },
+            "instrumentId": {
+              "type": "string"
+            },
+            "effectiveAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "metastoreVersion": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
           },
-          "required": ["calibrationId", "instrumentId", "effectiveAt"]
+          "required": [
+            "calibrationId",
+            "instrumentId",
+            "effectiveAt"
+          ]
         }
+      },
+      "backendMountKey": {
+        "type": [
+          "string",
+          "null"
+        ]
       }
     },
     "required": [

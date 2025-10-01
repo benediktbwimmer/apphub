@@ -6,26 +6,70 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "filestorePrincipal": { "type": "string" },
-      "calibrationPath": { "type": "string", "minLength": 1 },
-      "calibrationNodeId": { "type": "number", "minimum": 1 },
-      "calibrationsPrefix": { "type": "string", "minLength": 1 },
-      "plansPrefix": { "type": "string", "minLength": 1 },
-      "coreBaseUrl": { "type": "string", "minLength": 1 },
-      "coreApiToken": { "type": "string" },
-      "checksum": { "type": "string" },
-      "metastoreBaseUrl": { "type": "string", "minLength": 1 },
-      "metastoreNamespace": { "type": "string", "minLength": 1 },
-      "metastoreAuthToken": { "type": "string" }
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "filestorePrincipal": {
+        "type": "string"
+      },
+      "calibrationPath": {
+        "type": "string",
+        "minLength": 1
+      },
+      "calibrationNodeId": {
+        "type": "number",
+        "minimum": 1
+      },
+      "calibrationsPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "plansPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "coreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "coreApiToken": {
+        "type": "string"
+      },
+      "checksum": {
+        "type": "string"
+      },
+      "metastoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "metastoreNamespace": {
+        "type": "string",
+        "minLength": 1
+      },
+      "metastoreAuthToken": {
+        "type": "string"
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "required": [
       "filestoreBaseUrl",
-      "filestoreBackendId",
       "calibrationPath",
-      "metastoreBaseUrl"
+      "metastoreBaseUrl",
+      "filestoreBackendKey"
     ]
   },
   "defaultParameters": {
@@ -39,7 +83,8 @@
     "calibrationsPrefix": "datasets/observatory/calibrations",
     "plansPrefix": "datasets/observatory/calibrations/plans",
     "coreBaseUrl": "http://127.0.0.1:4000",
-    "coreApiToken": null
+    "coreApiToken": null,
+    "filestoreBackendKey": "observatory-event-driven-s3"
   },
   "steps": [
     {
@@ -58,7 +103,8 @@
         "checksum": "{{ parameters.checksum }}",
         "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
         "metastoreNamespace": "{{ parameters.metastoreNamespace }}",
-        "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}"
+        "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}",
+        "filestoreBackendKey": "{{ parameters.filestoreBackendKey }}"
       },
       "storeResultAs": "importResult",
       "produces": [
@@ -67,19 +113,66 @@
           "schema": {
             "type": "object",
             "properties": {
-              "calibrationId": { "type": "string" },
-              "instrumentId": { "type": "string" },
-              "effectiveAt": { "type": "string", "format": "date-time" },
-              "createdAt": { "type": "string", "format": "date-time" },
-              "revision": { "type": ["number", "null"] },
-              "offsets": { "type": "object", "additionalProperties": { "type": "number" } },
-              "scales": { "type": ["object", "null"], "additionalProperties": { "type": "number" } },
-              "notes": { "type": ["string", "null"] },
-              "metadata": { "type": "object", "additionalProperties": true },
-              "sourcePath": { "type": "string" },
-              "metastoreNamespace": { "type": "string" },
-              "metastoreRecordKey": { "type": "string" },
-              "metastoreVersion": { "type": ["number", "null"] }
+              "calibrationId": {
+                "type": "string"
+              },
+              "instrumentId": {
+                "type": "string"
+              },
+              "effectiveAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "revision": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "offsets": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "scales": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "sourcePath": {
+                "type": "string"
+              },
+              "metastoreNamespace": {
+                "type": "string"
+              },
+              "metastoreRecordKey": {
+                "type": "string"
+              },
+              "metastoreVersion": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
             },
             "required": [
               "calibrationId",
@@ -121,16 +214,25 @@
           }
         ],
         "downstreamWorkflows": [
-          { "workflowSlug": "observatory-minute-ingest" },
-          { "workflowSlug": "observatory-daily-publication" },
-          { "workflowSlug": "observatory-dashboard-aggregate" }
-        ]
+          {
+            "workflowSlug": "observatory-minute-ingest"
+          },
+          {
+            "workflowSlug": "observatory-daily-publication"
+          },
+          {
+            "workflowSlug": "observatory-dashboard-aggregate"
+          }
+        ],
+        "filestoreBackendKey": "{{ parameters.filestoreBackendKey }}"
       },
       "storeResultAs": "planResult",
       "produces": [
         {
           "assetId": "observatory.reprocess.plan",
-          "partitioning": { "type": "dynamic" },
+          "partitioning": {
+            "type": "dynamic"
+          },
           "schema": {
             "type": "object",
             "additionalProperties": true
@@ -140,7 +242,9 @@
     }
   ],
   "triggers": [
-    { "type": "manual" }
+    {
+      "type": "manual"
+    }
   ],
   "metadata": {
     "provisioning": {
@@ -151,7 +255,11 @@
           "eventType": "filestore.command.completed",
           "eventSource": "filestore.service",
           "predicates": [
-            { "path": "$.payload.command", "operator": "equals", "value": "uploadFile" },
+            {
+              "path": "$.payload.command",
+              "operator": "equals",
+              "value": "uploadFile"
+            },
             {
               "path": "$.payload.backendMountId",
               "operator": "equals",
@@ -172,14 +280,16 @@
             "checksum": "{{ event.payload.node.checksum }}",
             "metastoreBaseUrl": "{{ trigger.metadata.metastore.baseUrl }}",
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
-            "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
+            "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}",
+            "filestoreBackendKey": "{{ trigger.metadata.filestore.backendMountKey }}"
           },
           "metadata": {
             "filestore": {
               "baseUrl": "{{ defaultParameters.filestoreBaseUrl }}",
               "backendMountId": "{{ defaultParameters.filestoreBackendId }}",
               "token": "{{ defaultParameters.filestoreToken }}",
-              "principal": "{{ defaultParameters.filestorePrincipal }}"
+              "principal": "{{ defaultParameters.filestorePrincipal }}",
+              "backendMountKey": "{{ defaultParameters.filestoreBackendKey }}"
             },
             "metastore": {
               "baseUrl": "{{ defaultParameters.metastoreBaseUrl }}",

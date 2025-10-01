@@ -13,23 +13,59 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "filestorePrincipal": { "type": "string" },
-      "calibrationPath": { "type": "string", "minLength": 1 },
-      "calibrationNodeId": { "type": "number", "minimum": 1 },
-      "calibrationsPrefix": { "type": "string", "minLength": 1 },
-      "checksum": { "type": "string" },
-      "metastoreBaseUrl": { "type": "string", "minLength": 1 },
-      "metastoreNamespace": { "type": "string", "minLength": 1 },
-      "metastoreAuthToken": { "type": "string" }
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "filestorePrincipal": {
+        "type": "string"
+      },
+      "calibrationPath": {
+        "type": "string",
+        "minLength": 1
+      },
+      "calibrationNodeId": {
+        "type": "number",
+        "minimum": 1
+      },
+      "calibrationsPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "checksum": {
+        "type": "string"
+      },
+      "metastoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "metastoreNamespace": {
+        "type": "string",
+        "minLength": 1
+      },
+      "metastoreAuthToken": {
+        "type": "string"
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "required": [
       "filestoreBaseUrl",
-      "filestoreBackendId",
       "calibrationPath",
-      "metastoreBaseUrl"
+      "metastoreBaseUrl",
+      "filestoreBackendKey"
     ]
   },
   "defaultParameters": {
@@ -40,25 +76,50 @@
     "metastoreBaseUrl": "http://127.0.0.1:4100",
     "metastoreNamespace": "observatory.calibrations",
     "metastoreAuthToken": null,
-    "calibrationsPrefix": "datasets/observatory/calibrations"
+    "calibrationsPrefix": "datasets/observatory/calibrations",
+    "filestoreBackendKey": "observatory-event-driven-s3"
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "calibrationId": { "type": "string" },
-      "instrumentId": { "type": "string" },
-      "effectiveAt": { "type": "string", "format": "date-time" },
-      "metastoreRecordKey": { "type": "string" },
-      "metastoreVersion": { "type": ["number", "null"] },
+      "calibrationId": {
+        "type": "string"
+      },
+      "instrumentId": {
+        "type": "string"
+      },
+      "effectiveAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "metastoreRecordKey": {
+        "type": "string"
+      },
+      "metastoreVersion": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
       "assets": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "assetId": { "type": "string" },
-            "partitionKey": { "type": "string" },
-            "producedAt": { "type": "string", "format": "date-time" },
-            "payload": { "type": "object", "additionalProperties": true }
+            "assetId": {
+              "type": "string"
+            },
+            "partitionKey": {
+              "type": "string"
+            },
+            "producedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": true
+            }
           },
           "required": [
             "assetId",

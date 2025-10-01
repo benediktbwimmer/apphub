@@ -38,6 +38,7 @@
           "checksum": "def456"
         }
       ]
-    }
+    },
+    "filestoreBackendKey": "observatory-event-driven-s3"
   }
 }

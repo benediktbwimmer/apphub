@@ -39,6 +39,7 @@
         "partitionKey": "2025-08-01T09:00",
         "lookbackMinutes": 90
       }
-    }
+    },
+    "filestoreBackendKey": "observatory-event-driven-s3"
   }
 }

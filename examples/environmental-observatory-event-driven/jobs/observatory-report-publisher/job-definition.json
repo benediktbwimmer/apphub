@@ -13,52 +13,111 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "reportsPrefix": { "type": "string", "minLength": 1 },
-      "partitionKey": { "type": "string", "minLength": 1 },
-      "instrumentId": { "type": "string" },
-      "reportTemplate": { "type": "string" },
-      "visualizationAsset": { "type": "object" },
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "filestorePrincipal": { "type": "string" },
-      "metastoreBaseUrl": { "type": "string" },
-      "metastoreAuthToken": { "type": "string" },
-      "metastoreNamespace": { "type": "string" }
+      "reportsPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "partitionKey": {
+        "type": "string",
+        "minLength": 1
+      },
+      "instrumentId": {
+        "type": "string"
+      },
+      "reportTemplate": {
+        "type": "string"
+      },
+      "visualizationAsset": {
+        "type": "object"
+      },
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "filestorePrincipal": {
+        "type": "string"
+      },
+      "metastoreBaseUrl": {
+        "type": "string"
+      },
+      "metastoreAuthToken": {
+        "type": "string"
+      },
+      "metastoreNamespace": {
+        "type": "string"
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "required": [
       "reportsPrefix",
       "partitionKey",
       "visualizationAsset",
       "filestoreBaseUrl",
-      "filestoreBackendId"
+      "filestoreBackendKey"
     ]
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "generatedAt": { "type": "string", "format": "date-time" },
-      "storagePrefix": { "type": "string" },
+      "generatedAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "storagePrefix": {
+        "type": "string"
+      },
       "reportFiles": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "path": { "type": "string" },
-            "nodeId": { "type": "number" },
-            "mediaType": { "type": "string" },
-            "sizeBytes": { "type": "number" },
-            "checksum": { "type": "string" }
+            "path": {
+              "type": "string"
+            },
+            "nodeId": {
+              "type": "number"
+            },
+            "mediaType": {
+              "type": "string"
+            },
+            "sizeBytes": {
+              "type": "number"
+            },
+            "checksum": {
+              "type": "string"
+            }
           },
-          "required": ["path", "mediaType"]
+          "required": [
+            "path",
+            "mediaType"
+          ]
         }
       },
       "summary": {
         "type": "object",
         "properties": {
-          "instrumentCount": { "type": "number" },
-          "siteCount": { "type": "number" },
-          "alertCount": { "type": "number" }
+          "instrumentCount": {
+            "type": "number"
+          },
+          "siteCount": {
+            "type": "number"
+          },
+          "alertCount": {
+            "type": "number"
+          }
         }
       },
       "plotsReferenced": {
@@ -66,14 +125,26 @@
         "items": {
           "type": "object",
           "properties": {
-            "path": { "type": "string" },
-            "altText": { "type": "string" }
+            "path": {
+              "type": "string"
+            },
+            "altText": {
+              "type": "string"
+            }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       },
-      "instrumentId": { "type": "string" }
+      "instrumentId": {
+        "type": "string"
+      }
     },
-    "required": ["generatedAt", "storagePrefix", "reportFiles"]
+    "required": [
+      "generatedAt",
+      "storagePrefix",
+      "reportFiles"
+    ]
   }
 }

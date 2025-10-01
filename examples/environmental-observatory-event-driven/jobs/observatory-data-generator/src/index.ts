@@ -1,4 +1,9 @@
-import { FilestoreClient, FilestoreClientError } from '@apphub/filestore-client';
+import { FilestoreClient } from '@apphub/filestore-client';
+import {
+  ensureFilestoreHierarchy,
+  ensureResolvedBackendId,
+  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+} from '../../shared/filestore';
 import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
@@ -34,7 +39,8 @@ type ObservatoryGeneratorParameters = {
   seed: number;
   instrumentProfiles: InstrumentProfile[];
   filestoreBaseUrl: string;
-  filestoreBackendId: number;
+  filestoreBackendId: number | null;
+  filestoreBackendKey: string;
   filestoreToken?: string;
   inboxPrefix: string;
   stagingPrefix: string;
@@ -64,6 +70,7 @@ type GeneratorAssetPayload = {
   instrumentCount: number;
   filestoreInboxPrefix: string;
   filestoreBackendId: number;
+  filestoreBackendKey: string;
   minuteKey: string;
 };
 
@@ -329,6 +336,17 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
       'http://127.0.0.1:4300'
     ) || 'http://127.0.0.1:4300';
 
+  const filestoreBackendKey = ensureString(
+    raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      raw.backendMountKey ??
+      raw.backend_mount_key ??
+      process.env.OBSERVATORY_FILESTORE_BACKEND_KEY ??
+      process.env.OBSERVATORY_FILESTORE_MOUNT_KEY ??
+      DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+    DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+  );
+
   const backendRaw =
     raw.filestoreBackendId ??
     raw.filestore_backend_id ??
@@ -336,7 +354,10 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
     raw.backend_mount_id ??
     process.env.OBSERVATORY_FILESTORE_BACKEND_ID ??
     process.env.FILESTORE_BACKEND_ID;
-  const filestoreBackendId = ensureNumber(backendRaw, 1);
+  const backendIdCandidate = ensureNumber(backendRaw, Number.NaN);
+  const filestoreBackendId = Number.isFinite(backendIdCandidate) && backendIdCandidate > 0
+    ? backendIdCandidate
+    : null;
 
   const filestoreToken = ensureString(
     raw.filestoreToken ??
@@ -421,38 +442,9 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
     principal: principal || undefined,
     metastoreBaseUrl: metastoreBaseUrl ? normalizeBaseUrl(metastoreBaseUrl) : undefined,
     metastoreNamespace: (metastoreNamespace || 'observatory.ingest').trim() || 'observatory.ingest',
-    metastoreAuthToken: metastoreAuthToken || undefined
+    metastoreAuthToken: metastoreAuthToken || undefined,
+    filestoreBackendKey
   } satisfies ObservatoryGeneratorParameters;
-}
-
-async function ensureFilestoreHierarchy(
-  client: FilestoreClient,
-  backendMountId: number,
-  prefix: string,
-  principal?: string
-): Promise<void> {
-  const trimmed = prefix.replace(/^\/+|\/+$/g, '');
-  if (!trimmed) {
-    return;
-  }
-  const segments = trimmed.split('/');
-  let current = '';
-  for (const segment of segments) {
-    current = current ? `${current}/${segment}` : segment;
-    try {
-      await client.createDirectory({
-        backendMountId,
-        path: current,
-        principal,
-        idempotencyKey: `ensure-${backendMountId}-${current}`
-      });
-    } catch (err) {
-      if (err instanceof FilestoreClientError && err.code === 'NODE_EXISTS') {
-        continue;
-      }
-      throw err;
-    }
-  }
 }
 
 type CsvMetrics = {
@@ -521,21 +513,23 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       userAgent: 'observatory-data-generator/0.2.0'
     });
 
+    const backendMountId = await ensureResolvedBackendId(filestoreClient, parameters);
+
     await ensureFilestoreHierarchy(
       filestoreClient,
-      parameters.filestoreBackendId,
+      backendMountId,
       parameters.inboxPrefix,
       parameters.principal
     );
     await ensureFilestoreHierarchy(
       filestoreClient,
-      parameters.filestoreBackendId,
+      backendMountId,
       parameters.stagingPrefix,
       parameters.principal
     );
     await ensureFilestoreHierarchy(
       filestoreClient,
-      parameters.filestoreBackendId,
+      backendMountId,
       parameters.archivePrefix,
       parameters.principal
     );
@@ -563,7 +557,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       );
       const filestorePath = `${normalizedInboxPrefix}/${fileName}`;
       const uploadResult = await filestoreClient.uploadFile({
-        backendMountId: parameters.filestoreBackendId,
+        backendMountId,
         path: filestorePath,
         content,
         overwrite: true,
@@ -632,7 +626,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       instrumentCount: processedInstrumentCount,
       filestoreInboxPrefix: parameters.inboxPrefix,
       minuteKey: sanitizedMinuteKey,
-      filestoreBackendId: parameters.filestoreBackendId
+      filestoreBackendId: backendMountId,
+      filestoreBackendKey: parameters.filestoreBackendKey
     } satisfies GeneratorAssetPayload;
 
     context.logger('Generated observatory inbox CSV files', {

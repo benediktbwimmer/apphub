@@ -3,5 +3,6 @@
   "coreBaseUrl": "http://127.0.0.1:4000",
   "ingestWorkflowSlug": "observatory-minute-ingest",
   "filestoreBaseUrl": "http://127.0.0.1:4300",
-  "filestoreBackendId": 1
+  "filestoreBackendId": 1,
+  "filestoreBackendKey": "observatory-event-driven-s3"
 }

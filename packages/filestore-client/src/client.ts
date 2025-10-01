@@ -21,6 +21,9 @@ import type {
   ListEventsOptions,
   ListNodesInput,
   ListNodesResult,
+  ListBackendMountsOptions,
+  FilestoreBackendMountListResult,
+  FilestoreBackendMountRecord,
   CopyNodeInput,
   MoveNodeInput,
   UploadFileInput,
@@ -379,6 +382,60 @@ export class FilestoreClient {
       offset: envelope.data.pagination.offset,
       nextOffset: envelope.data.pagination.nextOffset
     } satisfies ListNodesResult;
+  }
+
+  async listBackendMounts(options: ListBackendMountsOptions = {}): Promise<FilestoreBackendMountListResult> {
+    const query: Record<string, string | number | boolean | undefined> = {
+      limit: options.limit,
+      offset: options.offset,
+      search: options.search
+    };
+    if (options.kinds?.length) {
+      query.kinds = options.kinds.join(',');
+    }
+    if (options.states?.length) {
+      query.states = options.states.join(',');
+    }
+    if (options.accessModes?.length) {
+      query.accessModes = options.accessModes.join(',');
+    }
+
+    const envelope = await this.request<ApiEnvelope<FilestoreBackendMountListResult>>(
+      'GET',
+      '/v1/backend-mounts',
+      {
+        query
+      }
+    );
+
+    return envelope.data;
+  }
+
+  async findBackendMountByKey(mountKey: string, options: { limit?: number } = {}): Promise<FilestoreBackendMountRecord | null> {
+    if (!mountKey || mountKey.trim().length === 0) {
+      throw new Error('mountKey must be provided');
+    }
+    const normalizedKey = mountKey.trim();
+    const pageSize = options.limit && options.limit > 0 ? options.limit : 100;
+    let offset = 0;
+
+    for (;;) {
+      const result = await this.listBackendMounts({ limit: pageSize, offset });
+      const match = result.mounts.find((mount) => mount.mountKey === normalizedKey);
+      if (match) {
+        return match;
+      }
+      const nextOffset = result.pagination.nextOffset;
+      if (nextOffset === null || nextOffset === undefined) {
+        break;
+      }
+      if (nextOffset === offset) {
+        break;
+      }
+      offset = nextOffset;
+    }
+
+    return null;
   }
 
   async getNodeById(id: number): Promise<FilestoreNodeResponse> {

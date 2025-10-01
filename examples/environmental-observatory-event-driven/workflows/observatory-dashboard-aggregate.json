@@ -30,7 +30,10 @@
         "minLength": 1
       },
       "filestoreBackendId": {
-        "type": "number",
+        "type": [
+          "integer",
+          "null"
+        ],
         "minimum": 1
       },
       "filestoreToken": {
@@ -46,6 +49,10 @@
       "overviewPrefix": {
         "type": "string",
         "minLength": 1
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
       }
     },
     "required": [
@@ -54,9 +61,9 @@
       "timestoreBaseUrl",
       "timestoreDatasetSlug",
       "filestoreBaseUrl",
-      "filestoreBackendId",
       "reportsPrefix",
-      "overviewPrefix"
+      "overviewPrefix",
+      "filestoreBackendKey"
     ]
   },
   "defaultParameters": {
@@ -69,7 +76,8 @@
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "filestoreToken": null,
-    "filestorePrincipal": null
+    "filestorePrincipal": null,
+    "filestoreBackendKey": "observatory-event-driven-s3"
   },
   "triggers": [
     {
@@ -102,7 +110,8 @@
             "reportsPrefix": "{{ trigger.metadata.paths.reportsPrefix }}",
             "overviewPrefix": "{{ trigger.metadata.dashboard.overviewPrefix }}",
             "filestoreToken": "{{ trigger.metadata.filestore.token }}",
-            "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}"
+            "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}",
+            "filestoreBackendKey": "{{ trigger.metadata.filestore.backendMountKey }}"
           },
           "metadata": {
             "paths": {
@@ -145,7 +154,8 @@
             "reportsPrefix": "{{ trigger.metadata.paths.reportsPrefix }}",
             "overviewPrefix": "{{ trigger.metadata.dashboard.overviewPrefix }}",
             "filestoreToken": "{{ trigger.metadata.filestore.token }}",
-            "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}"
+            "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}",
+            "filestoreBackendKey": "{{ trigger.metadata.filestore.backendMountKey }}"
           },
           "metadata": {
             "paths": {
@@ -185,7 +195,8 @@
         "filestoreToken": "{{ parameters.filestoreToken }}",
         "filestorePrincipal": "{{ parameters.filestorePrincipal }}",
         "reportsPrefix": "{{ parameters.reportsPrefix }}",
-        "overviewPrefix": "{{ parameters.overviewPrefix }}"
+        "overviewPrefix": "{{ parameters.overviewPrefix }}",
+        "filestoreBackendKey": "{{ parameters.filestoreBackendKey }}"
       }
     }
   ],

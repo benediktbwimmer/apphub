@@ -1,4 +1,5 @@
 import { FilestoreClient, type FilestoreNodeResponse } from '@apphub/filestore-client';
+import { ensureResolvedBackendId, DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../../shared/filestore';
 import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
@@ -33,7 +34,8 @@ type JobRunContext = {
 
 type CalibrationImportParameters = {
   filestoreBaseUrl: string;
-  filestoreBackendId: number;
+  filestoreBackendId: number | null;
+  filestoreBackendKey: string;
   filestoreToken?: string;
   filestorePrincipal?: string;
   calibrationPath: string;
@@ -87,9 +89,17 @@ function parseParameters(raw: unknown): CalibrationImportParameters {
     throw new Error('filestoreBaseUrl is required');
   }
 
+  const backendKey = ensureString(
+    raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      raw.backendMountKey ??
+      raw.backend_mount_key ??
+      DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+    DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+  );
   const backendId = ensureNumber(raw.filestoreBackendId ?? raw.filestore_backend_id ?? raw.backendMountId);
-  if (!backendId) {
-    throw new Error('filestoreBackendId is required');
+  if (!backendKey) {
+    throw new Error('filestoreBackendKey is required');
   }
 
   const calibrationPath = ensureString(raw.calibrationPath ?? raw.path ?? raw.commandPath ?? '', '');
@@ -118,7 +128,8 @@ function parseParameters(raw: unknown): CalibrationImportParameters {
 
   return {
     filestoreBaseUrl,
-    filestoreBackendId: backendId,
+    filestoreBackendId: backendId ?? null,
+    filestoreBackendKey: backendKey,
     filestoreToken: ensureString(raw.filestoreToken ?? raw.filestore_token ?? '', '') || undefined,
     filestorePrincipal: ensureString(raw.filestorePrincipal ?? raw.filestore_principal ?? '', '') || undefined,
     calibrationPath,
@@ -150,6 +161,10 @@ async function loadCalibrationFile(
   client: FilestoreClient,
   parameters: CalibrationImportParameters
 ): Promise<LoadedCalibrationFile> {
+  const backendMountId = parameters.filestoreBackendId;
+  if (!backendMountId || backendMountId <= 0) {
+    throw new Error('filestoreBackendId must be resolved before loading calibration file');
+  }
   if (parameters.calibrationNodeId) {
     const download = await client.downloadFile(parameters.calibrationNodeId, {
       principal: parameters.filestorePrincipal
@@ -163,7 +178,7 @@ async function loadCalibrationFile(
 
   const normalizedPath = parameters.calibrationPath.replace(/^\/+/, '').replace(/\/+$/g, '');
   const node = await client.getNodeByPath({
-    backendMountId: parameters.filestoreBackendId,
+    backendMountId,
     path: normalizedPath
   });
   const download = await client.downloadFile(node.id, {
@@ -228,6 +243,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     token: parameters.filestoreToken,
     userAgent: 'observatory-calibration-importer/0.1.0'
   });
+  await ensureResolvedBackendId(filestoreClient, parameters);
 
   const observatoryEvents = createObservatoryEventPublisher({
     source: 'observatory.calibration-importer'

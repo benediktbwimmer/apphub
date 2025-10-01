@@ -12,5 +12,6 @@
   "ingestAssetId": "observatory.timeseries.timestore",
   "plansPrefix": "datasets/observatory/calibrations/plans",
   "filestoreBaseUrl": "http://127.0.0.1:4300",
-  "filestoreBackendId": 1
+  "filestoreBackendId": 1,
+  "filestoreBackendKey": "observatory-event-driven-s3"
 }

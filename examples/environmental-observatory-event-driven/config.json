@@ -88,6 +88,7 @@
           "OBSERVATORY_DATA_ROOT": "{{ placeholders.OBSERVATORY_DATA_ROOT }}",
           "OBSERVATORY_CONFIG_PATH": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/config/observatory-config.json",
           "OBSERVATORY_FILESTORE_BACKEND_ID": "{{ env.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 }}",
+          "OBSERVATORY_FILESTORE_BACKEND_KEY": "{{ env.OBSERVATORY_FILESTORE_BACKEND_KEY | default: env.OBSERVATORY_FILESTORE_MOUNT_KEY | default:observatory-event-driven-s3 }}",
           "OBSERVATORY_TIMESTORE_STORAGE_ROOT": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/storage",
           "OBSERVATORY_TIMESTORE_CACHE_DIR": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/cache",
           "OBSERVATORY_TIMESTORE_STORAGE_DRIVER": "{{ env.OBSERVATORY_TIMESTORE_STORAGE_DRIVER | default: env.TIMESTORE_STORAGE_DRIVER | default:local }}",
@@ -118,6 +119,7 @@
           },
           "filestore": {
             "baseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+            "backendMountKey": "{{ env.OBSERVATORY_FILESTORE_BACKEND_KEY | default: env.OBSERVATORY_FILESTORE_MOUNT_KEY | default:observatory-event-driven-s3 }}",
             "backendMountId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
             "token": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
             "inboxPrefix": "{{ env.OBSERVATORY_FILESTORE_INBOX_PREFIX | default:datasets/observatory/inbox }}",
@@ -172,6 +174,7 @@
             "slug": "observatory-minute-data-generator",
             "defaults": {
               "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendKey": "{{ env.OBSERVATORY_FILESTORE_BACKEND_KEY | default: env.OBSERVATORY_FILESTORE_MOUNT_KEY | default:observatory-event-driven-s3 }}",
               "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
               "inboxPrefix": "{{ env.OBSERVATORY_FILESTORE_INBOX_PREFIX | default:datasets/observatory/inbox }}",
               "stagingPrefix": "{{ env.OBSERVATORY_FILESTORE_STAGING_PREFIX | default:datasets/observatory/staging }}",
@@ -185,6 +188,7 @@
             "slug": "observatory-minute-ingest",
             "defaults": {
               "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendKey": "{{ env.OBSERVATORY_FILESTORE_BACKEND_KEY | default: env.OBSERVATORY_FILESTORE_MOUNT_KEY | default:observatory-event-driven-s3 }}",
               "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
               "inboxPrefix": "{{ env.OBSERVATORY_FILESTORE_INBOX_PREFIX | default:datasets/observatory/inbox }}",
               "stagingPrefix": "{{ env.OBSERVATORY_FILESTORE_STAGING_PREFIX | default:datasets/observatory/staging }}",
@@ -206,6 +210,7 @@
               "timestoreDatasetSlug": "{{ env.OBSERVATORY_TIMESTORE_DATASET_SLUG | default:observatory-timeseries }}",
               "timestoreAuthToken": "{{ env.OBSERVATORY_TIMESTORE_TOKEN | default:null }}",
               "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendKey": "{{ env.OBSERVATORY_FILESTORE_BACKEND_KEY | default: env.OBSERVATORY_FILESTORE_MOUNT_KEY | default:observatory-event-driven-s3 }}",
               "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
               "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
               "filestorePrincipal": "observatory-visualization-runner",
@@ -220,6 +225,7 @@
             "slug": "observatory-dashboard-aggregate",
             "defaults": {
               "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendKey": "{{ env.OBSERVATORY_FILESTORE_BACKEND_KEY | default: env.OBSERVATORY_FILESTORE_MOUNT_KEY | default:observatory-event-driven-s3 }}",
               "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
               "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
               "filestorePrincipal": "observatory-dashboard-aggregator",
@@ -235,6 +241,7 @@
             "slug": "observatory-calibration-import",
             "defaults": {
               "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendKey": "{{ env.OBSERVATORY_FILESTORE_BACKEND_KEY | default: env.OBSERVATORY_FILESTORE_MOUNT_KEY | default:observatory-event-driven-s3 }}",
               "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
               "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
               "filestorePrincipal": "observatory-calibration-importer",
@@ -253,6 +260,7 @@
               "coreBaseUrl": "{{ env.OBSERVATORY_CORE_BASE_URL | default:http://127.0.0.1:4000 }}",
               "coreApiToken": "{{ env.OBSERVATORY_CORE_TOKEN | default:dev-token }}",
               "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendKey": "{{ env.OBSERVATORY_FILESTORE_BACKEND_KEY | default: env.OBSERVATORY_FILESTORE_MOUNT_KEY | default:observatory-event-driven-s3 }}",
               "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
               "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
               "filestorePrincipal": "observatory-calibration-reprocessor",

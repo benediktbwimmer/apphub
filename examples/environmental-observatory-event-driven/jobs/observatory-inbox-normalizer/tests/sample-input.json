@@ -8,6 +8,7 @@
     "stagingPrefix": "datasets/observatory/staging",
     "archivePrefix": "datasets/observatory/archive",
     "commandPath": "datasets/observatory/inbox/instrument_01_202508010900.csv",
-    "principal": "observatory-inbox-normalizer"
+    "principal": "observatory-inbox-normalizer",
+    "filestoreBackendKey": "observatory-event-driven-s3"
   }
 }

@@ -1,9 +1,8 @@
 import { FilestoreClient } from '@apphub/filestore-client';
+import { ensureResolvedBackendId, uploadTextFile, DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../../shared/filestore';
 import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
-
-import { uploadTextFile } from '../../shared/filestore';
 import {
   calibrationReprocessPlanSchema,
   CalibrationPlanCalibration,
@@ -45,7 +44,8 @@ type ReprocessorParameters = {
   coreApiToken?: string;
   ingestWorkflowSlug: string;
   filestoreBaseUrl: string;
-  filestoreBackendId: number;
+  filestoreBackendId: number | null;
+  filestoreBackendKey: string;
   filestoreToken?: string;
   filestorePrincipal?: string;
   metastoreBaseUrl?: string | null;
@@ -204,11 +204,19 @@ function parseParameters(raw: unknown): ReprocessorParameters {
   if (!filestoreBaseUrl) {
     throw new Error('filestoreBaseUrl is required');
   }
+  const filestoreBackendKey = ensureString(
+    raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      raw.backendMountKey ??
+      raw.backend_mount_key ??
+      DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+    DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+  );
   const filestoreBackendId = ensureNumber(
     raw.filestoreBackendId ?? raw.filestore_backend_id ?? raw.backendMountId ?? raw.backend_mount_id
   );
-  if (!filestoreBackendId || filestoreBackendId <= 0) {
-    throw new Error('filestoreBackendId must be a positive number');
+  if (!filestoreBackendKey) {
+    throw new Error('filestoreBackendKey must be provided');
   }
 
   const metastoreNamespace = ensureString(
@@ -226,7 +234,8 @@ function parseParameters(raw: unknown): ReprocessorParameters {
     coreApiToken: ensureString(raw.coreApiToken ?? raw.core_api_token ?? ''),
     ingestWorkflowSlug,
     filestoreBaseUrl,
-    filestoreBackendId,
+    filestoreBackendId: filestoreBackendId ?? null,
+    filestoreBackendKey,
     filestoreToken: ensureString(raw.filestoreToken ?? raw.filestore_token ?? ''),
     filestorePrincipal: ensureString(raw.filestorePrincipal ?? raw.filestore_principal ?? ''),
     metastoreBaseUrl: ensureString(raw.metastoreBaseUrl ?? raw.metastore_base_url ?? '') || null,
@@ -261,9 +270,13 @@ async function loadPlan(
     });
     content = await readStream(download.stream);
   } else {
+    const backendMountId = parameters.filestoreBackendId;
+    if (!backendMountId || backendMountId <= 0) {
+      throw new Error('filestoreBackendId must be resolved when loading plan by path');
+    }
     const normalizedPath = (parameters.planPath ?? '').replace(/^\/+/, '').replace(/\/+$/g, '');
     const node = await client.getNodeByPath({
-      backendMountId: parameters.filestoreBackendId,
+      backendMountId,
       path: normalizedPath
     });
     const download = await client.downloadFile(node.id, {
@@ -438,10 +451,16 @@ async function enqueuePlanPersistence(
   refreshPlanSummaries(plan);
   plan.updatedAt = new Date().toISOString();
 
+  const backendMountId = parameters.filestoreBackendId;
+  if (!backendMountId || backendMountId <= 0) {
+    throw new Error('filestoreBackendId must be resolved before persisting plan');
+  }
+
   const serialized = `${JSON.stringify(plan, null, 2)}\n`;
   const node = await uploadTextFile({
     client,
-    backendMountId: parameters.filestoreBackendId,
+    backendMountId,
+    backendMountKey: parameters.filestoreBackendKey,
     path: planPath,
     content: serialized,
     contentType: 'application/json; charset=utf-8',
@@ -765,6 +784,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       token: parameters.filestoreToken || undefined,
       userAgent: USER_AGENT
     });
+    await ensureResolvedBackendId(filestoreClient, parameters);
 
     let plan = await loadPlan(parameters, filestoreClient, context);
     const planPath = normalizePlanPath(parameters.planPath, plan);

@@ -1,5 +1,10 @@
 import { FilestoreClient } from '@apphub/filestore-client';
-import { ensureFilestoreHierarchy, uploadTextFile } from '../../shared/filestore';
+import {
+  ensureFilestoreHierarchy,
+  ensureResolvedBackendId,
+  uploadTextFile,
+  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+} from '../../shared/filestore';
 import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
@@ -23,7 +28,8 @@ type VisualizationParameters = {
   timestoreDatasetSlug: string;
   timestoreAuthToken?: string;
   filestoreBaseUrl: string;
-  filestoreBackendId: number;
+  filestoreBackendId: number | null;
+  filestoreBackendKey: string;
   filestoreToken?: string;
   filestorePrincipal?: string;
   visualizationsPrefix: string;
@@ -182,6 +188,16 @@ function parseParameters(raw: unknown): VisualizationParameters {
   if (!filestoreBaseUrl) {
     throw new Error('filestoreBaseUrl parameter is required');
   }
+  const filestoreBackendKey = ensureString(
+    raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      raw.backendMountKey ??
+      raw.backend_mount_key ??
+      process.env.OBSERVATORY_FILESTORE_BACKEND_KEY ??
+      process.env.OBSERVATORY_FILESTORE_MOUNT_KEY ??
+      DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+    DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+  );
   const backendRaw =
     raw.filestoreBackendId ??
     raw.filestore_backend_id ??
@@ -189,10 +205,10 @@ function parseParameters(raw: unknown): VisualizationParameters {
     raw.backend_mount_id ??
     process.env.OBSERVATORY_FILESTORE_BACKEND_ID ??
     process.env.FILESTORE_BACKEND_ID;
-  const filestoreBackendId = backendRaw ? Number(backendRaw) : NaN;
-  if (!Number.isFinite(filestoreBackendId) || filestoreBackendId <= 0) {
-    throw new Error('filestoreBackendId parameter is required');
-  }
+  const backendIdCandidate = backendRaw ? Number(backendRaw) : Number.NaN;
+  const filestoreBackendId = Number.isFinite(backendIdCandidate) && backendIdCandidate > 0
+    ? backendIdCandidate
+    : null;
   const filestoreToken = ensureString(raw.filestoreToken ?? raw.filestore_token ?? '');
   const filestorePrincipal = ensureString(raw.filestorePrincipal ?? raw.filestore_principal ?? '');
   const fallbackPrefix = ensureString(raw.visualizationsPrefix ?? raw.visualizations_prefix ?? '');
@@ -212,6 +228,7 @@ function parseParameters(raw: unknown): VisualizationParameters {
     timestoreAuthToken: timestoreAuthToken || undefined,
     filestoreBaseUrl,
     filestoreBackendId,
+    filestoreBackendKey,
     filestoreToken: filestoreToken || undefined,
     filestorePrincipal: filestorePrincipal || undefined,
     visualizationsPrefix,
@@ -570,6 +587,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     token: parameters.filestoreToken,
     userAgent: 'observatory-visualization-runner/0.2.0'
   });
+  await ensureResolvedBackendId(filestoreClient, parameters);
   const instrumentKey = parameters.instrumentId
     ? parameters.instrumentId.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'unknown'
     : 'all';

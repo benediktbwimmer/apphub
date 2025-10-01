@@ -9,10 +9,14 @@ import {
   lookupCalibration,
   type CalibrationLookupResult
 } from '../../shared/calibrations';
+import {
+  ensureFilestoreHierarchy,
+  ensureResolvedBackendId,
+  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+} from '../../shared/filestore';
 import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
-import { ensureFilestoreHierarchy } from '../../shared/filestore';
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -32,7 +36,8 @@ type ObservatoryNormalizerParameters = {
   minute: string;
   maxFiles: number;
   filestoreBaseUrl: string;
-  filestoreBackendId: number;
+  filestoreBackendId: number | null;
+  filestoreBackendKey: string;
   filestoreToken?: string;
   inboxPrefix: string;
   stagingPrefix: string;
@@ -287,6 +292,17 @@ function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
       'http://127.0.0.1:4300'
     ) || 'http://127.0.0.1:4300';
 
+  const filestoreBackendKey = ensureString(
+    raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      raw.backendMountKey ??
+      raw.backend_mount_key ??
+      process.env.OBSERVATORY_FILESTORE_BACKEND_KEY ??
+      process.env.OBSERVATORY_FILESTORE_MOUNT_KEY ??
+      DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+    DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+  );
+
   const backendRaw =
     raw.filestoreBackendId ??
     raw.filestore_backend_id ??
@@ -294,7 +310,10 @@ function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
     raw.backend_mount_id ??
     process.env.OBSERVATORY_FILESTORE_BACKEND_ID ??
     process.env.FILESTORE_BACKEND_ID;
-  const filestoreBackendId = ensureNumber(backendRaw, 1);
+  const backendIdCandidate = ensureNumber(backendRaw, Number.NaN);
+  const filestoreBackendId = Number.isFinite(backendIdCandidate) && backendIdCandidate > 0
+    ? backendIdCandidate
+    : null;
 
   const filestoreToken = ensureString(
     raw.filestoreToken ??
@@ -404,6 +423,7 @@ function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
     maxFiles,
     filestoreBaseUrl,
     filestoreBackendId,
+    filestoreBackendKey,
     filestoreToken: filestoreToken || undefined,
     inboxPrefix,
     stagingPrefix,
@@ -774,6 +794,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     token: parameters.filestoreToken,
     userAgent: 'observatory-inbox-normalizer/0.2.0'
   });
+
+  const backendMountId = await ensureResolvedBackendId(filestoreClient, parameters);
 
   if (
     parameters.commandPath &&

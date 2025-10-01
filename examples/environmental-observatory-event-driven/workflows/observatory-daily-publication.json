@@ -57,7 +57,10 @@
         "minLength": 1
       },
       "filestoreBackendId": {
-        "type": "number",
+        "type": [
+          "integer",
+          "null"
+        ],
         "minimum": 1
       },
       "filestoreToken": {
@@ -65,6 +68,10 @@
       },
       "filestorePrincipal": {
         "type": "string"
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
       }
     },
     "required": [
@@ -75,7 +82,7 @@
       "visualizationsPrefix",
       "reportsPrefix",
       "filestoreBaseUrl",
-      "filestoreBackendId"
+      "filestoreBackendKey"
     ]
   },
   "defaultParameters": {
@@ -92,7 +99,8 @@
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "filestoreToken": null,
-    "filestorePrincipal": null
+    "filestorePrincipal": null,
+    "filestoreBackendKey": "observatory-event-driven-s3"
   },
   "steps": [
     {
@@ -112,7 +120,8 @@
         "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
         "filestoreToken": "{{ parameters.filestoreToken }}",
         "filestorePrincipal": "{{ parameters.filestorePrincipal }}",
-        "visualizationsPrefix": "{{ parameters.visualizationsPrefix }}"
+        "visualizationsPrefix": "{{ parameters.visualizationsPrefix }}",
+        "filestoreBackendKey": "{{ parameters.filestoreBackendKey }}"
       },
       "storeResultAs": "visualizations",
       "consumes": [
@@ -211,7 +220,8 @@
         "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
         "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
         "filestoreToken": "{{ parameters.filestoreToken }}",
-        "filestorePrincipal": "{{ parameters.filestorePrincipal }}"
+        "filestorePrincipal": "{{ parameters.filestorePrincipal }}",
+        "filestoreBackendKey": "{{ parameters.filestoreBackendKey }}"
       },
       "consumes": [
         {
@@ -341,7 +351,8 @@
             "visualizationsPrefix": "{{ trigger.metadata.paths.visualizationsPrefix }}",
             "reportsPrefix": "{{ trigger.metadata.paths.reportsPrefix }}",
             "filestoreBaseUrl": "{{ trigger.metadata.filestore.baseUrl }}",
-            "filestoreBackendId": "{{ trigger.metadata.filestore.backendMountId }}"
+            "filestoreBackendId": "{{ trigger.metadata.filestore.backendMountId }}",
+            "filestoreBackendKey": "{{ trigger.metadata.filestore.backendMountKey }}"
           },
           "runKeyTemplate": "observatory-publish-{{ parameters.instrumentId | replace: ':', '-' }}-{{ parameters.partitionKey | replace: ':', '-' }}",
           "metadata": {

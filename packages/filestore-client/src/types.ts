@@ -5,6 +5,13 @@ import type {
   FilestoreReconciliationReason
 } from '@apphub/shared/filestoreEvents';
 import type { FilestoreNodeFilters } from '@apphub/shared/filestoreFilters';
+import type {
+  FilestoreBackendMount as SharedFilestoreBackendMount,
+  FilestoreBackendMountList as SharedFilestoreBackendMountList,
+  FilestoreBackendMountState,
+  FilestoreBackendKind,
+  FilestoreBackendAccessMode
+} from '@apphub/shared/filestoreMounts';
 
 export type TokenSupplier = string | (() => string | Promise<string>);
 
@@ -126,6 +133,22 @@ export interface ListNodesResult {
   limit: number;
   offset: number;
 }
+
+export interface ListBackendMountsOptions {
+  limit?: number;
+  offset?: number;
+  kinds?: FilestoreBackendKind[];
+  states?: FilestoreBackendMountState[];
+  accessModes?: FilestoreBackendAccessMode[];
+  search?: string;
+}
+
+export type FilestoreBackendMountListResult = SharedFilestoreBackendMountList;
+
+export type FilestoreBackendMountRecord = SharedFilestoreBackendMount;
+
+export type { FilestoreBackendMountState, FilestoreBackendKind, FilestoreBackendAccessMode };
+export type { FilestoreBackendMountListFilters } from '@apphub/shared/filestoreMounts';
 
 export interface FilestoreNodeResponse {
   id: number;

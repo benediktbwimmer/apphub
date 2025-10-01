@@ -13,28 +13,73 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "timestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
-      "timestoreAuthToken": { "type": "string" },
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "filestorePrincipal": { "type": "string" },
-      "visualizationsPrefix": { "type": "string", "minLength": 1 },
-      "partitionKey": { "type": "string" },
-      "partitionWindow": { "type": "string" },
-      "partitionKeyFields": { "type": "object", "additionalProperties": true },
-      "instrumentId": { "type": "string" },
-      "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
-      "siteFilter": { "type": "string" },
-      "dataset": { "type": "string" }
+      "timestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "timestoreDatasetSlug": {
+        "type": "string",
+        "minLength": 1
+      },
+      "timestoreAuthToken": {
+        "type": "string"
+      },
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "filestorePrincipal": {
+        "type": "string"
+      },
+      "visualizationsPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "partitionKey": {
+        "type": "string"
+      },
+      "partitionWindow": {
+        "type": "string"
+      },
+      "partitionKeyFields": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "instrumentId": {
+        "type": "string"
+      },
+      "lookbackMinutes": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 10080
+      },
+      "siteFilter": {
+        "type": "string"
+      },
+      "dataset": {
+        "type": "string"
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "required": [
       "timestoreBaseUrl",
       "timestoreDatasetSlug",
       "filestoreBaseUrl",
-      "filestoreBackendId",
-      "visualizationsPrefix"
+      "visualizationsPrefix",
+      "filestoreBackendKey"
     ]
   },
   "defaultParameters": {
@@ -45,47 +90,109 @@
     "siteFilter": null,
     "partitionKey": null,
     "partitionWindow": null,
-    "dataset": null
+    "dataset": null,
+    "filestoreBackendKey": "observatory-event-driven-s3"
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "generatedAt": { "type": "string", "format": "date-time" },
-      "partitionKey": { "type": "string" },
-      "partitionWindow": { "type": "string" },
-      "storagePrefix": { "type": "string" },
-      "lookbackMinutes": { "type": "number" },
-      "dataset": { "type": "string" },
+      "generatedAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "partitionKey": {
+        "type": "string"
+      },
+      "partitionWindow": {
+        "type": "string"
+      },
+      "storagePrefix": {
+        "type": "string"
+      },
+      "lookbackMinutes": {
+        "type": "number"
+      },
+      "dataset": {
+        "type": "string"
+      },
       "artifacts": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "path": { "type": "string" },
-            "nodeId": { "type": "number" },
-            "mediaType": { "type": "string" },
-            "description": { "type": "string" },
-            "sizeBytes": { "type": "number" },
-            "checksum": { "type": "string" }
+            "path": {
+              "type": "string"
+            },
+            "nodeId": {
+              "type": "number"
+            },
+            "mediaType": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "sizeBytes": {
+              "type": "number"
+            },
+            "checksum": {
+              "type": "string"
+            }
           },
-          "required": ["path", "mediaType"]
+          "required": [
+            "path",
+            "mediaType"
+          ]
         }
       },
       "metrics": {
         "type": "object",
         "properties": {
-          "samples": { "type": "number" },
-          "instrumentCount": { "type": "number" },
-          "siteCount": { "type": "number" },
-          "averageTemperatureC": { "type": "number" },
-          "averagePm25": { "type": "number" },
-          "maxPm25": { "type": "number" },
-          "partitionKey": { "type": "string" },
-          "partitionWindow": { "type": "string" },
-          "lookbackMinutes": { "type": "number" },
-          "siteFilter": { "type": ["string", "null"] },
-          "instrumentId": { "type": ["string", "null"] },
-          "dataset": { "type": ["string", "null"] }
+          "samples": {
+            "type": "number"
+          },
+          "instrumentCount": {
+            "type": "number"
+          },
+          "siteCount": {
+            "type": "number"
+          },
+          "averageTemperatureC": {
+            "type": "number"
+          },
+          "averagePm25": {
+            "type": "number"
+          },
+          "maxPm25": {
+            "type": "number"
+          },
+          "partitionKey": {
+            "type": "string"
+          },
+          "partitionWindow": {
+            "type": "string"
+          },
+          "lookbackMinutes": {
+            "type": "number"
+          },
+          "siteFilter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instrumentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataset": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         },
         "required": [
           "samples",

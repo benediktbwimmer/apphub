@@ -8,7 +8,7 @@ import type { JsonObject, JsonValue, WorkflowDefinitionTemplate } from './types'
 export type EventDrivenObservatoryConfig = ReturnType<typeof createEventDrivenObservatoryConfig>['config'];
 
 const OBSERVATORY_MODULE_ID = 'github.com/apphub/examples/environmental-observatory-event-driven';
-const OBSERVATORY_BACKEND_MOUNT_KEY = process.env.OBSERVATORY_FILESTORE_MOUNT_KEY
+const DEFAULT_OBSERVATORY_BACKEND_MOUNT_KEY = process.env.OBSERVATORY_FILESTORE_MOUNT_KEY
   ? process.env.OBSERVATORY_FILESTORE_MOUNT_KEY.trim()
   : 'observatory-event-driven-s3';
 const OBSERVATORY_WORKFLOW_SLUGS = new Set([
@@ -55,6 +55,27 @@ function ensureEventTriggers(definition: WorkflowDefinitionTemplate): JsonObject
     triggers[index] = replacement;
     return replacement;
   });
+}
+
+function applyFilestoreBackendReference(target: JsonObject, config: EventDrivenObservatoryConfig): void {
+  if (target.filestoreBackendKey === undefined) {
+    target.filestoreBackendKey = config.filestore.backendMountKey;
+  }
+  if (target.backendMountKey === undefined) {
+    target.backendMountKey = config.filestore.backendMountKey;
+  }
+  const backendId = config.filestore.backendMountId;
+  if (typeof backendId === 'number' && Number.isFinite(backendId)) {
+    target.filestoreBackendId = backendId;
+    target.backendMountId = backendId;
+  } else if (target.filestoreBackendId === undefined) {
+    target.filestoreBackendId = null;
+    if (target.backendMountId === undefined) {
+      target.backendMountId = null;
+    }
+  } else if (target.backendMountId === undefined) {
+    target.backendMountId = target.filestoreBackendId;
+  }
 }
 
 export type ObservatoryBootstrapLogger = {
@@ -104,7 +125,7 @@ export function applyObservatoryWorkflowDefaults(
   switch (definition.slug) {
     case 'observatory-minute-data-generator':
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
-      defaults.filestoreBackendId = config.filestore.backendMountId;
+      applyFilestoreBackendReference(defaults, config);
       defaults.inboxPrefix = config.filestore.inboxPrefix;
       defaults.stagingPrefix = config.filestore.stagingPrefix;
       defaults.archivePrefix = config.filestore.archivePrefix;
@@ -120,7 +141,7 @@ export function applyObservatoryWorkflowDefaults(
       break;
     case 'observatory-minute-ingest':
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
-      defaults.filestoreBackendId = config.filestore.backendMountId;
+      applyFilestoreBackendReference(defaults, config);
       defaults.inboxPrefix = config.filestore.inboxPrefix;
       defaults.stagingPrefix = config.filestore.stagingPrefix;
       defaults.archivePrefix = config.filestore.archivePrefix;
@@ -148,7 +169,7 @@ export function applyObservatoryWorkflowDefaults(
       defaults.timestoreDatasetSlug = config.timestore.datasetSlug;
       defaults.timestoreAuthToken = config.timestore.authToken ?? null;
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
-      defaults.filestoreBackendId = config.filestore.backendMountId;
+      applyFilestoreBackendReference(defaults, config);
       defaults.filestoreToken = config.filestore.token ?? null;
       defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-visualization-runner';
       defaults.visualizationsPrefix = config.filestore.visualizationsPrefix ?? 'datasets/observatory/visualizations';
@@ -163,7 +184,7 @@ export function applyObservatoryWorkflowDefaults(
 
         const filestoreMetadata = ensureJsonObject(triggerMetadata.filestore as JsonValue | undefined);
         filestoreMetadata.baseUrl = config.filestore.baseUrl;
-        filestoreMetadata.backendMountId = config.filestore.backendMountId;
+        applyFilestoreBackendReference(filestoreMetadata, config);
         filestoreMetadata.token = config.filestore.token ?? null;
         filestoreMetadata.principal = defaults.filestorePrincipal ?? null;
         triggerMetadata.filestore = filestoreMetadata;
@@ -190,7 +211,7 @@ export function applyObservatoryWorkflowDefaults(
     case 'observatory-dashboard-aggregate':
       defaults.partitionKey = defaults.partitionKey ?? null;
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
-      defaults.filestoreBackendId = config.filestore.backendMountId;
+      applyFilestoreBackendReference(defaults, config);
       defaults.filestoreToken = config.filestore.token ?? null;
       defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-dashboard-aggregator';
       defaults.reportsPrefix = config.filestore.reportsPrefix ?? 'datasets/observatory/reports';
@@ -208,7 +229,7 @@ export function applyObservatoryWorkflowDefaults(
 
         const filestoreMetadata = ensureJsonObject(triggerMetadata.filestore as JsonValue | undefined);
         filestoreMetadata.baseUrl = config.filestore.baseUrl;
-        filestoreMetadata.backendMountId = config.filestore.backendMountId;
+        applyFilestoreBackendReference(filestoreMetadata, config);
         filestoreMetadata.token = config.filestore.token ?? null;
         triggerMetadata.filestore = filestoreMetadata;
 
@@ -232,7 +253,7 @@ export function applyObservatoryWorkflowDefaults(
       break;
     case 'observatory-calibration-import':
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
-      defaults.filestoreBackendId = config.filestore.backendMountId;
+      applyFilestoreBackendReference(defaults, config);
       defaults.filestoreToken = config.filestore.token ?? null;
       defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-calibration-importer';
       defaults.calibrationsPrefix =
@@ -251,7 +272,7 @@ export function applyObservatoryWorkflowDefaults(
       defaults.coreBaseUrl = config.core?.baseUrl ?? defaults.coreBaseUrl ?? null;
       defaults.coreApiToken = config.core?.apiToken ?? defaults.coreApiToken ?? null;
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
-      defaults.filestoreBackendId = config.filestore.backendMountId;
+      applyFilestoreBackendReference(defaults, config);
       defaults.filestoreToken = config.filestore.token ?? null;
       defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-calibration-reprocessor';
       defaults.metastoreBaseUrl = config.metastore?.baseUrl ?? defaults.metastoreBaseUrl ?? null;
@@ -398,6 +419,7 @@ export async function ensureObservatoryBackend(
   await ensurePaths(config);
   const baseUrl = config.filestore.baseUrl;
   const desiredBucket = config.filestore.bucket ?? 'apphub-filestore';
+  const backendMountKey = config.filestore.backendMountKey?.trim() || DEFAULT_OBSERVATORY_BACKEND_MOUNT_KEY;
   const desiredConfig = stripUndefined({
     endpoint: config.filestore.endpoint ?? 'http://127.0.0.1:9000',
     region: config.filestore.region ?? 'us-east-1',
@@ -416,7 +438,7 @@ export async function ensureObservatoryBackend(
     headers.set('authorization', `Bearer ${token}`);
   }
 
-  const existing = await findMountByKey(baseUrl, headers, OBSERVATORY_BACKEND_MOUNT_KEY);
+  const existing = await findMountByKey(baseUrl, headers, backendMountKey);
   if (existing) {
     if (existing.backendKind !== 's3') {
       throw new Error(
@@ -437,7 +459,7 @@ export async function ensureObservatoryBackend(
   }
 
   const created = (await requestFilestore('POST', baseUrl, '/v1/backend-mounts', headers, {
-    mountKey: OBSERVATORY_BACKEND_MOUNT_KEY,
+    mountKey: backendMountKey,
     backendKind: 's3',
     bucket: desiredBucket,
     prefix: null,

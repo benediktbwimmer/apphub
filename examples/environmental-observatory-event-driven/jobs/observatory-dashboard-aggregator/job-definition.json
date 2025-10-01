@@ -13,17 +13,55 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "partitionKey": { "type": "string", "minLength": 1 },
-      "lookbackMinutes": { "type": "number", "minimum": 5, "maximum": 4320 },
-      "timestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
-      "timestoreAuthToken": { "type": "string" },
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "filestorePrincipal": { "type": "string" },
-      "reportsPrefix": { "type": "string", "minLength": 1 },
-      "overviewPrefix": { "type": "string", "minLength": 1 }
+      "partitionKey": {
+        "type": "string",
+        "minLength": 1
+      },
+      "lookbackMinutes": {
+        "type": "number",
+        "minimum": 5,
+        "maximum": 4320
+      },
+      "timestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "timestoreDatasetSlug": {
+        "type": "string",
+        "minLength": 1
+      },
+      "timestoreAuthToken": {
+        "type": "string"
+      },
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "filestorePrincipal": {
+        "type": "string"
+      },
+      "reportsPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "overviewPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "required": [
       "partitionKey",
@@ -31,46 +69,84 @@
       "timestoreBaseUrl",
       "timestoreDatasetSlug",
       "filestoreBaseUrl",
-      "filestoreBackendId",
       "reportsPrefix",
-      "overviewPrefix"
+      "overviewPrefix",
+      "filestoreBackendKey"
     ]
   },
   "defaultParameters": {
     "lookbackMinutes": 720,
     "filestoreToken": null,
     "filestorePrincipal": null,
-    "timestoreAuthToken": null
+    "timestoreAuthToken": null,
+    "filestoreBackendKey": "observatory-event-driven-s3"
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "generatedAt": { "type": "string", "format": "date-time" },
-      "samples": { "type": "number" },
-      "instrumentCount": { "type": "number" },
-      "siteCount": { "type": "number" },
-      "overviewPrefix": { "type": "string" },
+      "generatedAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "samples": {
+        "type": "number"
+      },
+      "instrumentCount": {
+        "type": "number"
+      },
+      "siteCount": {
+        "type": "number"
+      },
+      "overviewPrefix": {
+        "type": "string"
+      },
       "dashboard": {
         "type": "object",
         "properties": {
-          "path": { "type": "string" },
-          "nodeId": { "type": "number" },
-          "mediaType": { "type": "string" },
-          "sizeBytes": { "type": "number" },
-          "checksum": { "type": "string" }
+          "path": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "number"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "number"
+          },
+          "checksum": {
+            "type": "string"
+          }
         },
-        "required": ["path", "mediaType"]
+        "required": [
+          "path",
+          "mediaType"
+        ]
       },
       "data": {
         "type": "object",
         "properties": {
-          "path": { "type": "string" },
-          "nodeId": { "type": "number" },
-          "mediaType": { "type": "string" },
-          "sizeBytes": { "type": "number" },
-          "checksum": { "type": "string" }
+          "path": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "number"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "number"
+          },
+          "checksum": {
+            "type": "string"
+          }
         },
-        "required": ["path", "mediaType"]
+        "required": [
+          "path",
+          "mediaType"
+        ]
       }
     },
     "required": [

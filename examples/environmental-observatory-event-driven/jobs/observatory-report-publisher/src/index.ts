@@ -1,5 +1,10 @@
 import { FilestoreClient } from '@apphub/filestore-client';
-import { ensureFilestoreHierarchy, uploadTextFile } from '../../shared/filestore';
+import {
+  ensureFilestoreHierarchy,
+  ensureResolvedBackendId,
+  uploadTextFile,
+  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+} from '../../shared/filestore';
 import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
@@ -56,7 +61,8 @@ type ReportPublisherParameters = {
   reportTemplate?: string;
   visualizationAsset: VisualizationAsset;
   filestoreBaseUrl: string;
-  filestoreBackendId: number;
+  filestoreBackendId: number | null;
+  filestoreBackendKey: string;
   filestoreToken?: string;
   filestorePrincipal?: string;
   metastoreBaseUrl?: string;
@@ -200,6 +206,16 @@ function parseParameters(raw: unknown): ReportPublisherParameters {
   if (!filestoreBaseUrl) {
     throw new Error('filestoreBaseUrl parameter is required');
   }
+  const filestoreBackendKey = ensureString(
+    raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      raw.backendMountKey ??
+      raw.backend_mount_key ??
+      process.env.OBSERVATORY_FILESTORE_BACKEND_KEY ??
+      process.env.OBSERVATORY_FILESTORE_MOUNT_KEY ??
+      DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+    DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+  );
   const backendRaw =
     raw.filestoreBackendId ??
     raw.filestore_backend_id ??
@@ -207,10 +223,10 @@ function parseParameters(raw: unknown): ReportPublisherParameters {
     raw.backend_mount_id ??
     process.env.OBSERVATORY_FILESTORE_BACKEND_ID ??
     process.env.FILESTORE_BACKEND_ID;
-  const filestoreBackendId = backendRaw ? Number(backendRaw) : NaN;
-  if (!Number.isFinite(filestoreBackendId) || filestoreBackendId <= 0) {
-    throw new Error('filestoreBackendId parameter is required');
-  }
+  const backendIdCandidate = backendRaw ? Number(backendRaw) : Number.NaN;
+  const filestoreBackendId = Number.isFinite(backendIdCandidate) && backendIdCandidate > 0
+    ? backendIdCandidate
+    : null;
   const filestoreToken = ensureString(raw.filestoreToken ?? raw.filestore_token ?? '');
   const filestorePrincipal = ensureString(raw.filestorePrincipal ?? raw.filestore_principal ?? '');
   const reportsPrefix = ensureString(
@@ -236,6 +252,7 @@ function parseParameters(raw: unknown): ReportPublisherParameters {
     visualizationAsset,
     filestoreBaseUrl,
     filestoreBackendId,
+    filestoreBackendKey,
     filestoreToken: filestoreToken || undefined,
     filestorePrincipal: filestorePrincipal || undefined,
     metastoreBaseUrl: metastoreBaseUrl || undefined,
@@ -354,7 +371,10 @@ async function uploadReports(
 
   await ensureFilestoreHierarchy(
     client,
-    params.filestoreBackendId,
+    {
+      backendMountId: params.filestoreBackendId ?? undefined,
+      backendMountKey: params.filestoreBackendKey
+    },
     storagePrefix,
     params.filestorePrincipal
   );
@@ -366,7 +386,8 @@ async function uploadReports(
   const [markdownNode, htmlNode] = await Promise.all([
     uploadTextFile({
       client,
-      backendMountId: params.filestoreBackendId,
+      backendMountId: params.filestoreBackendId ?? undefined,
+      backendMountKey: params.filestoreBackendKey,
       path: markdownPath,
       content: markdown,
       contentType: 'text/markdown; charset=utf-8',
@@ -379,7 +400,8 @@ async function uploadReports(
     }),
     uploadTextFile({
       client,
-      backendMountId: params.filestoreBackendId,
+      backendMountId: params.filestoreBackendId ?? undefined,
+      backendMountKey: params.filestoreBackendKey,
       path: htmlPath,
       content: html,
       contentType: 'text/html; charset=utf-8',
@@ -427,7 +449,8 @@ async function uploadReports(
 
   const jsonNode = await uploadTextFile({
     client,
-    backendMountId: params.filestoreBackendId,
+    backendMountId: params.filestoreBackendId ?? undefined,
+    backendMountKey: params.filestoreBackendKey,
     path: jsonPath,
     content: JSON.stringify(summaryJson, null, 2),
     contentType: 'application/json',
@@ -523,6 +546,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     token: parameters.filestoreToken,
     userAgent: 'observatory-report-publisher/0.2.0'
   });
+  const backendMountId = await ensureResolvedBackendId(filestoreClient, parameters);
   const markdown = buildMarkdown(parameters.visualizationAsset.metrics, parameters.visualizationAsset.artifacts);
   const html = buildHtml(parameters.reportTemplate, markdown, parameters.visualizationAsset.metrics);
 

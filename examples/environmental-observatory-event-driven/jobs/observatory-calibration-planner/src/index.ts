@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
 import { FilestoreClient } from '@apphub/filestore-client';
+import { ensureResolvedBackendId, uploadTextFile, DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../../shared/filestore';
 import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
 
-import { uploadTextFile } from '../../shared/filestore';
 import { toJsonRecord } from '../../shared/events';
 import {
   calibrationReprocessPlanSchema,
@@ -47,7 +47,8 @@ type PlannerParameters = {
   planId: string;
   planFileName: string;
   filestoreBaseUrl: string;
-  filestoreBackendId: number;
+  filestoreBackendId: number | null;
+  filestoreBackendKey: string;
   filestoreToken?: string;
   filestorePrincipal?: string;
   metastoreBaseUrl?: string | null;
@@ -322,11 +323,19 @@ function parseParameters(raw: unknown): PlannerParameters {
   if (!filestoreBaseUrl) {
     throw new Error('filestoreBaseUrl is required');
   }
+  const filestoreBackendKey = ensureString(
+    raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      raw.backendMountKey ??
+      raw.backend_mount_key ??
+      DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+    DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+  );
   const filestoreBackendId = ensureNumber(
     raw.filestoreBackendId ?? raw.filestore_backend_id ?? raw.backendMountId ?? raw.backend_mount_id
   );
-  if (!filestoreBackendId || filestoreBackendId <= 0) {
-    throw new Error('filestoreBackendId must be a positive number');
+  if (!filestoreBackendKey) {
+    throw new Error('filestoreBackendKey must be provided');
   }
 
   const downstreamWorkflows = parseDownstreamWorkflows(raw.downstreamWorkflows ?? raw.downstream_workflows);
@@ -350,7 +359,8 @@ function parseParameters(raw: unknown): PlannerParameters {
     planId,
     planFileName,
     filestoreBaseUrl,
-    filestoreBackendId,
+    filestoreBackendId: filestoreBackendId ?? null,
+    filestoreBackendKey,
     filestoreToken: ensureString(raw.filestoreToken ?? raw.filestore_token ?? ''),
     filestorePrincipal: ensureString(raw.filestorePrincipal ?? raw.filestore_principal ?? ''),
     metastoreBaseUrl: metastoreBaseUrl || null,
@@ -774,11 +784,13 @@ async function materializePlanArtifact(
     token: parameters.filestoreToken || undefined,
     userAgent: USER_AGENT
   });
+  const backendMountId = await ensureResolvedBackendId(client, parameters);
 
   const serializedInitial = `${JSON.stringify(plan, null, 2)}\n`;
   const firstUpload = await uploadTextFile({
     client,
-    backendMountId: parameters.filestoreBackendId,
+    backendMountId,
+    backendMountKey: parameters.filestoreBackendKey,
     path,
     content: serializedInitial,
     contentType: 'application/json; charset=utf-8',
@@ -799,7 +811,8 @@ async function materializePlanArtifact(
   if (serializedFinal !== serializedInitial) {
     const secondUpload = await uploadTextFile({
       client,
-      backendMountId: parameters.filestoreBackendId,
+      backendMountId,
+      backendMountKey: parameters.filestoreBackendKey,
       path,
       content: serializedFinal,
       contentType: 'application/json; charset=utf-8',

@@ -6,19 +6,34 @@ import {
   type EventDrivenObservatoryConfig
 } from '@apphub/examples';
 import { FilestoreClient } from '@apphub/filestore-client';
-import { ensureFilestoreHierarchy } from '../../shared/filestore';
+import { ensureFilestoreHierarchy, resolveBackendMountId } from '../../shared/filestore';
+
+async function ensureBackendId(
+  client: FilestoreClient,
+  config: EventDrivenObservatoryConfig
+): Promise<number> {
+  return resolveBackendMountId(client, {
+    backendMountId: config.filestore.backendMountId,
+    backendMountKey: config.filestore.backendMountKey
+  });
+}
 
 async function ensureConfiguredPrefixes(config: EventDrivenObservatoryConfig): Promise<void> {
-  const backendMountId = config.filestore.backendMountId;
-  if (!backendMountId || !Number.isFinite(backendMountId)) {
-    return;
-  }
-
   const client = new FilestoreClient({
     baseUrl: config.filestore.baseUrl,
     token: config.filestore.token,
     userAgent: 'observatory-config-materializer/0.3.0'
   });
+
+  let backendMountId: number;
+  try {
+    backendMountId = await ensureBackendId(client, config);
+  } catch (error) {
+    if (config.filestore.backendMountId && Number.isFinite(config.filestore.backendMountId)) {
+      throw error;
+    }
+    return;
+  }
 
   const prefixes = [
     config.filestore.inboxPrefix,

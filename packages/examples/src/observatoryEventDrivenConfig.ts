@@ -11,7 +11,8 @@ export type ObservatoryConfig = {
   };
   filestore: {
     baseUrl: string;
-    backendMountId: number;
+    backendMountKey: string;
+    backendMountId?: number;
     token?: string;
     inboxPrefix: string;
     stagingPrefix: string;
@@ -71,17 +72,6 @@ export type EventDrivenObservatoryConfigOptions = {
   variables?: Record<string, string | undefined> | null;
   outputPath?: string;
 };
-
-function coerceNumber(value: string | undefined, fallback: number, key: string): number {
-  if (value === undefined || value === null || value.trim() === '') {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`Expected numeric value for ${key}, received '${value}'`);
-  }
-  return parsed;
-}
 
 function optionalString(value: string | undefined): string | undefined {
   if (!value) {
@@ -183,64 +173,71 @@ export function createEventDrivenObservatoryConfig(
     'paths.dataRoot'
   );
 
+  const filestoreBackendKey = resolveString(
+    getVar('OBSERVATORY_FILESTORE_BACKEND_KEY', ['OBSERVATORY_FILESTORE_MOUNT_KEY']),
+    'observatory-event-driven-s3',
+    'filestore.backendMountKey'
+  );
+  const filestoreBackendId = optionalNumber(
+    getVar('OBSERVATORY_FILESTORE_BACKEND_ID'),
+    'filestore.backendMountId'
+  );
+
   const filestore = {
     baseUrl: resolveString(
       getVar('OBSERVATORY_FILESTORE_BASE_URL'),
       'http://127.0.0.1:4300',
       'filestore.baseUrl'
     ),
-      backendMountId: coerceNumber(
-        getVar('OBSERVATORY_FILESTORE_BACKEND_ID'),
-        1,
-        'filestore.backendMountId'
-      ),
-      token: optionalString(getVar('OBSERVATORY_FILESTORE_TOKEN')),
-      inboxPrefix: resolveString(
-        getVar('OBSERVATORY_FILESTORE_INBOX_PREFIX'),
-        'datasets/observatory/inbox',
-        'filestore.inboxPrefix'
-      ),
-      stagingPrefix: resolveString(
-        getVar('OBSERVATORY_FILESTORE_STAGING_PREFIX'),
-        'datasets/observatory/staging',
-        'filestore.stagingPrefix'
-      ),
-      archivePrefix: resolveString(
-        getVar('OBSERVATORY_FILESTORE_ARCHIVE_PREFIX'),
-        'datasets/observatory/archive',
-        'filestore.archivePrefix'
-      ),
-      visualizationsPrefix: resolveString(
-        getVar('OBSERVATORY_FILESTORE_VIS_PREFIX'),
-        'datasets/observatory/visualizations',
-        'filestore.visualizationsPrefix'
-      ),
-      reportsPrefix: resolveString(
-        getVar('OBSERVATORY_FILESTORE_REPORTS_PREFIX'),
-        'datasets/observatory/reports',
-        'filestore.reportsPrefix'
-      ),
-      calibrationsPrefix: resolveString(
-        getVar('OBSERVATORY_FILESTORE_CALIBRATIONS_PREFIX'),
-        'datasets/observatory/calibrations',
-        'filestore.calibrationsPrefix'
-      ),
-      plansPrefix: optionalString(
-        getVar('OBSERVATORY_FILESTORE_PLANS_PREFIX') ?? 'datasets/observatory/calibrations/plans'
-      ),
-      bucket: optionalString(
-        getVar('OBSERVATORY_FILESTORE_S3_BUCKET', ['FILESTORE_S3_BUCKET', 'APPHUB_BUNDLE_STORAGE_BUCKET'])
-      ) ?? 'apphub-filestore',
-      endpoint: optionalString(
-        getVar('OBSERVATORY_FILESTORE_S3_ENDPOINT', ['FILESTORE_S3_ENDPOINT', 'APPHUB_BUNDLE_STORAGE_ENDPOINT'])
-      ) ?? 'http://127.0.0.1:9000',
-      region: optionalString(
-        getVar('OBSERVATORY_FILESTORE_S3_REGION', ['FILESTORE_S3_REGION', 'APPHUB_BUNDLE_STORAGE_REGION'])
-      ) ?? 'us-east-1',
-      forcePathStyle: parseBoolean(
-        getVar('OBSERVATORY_FILESTORE_S3_FORCE_PATH_STYLE', ['FILESTORE_S3_FORCE_PATH_STYLE']),
-        true
-      ),
+    backendMountKey: filestoreBackendKey,
+    backendMountId: filestoreBackendId,
+    token: optionalString(getVar('OBSERVATORY_FILESTORE_TOKEN')),
+    inboxPrefix: resolveString(
+      getVar('OBSERVATORY_FILESTORE_INBOX_PREFIX'),
+      'datasets/observatory/inbox',
+      'filestore.inboxPrefix'
+    ),
+    stagingPrefix: resolveString(
+      getVar('OBSERVATORY_FILESTORE_STAGING_PREFIX'),
+      'datasets/observatory/staging',
+      'filestore.stagingPrefix'
+    ),
+    archivePrefix: resolveString(
+      getVar('OBSERVATORY_FILESTORE_ARCHIVE_PREFIX'),
+      'datasets/observatory/archive',
+      'filestore.archivePrefix'
+    ),
+    visualizationsPrefix: resolveString(
+      getVar('OBSERVATORY_FILESTORE_VIS_PREFIX'),
+      'datasets/observatory/visualizations',
+      'filestore.visualizationsPrefix'
+    ),
+    reportsPrefix: resolveString(
+      getVar('OBSERVATORY_FILESTORE_REPORTS_PREFIX'),
+      'datasets/observatory/reports',
+      'filestore.reportsPrefix'
+    ),
+    calibrationsPrefix: resolveString(
+      getVar('OBSERVATORY_FILESTORE_CALIBRATIONS_PREFIX'),
+      'datasets/observatory/calibrations',
+      'filestore.calibrationsPrefix'
+    ),
+    plansPrefix: optionalString(
+      getVar('OBSERVATORY_FILESTORE_PLANS_PREFIX') ?? 'datasets/observatory/calibrations/plans'
+    ),
+    bucket: optionalString(
+      getVar('OBSERVATORY_FILESTORE_S3_BUCKET', ['FILESTORE_S3_BUCKET', 'APPHUB_BUNDLE_STORAGE_BUCKET'])
+    ) ?? 'apphub-filestore',
+    endpoint: optionalString(
+      getVar('OBSERVATORY_FILESTORE_S3_ENDPOINT', ['FILESTORE_S3_ENDPOINT', 'APPHUB_BUNDLE_STORAGE_ENDPOINT'])
+    ) ?? 'http://127.0.0.1:9000',
+    region: optionalString(
+      getVar('OBSERVATORY_FILESTORE_S3_REGION', ['FILESTORE_S3_REGION', 'APPHUB_BUNDLE_STORAGE_REGION'])
+    ) ?? 'us-east-1',
+    forcePathStyle: parseBoolean(
+      getVar('OBSERVATORY_FILESTORE_S3_FORCE_PATH_STYLE', ['FILESTORE_S3_FORCE_PATH_STYLE']),
+      true
+    ),
       accessKeyId: optionalString(
         getVar('OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID', ['FILESTORE_S3_ACCESS_KEY_ID', 'APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID'])
       ) ?? 'apphub',

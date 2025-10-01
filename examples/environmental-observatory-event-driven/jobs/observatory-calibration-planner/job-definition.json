@@ -18,44 +18,114 @@
         "items": {
           "type": "object",
           "properties": {
-            "calibrationId": { "type": "string" },
-            "instrumentId": { "type": "string", "minLength": 1 },
-            "effectiveAt": { "type": "string", "format": "date-time" },
-            "metastoreVersion": { "type": ["number", "null"] }
+            "calibrationId": {
+              "type": "string"
+            },
+            "instrumentId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "effectiveAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "metastoreVersion": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
           },
-          "required": ["instrumentId", "effectiveAt"]
+          "required": [
+            "instrumentId",
+            "effectiveAt"
+          ]
         }
       },
-      "coreBaseUrl": { "type": "string", "minLength": 1 },
-      "coreApiToken": { "type": "string" },
-      "ingestWorkflowSlug": { "type": "string", "minLength": 1 },
-      "ingestAssetId": { "type": "string", "minLength": 1 },
+      "coreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "coreApiToken": {
+        "type": "string"
+      },
+      "ingestWorkflowSlug": {
+        "type": "string",
+        "minLength": 1
+      },
+      "ingestAssetId": {
+        "type": "string",
+        "minLength": 1
+      },
       "downstreamWorkflows": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "workflowSlug": { "type": "string", "minLength": 1 },
-            "description": { "type": "string" },
+            "workflowSlug": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": {
+              "type": "string"
+            },
             "assetIds": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             }
           },
-          "required": ["workflowSlug"]
+          "required": [
+            "workflowSlug"
+          ]
         }
       },
-      "plansPrefix": { "type": "string", "minLength": 1 },
-      "planId": { "type": "string" },
-      "planFileName": { "type": "string" },
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "filestorePrincipal": { "type": "string" },
-      "metastoreBaseUrl": { "type": "string" },
-      "metastoreNamespace": { "type": "string" },
-      "metastoreAuthToken": { "type": "string" },
-      "lookback": { "type": "number", "minimum": 1, "maximum": 10000 }
+      "plansPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "planId": {
+        "type": "string"
+      },
+      "planFileName": {
+        "type": "string"
+      },
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "filestorePrincipal": {
+        "type": "string"
+      },
+      "metastoreBaseUrl": {
+        "type": "string"
+      },
+      "metastoreNamespace": {
+        "type": "string"
+      },
+      "metastoreAuthToken": {
+        "type": "string"
+      },
+      "lookback": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 10000
+      },
+      "filestoreBackendKey": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "required": [
       "calibrations",
@@ -64,7 +134,7 @@
       "ingestAssetId",
       "plansPrefix",
       "filestoreBaseUrl",
-      "filestoreBackendId"
+      "filestoreBackendKey"
     ]
   },
   "defaultParameters": {
@@ -73,8 +143,12 @@
     "ingestWorkflowSlug": "observatory-minute-ingest",
     "ingestAssetId": "observatory.timeseries.timestore",
     "downstreamWorkflows": [
-      { "workflowSlug": "observatory-daily-publication" },
-      { "workflowSlug": "observatory-dashboard-aggregate" }
+      {
+        "workflowSlug": "observatory-daily-publication"
+      },
+      {
+        "workflowSlug": "observatory-dashboard-aggregate"
+      }
     ],
     "plansPrefix": "datasets/observatory/calibrations/plans",
     "filestoreBaseUrl": "http://127.0.0.1:4300",
@@ -83,47 +157,106 @@
     "filestorePrincipal": "observatory-calibration-planner",
     "metastoreBaseUrl": null,
     "metastoreNamespace": "observatory.reprocess.plans",
-    "metastoreAuthToken": null
+    "metastoreAuthToken": null,
+    "filestoreBackendKey": "observatory-event-driven-s3"
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string" },
-      "planPath": { "type": "string" },
-      "planNodeId": { "type": ["number", "null"] },
-      "partitionCount": { "type": "number" },
-      "instrumentCount": { "type": "number" },
-      "calibrationCount": { "type": "number" },
-      "state": { "type": "string" },
+      "planId": {
+        "type": "string"
+      },
+      "planPath": {
+        "type": "string"
+      },
+      "planNodeId": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "partitionCount": {
+        "type": "number"
+      },
+      "instrumentCount": {
+        "type": "number"
+      },
+      "calibrationCount": {
+        "type": "number"
+      },
+      "state": {
+        "type": "string"
+      },
       "storage": {
         "type": "object",
         "properties": {
-          "plansPrefix": { "type": ["string", "null"] },
-          "planPath": { "type": "string" },
-          "nodeId": { "type": ["number", "null"] }
+          "plansPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "planPath": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
         },
-        "required": ["planPath"]
+        "required": [
+          "planPath"
+        ]
       },
       "summary": {
         "type": "object",
         "properties": {
-          "partitionCount": { "type": "number" },
-          "instrumentCount": { "type": "number" },
-          "calibrationCount": { "type": "number" }
+          "partitionCount": {
+            "type": "number"
+          },
+          "instrumentCount": {
+            "type": "number"
+          },
+          "calibrationCount": {
+            "type": "number"
+          }
         },
-        "required": ["partitionCount", "instrumentCount", "calibrationCount"]
+        "required": [
+          "partitionCount",
+          "instrumentCount",
+          "calibrationCount"
+        ]
       },
       "assets": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "assetId": { "type": "string" },
-            "partitionKey": { "type": ["string", "null"] },
-            "producedAt": { "type": "string", "format": "date-time" },
-            "payload": { "type": "object", "additionalProperties": true }
+            "assetId": {
+              "type": "string"
+            },
+            "partitionKey": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "producedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": true
+            }
           },
-          "required": ["assetId", "producedAt", "payload"]
+          "required": [
+            "assetId",
+            "producedAt",
+            "payload"
+          ]
         }
       }
     },

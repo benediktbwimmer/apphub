@@ -1,4 +1,5 @@
 import { FilestoreClient, FilestoreClientError } from '@apphub/filestore-client';
+import { ensureResolvedBackendId, DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../../shared/filestore';
 import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
@@ -40,7 +41,8 @@ type RawAssetFile = {
 type RawAsset = {
   partitionKey: string;
   minute: string;
-  backendMountId: number;
+  backendMountId: number | null;
+  backendMountKey?: string | null;
   stagingPrefix: string;
   stagingMinutePrefix?: string;
   files: RawAssetFile[];
@@ -76,7 +78,8 @@ type TimestoreLoaderParameters = {
   minute: string;
   filestoreBaseUrl: string;
   filestoreToken?: string;
-  filestoreBackendId: number;
+  filestoreBackendId: number | null;
+  filestoreBackendKey: string;
   filestorePrincipal?: string;
   stagingPrefix: string;
   rawAsset: RawAsset | null;
@@ -274,6 +277,13 @@ function parseRawAsset(raw: unknown): RawAsset | null {
       raw.filestoreBackendId ??
       raw.filestore_backend_id
   );
+  const backendMountKey = ensureString(
+    raw.backendMountKey ??
+      raw.backend_mount_key ??
+      raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      ''
+  );
   const stagingPrefix = ensureString(
     raw.stagingPrefix ?? raw.staging_prefix ?? raw.filestoreStagingPrefix ?? raw.filestore_staging_prefix ?? ''
   );
@@ -325,7 +335,8 @@ function parseRawAsset(raw: unknown): RawAsset | null {
   return {
     partitionKey,
     minute,
-    backendMountId: backendMountId ?? 0,
+    backendMountId: backendMountId ?? null,
+    backendMountKey: backendMountKey || null,
     stagingPrefix,
     stagingMinutePrefix: stagingMinutePrefix || undefined,
     files,
@@ -373,14 +384,24 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
   const filestoreToken = ensureString(
     raw.filestoreToken ?? raw.filestore_token ?? process.env.OBSERVATORY_FILESTORE_TOKEN ?? ''
   );
+  const explicitBackendKey = ensureString(
+    raw.filestoreBackendKey ??
+      raw.filestore_backend_key ??
+      raw.backendMountKey ??
+      raw.backend_mount_key ??
+      ''
+  );
   const explicitBackendId = ensureNumber(raw.filestoreBackendId ?? raw.filestore_backend_id);
   const fallbackBackendId = rawAsset ? rawAsset.backendMountId : null;
-  const filestoreBackendId = explicitBackendId ?? fallbackBackendId;
+  const fallbackBackendKey = rawAsset?.backendMountKey ?? '';
+  const filestoreBackendId = explicitBackendId ?? fallbackBackendId ?? null;
+  const filestoreBackendKey =
+    explicitBackendKey || fallbackBackendKey || DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY;
   if (!filestoreBaseUrl) {
     throw new Error('filestoreBaseUrl parameter is required');
   }
-  if (filestoreBackendId === null) {
-    throw new Error('filestoreBackendId parameter is required');
+  if (!filestoreBackendKey) {
+    throw new Error('filestoreBackendKey parameter is required');
   }
   const stagingPrefixInput = ensureString(
     raw.stagingPrefix ?? raw.staging_prefix ?? rawAsset?.stagingPrefix ?? ''
@@ -392,6 +413,24 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
   const filestorePrincipal = ensureString(
     raw.filestorePrincipal ?? raw.filestore_principal ?? raw.principal ?? ''
   );
+
+  if (rawAsset) {
+    if (!rawAsset.stagingPrefix) {
+      rawAsset.stagingPrefix = stagingPrefix;
+    }
+    if (!rawAsset.stagingMinutePrefix) {
+      rawAsset.stagingMinutePrefix = `${stagingPrefix}/${minute.replace(/[: ]/g, '-')}`;
+    }
+    if (!rawAsset.backendMountKey) {
+      rawAsset.backendMountKey = filestoreBackendKey;
+    }
+    if ((!rawAsset.backendMountId || rawAsset.backendMountId <= 0) && filestoreBackendId) {
+      rawAsset.backendMountId = filestoreBackendId;
+    }
+    if (!rawAsset.files.length) {
+      throw new Error('rawAsset.files must contain at least one entry');
+    }
+  }
 
   const calibrationsBaseUrlCandidate = ensureString(
     raw.calibrationsBaseUrl ??
@@ -428,8 +467,11 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
   const finalCalibrationsAuthToken = calibrationsAuthTokenCandidate || '';
 
   if (rawAsset) {
-    if (!rawAsset.backendMountId || rawAsset.backendMountId <= 0) {
+    if ((!rawAsset.backendMountId || rawAsset.backendMountId <= 0) && filestoreBackendId) {
       rawAsset.backendMountId = filestoreBackendId;
+    }
+    if (!rawAsset.backendMountKey) {
+      rawAsset.backendMountKey = filestoreBackendKey;
     }
     if (!rawAsset.stagingPrefix) {
       rawAsset.stagingPrefix = stagingPrefix;
@@ -452,6 +494,7 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
     filestoreBaseUrl,
     filestoreToken: filestoreToken || undefined,
     filestoreBackendId,
+    filestoreBackendKey,
     filestorePrincipal: filestorePrincipal || undefined,
     stagingPrefix,
     rawAsset,
@@ -479,9 +522,14 @@ async function discoverRawAssetFromStaging(
   const normalizedStagingPrefix = parameters.stagingPrefix.replace(/\/+$/g, '');
   const minuteKey = parameters.minute.replace(/:/g, '-');
   const stagingMinutePrefix = `${normalizedStagingPrefix}/${minuteKey}`;
+  const backendMountId = parameters.filestoreBackendId;
+  if (!backendMountId || backendMountId <= 0) {
+    throw new Error('filestoreBackendId is required to discover staging files');
+  }
   logger('rawAsset parameter missing; discovering staging files for timestore loader', {
     stagingMinutePrefix,
-    backendMountId: parameters.filestoreBackendId
+    backendMountId,
+    backendMountKey: parameters.filestoreBackendKey
   });
 
   const files: RawAssetFile[] = [];
@@ -492,7 +540,7 @@ async function discoverRawAssetFromStaging(
 
   while (true) {
     const page = await filestoreClient.listNodes({
-      backendMountId: parameters.filestoreBackendId,
+      backendMountId,
       path: stagingMinutePrefix,
       depth: 1,
       limit: pageSize,
@@ -560,7 +608,8 @@ async function discoverRawAssetFromStaging(
   return {
     partitionKey: parameters.minute,
     minute: parameters.minute,
-    backendMountId: parameters.filestoreBackendId,
+    backendMountId,
+    backendMountKey: parameters.filestoreBackendKey,
     stagingPrefix: normalizedStagingPrefix,
     stagingMinutePrefix,
     files,
@@ -744,6 +793,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     token: parameters.filestoreToken,
     userAgent: 'observatory-timestore-loader/0.2.0'
   });
+  const backendMountId = await ensureResolvedBackendId(filestoreClient, parameters);
   if (!parameters.rawAsset) {
     try {
       parameters.rawAsset = await discoverRawAssetFromStaging(parameters, filestoreClient, context.logger);
@@ -761,9 +811,11 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   if (!rawAsset) {
     throw new Error('Unable to resolve rawAsset for timestore loader');
   }
-  const backendMountId = parameters.filestoreBackendId || rawAsset.backendMountId;
-  if (!backendMountId || backendMountId <= 0) {
-    throw new Error('filestoreBackendId must be provided for timestore loader');
+  if (!rawAsset.backendMountKey) {
+    rawAsset.backendMountKey = parameters.filestoreBackendKey;
+  }
+  if (!rawAsset.backendMountId || rawAsset.backendMountId <= 0) {
+    rawAsset.backendMountId = backendMountId;
   }
 
   const calibrationConfig = toCalibrationConfig(parameters);

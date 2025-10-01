@@ -8,5 +8,6 @@
   "overviewPrefix": "datasets/observatory/reports/overview",
   "lookbackMinutes": 720,
   "timestoreBaseUrl": "http://127.0.0.1:4200",
-  "timestoreDatasetSlug": "observatory-timeseries"
+  "timestoreDatasetSlug": "observatory-timeseries",
+  "filestoreBackendKey": "observatory-event-driven-s3"
 }
