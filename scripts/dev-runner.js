@@ -230,6 +230,10 @@ async function main() {
 
   const { commands: spawned, result } = controller;
 
+  const terminationTimers = new Set();
+  let terminationRequested = false;
+  let interruptCount = 0;
+
   const terminate = (signal) => {
     for (const command of spawned) {
       if (command && typeof command.kill === 'function') {
@@ -244,24 +248,66 @@ async function main() {
     }
   };
 
-  process.on('SIGINT', () => terminate('SIGINT'));
-  process.on('SIGTERM', () => terminate('SIGTERM'));
+  const scheduleTermination = (signal, delay) => {
+    const timer = setTimeout(() => {
+      terminationTimers.delete(timer);
+      terminate(signal);
+    }, delay);
+    terminationTimers.add(timer);
+  };
+
+  const clearTerminationTimers = () => {
+    for (const timer of terminationTimers) {
+      clearTimeout(timer);
+    }
+    terminationTimers.clear();
+  };
+
+  const handleTerminationRequest = (incomingSignal) => {
+    let signal = incomingSignal;
+    if (signal === 'SIGINT') {
+      interruptCount += 1;
+      if (interruptCount > 1) {
+        signal = 'SIGKILL';
+      }
+    }
+
+    terminate(signal);
+
+    if (!terminationRequested) {
+      terminationRequested = true;
+      if (signal === 'SIGINT') {
+        scheduleTermination('SIGTERM', 1500);
+        scheduleTermination('SIGKILL', 4000);
+      } else if (signal === 'SIGTERM') {
+        scheduleTermination('SIGKILL', 3000);
+      }
+    }
+  };
+
+  process.on('SIGINT', () => handleTerminationRequest('SIGINT'));
+  process.on('SIGTERM', () => handleTerminationRequest('SIGTERM'));
+
+  const finalizeAndExit = (code) => {
+    clearTerminationTimers();
+    process.exit(code);
+  };
 
   try {
     await result;
-    process.exit(0);
+    finalizeAndExit(0);
   } catch (errors) {
     if (Array.isArray(errors)) {
       const allInterrupted = errors.every((event) => event?.killed || event?.signal);
       if (allInterrupted) {
-        process.exit(0);
+        finalizeAndExit(0);
       }
       const first = errors.find((event) => typeof event.exitCode === 'number');
       if (first) {
-        process.exit(first.exitCode);
+        finalizeAndExit(first.exitCode);
       }
     }
-    process.exit(1);
+    finalizeAndExit(1);
   }
 }
 
