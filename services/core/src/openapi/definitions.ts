@@ -41,6 +41,11 @@ const jsonValueSchema: OpenAPIV3.SchemaObject = {
   ]
 };
 
+const jsonLooseObjectSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: true
+};
+
 const jsonRecordSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   additionalProperties: { $ref: '#/components/schemas/JsonValue' }
@@ -913,9 +918,9 @@ const jobDefinitionSchema: OpenAPIV3.SchemaObject = {
     type: { type: 'string', enum: ['batch', 'service-triggered', 'manual'] },
     runtime: { type: 'string', enum: ['node', 'python', 'docker'] },
     entryPoint: { type: 'string' },
-    parametersSchema: jsonValueSchema,
-    defaultParameters: jsonValueSchema,
-    outputSchema: jsonValueSchema,
+    parametersSchema: nullable(jsonLooseObjectSchema),
+    defaultParameters: nullable(jsonLooseObjectSchema),
+    outputSchema: nullable(jsonLooseObjectSchema),
     timeoutMs: nullable(integerSchema()),
     retryPolicy: nullable(jobRetryPolicySchema),
     metadata: nullable(jsonValueSchema),
@@ -941,18 +946,9 @@ const jobDefinitionCreateRequestSchema: OpenAPIV3.SchemaObject = {
     entryPoint: { type: 'string' },
     timeoutMs: { type: 'integer', minimum: 1000, maximum: 86_400_000 },
     retryPolicy: jobRetryPolicySchema,
-    parametersSchema: {
-      type: 'object',
-      additionalProperties: jsonValueSchema
-    },
-    defaultParameters: {
-      type: 'object',
-      additionalProperties: jsonValueSchema
-    },
-    outputSchema: {
-      type: 'object',
-      additionalProperties: jsonValueSchema
-    },
+    parametersSchema: nullable(jsonLooseObjectSchema),
+    defaultParameters: nullable(jsonLooseObjectSchema),
+    outputSchema: nullable(jsonLooseObjectSchema),
     metadata: jsonValueSchema
   }
 };
@@ -984,18 +980,9 @@ const jobDefinitionUpdateRequestSchema: OpenAPIV3.SchemaObject = {
     entryPoint: { type: 'string' },
     timeoutMs: { type: 'integer', minimum: 1000, maximum: 86_400_000 },
     retryPolicy: jobRetryPolicySchema,
-    parametersSchema: {
-      type: 'object',
-      additionalProperties: jsonValueSchema
-    },
-    defaultParameters: {
-      type: 'object',
-      additionalProperties: jsonValueSchema
-    },
-    outputSchema: {
-      type: 'object',
-      additionalProperties: jsonValueSchema
-    },
+    parametersSchema: nullable(jsonLooseObjectSchema),
+    defaultParameters: nullable(jsonLooseObjectSchema),
+    outputSchema: nullable(jsonLooseObjectSchema),
     metadata: jsonValueSchema
   }
 };
@@ -1579,11 +1566,11 @@ const workflowDefinitionSchema: OpenAPIV3.SchemaObject = {
     description: nullable(stringSchema()),
     steps: { type: 'array', items: workflowStepSchema, minItems: 1, maxItems: 100 },
     triggers: { type: 'array', items: workflowTriggerSchema },
-    parametersSchema: jsonValueSchema,
-    defaultParameters: jsonValueSchema,
-    outputSchema: jsonValueSchema,
-    metadata: nullable(jsonValueSchema),
-    dag: jsonValueSchema,
+    parametersSchema: nullable(jsonLooseObjectSchema),
+    defaultParameters: nullable(jsonLooseObjectSchema),
+    outputSchema: nullable(jsonLooseObjectSchema),
+    metadata: nullable(jsonLooseObjectSchema),
+    dag: nullable(jsonLooseObjectSchema),
     createdAt: stringSchema('date-time'),
     updatedAt: stringSchema('date-time')
   }
@@ -1604,16 +1591,10 @@ const workflowDefinitionCreateRequestSchema: OpenAPIV3.SchemaObject = {
     description: { type: 'string' },
     steps: { type: 'array', items: workflowStepSchema, minItems: 1, maxItems: 100 },
     triggers: { type: 'array', items: workflowTriggerSchema },
-    parametersSchema: {
-      type: 'object',
-      additionalProperties: jsonValueSchema
-    },
-    defaultParameters: jsonValueSchema,
-    outputSchema: {
-      type: 'object',
-      additionalProperties: jsonValueSchema
-    },
-    metadata: jsonValueSchema
+    parametersSchema: nullable(jsonLooseObjectSchema),
+    defaultParameters: nullable(jsonLooseObjectSchema),
+    outputSchema: nullable(jsonLooseObjectSchema),
+    metadata: nullable(jsonLooseObjectSchema)
   }
 };
 

@@ -509,6 +509,30 @@ export function stopAnalyticsSnapshots() {
   analyticsRunning = false;
 }
 
+export async function shutdownApphubEvents(): Promise<void> {
+  stopAnalyticsSnapshots();
+
+  bus.removeAllListeners();
+
+  const close = async (connection: Redis | null) => {
+    if (!connection) {
+      return;
+    }
+    connection.removeAllListeners();
+    try {
+      await connection.quit();
+    } catch (err) {
+      console.warn('[events] Failed to close Redis connection gracefully', err);
+    }
+  };
+
+  await close(publisher);
+  await close(subscriber);
+
+  publisher = null;
+  subscriber = null;
+}
+
 function startAnalyticsSnapshots() {
   if (analyticsDisabled) {
     return;

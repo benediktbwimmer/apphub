@@ -127,10 +127,6 @@ const BASE_COMMANDS = [
     command: 'npm run materializer --workspace @apphub/core'
   },
   {
-    name: 'examples',
-    command: 'npm run examples --workspace @apphub/core'
-  },
-  {
     name: 'metastore',
     command: 'npm run dev --workspace @apphub/metastore'
   },

@@ -182,9 +182,12 @@ export async function createJobDefinition(
   const id = randomUUID();
   const version = input.version ?? 1;
   const runtime = input.runtime ?? 'node';
-  const parametersSchema = (input.parametersSchema ?? {}) as JsonValue;
-  const defaultParameters = (input.defaultParameters ?? {}) as JsonValue;
-  const outputSchema = (input.outputSchema ?? {}) as JsonValue;
+  const parametersSchema =
+    input.parametersSchema === undefined ? ({} as JsonValue) : (input.parametersSchema as JsonValue);
+  const defaultParameters =
+    input.defaultParameters === undefined ? ({} as JsonValue) : (input.defaultParameters as JsonValue);
+  const outputSchema =
+    input.outputSchema === undefined ? ({} as JsonValue) : (input.outputSchema as JsonValue);
   const retryPolicy = input.retryPolicy ?? {};
   const metadata = input.metadata ?? {};
   const binding = input.moduleBinding ?? null;
@@ -291,8 +294,10 @@ export async function createJobDefinition(
 export async function upsertJobDefinition(
   input: JobDefinitionCreateInput
 ): Promise<JobDefinitionRecord> {
-  const parametersSchema = (input.parametersSchema ?? {}) as JsonValue;
-  const defaultParameters = (input.defaultParameters ?? {}) as JsonValue;
+  const parametersSchema =
+    input.parametersSchema === undefined ? ({} as JsonValue) : (input.parametersSchema as JsonValue);
+  const defaultParameters =
+    input.defaultParameters === undefined ? ({} as JsonValue) : (input.defaultParameters as JsonValue);
   const providedBinding = input.moduleBinding;
 
   let definition: JobDefinitionRecord | null = null;
@@ -304,7 +309,8 @@ export async function upsertJobDefinition(
       const metadata = input.metadata ?? {};
       const retryPolicy = input.retryPolicy ?? {};
       const runtime = input.runtime ?? 'node';
-      const outputSchema = (input.outputSchema ?? {}) as JsonValue;
+      const outputSchema =
+        input.outputSchema === undefined ? ({} as JsonValue) : (input.outputSchema as JsonValue);
       const binding = providedBinding ?? null;
       const { rows } = await client.query<JobDefinitionRow>(
         `INSERT INTO job_definitions (
