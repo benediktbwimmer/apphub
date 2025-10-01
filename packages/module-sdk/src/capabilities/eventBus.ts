@@ -4,6 +4,7 @@ export interface EventBusCapabilityConfig {
   baseUrl: string;
   token?: TokenProvider;
   fetchImpl?: FetchLike;
+  defaultSource?: string;
 }
 
 export interface PublishEventInput {
@@ -15,10 +16,13 @@ export interface PublishEventInput {
   ttlSeconds?: number;
   principal?: string;
   idempotencyKey?: string;
+  source?: string;
+  id?: string;
 }
 
 export interface EventBusCapability {
   publish(input: PublishEventInput): Promise<void>;
+  close(): Promise<void>;
 }
 
 function normalizeOccurredAt(value: PublishEventInput['occurredAt']): string | undefined {
@@ -43,15 +47,21 @@ export function createEventBusCapability(config: EventBusCapabilityConfig): Even
         idempotencyKey: input.idempotencyKey,
         fetchImpl: config.fetchImpl,
         body: {
+          id: input.id,
           type: input.type,
           payload: input.payload,
           occurredAt: normalizeOccurredAt(input.occurredAt),
           metadata: input.metadata,
           correlationId: input.correlationId,
-          ttlSeconds: input.ttlSeconds
+          ttlSeconds: input.ttlSeconds,
+          source: input.source ?? config.defaultSource
         },
         expectJson: true
       });
+    },
+
+    async close(): Promise<void> {
+      // HTTP implementation maintains no persistent connection, so closing is a no-op.
     }
   } satisfies EventBusCapability;
 }

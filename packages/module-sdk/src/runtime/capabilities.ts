@@ -4,6 +4,7 @@ import {
   createFilestoreCapability,
   createMetastoreCapability,
   createTimestoreCapability,
+  createCoreWorkflowsCapability,
   type CoreHttpCapability,
   type CoreHttpCapabilityConfig,
   type EventBusCapability,
@@ -13,7 +14,9 @@ import {
   type MetastoreCapability,
   type MetastoreCapabilityConfig,
   type TimestoreCapability,
-  type TimestoreCapabilityConfig
+  type TimestoreCapabilityConfig,
+  type CoreWorkflowsCapability,
+  type CoreWorkflowsCapabilityConfig
 } from '../capabilities';
 
 export interface ModuleCapabilityConfig {
@@ -22,6 +25,7 @@ export interface ModuleCapabilityConfig {
   timestore?: TimestoreCapabilityConfig;
   events?: EventBusCapabilityConfig;
   coreHttp?: CoreHttpCapabilityConfig;
+  coreWorkflows?: CoreWorkflowsCapabilityConfig;
 }
 
 export type CapabilityOverrideFactory<TCapability, TConfig> = (
@@ -41,6 +45,7 @@ export interface ModuleCapabilityOverrides {
   timestore?: CapabilityOverride<TimestoreCapability, TimestoreCapabilityConfig>;
   events?: CapabilityOverride<EventBusCapability, EventBusCapabilityConfig>;
   coreHttp?: CapabilityOverride<CoreHttpCapability, CoreHttpCapabilityConfig>;
+  coreWorkflows?: CapabilityOverride<CoreWorkflowsCapability, CoreWorkflowsCapabilityConfig>;
 }
 
 export interface ModuleCapabilities {
@@ -49,6 +54,7 @@ export interface ModuleCapabilities {
   timestore?: TimestoreCapability;
   events?: EventBusCapability;
   coreHttp?: CoreHttpCapability;
+  coreWorkflows?: CoreWorkflowsCapability;
 }
 
 function resolveCapability<TCapability, TConfig>(
@@ -82,7 +88,12 @@ export function createModuleCapabilities(
     metastore: resolveCapability(config.metastore, overrides.metastore, createMetastoreCapability),
     timestore: resolveCapability(config.timestore, overrides.timestore, createTimestoreCapability),
     events: resolveCapability(config.events, overrides.events, createEventBusCapability),
-    coreHttp: resolveCapability(config.coreHttp, overrides.coreHttp, createCoreHttpCapability)
+    coreHttp: resolveCapability(config.coreHttp, overrides.coreHttp, createCoreHttpCapability),
+    coreWorkflows: resolveCapability(
+      config.coreWorkflows,
+      overrides.coreWorkflows,
+      createCoreWorkflowsCapability
+    )
   } satisfies ModuleCapabilities;
 }
 
@@ -108,6 +119,9 @@ export function mergeCapabilityOverrides(
     }
     if (entry.coreHttp !== undefined) {
       merged.coreHttp = entry.coreHttp;
+    }
+    if (entry.coreWorkflows !== undefined) {
+      merged.coreWorkflows = entry.coreWorkflows;
     }
   }
   return merged;

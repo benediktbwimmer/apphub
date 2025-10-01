@@ -1,0 +1,22 @@
+{
+  "name": "@apphub/environmental-observatory-module",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Environmental observatory scenario module for the AppHub runtime.",
+  "main": "dist/module.js",
+  "types": "dist/module.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@apphub/module-sdk": "file:../../packages/module-sdk"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}

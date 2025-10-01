@@ -6,6 +6,7 @@ export type ModuleTargetKind = 'job' | 'service' | 'workflow';
 
 export interface ModuleTargetBase<TSettings, TSecrets> {
   name: string;
+  version?: string;
   displayName?: string;
   description?: string;
   capabilityOverrides?: ModuleCapabilityOverrides;
@@ -13,19 +14,26 @@ export interface ModuleTargetBase<TSettings, TSecrets> {
   secrets?: ValueDescriptor<TSecrets>;
 }
 
-export interface JobContext<TSettings, TSecrets> extends ModuleContext<TSettings, TSecrets> {
+export interface JobContext<
+  TSettings,
+  TSecrets,
+  TParameters = Record<string, unknown>
+> extends ModuleContext<TSettings, TSecrets> {
   job: {
     name: string;
+    version: string;
   };
+  parameters: TParameters;
 }
 
-export type JobHandler<TSettings, TSecrets, TResult> = (
-  context: JobContext<TSettings, TSecrets>
+export type JobHandler<TSettings, TSecrets, TParameters, TResult> = (
+  context: JobContext<TSettings, TSecrets, TParameters>
 ) => Promise<TResult> | TResult;
 
 export interface ServiceContext<TSettings, TSecrets> extends ModuleContext<TSettings, TSecrets> {
   service: {
     name: string;
+    version: string;
   };
 }
 
@@ -95,10 +103,15 @@ export interface WorkflowScheduleDefinition {
   enabled?: boolean;
 }
 
-export interface JobTargetDefinition<TSettings, TSecrets, TResult>
-  extends ModuleTargetBase<TSettings, TSecrets> {
+export interface JobTargetDefinition<
+  TSettings,
+  TSecrets,
+  TParameters,
+  TResult
+> extends ModuleTargetBase<TSettings, TSecrets> {
   kind: 'job';
-  handler: JobHandler<TSettings, TSecrets, TResult>;
+  parameters?: ValueDescriptor<TParameters>;
+  handler: JobHandler<TSettings, TSecrets, TParameters, TResult>;
 }
 
 export interface ServiceTargetDefinition<
@@ -119,13 +132,18 @@ export interface WorkflowTargetDefinition<TSettings, TSecrets>
 }
 
 export type ModuleTargetDefinition<TSettings, TSecrets> =
-  | JobTargetDefinition<TSettings, TSecrets, unknown>
+  | JobTargetDefinition<TSettings, TSecrets, any, unknown>
   | ServiceTargetDefinition<TSettings, TSecrets>
   | WorkflowTargetDefinition<TSettings, TSecrets>;
 
-export interface CreateJobHandlerOptions<TSettings, TSecrets, TResult>
-  extends ModuleTargetBase<TSettings, TSecrets> {
-  handler: JobHandler<TSettings, TSecrets, TResult>;
+export interface CreateJobHandlerOptions<
+  TSettings,
+  TSecrets,
+  TParameters,
+  TResult
+> extends ModuleTargetBase<TSettings, TSecrets> {
+  parameters?: ValueDescriptor<TParameters>;
+  handler: JobHandler<TSettings, TSecrets, TParameters, TResult>;
 }
 
 export interface CreateServiceOptions<TSettings, TSecrets, TService extends ServiceLifecycle>
@@ -143,17 +161,24 @@ export interface CreateWorkflowTriggerOptions extends WorkflowTriggerDefinition 
 
 export interface CreateWorkflowScheduleOptions extends WorkflowScheduleDefinition {}
 
-export function createJobHandler<TSettings = Record<string, unknown>, TSecrets = Record<string, unknown>, TResult = unknown>(
-  options: CreateJobHandlerOptions<TSettings, TSecrets, TResult>
-): JobTargetDefinition<TSettings, TSecrets, TResult> {
-  const definition: JobTargetDefinition<TSettings, TSecrets, TResult> = {
+export function createJobHandler<
+  TSettings = Record<string, unknown>,
+  TSecrets = Record<string, unknown>,
+  TResult = unknown,
+  TParameters = Record<string, unknown>
+>(
+  options: CreateJobHandlerOptions<TSettings, TSecrets, TParameters, TResult>
+): JobTargetDefinition<TSettings, TSecrets, TParameters, TResult> {
+  const definition: JobTargetDefinition<TSettings, TSecrets, TParameters, TResult> = {
     kind: 'job',
     name: options.name,
+    version: options.version,
     displayName: options.displayName,
     description: options.description,
     capabilityOverrides: options.capabilityOverrides,
     settings: options.settings,
     secrets: options.secrets,
+    parameters: options.parameters,
     handler: options.handler
   };
   return definition;
@@ -169,6 +194,7 @@ export function createService<
   const definition: ServiceTargetDefinition<TSettings, TSecrets, TService> = {
     kind: 'service',
     name: options.name,
+    version: options.version,
     displayName: options.displayName,
     description: options.description,
     capabilityOverrides: options.capabilityOverrides,
@@ -185,6 +211,7 @@ export function createWorkflow<TSettings = Record<string, unknown>, TSecrets = R
   const definition: WorkflowTargetDefinition<TSettings, TSecrets> = {
     kind: 'workflow',
     name: options.name,
+    version: options.version,
     displayName: options.displayName,
     description: options.description,
     capabilityOverrides: options.capabilityOverrides,

@@ -1,6 +1,6 @@
 export type { ModuleMetadata, ValueDescriptor } from './types';
-export type { ModuleContext } from './context';
-export { createModuleContext } from './context';
+export type { ModuleContext, CreateModuleContextOptions, CreateJobContextOptions } from './context';
+export { createModuleContext, createJobContext } from './context';
 export type {
   ModuleCapabilities,
   ModuleCapabilityConfig,
@@ -10,6 +10,13 @@ export type {
 } from './runtime/capabilities';
 export { createModuleCapabilities, mergeCapabilityOverrides } from './runtime/capabilities';
 export { defineModule, type ModuleDefinition, type ModuleDefinitionOf, type ModuleContextFromDefinition } from './module';
+export {
+  serializeModuleDefinition,
+  type ModuleManifest,
+  type ModuleManifestTarget,
+  type ModuleManifestValueDescriptor,
+  type ModuleManifestWorkflowDetails
+} from './manifest';
 export {
   createJobHandler,
   type JobContext,
@@ -40,7 +47,8 @@ export {
   createMetastoreCapability,
   createTimestoreCapability,
   createEventBusCapability,
-  createCoreHttpCapability
+  createCoreHttpCapability,
+  createCoreWorkflowsCapability
 } from './capabilities';
 export type {
   FilestoreCapability,
@@ -48,18 +56,50 @@ export type {
   EnsureDirectoryInput,
   UploadFileInput,
   UploadFileResult,
+  GetNodeByPathInput,
+  ListNodesInput,
+  ListNodesResult,
+  CopyNodeInput,
+  MoveNodeInput,
+  DeleteNodeInput,
+  DownloadFileInput,
+  DownloadFileResult,
+  FilestoreDownloadStream,
+  FilestoreNode,
+  FilestoreBackendMount,
+  FilestoreCommandResult,
   MetastoreCapability,
   MetastoreCapabilityConfig,
   UpsertRecordInput,
-  TimestoreCapability,
+  GetRecordInput,
+  GetRecordResult,
+  SearchRecordsInput,
+  SearchRecordsResult,
   TimestoreCapabilityConfig,
   IngestRecordsInput,
+  IngestRecordsResult,
   PartitionBuildInput,
+  TableSchemaField,
+  SchemaEvolutionOptions,
+  DatasetSchema,
+  PartitionDefinition,
+  QueryDatasetInput,
+  QueryDatasetResult,
+  GetDatasetInput,
+  DatasetRecord,
   EventBusCapability,
   EventBusCapabilityConfig,
   PublishEventInput,
   CoreHttpCapability,
   CoreHttpCapabilityConfig,
-  CoreHttpRequestOptions
+  CoreHttpRequestOptions,
+  CoreWorkflowsCapability,
+  CoreWorkflowsCapabilityConfig,
+  ListWorkflowAssetPartitionsInput,
+  ListWorkflowAssetPartitionsResponse,
+  EnqueueWorkflowRunInput,
+  EnqueueWorkflowRunResponse,
+  GetWorkflowRunInput,
+  GetWorkflowRunResponse
 } from './capabilities';
 export { CapabilityRequestError } from './errors';

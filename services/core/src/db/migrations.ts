@@ -1249,6 +1249,89 @@ const migrations: Migration[] = [
       `ALTER TABLE workflow_event_triggers
          ADD COLUMN IF NOT EXISTS run_key_template TEXT;`
     ]
+  },
+  {
+    id: '043_module_registry',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS modules (
+         id TEXT PRIMARY KEY,
+         display_name TEXT,
+         description TEXT,
+         keywords TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+         latest_version TEXT,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE TABLE IF NOT EXISTS module_artifacts (
+         id TEXT PRIMARY KEY,
+         module_id TEXT NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+         version TEXT NOT NULL,
+         manifest JSONB NOT NULL DEFAULT '{}'::jsonb,
+         artifact_checksum TEXT NOT NULL,
+         artifact_path TEXT NOT NULL,
+         artifact_storage TEXT NOT NULL DEFAULT 'filesystem',
+         artifact_content_type TEXT,
+         artifact_size BIGINT,
+         published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         UNIQUE (module_id, version)
+       );`,
+      `CREATE TABLE IF NOT EXISTS module_targets (
+         id TEXT PRIMARY KEY,
+         module_id TEXT NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+         module_version TEXT NOT NULL,
+         artifact_id TEXT NOT NULL REFERENCES module_artifacts(id) ON DELETE CASCADE,
+         target_name TEXT NOT NULL,
+         target_kind TEXT NOT NULL,
+         target_version TEXT NOT NULL,
+         fingerprint TEXT NOT NULL,
+         display_name TEXT,
+         description TEXT,
+         capability_overrides TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         UNIQUE (artifact_id, target_name),
+         UNIQUE (module_id, target_name, target_version),
+         CONSTRAINT module_targets_kind_check CHECK (target_kind IN ('job', 'service', 'workflow'))
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_module_artifacts_module
+         ON module_artifacts(module_id, published_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_module_targets_module
+         ON module_targets(module_id, target_name);`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_module_targets_fingerprint
+         ON module_targets(fingerprint);`
+    ]
+  },
+  {
+    id: '044_job_module_bindings',
+    statements: [
+      `ALTER TABLE job_definitions
+         ADD COLUMN IF NOT EXISTS module_id TEXT,
+         ADD COLUMN IF NOT EXISTS module_version TEXT,
+         ADD COLUMN IF NOT EXISTS module_artifact_id TEXT,
+         ADD COLUMN IF NOT EXISTS module_target_name TEXT,
+         ADD COLUMN IF NOT EXISTS module_target_version TEXT,
+         ADD COLUMN IF NOT EXISTS module_target_fingerprint TEXT;`,
+      `CREATE INDEX IF NOT EXISTS idx_job_definitions_module_target
+         ON job_definitions(module_id, module_target_name);`,
+      `ALTER TABLE job_runs
+         ADD COLUMN IF NOT EXISTS module_id TEXT,
+         ADD COLUMN IF NOT EXISTS module_version TEXT,
+         ADD COLUMN IF NOT EXISTS module_artifact_id TEXT,
+         ADD COLUMN IF NOT EXISTS module_target_name TEXT,
+         ADD COLUMN IF NOT EXISTS module_target_version TEXT,
+         ADD COLUMN IF NOT EXISTS module_target_fingerprint TEXT;`,
+      `CREATE INDEX IF NOT EXISTS idx_job_runs_module_target
+         ON job_runs(module_id, module_target_name);`
+    ]
+  },
+  {
+    id: '045_module_enablement',
+    statements: [
+      `ALTER TABLE modules
+         ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN NOT NULL DEFAULT TRUE;`
+    ]
   }
 ];
 

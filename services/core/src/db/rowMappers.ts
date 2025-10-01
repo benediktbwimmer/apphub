@@ -69,7 +69,15 @@ import {
   type EventSavedViewVisibility,
   type ExampleBundleArtifactRecord,
   type ExampleBundleState,
-  type ExampleBundleStatusRecord
+  type ExampleBundleStatusRecord,
+  type ModuleTargetBinding,
+  type ModuleTargetMetadata,
+  type ModuleTargetValueDescriptorMetadata,
+  type ModuleTargetWorkflowMetadata,
+  type ModuleTargetKind,
+  type ModuleArtifactRecord,
+  type ModuleRecord,
+  type ModuleTargetRecord
 } from './types';
 import type {
   BuildRow,
@@ -106,7 +114,10 @@ import type {
   ServiceManifestRow,
   ServiceHealthSnapshotRow,
   ExampleBundleArtifactRow,
-  ExampleBundleStatusRow
+  ExampleBundleStatusRow,
+  ModuleArtifactRow,
+  ModuleRow,
+  ModuleTargetRow
 } from './rowTypes';
 import type {
   ServiceRecord,
@@ -441,6 +452,154 @@ function ensureJsonObject(value: unknown): JsonValue {
     return parsed;
   }
   return {};
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const result: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  for (const entry of values) {
+    const normalized = entry.trim();
+    if (!normalized) {
+      continue;
+    }
+    seen.add(normalized);
+  }
+  return Array.from(seen).sort();
+}
+
+function normalizeModuleTargetKind(value: string): ModuleTargetKind {
+  switch (value) {
+    case 'service':
+      return 'service';
+    case 'workflow':
+      return 'workflow';
+    default:
+      return 'job';
+  }
+}
+
+function normalizeModuleArtifactStorage(value: string): string {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 's3') {
+    return 's3';
+  }
+  if (normalized === 'filesystem') {
+    return 'filesystem';
+  }
+  return normalized || 'filesystem';
+}
+
+function toValueDescriptorMetadata(value: unknown): ModuleTargetValueDescriptorMetadata | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const metadata: ModuleTargetValueDescriptorMetadata = {
+    hasResolve: Boolean(source.hasResolve)
+  };
+  if (Object.prototype.hasOwnProperty.call(source, 'defaults')) {
+    const defaults = toJsonValue((source as Record<string, unknown>).defaults ?? null);
+    metadata.defaults = defaults ?? null;
+  }
+  return metadata;
+}
+
+function toWorkflowMetadata(value: unknown): ModuleTargetWorkflowMetadata | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  return {
+    definition: ensureJsonValue(source.definition, {}),
+    triggers: ensureJsonValue(source.triggers, []),
+    schedules: ensureJsonValue(source.schedules, [])
+  } satisfies ModuleTargetWorkflowMetadata;
+}
+
+function toModuleTargetMetadata(value: unknown): ModuleTargetMetadata {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+  const source = value as Record<string, unknown>;
+  const metadata: ModuleTargetMetadata = {};
+  const settings = toValueDescriptorMetadata(source.settings);
+  if (settings) {
+    metadata.settings = settings;
+  }
+  const secrets = toValueDescriptorMetadata(source.secrets);
+  if (secrets) {
+    metadata.secrets = secrets;
+  }
+  const parameters = toValueDescriptorMetadata(source.parameters);
+  if (parameters) {
+    metadata.parameters = parameters;
+  }
+  const workflow = toWorkflowMetadata(source.workflow);
+  if (workflow) {
+    metadata.workflow = workflow;
+  }
+  return metadata;
+}
+
+function toModuleTargetBinding(params: {
+  moduleId: string | null;
+  moduleVersion: string | null;
+  moduleArtifactId: string | null;
+  moduleTargetName: string | null;
+  moduleTargetVersion: string | null;
+  moduleTargetFingerprint: string | null;
+}): ModuleTargetBinding | null {
+  const moduleId = normalizeOptionalString(params.moduleId);
+  const moduleVersion = normalizeOptionalString(params.moduleVersion);
+  const targetName = normalizeOptionalString(params.moduleTargetName);
+  const targetVersion = normalizeOptionalString(params.moduleTargetVersion);
+  if (!moduleId || !moduleVersion || !targetName || !targetVersion) {
+    return null;
+  }
+  return {
+    moduleId,
+    moduleVersion,
+    moduleArtifactId: normalizeOptionalString(params.moduleArtifactId),
+    targetName,
+    targetVersion,
+    targetFingerprint: normalizeOptionalString(params.moduleTargetFingerprint)
+  } satisfies ModuleTargetBinding;
 }
 
 function parseWorkflowDag(value: unknown): WorkflowDagMetadata {
@@ -1284,9 +1443,19 @@ export function mapJobDefinitionRow(row: JobDefinitionRow): JobDefinitionRecord 
     runtime = 'python';
   } else if (row.runtime === 'docker') {
     runtime = 'docker';
+  } else if (row.runtime === 'module') {
+    runtime = 'module';
   } else {
     runtime = 'node';
   }
+  const moduleBinding = toModuleTargetBinding({
+    moduleId: row.module_id,
+    moduleVersion: row.module_version,
+    moduleArtifactId: row.module_artifact_id,
+    moduleTargetName: row.module_target_name,
+    moduleTargetVersion: row.module_target_version,
+    moduleTargetFingerprint: row.module_target_fingerprint
+  });
   return {
     id: row.id,
     slug: row.slug,
@@ -1301,12 +1470,21 @@ export function mapJobDefinitionRow(row: JobDefinitionRow): JobDefinitionRecord 
     timeoutMs: row.timeout_ms ?? null,
     retryPolicy: (toJsonObjectOrNull(row.retry_policy) as JobRetryPolicy | null) ?? null,
     metadata: toJsonValue(row.metadata),
+    moduleBinding,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies JobDefinitionRecord;
 }
 
 export function mapJobRunRow(row: JobRunRow): JobRunRecord {
+  const moduleBinding = toModuleTargetBinding({
+    moduleId: row.module_id,
+    moduleVersion: row.module_version,
+    moduleArtifactId: row.module_artifact_id,
+    moduleTargetName: row.module_target_name,
+    moduleTargetVersion: row.module_target_version,
+    moduleTargetFingerprint: row.module_target_fingerprint
+  });
   return {
     id: row.id,
     jobDefinitionId: row.job_definition_id,
@@ -1327,6 +1505,7 @@ export function mapJobRunRow(row: JobRunRow): JobRunRecord {
     lastHeartbeatAt: row.last_heartbeat_at ?? null,
     retryCount: row.retry_count ?? 0,
     failureReason: row.failure_reason ?? null,
+    moduleBinding,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies JobRunRecord;
@@ -1446,6 +1625,54 @@ export function mapJobBundleVersionRow(row: JobBundleVersionRow): JobBundleVersi
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies JobBundleVersionRecord;
+}
+
+export function mapModuleRow(row: ModuleRow): ModuleRecord {
+  return {
+    id: row.id,
+    displayName: normalizeOptionalString(row.display_name),
+    description: normalizeOptionalString(row.description),
+    keywords: dedupeStrings(toStringArray(row.keywords ?? [])),
+    latestVersion: row.latest_version ?? null,
+    isEnabled: row.is_enabled === null ? true : Boolean(row.is_enabled),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies ModuleRecord;
+}
+
+export function mapModuleArtifactRow(row: ModuleArtifactRow): ModuleArtifactRecord {
+  return {
+    id: row.id,
+    moduleId: row.module_id,
+    version: row.version,
+    manifest: ensureJsonObject(row.manifest),
+    artifactChecksum: row.artifact_checksum,
+    artifactPath: row.artifact_path,
+    artifactStorage: normalizeModuleArtifactStorage(row.artifact_storage),
+    artifactContentType: row.artifact_content_type ?? null,
+    artifactSize: toNullableNumber(row.artifact_size),
+    publishedAt: row.published_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies ModuleArtifactRecord;
+}
+
+export function mapModuleTargetRow(row: ModuleTargetRow): ModuleTargetRecord {
+  return {
+    id: row.id,
+    moduleId: row.module_id,
+    moduleVersion: row.module_version,
+    artifactId: row.artifact_id,
+    name: row.target_name,
+    kind: normalizeModuleTargetKind(row.target_kind),
+    version: row.target_version,
+    fingerprint: row.fingerprint,
+    displayName: normalizeOptionalString(row.display_name),
+    description: normalizeOptionalString(row.description),
+    capabilityOverrides: dedupeStrings(toStringArray(row.capability_overrides ?? [])),
+    metadata: toModuleTargetMetadata(row.metadata),
+    createdAt: row.created_at
+  } satisfies ModuleTargetRecord;
 }
 
 export function mapExampleBundleArtifactRow(row: ExampleBundleArtifactRow): ExampleBundleArtifactRecord {

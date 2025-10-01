@@ -22,6 +22,8 @@
     "event-sampling:replay": "tsx src/scripts/replayEventSampling.ts",
     "backfill:service-registry": "tsx src/scripts/backfillServiceRegistry.ts",
     "migrate:example-bundles": "tsx src/scripts/migrateExampleBundles.ts",
+    "module:publish": "tsx src/scripts/publishModule.ts",
+    "module:admin": "tsx src/scripts/moduleAdmin.ts",
     "test:e2e": "tsx tests/liquidTemplateValidation.test.ts && tsx tests/exampleConfigDescriptor.test.ts && APPHUB_EVENTS_MODE=inline tsx tests/ingestion.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobs.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobRegistry.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/workflows.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobSandbox.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/adminNuke.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/eventTriggers.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/dockerImageImport.test.ts && APPHUB_EVENTS_MODE=inline tsx ../../examples/tests/core/loadAllExamples.e2e.ts && APPHUB_EVENTS_MODE=inline tsx ../../examples/tests/core/environmentalObservatoryIngest.e2e.ts",
     "publish:ai-bundle": "tsx src/scripts/publishAiBundle.ts",
     "materializer": "tsx src/assetMaterializerWorker.ts"
@@ -37,6 +39,7 @@
     "@apphub/example-bundler": "0.1.0",
     "@apphub/examples": "0.1.0",
     "@apphub/shared": "0.1.1",
+    "@apphub/module-sdk": "0.1.0",
     "@aws-sdk/client-s3": "^3.896.0",
     "@aws-sdk/s3-request-presigner": "^3.896.0",
     "@dqbd/tiktoken": "^1.0.22",

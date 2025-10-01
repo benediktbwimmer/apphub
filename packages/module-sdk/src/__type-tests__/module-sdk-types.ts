@@ -6,6 +6,7 @@ import {
   createWorkflowTrigger,
   defineModule,
   createModuleContext,
+  createJobContext,
   type JobContext,
   type ModuleCapabilityOverrides,
   type ServiceContext
@@ -20,18 +21,36 @@ type GeneratorSecrets = {
   token?: string;
 };
 
-const generatorJob = createJobHandler<GeneratorSettings, GeneratorSecrets>({
+type GeneratorParameters = {
+  minute: string;
+};
+
+const generatorJob = createJobHandler<GeneratorSettings, GeneratorSecrets, void, GeneratorParameters>({
   name: 'generator',
   description: 'Generate observatory files',
-  handler: async (context: JobContext<GeneratorSettings, GeneratorSecrets>) => {
+  parameters: {
+    defaults: {
+      minute: '2023-01-01T00:00'
+    }
+  },
+  handler: async (
+    context: JobContext<GeneratorSettings, GeneratorSecrets, GeneratorParameters>
+  ) => {
     context.logger.info('Running generator', { minute: context.settings.minute });
     context.settings.rows.toFixed(0);
     context.secrets.token?.toString();
 
+    context.job.version.toUpperCase();
+
     context.capabilities.filestore?.ensureDirectory({ path: 'datasets' });
+
+    context.parameters.minute.toUpperCase();
 
     // @ts-expect-error missing property on settings
     context.settings.unknown;
+
+    // @ts-expect-error missing property on parameters
+    context.parameters.unknown;
   },
   capabilityOverrides: {
     filestore: (config, createDefault) => {
@@ -127,9 +146,27 @@ const context = createModuleContext<GeneratorSettings, GeneratorSecrets>({
   }
 });
 
+const jobContext = createJobContext<GeneratorSettings, GeneratorSecrets, GeneratorParameters>({
+  module: moduleDefinition.metadata,
+  job: {
+    name: generatorJob.name
+  },
+  settingsDescriptor: moduleDefinition.settings,
+  secretsDescriptor: moduleDefinition.secrets,
+  capabilityConfig: moduleDefinition.capabilities,
+  parametersDescriptor: generatorJob.parameters,
+  parameters: {
+    minute: '2023-01-03T00:00'
+  }
+});
+
+context.module.version.toUpperCase();
+jobContext.job.version.toUpperCase();
+
 const overrides: ModuleCapabilityOverrides = {
   filestore: null
 };
 
 void context;
+void jobContext;
 void overrides;

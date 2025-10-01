@@ -1,0 +1,94 @@
+import { createWorkflow, type WorkflowDefinition } from '@apphub/module-sdk';
+
+import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
+
+const definition: WorkflowDefinition = {
+  slug: 'observatory-calibration-reprocess',
+  name: 'Observatory Calibration Reprocess',
+  version: 1,
+  description:
+    'Consumes calibration reprocessing plans, queues ingest reruns, and updates plan artifacts as runs complete.',
+  parametersSchema: {
+    type: 'object',
+    properties: {
+      planPath: { type: 'string', minLength: 1 },
+      planNodeId: { type: 'number', minimum: 1 },
+      planId: { type: 'string' },
+      mode: { type: 'string', enum: ['all', 'selected'] },
+      selectedPartitions: {
+        type: 'array',
+        items: { type: 'string', minLength: 1 }
+      },
+      pollIntervalMs: { type: 'number', minimum: 250, maximum: 10_000 },
+      coreBaseUrl: { type: 'string', minLength: 1 },
+      coreApiToken: { type: 'string' },
+      filestoreBaseUrl: { type: 'string', minLength: 1 },
+      filestoreBackendId: { type: ['integer', 'null'], minimum: 1 },
+      filestoreToken: { type: 'string' },
+      filestorePrincipal: { type: 'string' },
+      metastoreBaseUrl: { type: 'string' },
+      metastoreNamespace: { type: 'string' },
+      metastoreAuthToken: { type: 'string' },
+      filestoreBackendKey: { type: 'string', minLength: 1 }
+    },
+    required: ['coreBaseUrl', 'filestoreBaseUrl', 'filestoreBackendKey']
+  },
+  defaultParameters: {
+    mode: 'all',
+    selectedPartitions: [],
+    pollIntervalMs: 1500,
+    coreBaseUrl: 'http://127.0.0.1:4000',
+    coreApiToken: null,
+    filestoreBaseUrl: 'http://127.0.0.1:4300',
+    filestoreBackendId: 1,
+    filestoreToken: null,
+    filestorePrincipal: 'observatory-calibration-reprocessor',
+    metastoreBaseUrl: null,
+    metastoreNamespace: 'observatory.reprocess.plans',
+    metastoreAuthToken: null,
+    filestoreBackendKey: 'observatory-event-driven-s3'
+  },
+  steps: [
+    {
+      id: 'orchestrate-reprocess',
+      name: 'Orchestrate calibration reprocess',
+      type: 'job',
+      jobSlug: 'observatory-calibration-reprocessor',
+      parameters: {
+        planPath: '{{ parameters.planPath }}',
+        planNodeId: '{{ parameters.planNodeId }}',
+        planId: '{{ parameters.planId }}',
+        mode: '{{ parameters.mode }}',
+        selectedPartitions: '{{ parameters.selectedPartitions }}',
+        pollIntervalMs: '{{ parameters.pollIntervalMs }}',
+        coreBaseUrl: '{{ parameters.coreBaseUrl }}',
+        coreApiToken: '{{ parameters.coreApiToken }}',
+        filestoreBaseUrl: '{{ parameters.filestoreBaseUrl }}',
+        filestoreBackendId: '{{ parameters.filestoreBackendId }}',
+        filestoreToken: '{{ parameters.filestoreToken }}',
+        filestorePrincipal: '{{ parameters.filestorePrincipal }}',
+        metastoreBaseUrl: '{{ parameters.metastoreBaseUrl }}',
+        metastoreNamespace: '{{ parameters.metastoreNamespace }}',
+        metastoreAuthToken: '{{ parameters.metastoreAuthToken }}',
+        filestoreBackendKey: '{{ parameters.filestoreBackendKey }}'
+      },
+      produces: [
+        {
+          assetId: 'observatory.reprocess.plan',
+          partitioning: { type: 'dynamic' },
+          schema: { type: 'object', additionalProperties: true }
+        }
+      ]
+    }
+  ]
+};
+
+export const calibrationReprocessWorkflow = createWorkflow<
+  ObservatoryModuleSettings,
+  ObservatoryModuleSecrets
+>({
+  name: definition.slug,
+  displayName: definition.name,
+  description: definition.description,
+  definition
+});

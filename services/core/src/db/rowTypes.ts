@@ -210,6 +210,12 @@ export type JobDefinitionRow = {
   timeout_ms: number | null;
   retry_policy: unknown;
   metadata: unknown;
+  module_id: string | null;
+  module_version: string | null;
+  module_artifact_id: string | null;
+  module_target_name: string | null;
+  module_target_version: string | null;
+  module_target_fingerprint: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -234,6 +240,12 @@ export type JobRunRow = {
   last_heartbeat_at: string | null;
   retry_count: number;
   failure_reason: string | null;
+  module_id: string | null;
+  module_version: string | null;
+  module_artifact_id: string | null;
+  module_target_name: string | null;
+  module_target_version: string | null;
+  module_target_fingerprint: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -657,4 +669,46 @@ export type EventSavedViewRow = {
   last_shared_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ModuleRow = {
+  id: string;
+  display_name: string | null;
+  description: string | null;
+  keywords: string[] | null;
+  latest_version: string | null;
+  is_enabled: boolean | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ModuleArtifactRow = {
+  id: string;
+  module_id: string;
+  version: string;
+  manifest: unknown;
+  artifact_checksum: string;
+  artifact_path: string;
+  artifact_storage: string;
+  artifact_content_type: string | null;
+  artifact_size: number | string | null;
+  published_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ModuleTargetRow = {
+  id: string;
+  module_id: string;
+  module_version: string;
+  artifact_id: string;
+  target_name: string;
+  target_kind: string;
+  target_version: string;
+  fingerprint: string;
+  display_name: string | null;
+  description: string | null;
+  capability_overrides: string[] | null;
+  metadata: unknown;
+  created_at: string;
 };

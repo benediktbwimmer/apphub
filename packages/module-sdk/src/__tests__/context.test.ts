@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createModuleContext } from '../context';
+import { createModuleContext, createJobContext } from '../context';
 import { defineModule } from '../module';
 import { createModuleCapabilities } from '../runtime/capabilities';
 import {
@@ -34,6 +34,27 @@ test('createModuleContext resolves defaults and merges overrides', () => {
   assert.equal(context.capabilities.filestore, undefined);
 });
 
+test('createJobContext resolves parameter defaults', () => {
+  const context = createJobContext<{ foo: string }, { secret?: string }, { limit: number }>({
+    module: { name: 'test', version: '1.0.0' },
+    job: { name: 'with-parameters' },
+    settingsDescriptor: {
+      defaults: { foo: 'bar' }
+    },
+    secretsDescriptor: {
+      defaults: { secret: 'xyz' }
+    },
+    capabilityConfig: {},
+    parametersDescriptor: {
+      defaults: { limit: 5 }
+    }
+  });
+
+  assert.equal(context.job.name, 'with-parameters');
+  assert.equal(context.parameters.limit, 5);
+  assert.equal(context.job.version, '1.0.0');
+});
+
 test('createModuleContext throws when required settings missing', () => {
   assert.throws(() => {
     createModuleContext({
@@ -55,6 +76,51 @@ test('defineModule freezes metadata and keeps targets', () => {
   });
   assert.ok(Object.isFrozen(module));
   assert.equal(module.targets.length, 1);
+  assert.equal(module.targets[0].version, '1.0.0');
+});
+
+test('defineModule keeps explicit target versions', () => {
+  const versionedJob = createJobHandler({
+    name: 'versioned',
+    version: '1.2.3',
+    handler: async (ctx) => ctx.logger.info('versioned')
+  });
+
+  const module = defineModule({
+    metadata: { name: 'versioned-module', version: '1.0.0' },
+    targets: [versionedJob]
+  });
+
+  assert.equal(module.targets[0].version, '1.2.3');
+});
+
+test('defineModule rejects invalid target versions', () => {
+  const invalidJob = createJobHandler({
+    name: 'invalid-version',
+    version: 'not-a-semver',
+    handler: async (ctx) => ctx.logger.info('invalid')
+  });
+
+  assert.throws(() => {
+    defineModule({
+      metadata: { name: 'invalid-module', version: '1.0.0' },
+      targets: [invalidJob]
+    });
+  }, /must be a valid semver string/);
+});
+
+test('defineModule rejects invalid module versions', () => {
+  const job = createJobHandler({
+    name: 'noop',
+    handler: async (ctx) => ctx.logger.info('noop')
+  });
+
+  assert.throws(() => {
+    defineModule({
+      metadata: { name: 'bad-module', version: 'vNext' },
+      targets: [job]
+    });
+  }, /must be a valid semver string/);
 });
 
 test('createService returns service definition with handler', () => {

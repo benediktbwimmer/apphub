@@ -1,6 +1,6 @@
 import type { JobDefinitionRecord } from '../db/types';
 
-export type JobRuntimeKind = 'node' | 'python' | 'docker';
+export type JobRuntimeKind = 'node' | 'python' | 'docker' | 'module';
 
 export function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKind {
   if (definition.runtime === 'python') {
@@ -11,6 +11,9 @@ export function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKi
   }
   if (definition.runtime === 'docker') {
     return 'docker';
+  }
+  if (definition.runtime === 'module') {
+    return 'module';
   }
   const metadata = definition.metadata;
   if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
@@ -27,6 +30,9 @@ export function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKi
       if (normalized.startsWith('node')) {
         return 'node';
       }
+      if (normalized.startsWith('module')) {
+        return 'module';
+      }
     } else if (rawRuntime && typeof rawRuntime === 'object' && !Array.isArray(rawRuntime)) {
       const runtimeRecord = rawRuntime as Record<string, unknown>;
       const type = runtimeRecord.type;
@@ -40,6 +46,9 @@ export function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKi
         }
         if (normalized.startsWith('node')) {
           return 'node';
+        }
+        if (normalized.startsWith('module')) {
+          return 'module';
         }
       }
     }

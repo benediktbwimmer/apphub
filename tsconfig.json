@@ -22,6 +22,9 @@
     },
     {
       "path": "./apps/frontend"
+    },
+    {
+      "path": "./modules/environmental-observatory"
     }
   ]
 }

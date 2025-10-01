@@ -549,7 +549,7 @@ export type RepositoryPreviewInput = {
 
 export type JobType = 'batch' | 'service-triggered' | 'manual';
 
-export type JobRuntime = 'node' | 'python' | 'docker';
+export type JobRuntime = 'node' | 'python' | 'docker' | 'module';
 
 export type JobRetryStrategy = 'none' | 'fixed' | 'exponential';
 
@@ -641,6 +641,7 @@ export type JobDefinitionRecord = {
   timeoutMs: number | null;
   retryPolicy: JobRetryPolicy | null;
   metadata: JsonValue | null;
+  moduleBinding: ModuleTargetBinding | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -658,6 +659,7 @@ export type JobDefinitionCreateInput = {
   timeoutMs?: number | null;
   retryPolicy?: JobRetryPolicy | null;
   metadata?: JsonValue | null;
+  moduleBinding?: ModuleTargetBinding | null;
 };
 
 export type JobRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired';
@@ -682,6 +684,7 @@ export type JobRunRecord = {
   lastHeartbeatAt: string | null;
   retryCount: number;
   failureReason: string | null;
+  moduleBinding: ModuleTargetBinding | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -695,6 +698,7 @@ export type JobRunWithDefinition = {
     version: number;
     type: JobType;
     runtime: JobRuntime;
+    moduleBinding: ModuleTargetBinding | null;
   };
 };
 
@@ -708,6 +712,7 @@ export type JobRunCreateInput = {
   retryCount?: number;
   lastHeartbeatAt?: string | null;
   failureReason?: string | null;
+  moduleBinding?: ModuleTargetBinding | null;
 };
 
 export type JobRunCompletionInput = {
@@ -725,6 +730,15 @@ export type JobRunCompletionInput = {
 export type JobBundleStorageKind = 'local' | 's3';
 
 export type JobBundleVersionStatus = 'published' | 'deprecated';
+
+export type ModuleTargetBinding = {
+  moduleId: string;
+  moduleVersion: string;
+  moduleArtifactId: string | null;
+  targetName: string;
+  targetVersion: string;
+  targetFingerprint: string | null;
+};
 
 export type JobBundleRecord = {
   id: string;
@@ -792,6 +806,69 @@ export type JobBundleVersionUpdateInput = {
 export type ExampleBundleStorageKind = JobBundleStorageKind;
 
 export type ExampleBundleState = 'queued' | 'running' | 'completed' | 'failed';
+
+export type ModuleTargetValueDescriptorMetadata = {
+  defaults?: JsonValue;
+  hasResolve: boolean;
+};
+
+export type ModuleTargetWorkflowMetadata = {
+  definition: JsonValue;
+  triggers: JsonValue;
+  schedules: JsonValue;
+};
+
+export type ModuleTargetMetadata = {
+  settings?: ModuleTargetValueDescriptorMetadata;
+  secrets?: ModuleTargetValueDescriptorMetadata;
+  parameters?: ModuleTargetValueDescriptorMetadata;
+  workflow?: ModuleTargetWorkflowMetadata;
+};
+
+export type ModuleTargetKind = 'job' | 'service' | 'workflow';
+
+export type ModuleTargetRecord = {
+  id: string;
+  moduleId: string;
+  moduleVersion: string;
+  artifactId: string;
+  name: string;
+  kind: ModuleTargetKind;
+  version: string;
+  fingerprint: string;
+  displayName: string | null;
+  description: string | null;
+  capabilityOverrides: string[];
+  metadata: ModuleTargetMetadata;
+  createdAt: string;
+};
+
+export type ModuleArtifactRecord = {
+  id: string;
+  moduleId: string;
+  version: string;
+  manifest: JsonValue;
+  artifactChecksum: string;
+  artifactPath: string;
+  artifactStorage: string;
+  artifactContentType: string | null;
+  artifactSize: number | null;
+  publishedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  targets?: ModuleTargetRecord[];
+};
+
+export type ModuleRecord = {
+  id: string;
+  displayName: string | null;
+  description: string | null;
+  keywords: string[];
+  latestVersion: string | null;
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type ExampleBundleArtifactRecord = {
   id: string;

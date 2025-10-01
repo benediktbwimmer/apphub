@@ -15,7 +15,8 @@ import {
   type JobRunRecord,
   type JobRunStatus,
   type JsonValue,
-  type SecretReference
+  type SecretReference,
+  type ModuleTargetBinding
 } from '../db/types';
 import { resolveSecret } from '../secrets';
 import { logger } from '../observability/logger';
@@ -38,10 +39,18 @@ import { isDockerRuntimeEnabled } from '../config/dockerRuntime';
 import { resolveJobRuntime, type JobRuntimeKind } from './runtimeKind';
 import { mergeJsonObjects, asJsonObject } from './jsonMerge';
 import { getWorkflowEventContext, type WorkflowEventContext } from '../workflowEventContext';
+import { ModuleRuntimeLoader } from '../moduleRuntime';
+import {
+  createJobContext,
+  type ModuleLogger,
+  type ModuleCapabilityOverrides,
+  type ModuleTargetDefinition
+} from '@apphub/module-sdk';
 
 export { getWorkflowEventContext } from '../workflowEventContext';
 
 const handlers = new Map<string, JobHandler>();
+const moduleLoader = new ModuleRuntimeLoader();
 
 export const WORKFLOW_BUNDLE_CONTEXT_KEY = '__workflowBundle';
 
@@ -174,7 +183,11 @@ export async function createJobRunForSlug(
   input: JobRunCreateInput = {}
 ): Promise<JobRunRecord> {
   const definition = await ensureJobDefinitionExists(slug);
-  return createJobRun(definition.id, input);
+  const moduleBinding = input.moduleBinding === undefined ? definition.moduleBinding ?? null : input.moduleBinding;
+  return createJobRun(definition.id, {
+    ...input,
+    moduleBinding
+  });
 }
 
 function resolveBundleBinding(definition: JobDefinitionRecord): BundleBinding | null {
@@ -238,7 +251,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
   const runtimeKind = resolveJobRuntime(definition);
   const workflowEventContext = getWorkflowEventContext();
 
-  if (!staticHandler && !bundleBinding && runtimeKind !== 'docker') {
+  if (!staticHandler && !bundleBinding && runtimeKind !== 'docker' && runtimeKind !== 'module') {
     await completeJobRun(runId, 'failed', {
       errorMessage: `No handler registered for job ${definition.slug}`
     });
@@ -434,67 +447,80 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
 
   try {
     let handlerResult: JobResult | undefined;
-    const preferBundle =
-      Boolean(bundleBinding) && (!staticHandler || shouldUseJobBundle(definition.slug));
-    const allowFallback = Boolean(staticHandler) && shouldAllowLegacyFallback(definition.slug);
-    let attemptedBundle = false;
+    if (runtimeKind === 'module') {
+      const binding = resolveModuleBinding(latestRun, definition);
+      if (!binding) {
+        throw new Error(`Module binding missing for job ${definition.slug}`);
+      }
+      handlerResult = await executeModuleJob({
+        binding,
+        context,
+        definition,
+        run: latestRun
+      });
+    } else {
+      const preferBundle =
+        Boolean(bundleBinding) && (!staticHandler || shouldUseJobBundle(definition.slug));
+      const allowFallback = Boolean(staticHandler) && shouldAllowLegacyFallback(definition.slug);
+      let attemptedBundle = false;
 
-    if (preferBundle && bundleBinding) {
-      try {
-        attemptedBundle = true;
-        const dynamic = await executeDynamicHandler({
-          binding: bundleBinding,
-          context,
-          definition,
-          run: latestRun,
-          workflowEventContext
-        });
-        sandboxTelemetry = dynamic.telemetry;
-        handlerResult = dynamic.result;
-      } catch (err) {
-        if (allowFallback && isBundleResolutionError(err)) {
-          context.logger('Job bundle unavailable, falling back to legacy handler', {
-            bundleSlug: bundleBinding.slug,
-            bundleVersion: bundleBinding.version,
-            reason: err.reason,
-            error: err.message
+      if (preferBundle && bundleBinding) {
+        try {
+          attemptedBundle = true;
+          const dynamic = await executeDynamicHandler({
+            binding: bundleBinding,
+            context,
+            definition,
+            run: latestRun,
+            workflowEventContext
           });
-          const fallbackMetricsAddition = {
-            bundleFallback: true
-          } satisfies Record<string, JsonValue>;
-          const fallbackContextAddition = {
-            bundleFallback: {
-              slug: bundleBinding.slug,
-              version: bundleBinding.version,
+          sandboxTelemetry = dynamic.telemetry;
+          handlerResult = dynamic.result;
+        } catch (err) {
+          if (allowFallback && isBundleResolutionError(err)) {
+            context.logger('Job bundle unavailable, falling back to legacy handler', {
+              bundleSlug: bundleBinding.slug,
+              bundleVersion: bundleBinding.version,
               reason: err.reason,
-              message: err.message
-            }
-          } satisfies Record<string, JsonValue>;
-          await context.update({
-            metrics: mergeJsonObjects(context.run.metrics, fallbackMetricsAddition),
-            context: mergeJsonObjects(context.run.context, fallbackContextAddition)
-          });
-        } else {
-          throw err;
+              error: err.message
+            });
+            const fallbackMetricsAddition = {
+              bundleFallback: true
+            } satisfies Record<string, JsonValue>;
+            const fallbackContextAddition = {
+              bundleFallback: {
+                slug: bundleBinding.slug,
+                version: bundleBinding.version,
+                reason: err.reason,
+                message: err.message
+              }
+            } satisfies Record<string, JsonValue>;
+            await context.update({
+              metrics: mergeJsonObjects(context.run.metrics, fallbackMetricsAddition),
+              context: mergeJsonObjects(context.run.context, fallbackContextAddition)
+            });
+          } else {
+            throw err;
+          }
         }
       }
-    }
 
-    if (!handlerResult) {
-      if (staticHandler) {
-        const maybeResult = await staticHandler(context);
-        handlerResult = maybeResult ?? undefined;
-      } else if (bundleBinding && !attemptedBundle) {
-        attemptedBundle = true;
-        const dynamic = await executeDynamicHandler({
-          binding: bundleBinding,
-          context,
-          definition,
-          run: latestRun,
-          workflowEventContext
-        });
-        sandboxTelemetry = dynamic.telemetry;
-        handlerResult = dynamic.result;
+      if (!handlerResult) {
+        if (staticHandler) {
+          const maybeResult = await staticHandler(context);
+          handlerResult = maybeResult ?? undefined;
+        } else if (bundleBinding && !attemptedBundle) {
+          attemptedBundle = true;
+          const dynamic = await executeDynamicHandler({
+            binding: bundleBinding,
+            context,
+            definition,
+            run: latestRun,
+            workflowEventContext
+          });
+          sandboxTelemetry = dynamic.telemetry;
+          handlerResult = dynamic.result;
+        }
       }
     }
 
@@ -603,6 +629,174 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     });
     return completed ?? currentRun;
   }
+}
+
+type ModuleExecutionParams = {
+  binding: ModuleTargetBinding;
+  context: JobRunContext;
+  definition: JobDefinitionRecord;
+  run: JobRunRecord;
+};
+
+function resolveModuleBinding(run: JobRunRecord, definition: JobDefinitionRecord): ModuleTargetBinding | null {
+  return run.moduleBinding ?? definition.moduleBinding ?? null;
+}
+
+function createModuleJobLogger(
+  context: JobRunContext,
+  info: {
+    moduleId: string;
+    moduleVersion: string;
+    targetName: string;
+    targetVersion: string;
+    jobSlug: string;
+  }
+): ModuleLogger {
+  const emit = (level: string, message: string, meta?: Record<string, unknown>) => {
+    context.logger(message, {
+      level,
+      module: info,
+      ...(meta ?? {})
+    });
+  };
+  return {
+    debug(message, meta) {
+      emit('debug', message, meta as Record<string, unknown> | undefined);
+    },
+    info(message, meta) {
+      emit('info', message, meta as Record<string, unknown> | undefined);
+    },
+    warn(message, meta) {
+      emit('warn', message, meta as Record<string, unknown> | undefined);
+    },
+    error(message, meta) {
+      if (message instanceof Error) {
+        const errorMeta: Record<string, unknown> = {
+          errorName: message.name,
+          stack: message.stack,
+          ...(meta ?? {})
+        };
+        emit('error', message.message, errorMeta);
+      } else {
+        emit('error', message, meta as Record<string, unknown> | undefined);
+      }
+    }
+  } satisfies ModuleLogger;
+}
+
+async function executeModuleJob(params: ModuleExecutionParams): Promise<JobResult> {
+  const { binding, context } = params;
+  const loaded = await moduleLoader.getTarget(binding);
+  if (loaded.target.kind !== 'job') {
+    throw new Error(
+      `Module target ${binding.targetName}@${binding.targetVersion} is not a job handler`
+    );
+  }
+
+  const jobTarget = loaded.target as ModuleTargetDefinition<unknown, unknown> & {
+    handler: (...args: unknown[]) => unknown;
+  };
+
+  const moduleDefinition = loaded.module.definition;
+  const capabilityOverrides: ModuleCapabilityOverrides[] | undefined = jobTarget.capabilityOverrides
+    ? [jobTarget.capabilityOverrides]
+    : undefined;
+
+  const moduleLogger = createModuleJobLogger(context, {
+    moduleId: binding.moduleId,
+    moduleVersion: binding.moduleVersion,
+    targetName: jobTarget.name,
+    targetVersion: jobTarget.version ?? binding.targetVersion,
+    jobSlug: params.definition.slug
+  });
+
+  const moduleContext = createJobContext({
+    module: moduleDefinition.metadata,
+    job: {
+      name: jobTarget.name,
+      version: jobTarget.version ?? binding.targetVersion
+    },
+    settingsDescriptor: moduleDefinition.settings,
+    secretsDescriptor: moduleDefinition.secrets,
+    capabilityConfig: moduleDefinition.capabilities,
+    capabilityOverrides,
+    parametersDescriptor: jobTarget.kind === 'job' ? jobTarget.parameters : undefined,
+    parameters: context.parameters,
+    settings: undefined,
+    secrets: undefined,
+    logger: moduleLogger
+  });
+
+  const output = await jobTarget.handler(moduleContext as any);
+  return normalizeModuleJobResult(output);
+}
+function normalizeModuleJobResult(output: unknown): JobResult {
+  if (output === undefined || output === null) {
+    return {};
+  }
+
+  if (typeof output === 'object' && !Array.isArray(output)) {
+    const record = output as Record<string, unknown>;
+    let recognized = false;
+    const result: JobResult = {};
+
+    if (typeof record.status === 'string') {
+      const status = record.status as JobResult['status'];
+      if (status === 'succeeded' || status === 'failed' || status === 'canceled' || status === 'expired') {
+        result.status = status;
+        recognized = true;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(record, 'result')) {
+      const jsonResult = coerceJsonValue(record.result);
+      if (jsonResult !== undefined) {
+        result.result = jsonResult;
+        recognized = true;
+      } else if (record.result === null) {
+        result.result = null;
+        recognized = true;
+      }
+    }
+
+    if (typeof record.errorMessage === 'string') {
+      result.errorMessage = record.errorMessage;
+      recognized = true;
+    }
+
+    if (typeof record.logsUrl === 'string') {
+      result.logsUrl = record.logsUrl;
+      recognized = true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(record, 'metrics')) {
+      const metricsValue = coerceJsonValue(record.metrics);
+      if (metricsValue !== undefined) {
+        result.metrics = metricsValue;
+        recognized = true;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(record, 'context')) {
+      const contextValue = coerceJsonValue(record.context);
+      if (contextValue !== undefined) {
+        result.context = contextValue;
+        recognized = true;
+      }
+    }
+
+    if (!recognized) {
+      const jsonValue = coerceJsonValue(record);
+      if (jsonValue !== undefined) {
+        result.result = jsonValue;
+      }
+    }
+
+    return result;
+  }
+
+  const jsonValue = coerceJsonValue(output);
+  return jsonValue === undefined ? {} : { result: jsonValue } satisfies JobResult;
 }
 
 type DynamicExecutionOutcome = {

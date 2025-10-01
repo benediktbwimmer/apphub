@@ -7,6 +7,7 @@ import {
   type ModuleCapabilityOverrides
 } from './runtime/capabilities';
 import { ModuleMetadata, type ValueDescriptor } from './types';
+import type { JobContext } from './targets';
 
 function resolveValue<TValue>(
   descriptor: ValueDescriptor<TValue> | undefined,
@@ -66,4 +67,50 @@ export function createModuleContext<TSettings, TSecrets>(
     capabilities,
     logger: options.logger ?? noopLogger
   } satisfies ModuleContext<TSettings, TSecrets>;
+}
+
+export interface CreateJobContextOptions<TSettings, TSecrets, TParameters>
+  extends CreateModuleContextOptions<TSettings, TSecrets> {
+  job: {
+    name: string;
+    version?: string;
+  };
+  parametersDescriptor?: ValueDescriptor<TParameters>;
+  parameters?: unknown;
+}
+
+export function createJobContext<TSettings, TSecrets, TParameters>(
+  options: CreateJobContextOptions<TSettings, TSecrets, TParameters>
+): JobContext<TSettings, TSecrets, TParameters> {
+  const moduleContext = createModuleContext<TSettings, TSecrets>({
+    module: options.module,
+    settingsDescriptor: options.settingsDescriptor,
+    secretsDescriptor: options.secretsDescriptor,
+    capabilityConfig: options.capabilityConfig,
+    capabilityOverrides: options.capabilityOverrides,
+    settings: options.settings,
+    secrets: options.secrets,
+    logger: options.logger
+  });
+
+  const resolvedParameters = resolveValue(
+    options.parametersDescriptor,
+    options.parameters,
+    'Job parameters',
+    { optional: true }
+  );
+
+  const parameters =
+    resolvedParameters !== undefined
+      ? resolvedParameters
+      : ((options.parameters as TParameters | undefined) ?? ({} as TParameters));
+
+  return {
+    ...moduleContext,
+    job: {
+      name: options.job.name,
+      version: options.job.version ?? options.module.version
+    },
+    parameters
+  } satisfies JobContext<TSettings, TSecrets, TParameters>;
 }

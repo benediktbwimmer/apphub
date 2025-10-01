@@ -16,8 +16,12 @@ import { defineModule, createJobHandler } from '@apphub/module-sdk';
 
 const generateJob = createJobHandler({
   name: 'observatory-data-generator',
+  version: '1.0.0',
+  parameters: {
+    defaults: { minute: '2023-01-01T00:00' }
+  },
   handler: async (ctx) => {
-    const { minute } = ctx.settings;
+    const { minute } = ctx.parameters;
     await ctx.capabilities.filestore?.ensureDirectory({ path: `datasets/${minute}` });
   }
 });
@@ -31,7 +35,11 @@ export default defineModule({
 });
 ```
 
-At runtime call `createModuleContext` to materialize the logger, configuration, and capabilities for a target.
+Every target can declare its own semantic version via the optional `version` field on `createJobHandler`, `createService`, and `createWorkflow`. When omitted, `defineModule` automatically assigns the module's
+`metadata.version`, so older modules keep working without changes. Versions must be valid [Semantic Versioning](https://semver.org/) strings—invalid values cause `defineModule` to throw during build time so
+mistakes are caught before publishing.
+
+At runtime call `createModuleContext` (or `createJobContext` when invoking a job) to materialize the logger, configuration, parameters, and capabilities for a target.
 
 ## Capabilities
 
@@ -85,7 +93,10 @@ const job = createJobHandler({
 
 ## Versioning
 
-The SDK follows semantic versioning within the monorepo. Changes to exported types or capability behaviour require a minor bump, while breaking changes trigger a major increase. Modules should pin to the version they were built with and update deliberately when new capabilities ship.
+The SDK itself follows semantic versioning within the monorepo. Changes to exported types or capability behaviour require a minor bump, while breaking changes trigger a major increase.
+
+Modules can now version individual targets in addition to the module bundle: keep the module's `metadata.version` for API/config compatibility and bump per-target versions whenever you ship behavioural
+changes to a job, workflow, or service. module.ts consumers should pin to the target version they expect when enqueuing work so rollouts remain deterministic.
 
 ## Testing
 

@@ -12,7 +12,8 @@ import {
   type JobRuntime,
   type JobType,
   type JobRetryPolicy,
-  type JsonValue
+  type JsonValue,
+  type ModuleTargetBinding
 } from './types';
 import { mapJobDefinitionRow, mapJobRunRow } from './rowMappers';
 import type { JobDefinitionRow, JobRunRow } from './rowTypes';
@@ -30,6 +31,39 @@ function normalizeRetryCount(value: number | null | undefined, fallback: number)
     return Math.max(0, Math.floor(fallback));
   }
   return Math.floor(value);
+}
+
+function normalizeStringField(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildModuleBindingFromValues(values: {
+  moduleId?: string | null;
+  moduleVersion?: string | null;
+  moduleArtifactId?: string | null;
+  moduleTargetName?: string | null;
+  moduleTargetVersion?: string | null;
+  moduleTargetFingerprint?: string | null;
+}): ModuleTargetBinding | null {
+  const moduleId = normalizeStringField(values.moduleId ?? null);
+  const moduleVersion = normalizeStringField(values.moduleVersion ?? null);
+  const targetName = normalizeStringField(values.moduleTargetName ?? null);
+  const targetVersion = normalizeStringField(values.moduleTargetVersion ?? null);
+  if (!moduleId || !moduleVersion || !targetName || !targetVersion) {
+    return null;
+  }
+  return {
+    moduleId,
+    moduleVersion,
+    moduleArtifactId: normalizeStringField(values.moduleArtifactId ?? null),
+    targetName,
+    targetVersion,
+    targetFingerprint: normalizeStringField(values.moduleTargetFingerprint ?? null)
+  } satisfies ModuleTargetBinding;
 }
 
 function resolveFailureReason(
@@ -153,6 +187,13 @@ export async function createJobDefinition(
   const outputSchema = (input.outputSchema ?? {}) as JsonValue;
   const retryPolicy = input.retryPolicy ?? {};
   const metadata = input.metadata ?? {};
+  const binding = input.moduleBinding ?? null;
+  const moduleId = binding?.moduleId ?? null;
+  const moduleVersion = binding?.moduleVersion ?? null;
+  const moduleArtifactId = binding?.moduleArtifactId ?? null;
+  const moduleTargetName = binding?.targetName ?? null;
+  const moduleTargetVersion = binding?.targetVersion ?? null;
+  const moduleTargetFingerprint = binding?.targetFingerprint ?? null;
 
   let definition: JobDefinitionRecord | null = null;
 
@@ -173,6 +214,12 @@ export async function createJobDefinition(
            timeout_ms,
            retry_policy,
            metadata,
+           module_id,
+           module_version,
+           module_artifact_id,
+           module_target_name,
+           module_target_version,
+           module_target_fingerprint,
            created_at,
            updated_at
          ) VALUES (
@@ -180,19 +227,25 @@ export async function createJobDefinition(
            $2,
            $3,
            $4,
-         $5,
-         $6,
-          $7,
-          $8::jsonb,
-          $9::jsonb,
-          $10::jsonb,
-          $11,
-          $12::jsonb,
-          $13::jsonb,
-          NOW(),
-          NOW()
-        )
-        RETURNING *`,
+           $5,
+           $6,
+           $7,
+           $8::jsonb,
+           $9::jsonb,
+           $10::jsonb,
+           $11,
+           $12::jsonb,
+           $13::jsonb,
+           $14,
+           $15,
+           $16,
+           $17,
+           $18,
+           $19,
+           NOW(),
+           NOW()
+         )
+         RETURNING *`,
         [
           id,
           input.slug,
@@ -206,7 +259,13 @@ export async function createJobDefinition(
           outputSchema,
           input.timeoutMs ?? null,
           retryPolicy,
-          metadata
+          metadata,
+          moduleId,
+          moduleVersion,
+          moduleArtifactId,
+          moduleTargetName,
+          moduleTargetVersion,
+          moduleTargetFingerprint
         ]
       );
       if (rows.length === 0) {
@@ -234,6 +293,7 @@ export async function upsertJobDefinition(
 ): Promise<JobDefinitionRecord> {
   const parametersSchema = (input.parametersSchema ?? {}) as JsonValue;
   const defaultParameters = (input.defaultParameters ?? {}) as JsonValue;
+  const providedBinding = input.moduleBinding;
 
   let definition: JobDefinitionRecord | null = null;
 
@@ -245,6 +305,7 @@ export async function upsertJobDefinition(
       const retryPolicy = input.retryPolicy ?? {};
       const runtime = input.runtime ?? 'node';
       const outputSchema = (input.outputSchema ?? {}) as JsonValue;
+      const binding = providedBinding ?? null;
       const { rows } = await client.query<JobDefinitionRow>(
         `INSERT INTO job_definitions (
            id,
@@ -260,6 +321,12 @@ export async function upsertJobDefinition(
            timeout_ms,
            retry_policy,
            metadata,
+            module_id,
+            module_version,
+            module_artifact_id,
+            module_target_name,
+            module_target_version,
+            module_target_fingerprint,
            created_at,
            updated_at
          ) VALUES (
@@ -276,6 +343,12 @@ export async function upsertJobDefinition(
            $11,
            $12::jsonb,
            $13::jsonb,
+            $14,
+            $15,
+            $16,
+            $17,
+            $18,
+            $19,
            NOW(),
            NOW()
          )
@@ -284,17 +357,23 @@ export async function upsertJobDefinition(
           newId,
           input.slug,
           input.name,
-           input.version ?? 1,
-           input.type,
-           runtime,
-           input.entryPoint,
-           parametersSchema,
-           defaultParameters,
-           outputSchema,
-           input.timeoutMs ?? null,
-           retryPolicy,
-           metadata
-         ]
+          input.version ?? 1,
+          input.type,
+          runtime,
+          input.entryPoint,
+          parametersSchema,
+          defaultParameters,
+          outputSchema,
+          input.timeoutMs ?? null,
+          retryPolicy,
+          metadata,
+          binding?.moduleId ?? null,
+          binding?.moduleVersion ?? null,
+          binding?.moduleArtifactId ?? null,
+          binding?.targetName ?? null,
+          binding?.targetVersion ?? null,
+          binding?.targetFingerprint ?? null
+        ]
       );
       if (rows.length === 0) {
         throw new Error('failed to insert job definition');
@@ -307,6 +386,7 @@ export async function upsertJobDefinition(
     const nextRetryPolicy = input.retryPolicy ?? existing.retryPolicy ?? {};
     const nextOutputSchema = (input.outputSchema ?? existing.outputSchema ?? {}) as JsonValue;
     const nextRuntime = input.runtime ?? existing.runtime;
+    const nextBinding = providedBinding === undefined ? existing.moduleBinding : providedBinding;
     const { rows } = await client.query<JobDefinitionRow>(
       `UPDATE job_definitions
        SET name = $2,
@@ -320,6 +400,12 @@ export async function upsertJobDefinition(
            timeout_ms = $10,
            retry_policy = $11::jsonb,
            metadata = $12::jsonb,
+           module_id = $13,
+           module_version = $14,
+           module_artifact_id = $15,
+           module_target_name = $16,
+           module_target_version = $17,
+           module_target_fingerprint = $18,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -335,7 +421,13 @@ export async function upsertJobDefinition(
         nextOutputSchema,
         input.timeoutMs ?? existing.timeoutMs ?? null,
         nextRetryPolicy,
-        nextMetadata
+        nextMetadata,
+        nextBinding?.moduleId ?? null,
+        nextBinding?.moduleVersion ?? null,
+        nextBinding?.moduleArtifactId ?? null,
+        nextBinding?.targetName ?? null,
+        nextBinding?.targetVersion ?? null,
+        nextBinding?.targetFingerprint ?? null
       ]
     );
     if (rows.length === 0) {
@@ -378,6 +470,12 @@ type JobRunWithDefinitionRow = JobRunRow & {
   job_type: string;
   job_runtime: string;
   job_version: number;
+  job_module_id: string | null;
+  job_module_version: string | null;
+  job_module_artifact_id: string | null;
+  job_module_target_name: string | null;
+  job_module_target_version: string | null;
+  job_module_target_fingerprint: string | null;
 };
 
 type JobRunListFilters = {
@@ -449,7 +547,18 @@ export async function listJobRuns(
     params.push(offset);
 
     const { rows } = await client.query<JobRunWithDefinitionRow>(
-      `SELECT jr.*, jd.slug AS job_slug, jd.name AS job_name, jd.type AS job_type, jd.runtime AS job_runtime, jd.version AS job_version
+      `SELECT jr.*,
+              jd.slug AS job_slug,
+              jd.name AS job_name,
+              jd.type AS job_type,
+              jd.runtime AS job_runtime,
+              jd.version AS job_version,
+              jd.module_id AS job_module_id,
+              jd.module_version AS job_module_version,
+              jd.module_artifact_id AS job_module_artifact_id,
+              jd.module_target_name AS job_module_target_name,
+              jd.module_target_version AS job_module_target_version,
+              jd.module_target_fingerprint AS job_module_target_fingerprint
        FROM job_runs jr
        INNER JOIN job_definitions jd ON jd.id = jr.job_definition_id
        ${whereClause}
@@ -465,6 +574,8 @@ export async function listJobRuns(
         runtime = 'python';
       } else if (row.job_runtime === 'docker') {
         runtime = 'docker';
+      } else if (row.job_runtime === 'module') {
+        runtime = 'module';
       } else {
         runtime = 'node';
       }
@@ -482,7 +593,15 @@ export async function listJobRuns(
           name: row.job_name,
           version: row.job_version,
           type,
-          runtime
+          runtime,
+          moduleBinding: buildModuleBindingFromValues({
+            moduleId: row.job_module_id,
+            moduleVersion: row.job_module_version,
+            moduleArtifactId: row.job_module_artifact_id,
+            moduleTargetName: row.job_module_target_name,
+            moduleTargetVersion: row.job_module_target_version,
+            moduleTargetFingerprint: row.job_module_target_fingerprint
+          })
         }
       } satisfies JobRunWithDefinition;
     });
@@ -509,6 +628,7 @@ export async function createJobRun(
   const retryCount = normalizeRetryCount(input.retryCount, computedRetryCount);
   const lastHeartbeatAt = input.lastHeartbeatAt ?? null;
   const failureReason = input.failureReason ?? null;
+  const binding = input.moduleBinding ?? null;
 
   let run: JobRunRecord | null = null;
 
@@ -534,6 +654,12 @@ export async function createJobRun(
          retry_count,
          last_heartbeat_at,
          failure_reason,
+         module_id,
+         module_version,
+         module_artifact_id,
+         module_target_name,
+         module_target_version,
+         module_target_fingerprint,
          created_at,
          updated_at
        ) VALUES (
@@ -556,6 +682,12 @@ export async function createJobRun(
          $9,
          $10,
          $11,
+          $12,
+          $13,
+          $14,
+          $15,
+          $16,
+          $17,
          NOW(),
          NOW()
        )
@@ -571,7 +703,13 @@ export async function createJobRun(
         scheduledAt,
         retryCount,
         lastHeartbeatAt,
-        failureReason
+        failureReason,
+        binding?.moduleId ?? null,
+        binding?.moduleVersion ?? null,
+        binding?.moduleArtifactId ?? null,
+        binding?.targetName ?? null,
+        binding?.targetVersion ?? null,
+        binding?.targetFingerprint ?? null
       ]
     );
     if (rows.length === 0) {
