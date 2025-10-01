@@ -51,6 +51,15 @@ interface ModuleArtifactInfo {
   size: number;
 }
 
+interface JobDefinitionFile {
+  slug?: string;
+  name?: string;
+  defaultParameters?: unknown;
+  parametersSchema?: unknown;
+  outputSchema?: unknown;
+  metadata?: unknown;
+}
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = { moduleDir: null, unknown: [] };
   for (let idx = 0; idx < argv.length; idx += 1) {
@@ -166,7 +175,51 @@ async function computeArtifactInfo(modulePath: string, manifestPath: string): Pr
   } satisfies ModuleArtifactInfo;
 }
 
-async function registerModuleJobs(result: ModuleArtifactPublishResult): Promise<void> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function coerceRecord(value: unknown): Record<string, unknown> | undefined {
+  if (isRecord(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+async function loadModuleJobDefinition(
+  moduleDir: string | undefined,
+  candidates: Iterable<string>
+): Promise<JobDefinitionFile | null> {
+  if (!moduleDir) {
+    return null;
+  }
+  const tried = new Set<string>();
+  for (const candidate of candidates) {
+    const normalized = candidate.trim();
+    if (!normalized || tried.has(normalized)) {
+      continue;
+    }
+    tried.add(normalized);
+    const jobDefinitionPath = path.join(moduleDir, 'dist', 'bundles', normalized, 'job-definition.json');
+    try {
+      const raw = await fs.readFile(jobDefinitionPath, 'utf8');
+      const parsed = JSON.parse(raw) as unknown;
+      if (isRecord(parsed)) {
+        return parsed as JobDefinitionFile;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        console.warn('[module:publish] Failed to read job definition', { jobDefinitionPath, error });
+      }
+    }
+  }
+  return null;
+}
+
+async function registerModuleJobs(
+  result: ModuleArtifactPublishResult,
+  options: { moduleDir?: string } = {}
+): Promise<void> {
   if (!result.targets || result.targets.length === 0) {
     console.log('[module:publish] No module targets to register');
     return;
@@ -177,6 +230,8 @@ async function registerModuleJobs(result: ModuleArtifactPublishResult): Promise<
     console.log('[module:publish] No job targets found; skipping job definition registration');
     return;
   }
+
+  const moduleDir = options.moduleDir;
 
   for (const target of jobs) {
     const binding: ModuleTargetBinding = {
@@ -193,11 +248,37 @@ async function registerModuleJobs(result: ModuleArtifactPublishResult): Promise<
       ? preferredSlugCandidate.trim()
       : target.name;
 
-    const slug = primarySlug;
-    const displayName = target.displayName ?? target.name;
-    const defaultParameters = target.metadata?.parameters?.defaults ?? {};
-    const parametersSchema = target.metadata?.parameters?.schema ?? {};
-    const outputSchema = target.metadata?.output?.schema ?? {};
+    let slug = primarySlug;
+    let displayName = target.displayName ?? target.name;
+    let defaultParameters = coerceRecord(target.metadata?.parameters?.defaults) ?? undefined;
+    let parametersSchema: Record<string, unknown> | undefined;
+    let outputSchema: Record<string, unknown> | undefined;
+
+    const jobDefinition = await loadModuleJobDefinition(moduleDir, [target.name, primarySlug, preferredSlugCandidate ?? '']);
+    if (jobDefinition) {
+      if (typeof jobDefinition.slug === 'string' && jobDefinition.slug.trim().length > 0) {
+        slug = jobDefinition.slug.trim();
+      }
+      if (typeof jobDefinition.name === 'string' && jobDefinition.name.trim().length > 0) {
+        displayName = jobDefinition.name.trim();
+      }
+      const defaults = coerceRecord(jobDefinition.defaultParameters);
+      if (defaults) {
+        defaultParameters = defaults;
+      }
+      const paramsSchema = coerceRecord(jobDefinition.parametersSchema);
+      if (paramsSchema) {
+        parametersSchema = paramsSchema;
+      }
+      const jobOutputSchema = coerceRecord(jobDefinition.outputSchema);
+      if (jobOutputSchema) {
+        outputSchema = jobOutputSchema;
+      }
+    }
+
+    const mergedDefaultParameters = defaultParameters ?? {};
+    const mergedParametersSchema = parametersSchema ?? {};
+    const mergedOutputSchema = outputSchema ?? {};
 
     await upsertJobDefinition({
       slug,
@@ -206,8 +287,8 @@ async function registerModuleJobs(result: ModuleArtifactPublishResult): Promise<
       runtime: 'module',
       entryPoint: `module://${result.module.id}/${target.name}`,
       version: 1,
-      defaultParameters,
-      parametersSchema,
+      defaultParameters: mergedDefaultParameters,
+      parametersSchema: mergedParametersSchema,
       metadata: {
         module: {
           id: result.module.id,
@@ -217,7 +298,7 @@ async function registerModuleJobs(result: ModuleArtifactPublishResult): Promise<
           fingerprint: target.fingerprint ?? null
         }
       },
-      outputSchema,
+      outputSchema: mergedOutputSchema,
       moduleBinding: binding
     });
 
@@ -926,7 +1007,7 @@ async function main(): Promise<void> {
   console.log(`  Bundle:   ${path.relative(process.cwd(), artifactInfo.modulePath)} (sha256 ${artifactInfo.checksum})`);
 
   if (options.registerJobs) {
-    await registerModuleJobs(artifactRecord);
+    await registerModuleJobs(artifactRecord, { moduleDir });
     await registerModuleWorkflows(artifactRecord);
   }
 }
