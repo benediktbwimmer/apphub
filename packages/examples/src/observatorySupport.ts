@@ -156,6 +156,36 @@ export function applyObservatoryWorkflowDefaults(
       defaults.metastoreBaseUrl = config.metastore?.baseUrl ?? null;
       defaults.metastoreNamespace = config.metastore?.namespace ?? null;
       defaults.metastoreAuthToken = config.metastore?.authToken ?? null;
+
+      for (const trigger of ensureEventTriggers(definition)) {
+        const triggerMetadata = ensureJsonObject(trigger.metadata as JsonValue | undefined);
+        trigger.metadata = triggerMetadata;
+
+        const filestoreMetadata = ensureJsonObject(triggerMetadata.filestore as JsonValue | undefined);
+        filestoreMetadata.baseUrl = config.filestore.baseUrl;
+        filestoreMetadata.backendMountId = config.filestore.backendMountId;
+        filestoreMetadata.token = config.filestore.token ?? null;
+        filestoreMetadata.principal = defaults.filestorePrincipal ?? null;
+        triggerMetadata.filestore = filestoreMetadata;
+
+        const pathsMetadata = ensureJsonObject(triggerMetadata.paths as JsonValue | undefined);
+        pathsMetadata.visualizationsPrefix =
+          config.filestore.visualizationsPrefix ?? defaults.visualizationsPrefix;
+        pathsMetadata.reportsPrefix = config.filestore.reportsPrefix ?? defaults.reportsPrefix;
+        triggerMetadata.paths = pathsMetadata;
+
+        const timestoreMetadata = ensureJsonObject(triggerMetadata.timestore as JsonValue | undefined);
+        timestoreMetadata.baseUrl = config.timestore.baseUrl;
+        timestoreMetadata.datasetSlug = config.timestore.datasetSlug;
+        timestoreMetadata.authToken = config.timestore.authToken ?? null;
+        triggerMetadata.timestore = timestoreMetadata;
+
+        const metastoreMetadata = ensureJsonObject(triggerMetadata.metastore as JsonValue | undefined);
+        metastoreMetadata.baseUrl = config.metastore?.baseUrl ?? null;
+        metastoreMetadata.namespace = config.metastore?.namespace ?? null;
+        metastoreMetadata.authToken = config.metastore?.authToken ?? null;
+        triggerMetadata.metastore = metastoreMetadata;
+      }
       break;
     case 'observatory-dashboard-aggregate':
       defaults.partitionKey = defaults.partitionKey ?? null;

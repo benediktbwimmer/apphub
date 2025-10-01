@@ -109,6 +109,22 @@ interface ManifestIndex {
   cachedAt: string;
 }
 
+export type ManifestCacheShardSummary = {
+  shard: string;
+  manifestId: string;
+  manifestVersion: number;
+  updatedAt: string;
+  cachedAt: string;
+};
+
+export type ManifestCacheSummary = {
+  datasetSlug: string;
+  enabled: boolean;
+  indexCachedAt: string | null;
+  shardCount: number;
+  shards: ManifestCacheShardSummary[];
+};
+
 interface ShardEntryResult {
   entry: ManifestCacheEntry | null;
   updatedShard?: ManifestIndexShardEntry;
@@ -1147,6 +1163,49 @@ export async function refreshManifestCache(
     cachedAt
   } satisfies ManifestIndexShardEntry;
   await writeIndex(options, dataset.slug, index);
+}
+
+export async function getManifestCacheSummary(datasetSlug: string): Promise<ManifestCacheSummary> {
+  const options = loadOptions();
+  if (!options.enabled) {
+    return {
+      datasetSlug,
+      enabled: false,
+      indexCachedAt: null,
+      shardCount: 0,
+      shards: []
+    } satisfies ManifestCacheSummary;
+  }
+
+  const index = await readIndex(options, datasetSlug);
+  if (!index) {
+    return {
+      datasetSlug,
+      enabled: true,
+      indexCachedAt: null,
+      shardCount: 0,
+      shards: []
+    } satisfies ManifestCacheSummary;
+  }
+
+  const shards: ManifestCacheShardSummary[] = Object.entries(index.shards).map(
+    ([shard, entry]) => ({
+      shard,
+      manifestId: entry.manifestId,
+      manifestVersion: entry.manifestVersion,
+      updatedAt: entry.updatedAt,
+      cachedAt: entry.cachedAt
+    })
+  );
+  shards.sort((left, right) => left.shard.localeCompare(right.shard));
+
+  return {
+    datasetSlug: index.datasetSlug,
+    enabled: true,
+    indexCachedAt: index.cachedAt,
+    shardCount: shards.length,
+    shards
+  } satisfies ManifestCacheSummary;
 }
 
 export async function invalidateManifestShard(

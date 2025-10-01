@@ -14,6 +14,7 @@ import { initializeRollupManager, shutdownRollupManager } from './rollup/manager
 import { initializeReconciliationManager, shutdownReconciliationManager } from './reconciliation/manager';
 import { initializeFilestoreEvents, shutdownFilestoreEvents } from './events/publisher';
 import { registerOpenApi } from './openapi/plugin';
+import { autoProvisionDefaultBackend } from './startup/autoProvision';
 
 export type BuildAppOptions = {
   config?: ServiceConfig;
@@ -56,6 +57,7 @@ export async function buildApp(options?: BuildAppOptions) {
   app.addHook('onReady', async () => {
     await ensureSchemaExists(POSTGRES_SCHEMA);
     await runMigrationsWithConnection();
+    await autoProvisionDefaultBackend({ logger: app.log });
   });
 
   app.addHook('onClose', async () => {

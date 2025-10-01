@@ -33,16 +33,30 @@ export async function ensureDefaultStorageTarget(): Promise<StorageTargetRecord>
       throw new Error('S3 storage selected but configuration missing');
     }
 
+    const s3Config: Record<string, unknown> = {
+      bucket: config.storage.s3.bucket,
+      endpoint: config.storage.s3.endpoint,
+      region: config.storage.s3.region
+    };
+    if (config.storage.s3.accessKeyId) {
+      s3Config.accessKeyId = config.storage.s3.accessKeyId;
+    }
+    if (config.storage.s3.secretAccessKey) {
+      s3Config.secretAccessKey = config.storage.s3.secretAccessKey;
+    }
+    if (config.storage.s3.sessionToken) {
+      s3Config.sessionToken = config.storage.s3.sessionToken;
+    }
+    if (config.storage.s3.forcePathStyle !== undefined) {
+      s3Config.forcePathStyle = config.storage.s3.forcePathStyle;
+    }
+
     return upsertStorageTarget({
       id: `st-${randomUUID()}`,
       name,
       kind: 's3',
       description: 'Default S3 timestore storage target',
-      config: {
-        bucket: config.storage.s3.bucket,
-        endpoint: config.storage.s3.endpoint,
-        region: config.storage.s3.region
-      }
+      config: s3Config
     });
   }
 

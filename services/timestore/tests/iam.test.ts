@@ -33,7 +33,7 @@ function makeDataset(metadata: Record<string, unknown> = {}): DatasetRecord {
     name: 'Test Dataset',
     description: null,
     status: 'active',
-    writeFormat: 'duckdb',
+    writeFormat: 'parquet',
     defaultStorageTargetId: null,
     metadata,
     createdAt: new Date().toISOString(),

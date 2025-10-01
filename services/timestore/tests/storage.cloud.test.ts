@@ -37,7 +37,7 @@ function createWriteRequest(): PartitionWriteRequest {
   } satisfies PartitionWriteRequest;
 }
 
-test('GcsStorageDriver writes duckdb file to bucket', async () => {
+test('GcsStorageDriver writes parquet file to bucket', async () => {
   const writes: Array<{ key: string; size: number; options: unknown }> = [];
   const bucketFactory = () => ({
     file(key: string) {
@@ -55,12 +55,12 @@ test('GcsStorageDriver writes duckdb file to bucket', async () => {
   assert.equal(writes.length, 1);
   assert.equal(result.relativePath, writes[0]?.key);
   assert.equal(result.rowCount, 2);
-  const expectedKey = 'sensor-readings/region=us-east-1/partition-123.duckdb';
+  const expectedKey = 'sensor-readings/region=us-east-1/partition-123.parquet';
   assert.equal(result.relativePath, expectedKey);
   assert.equal(writes[0]?.options && (writes[0]?.options as { resumable?: boolean }).resumable, false);
 });
 
-test('AzureBlobStorageDriver uploads duckdb file to container', async () => {
+test('AzureBlobStorageDriver uploads parquet file to container', async () => {
   const uploads: Array<{ key: string; size: number; options: unknown }> = [];
   const containerFactory = () => ({
     getBlockBlobClient(key: string) {
@@ -118,8 +118,8 @@ test('resolvePartitionLocation returns cloud URIs', () => {
     manifestId: 'm1',
     partitionKey: {},
     storageTargetId: gcsTarget.id,
-    fileFormat: 'duckdb' as const,
-    filePath: 'dataset/key=value/file.duckdb',
+    fileFormat: 'parquet' as const,
+    filePath: 'dataset/key=value/file.parquet',
     fileSizeBytes: 100,
     rowCount: 2,
     startTime: new Date().toISOString(),
@@ -130,10 +130,10 @@ test('resolvePartitionLocation returns cloud URIs', () => {
   };
 
   const gcsUri = resolvePartitionLocation(partition, gcsTarget, serviceConfig);
-  assert.equal(gcsUri, 'gs://telemetry-gcs/dataset/key=value/file.duckdb');
+  assert.equal(gcsUri, 'gs://telemetry-gcs/dataset/key=value/file.parquet');
 
   const azureUri = resolvePartitionLocation(partition, azureTarget, serviceConfig);
-  assert.equal(azureUri, 'azure://sample.blob.core.windows.net/snapshots/dataset/key=value/file.duckdb');
+  assert.equal(azureUri, 'azure://sample.blob.core.windows.net/snapshots/dataset/key=value/file.parquet');
 });
 
 test('configureGcsSupport installs httpfs and creates scoped secret', async () => {

@@ -14,6 +14,9 @@ type TriggerDefinition = {
   description: string;
   eventType: string;
   eventSource?: string | null;
+  maxConcurrency?: number | null;
+  throttleWindowMs?: number | null;
+  throttleCount?: number | null;
   predicates: Array<{
     path: string;
     operator: 'equals' | 'notEquals' | 'in' | 'notIn' | 'exists';
@@ -28,6 +31,10 @@ type TriggerDefinition = {
 
 function sanitizeTriggerDefinition(definition: TriggerDefinition): TriggerDefinition {
   const normalized: TriggerDefinition = { ...definition };
+
+  normalized.maxConcurrency = normalized.maxConcurrency ?? null;
+  normalized.throttleWindowMs = normalized.throttleWindowMs ?? null;
+  normalized.throttleCount = normalized.throttleCount ?? null;
 
   return normalized;
 }
@@ -157,7 +164,10 @@ async function ensureTrigger(
         parameterTemplate: definition.parameterTemplate,
         metadata: definition.metadata,
         idempotencyKeyExpression: definition.idempotencyKeyExpression,
-        runKeyTemplate: definition.runKeyTemplate
+        runKeyTemplate: definition.runKeyTemplate,
+        maxConcurrency: definition.maxConcurrency ?? null,
+        throttleWindowMs: definition.throttleWindowMs ?? null,
+        throttleCount: definition.throttleCount ?? null
       }
     );
     console.log(`Updated trigger '${definition.name}' on workflow ${definition.workflowSlug}`);
@@ -178,7 +188,10 @@ async function ensureTrigger(
       parameterTemplate: definition.parameterTemplate,
       metadata: definition.metadata,
       idempotencyKeyExpression: definition.idempotencyKeyExpression,
-      runKeyTemplate: definition.runKeyTemplate
+      runKeyTemplate: definition.runKeyTemplate,
+      maxConcurrency: definition.maxConcurrency ?? null,
+      throttleWindowMs: definition.throttleWindowMs ?? null,
+      throttleCount: definition.throttleCount ?? null
     }
   );
   console.log(`Created trigger '${definition.name}' on workflow ${definition.workflowSlug}`);
@@ -317,8 +330,10 @@ async function main(): Promise<void> {
   } satisfies Record<string, unknown>;
 
   const publicationTemplate: Record<string, unknown> = {
-    partitionKey: '{{ event.payload.partitionKey }}',
-    instrumentId: '{{ event.payload.instrumentId | default: event.payload.partitionKeyFields.instrument | default: "unknown" }}',
+    partitionKey:
+      '{{ event.payload.partitionKeyFields.window | default: event.payload.minute | default: event.payload.partitionKey }}',
+    instrumentId:
+      '{{ event.payload.instrumentId | default: event.payload.partitionKeyFields.instrument | default: "unknown" }}',
     minute: '{{ event.payload.minute }}',
     rowsIngested: '{{ event.payload.rowsIngested }}',
     timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',

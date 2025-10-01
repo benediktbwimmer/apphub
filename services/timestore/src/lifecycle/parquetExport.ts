@@ -164,10 +164,9 @@ async function materializeParquetSnapshot(
   const tempFile = path.join(tempDir, 'snapshot.parquet');
 
   try {
-    await attachPartitions(connection, partitions, context.config);
-    await createDatasetView(connection, partitions);
-    await run(connection, `COPY (SELECT * FROM dataset_view) TO '${tempFile.replace(/'/g, "''")}' (FORMAT 'parquet')`);
-    const countRows = await firstRow(connection, 'SELECT COUNT(*) AS count FROM dataset_view');
+    const source = buildParquetSource(partitions, context.config);
+    await run(connection, `COPY (SELECT * FROM ${source}) TO '${tempFile.replace(/'/g, "''")}' (FORMAT PARQUET)`);
+    const countRows = await firstRow(connection, `SELECT COUNT(*) AS count FROM ${source}`);
     const rowCount = Number(countRows?.count ?? 0);
 
     const { fileSizeBytes } = await persistExportAsset(tempFile, relativePath, target, context.config);
@@ -186,32 +185,15 @@ async function materializeParquetSnapshot(
   }
 }
 
-async function attachPartitions(
-  connection: any,
+function buildParquetSource(
   partitions: PartitionWithTarget[],
   config: LifecycleJobContext['config']
-): Promise<void> {
-  let index = 0;
-  for (const partition of partitions) {
-    const alias = `p${index++}`;
-    const location = resolvePartitionLocation(partition, partition.storageTarget, config);
-    await run(connection, `ATTACH '${location.replace(/'/g, "''")}' AS ${alias}`);
-  }
-}
-
-async function createDatasetView(
-  connection: any,
-  partitions: PartitionWithTarget[]
-): Promise<void> {
-  const selects: string[] = [];
-  let index = 0;
-  for (const partition of partitions) {
-    const alias = `p${index++}`;
-    const tableName = quoteIdentifier(extractTableName(partition));
-    selects.push(`SELECT * FROM ${alias}.${tableName}`);
-  }
-  const unionSql = selects.join('\nUNION ALL\n');
-  await run(connection, `CREATE OR REPLACE TEMP VIEW dataset_view AS ${unionSql}`);
+): string {
+  const paths = partitions.map((partition) =>
+    resolvePartitionLocation(partition, partition.storageTarget, config)
+  );
+  const escaped = paths.map((location) => `'${location.replace(/'/g, "''")}'`).join(', ');
+  return `read_parquet([${escaped}])`;
 }
 
 async function persistExportAsset(
@@ -330,18 +312,8 @@ function getLastExportTimestamp(metadata: Record<string, unknown> | null | undef
   return null;
 }
 
-function extractTableName(partition: PartitionWithTarget): string {
-  const metadata = partition.metadata ?? {};
-  const tableName = typeof metadata.tableName === 'string' ? metadata.tableName : 'records';
-  return tableName;
-}
-
 function convertPosixToPlatform(input: string): string {
   return input.split('/').join(path.sep);
-}
-
-function quoteIdentifier(identifier: string): string {
-  return `"${identifier.replace(/"/g, '""')}"`;
 }
 
 function run(connection: any, sql: string, ...params: unknown[]): Promise<void> {

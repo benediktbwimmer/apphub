@@ -198,7 +198,7 @@ async function seedDuckDbDataset(): Promise<void> {
       {
         id: partitionId,
         storageTargetId: storageTarget.id,
-        fileFormat: 'duckdb',
+        fileFormat: 'parquet',
         filePath: writeResult.relativePath,
         fileSizeBytes: writeResult.fileSizeBytes,
         rowCount: writeResult.rowCount,
@@ -545,7 +545,7 @@ describe('sql runtime cache', () => {
         {
           id: partitionId,
           storageTargetId: storageTarget.id,
-          fileFormat: 'duckdb',
+          fileFormat: 'parquet',
           filePath: writeResult.relativePath,
           fileSizeBytes: writeResult.fileSizeBytes,
           rowCount: writeResult.rowCount,

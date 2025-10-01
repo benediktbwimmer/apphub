@@ -125,8 +125,8 @@ test('timestore metadata lifecycle', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'duckdb',
-        filePath: 'datasets/observatory/2024-01-01.duckdb',
+        fileFormat: 'parquet',
+        filePath: 'datasets/observatory/2024-01-01.parquet',
         partitionKey: { dataset: 'observatory', window: '2024-01-01' },
         startTime: new Date(now.getTime() - 3_600_000),
         endTime: now,
@@ -138,8 +138,8 @@ test('timestore metadata lifecycle', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'duckdb',
-        filePath: 'datasets/observatory/2024-01-02.duckdb',
+        fileFormat: 'parquet',
+        filePath: 'datasets/observatory/2024-01-02.parquet',
         partitionKey: { dataset: 'observatory', window: '2024-01-02' },
         startTime: now,
         endTime: new Date(now.getTime() + 3_600_000),
@@ -223,8 +223,8 @@ test('listPartitionsForQuery applies typed partition filters', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'duckdb',
-        filePath: `datasets/${datasetSlug}/a.duckdb`,
+        fileFormat: 'parquet',
+        filePath: `datasets/${datasetSlug}/a.parquet`,
         partitionKey: {
           region: 'east',
           shard: 1,
@@ -239,8 +239,8 @@ test('listPartitionsForQuery applies typed partition filters', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'duckdb',
-        filePath: `datasets/${datasetSlug}/b.duckdb`,
+        fileFormat: 'parquet',
+        filePath: `datasets/${datasetSlug}/b.parquet`,
         partitionKey: {
           region: 'east',
           shard: 3,
@@ -255,8 +255,8 @@ test('listPartitionsForQuery applies typed partition filters', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'duckdb',
-        filePath: `datasets/${datasetSlug}/c.duckdb`,
+        fileFormat: 'parquet',
+        filePath: `datasets/${datasetSlug}/c.parquet`,
         partitionKey: {
           region: 'west',
           shard: 2,

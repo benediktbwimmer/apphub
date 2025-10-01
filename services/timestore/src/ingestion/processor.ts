@@ -236,7 +236,7 @@ export async function processIngestionJob(
     const partitionInput = {
       id: partitionId,
       storageTargetId: storageTarget.id,
-      fileFormat: 'duckdb' as const,
+      fileFormat: 'parquet' as const,
       filePath: writeResult.relativePath,
       partitionKey,
       startTime,

@@ -137,8 +137,8 @@ async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult>
     }
 
     await prepareConnectionForPlan(connection, plan, config);
-    const partitionColumns = await attachPartitions(connection, plan);
-    await createDatasetView(connection, plan, partitionColumns);
+    const canonicalFields = resolveCanonicalFields(plan);
+    await createDatasetView(connection, plan, canonicalFields);
     const baseViewName = await applyColumnFilters(connection, plan);
 
     const { preparatoryQueries, selectSql, mode } = buildFinalQuery(plan, baseViewName);
@@ -209,117 +209,98 @@ async function prepareConnectionForPlan(
   }
 }
 
-async function attachPartitions(
-  connection: any,
-  plan: QueryPlan
-): Promise<Map<string, Set<string>>> {
-  const columnMap = new Map<string, Set<string>>();
-
-  for (const partition of plan.partitions) {
-    const escapedLocation = partition.location.replace(/'/g, "''");
-    await run(connection, `ATTACH '${escapedLocation}' AS ${partition.alias}`);
-    const tableName = quoteIdentifier(partition.tableName);
-    const availableColumns = await introspectPartitionColumns(connection, partition);
-    columnMap.set(partition.alias, availableColumns);
-    const timestampColumn = quoteIdentifier(plan.timestampColumn);
-    const startLiteral = plan.rangeStart.toISOString().replace(/'/g, "''");
-    const endLiteral = plan.rangeEnd.toISOString().replace(/'/g, "''");
-    const filterSql = `CREATE TEMP VIEW ${partition.alias}_filtered AS
-         SELECT *
-         FROM ${partition.alias}.${tableName}
-         WHERE ${timestampColumn} BETWEEN TIMESTAMP '${startLiteral}' AND TIMESTAMP '${endLiteral}'`;
-    await run(connection, filterSql);
-  }
-  return columnMap;
-}
-
 async function createDatasetView(
   connection: any,
   plan: QueryPlan,
-  partitionColumns: Map<string, Set<string>>
+  canonicalFields: FieldDefinition[]
 ): Promise<void> {
-  const canonicalFields = resolveCanonicalSchema(plan, partitionColumns);
-  const selects = plan.partitions.map((partition) =>
-    buildPartitionSelect(partition, canonicalFields, partitionColumns.get(partition.alias))
-  );
+  const selects: string[] = [];
+  for (const partition of plan.partitions) {
+    const availableColumns = await fetchPartitionColumns(connection, partition);
+    selects.push(buildPartitionSelect(partition, plan, canonicalFields, availableColumns));
+  }
   const unionSql = selects.join('\nUNION ALL\n');
   await run(connection, `CREATE TEMP VIEW dataset_view AS ${unionSql}`);
 }
 
-async function introspectPartitionColumns(
+async function fetchPartitionColumns(
   connection: any,
   partition: QueryPlanPartition
 ): Promise<Set<string>> {
-  const alias = partition.alias.replace(/'/g, "''");
-  const table = partition.tableName.replace(/"/g, '""').replace(/'/g, "''");
-  const qualified = `${alias}."${table}"`;
-  const rows = await all(connection, `PRAGMA table_info('${qualified}')`);
-  const columns = new Set<string>();
-  for (const row of rows ?? []) {
-    const columnName =
-      typeof row?.column_name === 'string'
-        ? (row.column_name as string)
-        : typeof row?.name === 'string'
-          ? (row.name as string)
-          : null;
-    if (columnName) {
-      columns.add(columnName);
-    }
-  }
-  return columns;
+  const escapedPath = partition.location.replace(/'/g, "''");
+  const rows = await all(
+    connection,
+    `DESCRIBE SELECT * FROM read_parquet('${escapedPath}')`
+  );
+  return new Set(
+    rows
+      .map((row) => {
+        const record = row as Record<string, unknown>;
+        const value =
+          typeof record.column_name === 'string'
+            ? record.column_name
+            : typeof record.column === 'string'
+              ? record.column
+              : typeof record.name === 'string'
+                ? record.name
+                : null;
+        return value;
+      })
+      .filter((value): value is string => Boolean(value))
+  );
 }
 
-function resolveCanonicalSchema(
-  plan: QueryPlan,
-  partitionColumns: Map<string, Set<string>>
-): FieldDefinition[] {
+function resolveCanonicalFields(plan: QueryPlan): FieldDefinition[] {
   if (plan.schemaFields.length > 0) {
     return plan.schemaFields;
   }
-  return inferFieldsFromPartitionColumns(partitionColumns);
+  return [];
 }
 
 function buildPartitionSelect(
   partition: QueryPlanPartition,
+  plan: QueryPlan,
   canonicalFields: FieldDefinition[],
-  availableColumns: Set<string> | undefined
+  availableColumns: Set<string>
 ): string {
-  if (canonicalFields.length === 0) {
-    return `SELECT * FROM ${partition.alias}_filtered`;
-  }
+  const escapedPath = partition.location.replace(/'/g, "''");
+  const source = `read_parquet('${escapedPath}')`;
+  const timestampColumn = quoteIdentifier(plan.timestampColumn);
+  const startLiteral = plan.rangeStart.toISOString().replace(/'/g, "''");
+  const endLiteral = plan.rangeEnd.toISOString().replace(/'/g, "''");
 
-  const available = availableColumns ?? new Set<string>();
-  const expressions = canonicalFields.map((field) => {
-    const identifier = quoteIdentifier(field.name);
-    if (available.has(field.name)) {
-      return identifier;
-    }
-    const duckType = mapFieldTypeToDuckDb(field.type);
-    return `NULL::${duckType} AS ${identifier}`;
-  });
+  const projections = canonicalFields.length > 0
+    ? canonicalFields
+        .map((field) => {
+          const identifier = quoteIdentifier(field.name);
+          if (availableColumns.has(field.name)) {
+            return identifier;
+          }
+          const duckType = mapFieldTypeToDuckDb(field.type);
+          return `NULL::${duckType} AS ${identifier}`;
+        })
+        .join(', ')
+    : '*';
 
-  const selectList = expressions.join(', ');
-  return `SELECT ${selectList}
-        FROM ${partition.alias}_filtered`;
+  const whereClause = `${timestampColumn} BETWEEN TIMESTAMP '${startLiteral}' AND TIMESTAMP '${endLiteral}'`;
+
+  return `SELECT ${projections} FROM ${source} WHERE ${whereClause}`;
 }
 
-function inferFieldsFromPartitionColumns(
-  partitionColumns: Map<string, Set<string>>
-): FieldDefinition[] {
-  const seen = new Set<string>();
-  const inferred: FieldDefinition[] = [];
-  for (const columns of partitionColumns.values()) {
-    for (const column of columns) {
-      if (!seen.has(column)) {
-        seen.add(column);
-        inferred.push({
-          name: column,
-          type: 'string'
-        });
-      }
-    }
+function mapFieldTypeToDuckDb(type: FieldType): string {
+  switch (type) {
+    case 'timestamp':
+      return 'TIMESTAMP';
+    case 'double':
+      return 'DOUBLE';
+    case 'integer':
+      return 'BIGINT';
+    case 'boolean':
+      return 'BOOLEAN';
+    case 'string':
+    default:
+      return 'VARCHAR';
   }
-  return inferred;
 }
 
 async function applyColumnFilters(connection: any, plan: QueryPlan): Promise<string> {
@@ -580,22 +561,6 @@ function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
-function mapFieldTypeToDuckDb(type: FieldType): string {
-  switch (type) {
-    case 'timestamp':
-      return 'TIMESTAMP';
-    case 'double':
-      return 'DOUBLE';
-    case 'integer':
-      return 'BIGINT';
-    case 'boolean':
-      return 'BOOLEAN';
-    case 'string':
-    default:
-      return 'VARCHAR';
-  }
-}
-
 function normalizeRows(rows: QueryResultRow[]): QueryResultRow[] {
   return rows.map((row) => {
     const normalized: QueryResultRow = {};
@@ -645,14 +610,38 @@ export async function configureS3Support(connection: any, config: ServiceConfig)
   const cacheConfig = config.query.cache;
   if (cacheConfig.enabled) {
     await mkdir(cacheConfig.directory, { recursive: true });
-    await run(connection, `SET s3_cache_directory='${escapeSqlLiteral(cacheConfig.directory)}'`);
-    await run(connection, `SET s3_cache_size='${String(cacheConfig.maxBytes)}'`);
+    try {
+      await run(connection, `SET s3_cache_directory='${escapeSqlLiteral(cacheConfig.directory)}'`);
+      await run(connection, `SET s3_cache_size='${String(cacheConfig.maxBytes)}'`);
+    } catch (error) {
+      if (isUnrecognizedConfigParameterError(error, 's3_cache_directory')) {
+        cacheConfig.enabled = false;
+        console.warn(
+          '[timestore] DuckDB does not recognize s3_cache_directory; skipping query cache setup',
+          error
+        );
+      } else {
+        throw error;
+      }
+    }
   }
 }
 
 async function ensureHttpfsLoaded(connection: any): Promise<void> {
   await run(connection, 'INSTALL httpfs');
   await run(connection, 'LOAD httpfs');
+}
+
+function isUnrecognizedConfigParameterError(error: unknown, parameter: string): boolean {
+  if (!error) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes(`unrecognized configuration parameter "${parameter.toLowerCase()}"`) ||
+    normalized.includes(`unrecognized configuration parameter '${parameter.toLowerCase()}'`)
+  );
 }
 
 export async function configureGcsSupport(

@@ -1,11 +1,23 @@
 #!/usr/bin/env node
 'use strict';
 
+const fs = require('node:fs');
+const fsPromises = require('node:fs/promises');
 const path = require('node:path');
-const { concurrently } = require('concurrently');
+const { concurrently, Logger } = require('concurrently');
+const stripAnsi = require('strip-ansi');
 const { runPreflight } = require('./dev-preflight');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
+const DEV_LOG_DIR = path.join(ROOT_DIR, 'logs', 'dev');
+
+const sanitizeLogSlug = (value, index) => {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || `command-${index + 1}`;
+};
 const DEFAULT_REDIS_URL = process.env.APPHUB_DEV_REDIS_URL ?? 'redis://127.0.0.1:6379';
 
 const BASE_COMMANDS = [
@@ -222,13 +234,98 @@ async function main() {
     process.exit(1);
   }
 
+  const logNameUsage = new Map();
+  const logFilesByIndex = new Map();
+  commands.forEach((command, index) => {
+    const label = command.name && command.name.trim() ? command.name : `command-${index + 1}`;
+    const slug = sanitizeLogSlug(label, index);
+    const usage = logNameUsage.get(slug) ?? 0;
+    logNameUsage.set(slug, usage + 1);
+    const suffix = usage === 0 ? '' : `-${usage + 1}`;
+    const finalSlug = `${slug}${suffix}`;
+    logFilesByIndex.set(index, {
+      label,
+      fileName: `${finalSlug}.log`,
+      finalSlug
+    });
+  });
+
+  await fsPromises.mkdir(DEV_LOG_DIR, { recursive: true });
+  const relativeLogDir = path.relative(ROOT_DIR, DEV_LOG_DIR) || '.';
+  const logger = new Logger({ prefixFormat: 'name' });
+  const globalLogPath = path.join(DEV_LOG_DIR, '_dev-runner.log');
+  const globalLogStream = fs.createWriteStream(globalLogPath, { flags: 'a' });
+  const sessionHeader = `[dev-runner] Logging session started ${new Date().toISOString()}\n`;
+  globalLogStream.write(sessionHeader);
+  console.log(`[dev-runner] Writing service logs to ${relativeLogDir}.`);
+  globalLogStream.write(`[dev-runner] Writing service logs to ${relativeLogDir}.\n`);
+  for (const { label, fileName } of logFilesByIndex.values()) {
+    const mappingLine = `[dev-runner]   ${label} -> ${path.join(relativeLogDir, fileName)}\n`;
+    console.log(mappingLine.trimEnd());
+    globalLogStream.write(mappingLine);
+  }
+  const commandLogStreams = new Map();
+
+  const ensureCommandStream = (command) => {
+    const key = command.index;
+    if (commandLogStreams.has(key)) {
+      return commandLogStreams.get(key);
+    }
+    const meta = logFilesByIndex.get(key);
+    if (!meta) {
+      return globalLogStream;
+    }
+    const stream = fs.createWriteStream(path.join(DEV_LOG_DIR, meta.fileName), { flags: 'a' });
+    commandLogStreams.set(key, stream);
+    return stream;
+  };
+
+  logger.output.subscribe(({ command, text }) => {
+    const clean = stripAnsi(text);
+    if (!globalLogStream.destroyed) {
+      globalLogStream.write(clean);
+    }
+    if (command) {
+      const stream = ensureCommandStream(command);
+      if (!stream.destroyed) {
+        stream.write(clean);
+      }
+    }
+  });
+
   const controller = concurrently(commands, {
     prefix: 'name',
     killOthersOn: ['failure', 'success'],
-    restartTries: 0
+    restartTries: 0,
+    logger
   });
 
   const { commands: spawned, result } = controller;
+
+  for (const command of spawned) {
+    command.close.subscribe(() => {
+      const stream = commandLogStreams.get(command.index);
+      if (stream && !stream.destroyed) {
+        stream.end();
+      }
+      commandLogStreams.delete(command.index);
+    });
+  }
+
+  const finalizeLogging = async () => {
+    const pending = [];
+    for (const stream of commandLogStreams.values()) {
+      if (stream && !stream.destroyed) {
+        pending.push(new Promise((resolve) => stream.end(resolve)));
+      }
+    }
+    if (!globalLogStream.destroyed) {
+      pending.push(new Promise((resolve) => globalLogStream.end(resolve)));
+    }
+    if (pending.length > 0) {
+      await Promise.allSettled(pending);
+    }
+  };
 
   const terminationTimers = new Set();
   let terminationRequested = false;
@@ -290,24 +387,30 @@ async function main() {
 
   const finalizeAndExit = (code) => {
     clearTerminationTimers();
-    process.exit(code);
+    finalizeLogging()
+      .catch((err) => {
+        console.warn('[dev-runner] Failed to finalize logs', err);
+      })
+      .finally(() => {
+        process.exit(code);
+      });
   };
 
+  let exitCode = 0;
   try {
     await result;
-    finalizeAndExit(0);
   } catch (errors) {
     if (Array.isArray(errors)) {
       const allInterrupted = errors.every((event) => event?.killed || event?.signal);
-      if (allInterrupted) {
-        finalizeAndExit(0);
+      if (!allInterrupted) {
+        const first = errors.find((event) => typeof event.exitCode === 'number');
+        exitCode = typeof first?.exitCode === 'number' ? first.exitCode : 1;
       }
-      const first = errors.find((event) => typeof event.exitCode === 'number');
-      if (first) {
-        finalizeAndExit(first.exitCode);
-      }
+    } else {
+      exitCode = 1;
     }
-    finalizeAndExit(1);
+  } finally {
+    finalizeAndExit(exitCode);
   }
 }
 

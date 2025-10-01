@@ -34,6 +34,11 @@ import {
   DatasetConcurrentUpdateError,
   type DatasetAccessAuditCursor
 } from '../db/metadata';
+import {
+  getManifestCacheSummary,
+  invalidateManifestCache,
+  invalidateManifestShard
+} from '../cache/manifestCache';
 import type { DatasetRecord, JsonObject } from '../db/metadata';
 import { runLifecycleJob, getMaintenanceMetrics } from '../lifecycle/maintenance';
 import { enqueueLifecycleJob, getLifecycleQueueHealth } from '../lifecycle/queue';
@@ -76,6 +81,10 @@ const datasetParamsSchema = z.object({
 
 const manifestQuerySchema = z.object({
   shard: z.string().min(1).optional()
+});
+
+const manifestCacheInvalidateSchema = z.object({
+  shards: z.array(z.string().min(1)).max(100).optional()
 });
 
 const datasetAuditQuerySchema = z.object({
@@ -726,6 +735,112 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get('/admin/datasets/:datasetId/manifest-cache', async (request, reply) => {
+    await authorizeAdminAccess(request as FastifyRequest);
+    const { datasetId } = datasetParamsSchema.parse(request.params);
+    const dataset = await resolveDataset(datasetId);
+    if (!dataset) {
+      reply.status(404);
+      return {
+        error: `dataset ${datasetId} not found`
+      };
+    }
+
+    const summary = await getManifestCacheSummary(dataset.slug);
+    return {
+      datasetId: dataset.id,
+      datasetSlug: dataset.slug,
+      enabled: summary.enabled,
+      indexCachedAt: summary.indexCachedAt,
+      shardCount: summary.shardCount,
+      shards: summary.shards
+    };
+  });
+
+  app.post('/admin/datasets/:datasetId/manifest-cache/invalidate', async (request, reply) => {
+    await authorizeAdminAccess(request as FastifyRequest);
+    const { datasetId } = datasetParamsSchema.parse(request.params);
+    const dataset = await resolveDataset(datasetId);
+    if (!dataset) {
+      reply.status(404);
+      return {
+        error: `dataset ${datasetId} not found`
+      };
+    }
+
+    const manifestCacheEnabled = config.query.manifestCache.enabled;
+    if (!manifestCacheEnabled) {
+      await recordDatasetAccessEvent({
+        id: `da-${randomUUID()}`,
+        datasetId: dataset.id,
+        datasetSlug: dataset.slug,
+        actorId: resolveAuditActor(request)?.id ?? null,
+        actorScopes: getRequestScopes(request),
+        action: 'admin.manifest_cache.invalidate',
+        success: false,
+        metadata: {
+          mode: 'none',
+          reason: 'manifest_cache_disabled'
+        }
+      });
+
+      return {
+        datasetId: dataset.id,
+        datasetSlug: dataset.slug,
+        enabled: false,
+        mode: 'none',
+        invalidatedShards: []
+      } as const;
+    }
+
+    const payload = manifestCacheInvalidateSchema.parse(request.body ?? {});
+    const actor = resolveAuditActor(request);
+
+    const datasetRef = { id: dataset.id, slug: dataset.slug } as const;
+    let invalidatedShards: string[] | null = null;
+    let mode: 'all' | 'partial' = 'all';
+
+    if (payload.shards && payload.shards.length > 0) {
+      const uniqueShards = Array.from(
+        new Set(
+          payload.shards
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+        )
+      );
+      mode = 'partial';
+      invalidatedShards = [];
+      for (const shard of uniqueShards) {
+        await invalidateManifestShard(datasetRef, shard);
+        invalidatedShards.push(shard);
+      }
+    } else {
+      await invalidateManifestCache(dataset.slug);
+    }
+
+    await recordDatasetAccessEvent({
+      id: `da-${randomUUID()}`,
+      datasetId: dataset.id,
+      datasetSlug: dataset.slug,
+      actorId: actor?.id ?? null,
+      actorScopes: actor?.scopes ?? getRequestScopes(request),
+      action: 'admin.manifest_cache.invalidate',
+      success: true,
+      metadata: {
+        mode,
+        shards: invalidatedShards
+      }
+    });
+
+    return {
+      datasetId: dataset.id,
+      datasetSlug: dataset.slug,
+      enabled: true,
+      mode,
+      invalidatedShards
+    };
+  });
+
   app.get('/admin/datasets/:datasetId/retention', async (request, reply) => {
     await authorizeAdminAccess(request as FastifyRequest);
     const { datasetId } = datasetParamsSchema.parse(request.params);
@@ -1095,7 +1210,7 @@ function createAuditRequestSnapshot(body: CreateDatasetRequest, metadata: JsonOb
     name: body.name,
     description: body.description ?? null,
     status: body.status ?? 'active',
-    writeFormat: body.writeFormat ?? 'duckdb',
+    writeFormat: body.writeFormat ?? 'parquet',
     defaultStorageTargetId: body.defaultStorageTargetId ?? null,
     metadata: cloneJsonObject(metadata)
   } satisfies JsonObject;
@@ -1124,7 +1239,7 @@ function datasetMatchesCreateRequest(
     dataset.name === body.name &&
     dataset.description === (body.description ?? null) &&
     dataset.status === (body.status ?? 'active') &&
-    dataset.writeFormat === (body.writeFormat ?? 'duckdb') &&
+    dataset.writeFormat === (body.writeFormat ?? 'parquet') &&
     dataset.defaultStorageTargetId === (body.defaultStorageTargetId ?? null) &&
     stableJsonStringify(dataset.metadata) === stableJsonStringify(metadata)
   );

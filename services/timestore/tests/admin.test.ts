@@ -23,6 +23,7 @@ let migrationsModule: typeof import('../src/db/migrations');
 let bootstrapModule: typeof import('../src/service/bootstrap');
 let metadataModule: typeof import('../src/db/metadata');
 let adminRoutesModule: typeof import('../src/routes/admin');
+let manifestCacheModule: typeof import('../src/cache/manifestCache');
 
 let defaultStorageTargetId: string;
 let datasetA: Awaited<ReturnType<typeof import('../src/db/metadata')['createDataset']>>;
@@ -69,6 +70,7 @@ before(async () => {
   bootstrapModule = await import('../src/service/bootstrap');
   metadataModule = await import('../src/db/metadata');
   adminRoutesModule = await import('../src/routes/admin');
+  manifestCacheModule = await import('../src/cache/manifestCache');
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrations();
@@ -149,8 +151,8 @@ async function seedDataset(slug: string) {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: defaultStorageTargetId,
-        fileFormat: 'duckdb',
-        filePath: `${slug}/2024-01-01.duckdb`,
+        fileFormat: 'parquet',
+        filePath: `${slug}/2024-01-01.parquet`,
         partitionKey: { window: '2024-01-01' },
         startTime: new Date(now.getTime() - 3_600_000),
         endTime: now,
@@ -689,6 +691,98 @@ test('fetches manifest inventory and shard lookup', async () => {
   assert.equal(shardPayload.datasetId, datasetA.id);
   assert.equal(shardPayload.manifest.manifestShard, first.manifestShard);
   assert.ok(Array.isArray(shardPayload.manifest.partitions));
+});
+
+test('inspects and invalidates manifest cache via admin API', async () => {
+  assert.ok(app);
+  const manifest = await metadataModule.getLatestPublishedManifest(datasetA.id, {});
+  assert.ok(manifest);
+  const partitions = await metadataModule.getPartitionsWithTargetsForManifest(manifest.id);
+  await manifestCacheModule.refreshManifestCache(
+    { id: datasetA.id, slug: datasetA.slug },
+    manifest,
+    partitions
+  );
+
+  const summaryResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${datasetA.id}/manifest-cache`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(summaryResponse.statusCode, 200);
+  const summaryPayload = summaryResponse.json() as {
+    enabled: boolean;
+    shardCount: number;
+    shards: Array<{ shard: string; manifestVersion: number }>;
+  };
+  assert.equal(summaryPayload.enabled, true);
+  assert.ok(summaryPayload.shardCount >= 1);
+  const shardToInvalidate = summaryPayload.shards[0]?.shard;
+  assert.ok(shardToInvalidate && shardToInvalidate.length > 0);
+
+  const invalidateResponse = await app!.inject({
+    method: 'POST',
+    url: `/admin/datasets/${datasetA.id}/manifest-cache/invalidate`,
+    headers: {
+      ...adminHeaders(),
+      'content-type': 'application/json'
+    },
+    body: {
+      shards: [shardToInvalidate]
+    }
+  });
+
+  assert.equal(invalidateResponse.statusCode, 200);
+  const invalidatePayload = invalidateResponse.json() as {
+    mode: string;
+    invalidatedShards: string[] | null;
+  };
+  assert.equal(invalidatePayload.mode, 'partial');
+  assert.deepEqual(invalidatePayload.invalidatedShards, [shardToInvalidate]);
+
+  const summaryAfterResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${datasetA.id}/manifest-cache`,
+    headers: adminHeaders()
+  });
+  assert.equal(summaryAfterResponse.statusCode, 200);
+  const summaryAfter = summaryAfterResponse.json() as { shardCount: number };
+  assert.equal(summaryAfter.shardCount, 0);
+
+  const manifestAgain = await metadataModule.getLatestPublishedManifest(datasetA.id, {});
+  assert.ok(manifestAgain);
+  const partitionsAgain = await metadataModule.getPartitionsWithTargetsForManifest(manifestAgain.id);
+  await manifestCacheModule.refreshManifestCache(
+    { id: datasetA.id, slug: datasetA.slug },
+    manifestAgain,
+    partitionsAgain
+  );
+
+  const invalidateAllResponse = await app!.inject({
+    method: 'POST',
+    url: `/admin/datasets/${datasetA.id}/manifest-cache/invalidate`,
+    headers: adminHeaders()
+  });
+  assert.equal(invalidateAllResponse.statusCode, 200);
+  const invalidateAllPayload = invalidateAllResponse.json() as {
+    mode: string;
+    invalidatedShards: string[] | null;
+  };
+  assert.equal(invalidateAllPayload.mode, 'all');
+  assert.equal(invalidateAllPayload.invalidatedShards, null);
+
+  const summaryFinalResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${datasetA.id}/manifest-cache`,
+    headers: adminHeaders()
+  });
+  assert.equal(summaryFinalResponse.statusCode, 200);
+  const summaryFinal = summaryFinalResponse.json() as { shardCount: number };
+  assert.equal(summaryFinal.shardCount, 0);
+
+  const auditLog = await metadataModule.listDatasetAccessEvents(datasetA.id, { limit: 10 });
+  assert.ok(auditLog.events.some((event) => event.action === 'admin.manifest_cache.invalidate'));
 });
 
 test('lists storage targets', async () => {

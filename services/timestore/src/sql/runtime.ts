@@ -36,6 +36,7 @@ const DEFAULT_SQL_RUNTIME_CACHE_TTL_MS = 30_000;
 const CONTEXT_SIGNATURE_SYMBOL: unique symbol = Symbol('apphub.timestore.sqlContextSignature');
 const CONTEXT_VERSION_SYMBOL: unique symbol = Symbol('apphub.timestore.sqlContextVersion');
 
+
 type VersionedSqlContext = SqlContext & {
   [CONTEXT_SIGNATURE_SYMBOL]?: string;
   [CONTEXT_VERSION_SYMBOL]?: number;
@@ -341,8 +342,8 @@ async function buildDatasetCacheState(
   let totalRows = 0;
   let totalBytes = 0;
 
-  if (dataset.writeFormat !== 'duckdb') {
-    warnings.push(`Dataset ${dataset.slug} is not backed by DuckDB partitions; skipping.`);
+  if (dataset.writeFormat !== 'parquet') {
+    warnings.push(`Dataset ${dataset.slug} uses unsupported write format ${dataset.writeFormat}; skipping.`);
   } else {
     const manifests = await listPublishedManifestsWithPartitions(dataset.id);
     const manifestForSchema = manifests.reduce<DatasetManifestWithPartitions | null>((latest, current) => {
@@ -922,7 +923,7 @@ async function initializeDuckDbDatabase(context: SqlContext): Promise<{ db: any;
     await populateRuntimeTables(connection, context.datasets);
 
     for (const dataset of context.datasets) {
-      const datasetWarnings = await attachDataset(connection, dataset);
+      const datasetWarnings = await attachDataset(connection, dataset, context.config);
       warnings.push(...datasetWarnings);
     }
 
@@ -1158,8 +1159,8 @@ async function mapPartitions(
   const results: SqlDatasetPartitionContext[] = [];
 
   for (const partition of partitions) {
-    if (partition.fileFormat !== 'duckdb') {
-      warnings.push(`Skipping non-DuckDB partition ${partition.id}.`);
+    if (partition.fileFormat !== 'parquet') {
+      warnings.push(`Skipping non-Parquet partition ${partition.id}.`);
       continue;
     }
     const storageTarget = await loadStorageTarget(partition.storageTargetId, cache, warnings);
@@ -1221,7 +1222,11 @@ async function loadStorageTarget(
   return record;
 }
 
-async function attachDataset(connection: DuckDbConnection, dataset: SqlDatasetContext): Promise<string[]> {
+async function attachDataset(
+  connection: DuckDbConnection,
+  dataset: SqlDatasetContext,
+  config: ServiceConfig
+): Promise<string[]> {
   const warnings: string[] = [];
   if (dataset.partitions.length === 0) {
     await createEmptyView(connection, dataset);
@@ -1229,21 +1234,15 @@ async function attachDataset(connection: DuckDbConnection, dataset: SqlDatasetCo
   }
 
   const selects: string[] = [];
-  let index = 0;
   for (const partition of dataset.partitions) {
-    const alias = buildPartitionAlias(dataset.dataset.slug, index);
     try {
-      await run(
-        connection,
-        `ATTACH '${escapeSqlLiteral(partition.location)}' AS ${alias}`
-      );
-      selects.push(`SELECT * FROM ${alias}.${quoteIdentifier(partition.tableName)}`);
+      const partitionSelect = buildParquetSelect(partition, dataset.columns);
+      selects.push(partitionSelect);
     } catch (error) {
       warnings.push(
         `Failed to attach partition ${partition.id} for dataset ${dataset.dataset.slug}: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-    index += 1;
   }
 
   if (selects.length === 0) {
@@ -1400,9 +1399,21 @@ function createViewName(datasetSlug: string): { viewName: string; aliasWarning: 
   return { viewName, aliasWarning };
 }
 
-function buildPartitionAlias(datasetSlug: string, index: number): string {
-  const safeSlug = datasetSlug.replace(/[^a-zA-Z0-9]+/g, '_');
-  return `ds_${safeSlug}_${index}_${randomUUID().slice(0, 6)}`;
+function buildParquetSelect(
+  partition: SqlDatasetPartitionContext,
+  columns: SqlSchemaColumnInfo[]
+): string {
+  const escapedPath = partition.location.replace(/'/g, "''");
+  const source = `read_parquet('${escapedPath}')`;
+  if (columns.length === 0) {
+    return `SELECT * FROM ${source}`;
+  }
+
+  const projections = columns
+    .map((column) => quoteIdentifier(column.name))
+    .join(', ');
+
+  return `SELECT ${projections} FROM ${source}`;
 }
 
 function sanitizeIdentifierSegment(segment: string): string {

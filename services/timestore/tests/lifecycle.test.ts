@@ -360,7 +360,7 @@ async function seedDatasetWithPartitions(
     partitionInputs.push({
       id: partitionId,
       storageTargetId: storageTarget.id,
-      fileFormat: 'duckdb',
+      fileFormat: 'parquet',
       filePath: writeResult.relativePath,
       partitionKey: definition.key,
       startTime: new Date(definition.start),

@@ -204,7 +204,7 @@ class LocalStorageDriver implements StorageDriver {
 
     const rows = request.rows;
 
-    await writeDuckDbFile(absolutePath, request.tableName, request.schema, rows);
+    await writeParquetFile(absolutePath, request.tableName, request.schema, rows);
     const stats = await fs.stat(absolutePath);
     const checksum = await computeFileChecksum(absolutePath);
     return {
@@ -291,18 +291,19 @@ class S3StorageDriver implements StorageDriver {
     }
 
     const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-s3-'));
-    const tempFile = path.join(tempDir, `${request.partitionId}.duckdb`);
+    const tempFile = path.join(tempDir, `${request.partitionId}.parquet`);
     try {
-      await writeDuckDbFile(tempFile, request.tableName, request.schema, request.rows);
-      const fileBuffer = await fs.readFile(tempFile);
+      await writeParquetFile(tempFile, request.tableName, request.schema, request.rows);
       const { PutObjectCommand } = loadAwsS3Dependencies();
+      const stream = createReadStream(tempFile);
       await this.client.send(
         new PutObjectCommand({
           Bucket: this.options.bucket,
           Key: relativePath,
-          Body: fileBuffer
+          Body: stream
         })
       );
+      const fileBuffer = await fs.readFile(tempFile);
       const checksum = createHash('sha1').update(fileBuffer).digest('hex');
       return {
         relativePath,
@@ -368,9 +369,9 @@ export class GcsStorageDriver implements StorageDriver {
     }
 
     const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-gcs-'));
-    const tempFile = path.join(tempDir, `${request.partitionId}.duckdb`);
+    const tempFile = path.join(tempDir, `${request.partitionId}.parquet`);
     try {
-      await writeDuckDbFile(tempFile, request.tableName, request.schema, request.rows);
+      await writeParquetFile(tempFile, request.tableName, request.schema, request.rows);
       const fileBuffer = await fs.readFile(tempFile);
       await object.save(fileBuffer, {
         resumable: false,
@@ -433,9 +434,9 @@ export class AzureBlobStorageDriver implements StorageDriver {
     }
 
     const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-azure-'));
-    const tempFile = path.join(tempDir, `${request.partitionId}.duckdb`);
+    const tempFile = path.join(tempDir, `${request.partitionId}.parquet`);
     try {
-      await writeDuckDbFile(tempFile, request.tableName, request.schema, request.rows);
+      await writeParquetFile(tempFile, request.tableName, request.schema, request.rows);
       const fileBuffer = await fs.readFile(tempFile);
       await blobClient.uploadData(fileBuffer, {
         blobHTTPHeaders: {
@@ -468,7 +469,7 @@ function buildPartitionRelativePath(
   const segments = Object.entries(partitionKey)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${sanitizeSegment(key)}=${sanitizeSegment(value)}`);
-  const fileName = `${partitionId}.duckdb`;
+  const fileName = `${partitionId}.parquet`;
   const posixPath = path.posix;
   return posixPath.join(safeDataset, ...segments, fileName);
 }
@@ -590,7 +591,7 @@ export async function deletePartitionFile(
   throw new Error(`Unsupported storage target kind for deletion: ${target.kind}`);
 }
 
-async function writeDuckDbFile(
+async function writeParquetFile(
   filePath: string,
   tableName: string,
   schema: FieldDefinition[],
@@ -598,7 +599,7 @@ async function writeDuckDbFile(
 ): Promise<void> {
   await fs.rm(filePath, { force: true });
   const duckdb = loadDuckDb();
-  const db = new duckdb.Database(filePath);
+  const db = new duckdb.Database(':memory:');
   const connection = db.connect();
 
   try {
@@ -606,9 +607,10 @@ async function writeDuckDbFile(
     const columnDefinitions = schema
       .map((field) => `${quoteIdentifier(field.name)} ${mapDuckDbType(field.type)}`)
       .join(', ');
-    await run(connection, `CREATE TABLE IF NOT EXISTS ${safeTableName} (${columnDefinitions})`);
+    await run(connection, `CREATE TABLE ${safeTableName} (${columnDefinitions})`);
 
     if (rows.length === 0) {
+      await run(connection, `COPY ${safeTableName} TO '${filePath.replace(/'/g, "''")}' (FORMAT PARQUET)`);
       return;
     }
 
@@ -622,6 +624,8 @@ async function writeDuckDbFile(
       );
       await run(connection, insertSql, ...values);
     }
+
+    await run(connection, `COPY ${safeTableName} TO '${filePath.replace(/'/g, "''")}' (FORMAT PARQUET)`);
   } finally {
     await closeConnection(connection);
     if (isCloseable(db)) {

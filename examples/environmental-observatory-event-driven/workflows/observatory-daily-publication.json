@@ -328,7 +328,7 @@
             }
           ],
           "parameterTemplate": {
-            "partitionKey": "{{ event.payload.partitionKey }}",
+            "partitionKey": "{{ event.payload.partitionKeyFields.window | default: event.payload.minute | default: event.payload.partitionKey }}",
             "instrumentId": "{{ event.payload.instrumentId | default: 'unknown' }}",
             "minute": "{{ event.payload.minute }}",
             "rowsIngested": "{{ event.payload.rowsIngested }}",

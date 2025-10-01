@@ -212,23 +212,22 @@ test('ingests filestore activity rows into timestore dataset', async () => {
   const rows: any[] = [];
 
   for (const record of partitions) {
-    const duckdbPath = path.join(storageRoot!, record.file_path.split('/').join(path.sep));
-    const fileStats = await stat(duckdbPath);
+    const parquetPath = path.join(storageRoot!, record.file_path.split('/').join(path.sep));
+    const fileStats = await stat(parquetPath);
     assert.ok(fileStats.size > 0);
 
-    const db = new duckdb.Database(duckdbPath);
+    const db = new duckdb.Database(':memory:');
     const connection = db.connect();
     const fileRows = await new Promise<any[]>((resolve, reject) => {
-      connection.all(
-        `SELECT * FROM ${config.filestore.tableName} ORDER BY observed_at ASC`,
-        (err: Error | null, result?: any[]) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve(result ?? []);
+      const escapedPath = parquetPath.replace(/'/g, "''");
+      const sql = `SELECT * FROM read_parquet('${escapedPath}') ORDER BY observed_at ASC`;
+      connection.all(sql, (err: Error | null, result?: any[]) => {
+        if (err) {
+          reject(err);
+          return;
         }
-      );
+        resolve(result ?? []);
+      });
     });
     connection.close();
     db.close();

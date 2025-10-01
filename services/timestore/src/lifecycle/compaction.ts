@@ -446,7 +446,7 @@ function buildCompactionGroups(
   }
 ): CompactionGroup[] {
   const sorted = [...partitions]
-    .filter((partition) => partition.fileFormat === 'duckdb')
+    .filter((partition) => partition.fileFormat === 'parquet')
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
   const groups: CompactionGroup[] = [];
@@ -641,7 +641,7 @@ async function processChunk(params: {
       replacementPartitionInputs.push({
         id: group.summary.replacementPartitionId,
         storageTargetId: storageTarget.id,
-        fileFormat: 'duckdb',
+        fileFormat: 'parquet',
         filePath: writeResult.relativePath,
         partitionKey,
         startTime: artifact.startTime,
@@ -823,8 +823,8 @@ async function materializeGroupPartition(
 ): Promise<CompactedPartitionArtifact> {
   const duckdb = loadDuckDb();
   const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-compaction-'));
-  const tempFile = path.join(tempDir, `${group.summary.replacementPartitionId}.duckdb`);
-  const db = new duckdb.Database(tempFile);
+  const tempFile = path.join(tempDir, `${group.summary.replacementPartitionId}.parquet`);
+  const db = new duckdb.Database(':memory:');
   const connection = db.connect();
 
   try {
@@ -835,34 +835,17 @@ async function materializeGroupPartition(
       .join(', ');
     await run(connection, `CREATE TABLE ${safeTableName} (${columnDefinitions})`);
 
-    for (let index = 0; index < group.partitions.length; index += 1) {
-      const partition = group.partitions[index];
-      const alias = `src${index}`;
+    for (const partition of group.partitions) {
       const location = resolvePartitionLocation(partition, partition.storageTarget, config);
       const escapedLocation = location.replace(/'/g, "''");
-      await run(connection, `ATTACH '${escapedLocation}' AS ${alias}`);
-      const tableColumns = await all(
-        connection,
-        `PRAGMA table_info('${alias}.${group.summary.tableName}')`
-      );
-      const availableColumns = new Set(
-        tableColumns.map((row) => (typeof row.name === 'string' ? row.name : String(row.name)))
-      );
       const columnList = schemaFields.map((field) => quoteIdentifier(field.name)).join(', ');
       const selectExpressions = schemaFields
-        .map((field) => {
-          const quoted = quoteIdentifier(field.name);
-          if (availableColumns.has(field.name)) {
-            return quoted;
-          }
-          return `CAST(NULL AS ${mapDuckDbType(field.type)}) AS ${quoted}`;
-        })
+        .map((field) => quoteIdentifier(field.name))
         .join(', ');
       await run(
         connection,
-        `INSERT INTO ${safeTableName} (${columnList}) SELECT ${selectExpressions} FROM ${alias}.${quoteIdentifier(group.summary.tableName)}`
+        `INSERT INTO ${safeTableName} (${columnList}) SELECT ${selectExpressions} FROM read_parquet('${escapedLocation}')`
       );
-      await run(connection, `DETACH ${alias}`);
     }
 
     const rowCountResult = await all(connection, `SELECT COUNT(*)::BIGINT AS count FROM ${safeTableName}`);
@@ -880,6 +863,8 @@ async function materializeGroupPartition(
       schemaFields,
       config.partitionIndex
     );
+
+    await run(connection, `COPY ${safeTableName} TO '${tempFile.replace(/'/g, "''")}' (FORMAT PARQUET)`);
 
     await closeConnection(connection);
     if (isCloseable(db)) {

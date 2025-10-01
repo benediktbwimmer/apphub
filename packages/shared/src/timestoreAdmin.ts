@@ -37,7 +37,7 @@ export const datasetRecordSchema = z.object({
   name: z.string().min(1),
   description: z.string().nullable(),
   status: datasetStatusSchema,
-  writeFormat: z.enum(['duckdb', 'parquet']),
+  writeFormat: z.literal('parquet'),
   defaultStorageTargetId: z.string().nullable(),
   metadata: datasetMetadataSchema,
   createdAt: z.string().min(1),
@@ -53,7 +53,7 @@ export const createDatasetRequestSchema = z.object({
   name: z.string().min(1).max(160),
   description: z.string().max(1000).nullable().optional(),
   status: datasetStatusSchema.optional(),
-  writeFormat: z.enum(['duckdb', 'parquet']).optional(),
+  writeFormat: z.literal('parquet').optional(),
   defaultStorageTargetId: z.string().min(1).nullable().optional(),
   metadata: datasetMetadataSchema.optional(),
   idempotencyKey: z.string().min(4).max(100).optional()

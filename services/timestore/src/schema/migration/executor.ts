@@ -519,18 +519,15 @@ async function validatePartitionTransform(
   const duckdb = loadDuckDb();
   const db = new duckdb.Database(':memory:');
   const connection = db.connect();
-  const alias = 'src';
   const tableName = extractTableName(partition);
   const escapedLocation = resolvePartitionLocation(partition, partition.storageTarget, config).replace(/'/g, "''");
   try {
-    await run(connection, `ATTACH '${escapedLocation}' AS ${alias}`);
-    await run(connection, `CREATE TEMP VIEW source_data AS SELECT * FROM ${alias}.${quoteIdentifier(tableName)}`);
+    await run(connection, `CREATE TEMP VIEW source_data AS SELECT * FROM read_parquet('${escapedLocation}')`);
     const selectList = buildSelectList(context.projections);
     await all(connection, `SELECT ${selectList} FROM source_data LIMIT 5`);
     await all(connection, 'SELECT COUNT(*) FROM source_data');
   } finally {
     await run(connection, 'DROP VIEW IF EXISTS source_data').catch(() => undefined);
-    await run(connection, `DETACH ${alias}`).catch(() => undefined);
     await closeConnection(connection);
     if (isCloseable(db)) {
       db.close();
@@ -545,10 +542,9 @@ async function materializePartition(
 ): Promise<{ partitionInput: PartitionInput; archiveArtifacts: ArchiveArtifact[] }> {
   const duckdb = loadDuckDb();
   const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-schema-migration-'));
-  const tempFile = path.join(tempDir, `${partition.id}-migrated.duckdb`);
-  const db = new duckdb.Database(tempFile);
+  const tempFile = path.join(tempDir, `${partition.id}-migrated.parquet`);
+  const db = new duckdb.Database(':memory:');
   const connection = db.connect();
-  const alias = 'src';
   const tableName = extractTableName(partition);
   const escapedLocation = resolvePartitionLocation(partition, partition.storageTarget, config).replace(/'/g, "''");
   const archiveArtifacts: ArchiveArtifact[] = [];
@@ -559,8 +555,7 @@ async function materializePartition(
       .map((projection) => `${quoteIdentifier(projection.target.name)} ${mapDuckType(projection.target.type)}`)
       .join(', ');
     await run(connection, `CREATE TABLE ${safeTableName} (${columnDefinitions})`);
-    await run(connection, `ATTACH '${escapedLocation}' AS ${alias}`);
-    await run(connection, `CREATE VIEW source_data AS SELECT * FROM ${alias}.${quoteIdentifier(tableName)}`);
+    await run(connection, `CREATE VIEW source_data AS SELECT * FROM read_parquet('${escapedLocation}')`);
 
     const selectList = buildSelectList(context.projections);
     await run(connection, `INSERT INTO ${safeTableName} SELECT ${selectList} FROM source_data`);
@@ -631,7 +626,7 @@ async function materializePartition(
     }
 
     await run(connection, 'DROP VIEW IF EXISTS source_data');
-    await run(connection, `DETACH ${alias}`);
+    await run(connection, `COPY ${safeTableName} TO '${tempFile.replace(/'/g, "''")}' (FORMAT PARQUET)`);
     await closeConnection(connection);
     if (isCloseable(db)) {
       db.close();
@@ -653,7 +648,7 @@ async function materializePartition(
     const partitionInput: PartitionInput = {
       id: newPartitionId,
       storageTargetId: partition.storageTarget.id,
-      fileFormat: partition.fileFormat,
+      fileFormat: 'parquet',
       filePath: writeResult.relativePath,
       partitionKey: normalizedKey,
       startTime,

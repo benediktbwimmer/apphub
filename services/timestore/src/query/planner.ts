@@ -36,6 +36,7 @@ export interface QueryPlanPartition {
   startTime: Date;
   endTime: Date;
   storageTarget: StorageTargetRecord;
+  fileSizeBytes: number | null;
 }
 
 export interface DownsampleAggregationPlan {
@@ -232,7 +233,8 @@ function buildPlanPartition(
     location,
     startTime: new Date(partition.startTime),
     endTime: new Date(partition.endTime),
-    storageTarget: partition.storageTarget
+    storageTarget: partition.storageTarget,
+    fileSizeBytes: partition.fileSizeBytes ?? null
   } satisfies QueryPlanPartition;
 }
 

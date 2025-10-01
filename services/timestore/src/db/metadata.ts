@@ -13,9 +13,9 @@ import type {
 import { withConnection, withTransaction } from './client';
 
 export type StorageTargetKind = 'local' | 's3' | 'gcs' | 'azure_blob';
-export type FileFormat = 'duckdb' | 'parquet';
+export type FileFormat = 'parquet';
 export type DatasetStatus = 'active' | 'inactive';
-export type WriteFormat = 'duckdb' | 'parquet';
+export type WriteFormat = 'parquet';
 export type ManifestStatus = 'draft' | 'published' | 'superseded';
 
 export type JsonObject = Record<string, unknown>;
@@ -371,7 +371,7 @@ export async function createDataset(input: CreateDatasetInput): Promise<DatasetR
         input.name,
         input.description ?? null,
         input.status ?? 'active',
-        input.writeFormat ?? 'duckdb',
+        input.writeFormat ?? 'parquet',
         input.defaultStorageTargetId ?? null,
         JSON.stringify(input.metadata ?? {})
       ]
