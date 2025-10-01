@@ -10,7 +10,7 @@
       "JsonValue": {
         "description": "Arbitrary JSON value.",
         "nullable": true,
-        "oneOf": [
+        "anyOf": [
           {
             "type": "string"
           },
@@ -25,15 +25,11 @@
           },
           {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/def-0"
-            }
+            "items": {}
           },
           {
             "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/def-0"
-            }
+            "additionalProperties": true
           }
         ]
       },
@@ -62,7 +58,7 @@
           "details": {
             "description": "Arbitrary JSON value.",
             "nullable": true,
-            "oneOf": [
+            "anyOf": [
               {
                 "type": "string"
               },
@@ -77,15 +73,11 @@
               },
               {
                 "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
+                "items": {}
               },
               {
                 "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
+                "additionalProperties": true
               }
             ]
           }
@@ -115,7 +107,7 @@
               "details": {
                 "description": "Arbitrary JSON value.",
                 "nullable": true,
-                "oneOf": [
+                "anyOf": [
                   {
                     "type": "string"
                   },
@@ -130,15 +122,11 @@
                   },
                   {
                     "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "items": {}
                   },
                   {
                     "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "additionalProperties": true
                   }
                 ]
               }
@@ -6143,7 +6131,7 @@
         "anyOf": [
           {
             "description": "Arbitrary JSON value.",
-            "oneOf": [
+            "anyOf": [
               {
                 "type": "string"
               },
@@ -6158,15 +6146,11 @@
               },
               {
                 "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
+                "items": {}
               },
               {
                 "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
+                "additionalProperties": true
               }
             ]
           },
@@ -6203,7 +6187,7 @@
             "anyOf": [
               {
                 "description": "Arbitrary JSON value.",
-                "oneOf": [
+                "anyOf": [
                   {
                     "type": "string"
                   },
@@ -6218,15 +6202,11 @@
                   },
                   {
                     "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "items": {}
                   },
                   {
                     "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "additionalProperties": true
                   }
                 ]
               },
@@ -6263,7 +6243,7 @@
                 "anyOf": [
                   {
                     "description": "Arbitrary JSON value.",
-                    "oneOf": [
+                    "anyOf": [
                       {
                         "type": "string"
                       },
@@ -6278,15 +6258,11 @@
                       },
                       {
                         "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
+                        "items": {}
                       },
                       {
                         "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
+                        "additionalProperties": true
                       }
                     ]
                   },

@@ -31,7 +31,8 @@ import {
   STATUS_META,
   TAG_BADGE,
   TAG_BADGE_STRONG,
-  TEXTAREA
+  TEXTAREA,
+  SECTION_LABEL,
 } from '../importTokens';
 
 const segmentedButtonClass = (active: boolean) =>

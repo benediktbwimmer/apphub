@@ -93,7 +93,7 @@ const SEVERITY_BADGE_CLASSES: Record<string, string> = {
 const CONNECTION_BADGE_CLASSES: Record<AppHubConnectionStatus, string> = {
   connected: 'bg-status-success-soft text-status-success',
   connecting: 'bg-status-warning-soft text-status-warning',
-  offline: 'bg-status-danger-soft text-status-danger'
+  disconnected: 'bg-status-danger-soft text-status-danger'
 };
 
 function formatDateTime(value: string): string {

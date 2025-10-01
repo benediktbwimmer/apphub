@@ -39416,15 +39416,6 @@
           "Workflows"
         ],
         "description": "Creates a workflow by composing job and service steps. Requires the workflows:write operator scope.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/def-64"
-              }
-            }
-          }
-        },
         "security": [
           {
             "OperatorToken": []
@@ -39488,6 +39479,16 @@
                 "schema": {
                   "$ref": "#/components/schemas/def-89"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "https://core.apphub/schemas/WorkflowDefinitionCreateRequest.json"
               }
             }
           }

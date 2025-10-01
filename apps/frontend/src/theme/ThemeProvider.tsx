@@ -109,15 +109,19 @@ function sanitizeThemeDefinition(input: unknown): ThemeDefinition | null {
     return null;
   }
 
+  let resolvedScale: number;
   if (candidate.scale === undefined) {
-    candidate.scale = DEFAULT_THEME_SCALE;
+    resolvedScale = DEFAULT_THEME_SCALE;
   } else if (typeof candidate.scale !== 'number' || !Number.isFinite(candidate.scale)) {
     return null;
   } else {
-    candidate.scale = clampThemeScale(candidate.scale);
+    resolvedScale = clampThemeScale(candidate.scale);
   }
 
-  return deepFreeze(candidate as ThemeDefinition);
+  return deepFreeze({
+    ...candidate,
+    scale: resolvedScale
+  } as ThemeDefinition);
 }
 
 function readStoredCustomThemes(storageKey: string): ThemeDefinition[] {

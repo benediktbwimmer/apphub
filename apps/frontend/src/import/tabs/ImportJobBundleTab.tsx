@@ -22,6 +22,7 @@ import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
 import {
   BODY_TEXT,
   CARD_SECTION,
+  CARD_SURFACE_ACTIVE,
   HEADING_SECONDARY,
   INPUT,
   LINK_ACCENT,
@@ -32,7 +33,8 @@ import {
   SEGMENTED_BUTTON_INACTIVE,
   STATUS_BADGE_INFO,
   STATUS_MESSAGE,
-  TEXTAREA
+  TEXTAREA,
+  SECTION_LABEL,
 } from '../importTokens';
 
 const segmentedButtonClass = (active: boolean): string =>

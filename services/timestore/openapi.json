@@ -1290,8 +1290,7 @@
             "type": "string",
             "enum": [
               "string"
-            ],
-            "default": "string"
+            ]
           },
           "eq": {
             "type": "string",
@@ -1453,8 +1452,7 @@
                       "type": "string",
                       "enum": [
                         "string"
-                      ],
-                      "default": "string"
+                      ]
                     },
                     "eq": {
                       "type": "string",
@@ -1592,8 +1590,7 @@
                       "type": "string",
                       "enum": [
                         "string"
-                      ],
-                      "default": "string"
+                      ]
                     },
                     "eq": {
                       "type": "string",
@@ -2032,8 +2029,7 @@
                           "type": "string",
                           "enum": [
                             "string"
-                          ],
-                          "default": "string"
+                          ]
                         },
                         "eq": {
                           "type": "string",
@@ -2171,8 +2167,7 @@
                           "type": "string",
                           "enum": [
                             "string"
-                          ],
-                          "default": "string"
+                          ]
                         },
                         "eq": {
                           "type": "string",
@@ -4469,8 +4464,7 @@
             "type": "string",
             "enum": [
               "string"
-            ],
-            "default": "string"
+            ]
           },
           "eq": {
             "type": [
@@ -4672,8 +4666,7 @@
                       "type": "string",
                       "enum": [
                         "string"
-                      ],
-                      "default": "string"
+                      ]
                     },
                     "eq": {
                       "type": [
@@ -4841,8 +4834,7 @@
                       "type": "string",
                       "enum": [
                         "string"
-                      ],
-                      "default": "string"
+                      ]
                     },
                     "eq": {
                       "type": [
@@ -5343,8 +5335,7 @@
                           "type": "string",
                           "enum": [
                             "string"
-                          ],
-                          "default": "string"
+                          ]
                         },
                         "eq": {
                           "type": [
@@ -5512,8 +5503,7 @@
                           "type": "string",
                           "enum": [
                             "string"
-                          ],
-                          "default": "string"
+                          ]
                         },
                         "eq": {
                           "type": [

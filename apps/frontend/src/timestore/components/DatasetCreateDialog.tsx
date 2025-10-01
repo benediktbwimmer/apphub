@@ -27,7 +27,7 @@ type CreateFormFields = {
   slug: string;
   name: string;
   description: string;
-  writeFormat: 'duckdb' | 'parquet';
+  writeFormat: 'parquet';
   status: DatasetStatus;
   defaultStorageTargetId: string;
   readScopes: string;
@@ -42,7 +42,7 @@ const DEFAULT_FIELDS: CreateFormFields = {
   slug: '',
   name: '',
   description: '',
-  writeFormat: 'duckdb',
+  writeFormat: 'parquet',
   status: 'active',
   defaultStorageTargetId: '',
   readScopes: '',
@@ -241,7 +241,6 @@ export function DatasetCreateDialog({ open, onClose, onCreate, busy = false }: D
               disabled={isBusy}
               className={INPUT}
             >
-              <option value="duckdb">DuckDB</option>
               <option value="parquet">Parquet</option>
             </select>
           </label>

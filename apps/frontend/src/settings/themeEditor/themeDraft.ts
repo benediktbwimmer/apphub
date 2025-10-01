@@ -9,11 +9,13 @@ import type {
   ThemeScheme
 } from '@apphub/shared/designTokens';
 
-type Mutable<T> = T extends (...args: any) => any
+type AnyFunction = (...args: unknown[]) => unknown;
+
+type Mutable<T> = T extends AnyFunction
   ? T
   : T extends ReadonlyArray<infer U>
     ? Mutable<U>[]
-    : T extends object
+    : T extends Record<string, unknown>
       ? { -readonly [P in keyof T]: Mutable<T[P]> }
       : T;
 
