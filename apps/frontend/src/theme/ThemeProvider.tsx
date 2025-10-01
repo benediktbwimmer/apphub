@@ -9,6 +9,8 @@ import {
   type ReactNode
 } from 'react';
 import {
+  DEFAULT_THEME_SCALE,
+  clampThemeScale,
   defaultThemeRegistry,
   type ThemeDefinition,
   type ThemeRegistry
@@ -107,6 +109,14 @@ function sanitizeThemeDefinition(input: unknown): ThemeDefinition | null {
     return null;
   }
 
+  if (candidate.scale === undefined) {
+    candidate.scale = DEFAULT_THEME_SCALE;
+  } else if (typeof candidate.scale !== 'number' || !Number.isFinite(candidate.scale)) {
+    return null;
+  } else {
+    candidate.scale = clampThemeScale(candidate.scale);
+  }
+
   return deepFreeze(candidate as ThemeDefinition);
 }
 
@@ -172,6 +182,7 @@ interface ThemeContextValue {
   readonly theme: ThemeDefinition;
   readonly themeId: ThemeDefinition['id'];
   readonly scheme: ThemeDefinition['scheme'];
+  readonly scale: number;
   readonly customThemes: readonly ThemeDefinition[];
   readonly saveCustomTheme: (theme: ThemeDefinition) => void;
   readonly deleteCustomTheme: (themeId: ThemeDefinition['id']) => void;
@@ -302,7 +313,8 @@ function applyThemeVariables(theme: ThemeDefinition): void {
   setVar('--theme-id', JSON.stringify(theme.id));
   setVar('--theme-label', JSON.stringify(theme.label));
 
-  const { typography, spacing, radius, shadow, semantics } = theme;
+  const { typography, spacing, radius, shadow, semantics, scale } = theme;
+  const resolvedScale = clampThemeScale(scale);
 
   for (const [token, value] of Object.entries(typography.fontFamily)) {
     setVar(`--font-family-${toKebabCase(token)}`, value);
@@ -341,6 +353,8 @@ function applyThemeVariables(theme: ThemeDefinition): void {
       setVar(`--color-${toKebabCase(group)}-${toKebabCase(token)}`, value);
     }
   }
+
+  setVar('--theme-scale', resolvedScale);
 }
 
 export function ThemeProvider({
@@ -498,6 +512,7 @@ export function ThemeProvider({
       theme: activeTheme,
       themeId: activeTheme.id,
       scheme: activeTheme.scheme,
+      scale: activeTheme.scale,
       customThemes,
       saveCustomTheme,
       deleteCustomTheme

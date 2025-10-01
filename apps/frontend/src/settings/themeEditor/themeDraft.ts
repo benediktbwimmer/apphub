@@ -1,3 +1,9 @@
+import {
+  DEFAULT_THEME_SCALE,
+  MAX_THEME_SCALE,
+  MIN_THEME_SCALE,
+  clampThemeScale
+} from '@apphub/shared/designTokens';
 import type {
   ThemeDefinition,
   ThemeScheme
@@ -28,6 +34,7 @@ export interface ThemeDraft {
   readonly label: string;
   readonly description: string;
   readonly scheme: ThemeScheme;
+  readonly scale: number;
   readonly semantics: ThemeDraftSemantics;
   readonly typography: ThemeDraftTypography;
   readonly spacing: ThemeDraftSpacing;
@@ -82,6 +89,7 @@ export function createThemeDraft(theme: ThemeDefinition): ThemeDraft {
     label: theme.label,
     description: theme.description ?? '',
     scheme: theme.scheme,
+    scale: theme.scale ?? DEFAULT_THEME_SCALE,
     semantics: clone(theme.semantics),
     typography: clone(theme.typography),
     spacing: clone(theme.spacing),
@@ -120,6 +128,7 @@ export function draftToThemeDefinition(draft: ThemeDraft): ThemeDefinition {
     label: draft.label.trim(),
     description: draft.description.trim() || undefined,
     scheme: draft.scheme,
+    scale: clampThemeScale(draft.scale),
     semantics: clone(draft.semantics),
     typography: clone(draft.typography),
     spacing: clone(draft.spacing),
@@ -157,6 +166,15 @@ export function validateThemeDraft(
 
   if (draft.label.trim().length === 0) {
     errors.push({ path: 'label', message: 'Theme label is required.' });
+  }
+
+  if (!Number.isFinite(draft.scale)) {
+    errors.push({ path: 'scale', message: 'Provide a numeric scale.' });
+  } else if (draft.scale < MIN_THEME_SCALE || draft.scale > MAX_THEME_SCALE) {
+    errors.push({
+      path: 'scale',
+      message: `Scale must stay between ${MIN_THEME_SCALE} and ${MAX_THEME_SCALE}.`
+    });
   }
 
   Object.entries(draft.semantics).forEach(([sectionKey, tokens]) => {

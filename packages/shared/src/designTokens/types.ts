@@ -130,6 +130,7 @@ export interface ThemeDefinition {
   readonly spacing: SpacingScale;
   readonly radius: RadiusScale;
   readonly shadow: ShadowScale;
+  readonly scale: number;
   readonly metadata?: ThemeMetadata;
 }
 

@@ -98,6 +98,7 @@ function createThemeBlock(theme: ThemeDefinition, includeRootFallback: boolean):
   lines.push(`  color-scheme: ${theme.scheme};`);
   lines.push(`  --theme-id: "${theme.id}";`);
   lines.push(`  --theme-label: "${theme.label}";`);
+  lines.push(`  --theme-scale: ${theme.scale};`);
 
   for (const [token, value] of Object.entries(theme.typography.fontFamily)) {
     lines.push(`  --font-family-${toKebabCase(token)}: ${value};`);

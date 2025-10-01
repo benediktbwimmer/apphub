@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { clampThemeScale } from '@apphub/shared/designTokens';
 import type { ThemeDefinition, ThemeScheme } from '@apphub/shared/designTokens';
 import {
   createThemeDraft,
@@ -39,6 +40,7 @@ export interface ThemeDraftController {
   readonly setMetadataAuthor: (author: string) => void;
   readonly setMetadataVersion: (version: string) => void;
   readonly setMetadataTags: (tags: string) => void;
+  readonly setScale: (scale: number) => void;
   readonly updateSemantic: (section: SemanticSectionKey, token: string, value: string) => void;
   readonly updateTypography: (section: TypographySectionKey, token: string, value: string) => void;
   readonly updateSpacing: (token: string, value: string) => void;
@@ -118,6 +120,14 @@ export function useThemeDraft(
         ...current.metadata,
         tags
       }
+    }));
+  }, []);
+
+  const setScale = useCallback((scale: number) => {
+    const normalized = clampThemeScale(scale);
+    setDraft((current) => ({
+      ...current,
+      scale: normalized
     }));
   }, []);
 
@@ -208,6 +218,7 @@ export function useThemeDraft(
     setMetadataAuthor,
     setMetadataVersion,
     setMetadataTags,
+    setScale,
     updateSemantic,
     updateTypography,
     updateSpacing,

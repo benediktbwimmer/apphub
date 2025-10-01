@@ -37,6 +37,9 @@ describe('ThemeProvider', () => {
     await waitFor(() => {
       expect(document.documentElement.getAttribute('data-theme')).toBe('apphub-light');
     });
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--theme-scale')).toBe('1');
+    });
     expect(document.documentElement.classList.contains('theme-apphub-light')).toBe(true);
     expect(screen.getByTestId('theme-id')).toHaveTextContent('apphub-light');
     expect(screen.getByTestId('theme-preference')).toHaveTextContent('system');
@@ -53,6 +56,9 @@ describe('ThemeProvider', () => {
 
     await waitFor(() => {
       expect(document.documentElement.getAttribute('data-theme')).toBe('apphub-dark');
+    });
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--theme-scale')).toBe('1');
     });
 
     expect(window.localStorage.getItem('apphub.theme-preference')).toBe('apphub-dark');

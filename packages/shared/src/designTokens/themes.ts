@@ -1,5 +1,6 @@
 import { foundation } from './foundation';
 import { deepFreeze, mergeThemeObject } from './utils';
+import { clampThemeScale } from './scale';
 import type { CreateThemeOptions, ThemeDefinition, ThemeRegistry, ThemeOverride } from './types';
 
 const { palette, typography, spacing, radius, shadow } = foundation;
@@ -120,6 +121,7 @@ const lightTheme: ThemeDefinition = deepFreeze({
   spacing,
   radius,
   shadow,
+  scale: 1,
   metadata: {
     source: 'system',
     version: '1.0.0',
@@ -137,6 +139,7 @@ const darkTheme: ThemeDefinition = deepFreeze({
   spacing,
   radius,
   shadow,
+  scale: 1,
   metadata: {
     source: 'system',
     version: '1.0.0',
@@ -386,6 +389,7 @@ export function createTheme(options: CreateThemeOptions): ThemeDefinition {
   const themeSpacing = mergeThemeObject(base.spacing, overrides?.spacing);
   const themeRadius = mergeThemeObject(base.radius, overrides?.radius);
   const themeShadow = mergeThemeObject(base.shadow, overrides?.shadow);
+  const themeScale = clampThemeScale(overrides?.scale ?? base.scale);
 
   const metadata =
     base.metadata || overrides?.metadata
@@ -402,6 +406,7 @@ export function createTheme(options: CreateThemeOptions): ThemeDefinition {
     spacing: themeSpacing,
     radius: themeRadius,
     shadow: themeShadow,
+    scale: themeScale,
     metadata
   };
 

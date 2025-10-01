@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { MAX_THEME_SCALE, MIN_THEME_SCALE } from '@apphub/shared/designTokens';
 import type { ThemeDefinition } from '@apphub/shared/designTokens';
 import type { ThemePreference } from '../theme';
 import {
@@ -57,6 +58,7 @@ export default function ThemeCustomizationPanel({
     setMetadataAuthor,
     setMetadataVersion,
     setMetadataTags,
+    setScale,
     updateSemantic,
     updateTypography,
     updateSpacing,
@@ -208,6 +210,7 @@ export default function ThemeCustomizationPanel({
         onLabelChange={setLabel}
         onDescriptionChange={setDescription}
         onSchemeChange={setScheme}
+        onScaleChange={setScale}
         onAuthorChange={setMetadataAuthor}
         onVersionChange={setMetadataVersion}
         onTagsChange={(value) => {
@@ -249,6 +252,7 @@ interface GeneralSectionProps {
   readonly onLabelChange: (label: string) => void;
   readonly onDescriptionChange: (description: string) => void;
   readonly onSchemeChange: (scheme: ThemeDraft['scheme']) => void;
+  readonly onScaleChange: (scale: number) => void;
   readonly onAuthorChange: (author: string) => void;
   readonly onVersionChange: (version: string) => void;
   readonly onTagsChange: (tags: string) => void;
@@ -262,12 +266,14 @@ function GeneralSection({
   onLabelChange,
   onDescriptionChange,
   onSchemeChange,
+  onScaleChange,
   onAuthorChange,
   onVersionChange,
   onTagsChange
 }: GeneralSectionProps) {
   const idError = errorMap.get('id');
   const labelError = errorMap.get('label');
+  const scaleError = errorMap.get('scale');
 
   return (
     <section className="rounded-2xl border border-[var(--color-border-subtle,#e2e8f0)] bg-[var(--color-surface-raised,#ffffff)] p-5 shadow-sm">
@@ -314,6 +320,25 @@ function GeneralSection({
               Dark
             </label>
           </div>
+        </LabeledField>
+        <LabeledField label="Scale" error={scaleError ?? undefined}>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={MIN_THEME_SCALE}
+              max={MAX_THEME_SCALE}
+              step={0.05}
+              value={draft.scale}
+              onChange={(event) => onScaleChange(event.target.valueAsNumber)}
+              className="h-2 w-full cursor-pointer rounded-full bg-[var(--color-border-subtle,#e2e8f0)] accent-[var(--color-accent-default,#7c3aed)]"
+            />
+            <span className="w-14 text-right text-sm font-medium text-[var(--color-text-primary,#0f172a)]">
+              {(draft.scale * 100).toFixed(0)}%
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-[var(--color-text-muted,#64748b)]">
+            Shrink the workspace to fit more on screen (navbar excluded).
+          </p>
         </LabeledField>
         <LabeledField label="Description">
           <textarea

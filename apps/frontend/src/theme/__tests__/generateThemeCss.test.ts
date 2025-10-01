@@ -29,4 +29,8 @@ describe('generateThemeCss', () => {
     expect(css).toContain('--color-text-primary: #0f172a;');
     expect(css).toContain('--color-text-primary: #f8fafc;');
   });
+
+  it('exposes the theme scale as a CSS variable', () => {
+    expect(css).toMatch(/--theme-scale: 1;/);
+  });
 });
