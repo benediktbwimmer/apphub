@@ -15,8 +15,23 @@ export {
   type JobContext,
   type JobHandler,
   type JobTargetDefinition,
+  createService,
+  createWorkflow,
+  createWorkflowTrigger,
+  createWorkflowSchedule,
   type ModuleTargetDefinition,
-  type ModuleTargetKind
+  type ModuleTargetKind,
+  type ServiceContext,
+  type ServiceLifecycle,
+  type ServiceHandler,
+  type ServiceTargetDefinition,
+  type WorkflowDefinition,
+  type WorkflowScheduleDefinition,
+  type WorkflowTriggerDefinition,
+  type WorkflowTriggerPredicate,
+  type WorkflowTriggerPredicateOperator,
+  type WorkflowTriggerThrottle,
+  type WorkflowTargetDefinition
 } from './targets';
 export type { ModuleLogger } from './logger';
 export { noopLogger, createConsoleLogger } from './logger';

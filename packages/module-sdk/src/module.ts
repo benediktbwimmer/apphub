@@ -8,7 +8,7 @@ export interface ModuleDefinition<TSettings = Record<string, unknown>, TSecrets 
   settings?: ValueDescriptor<TSettings>;
   secrets?: ValueDescriptor<TSecrets>;
   capabilities?: ModuleCapabilityConfig;
-  targets: ModuleTargetDefinition<TSettings, TSecrets, unknown>[];
+  targets: ModuleTargetDefinition<TSettings, TSecrets>[];
 }
 
 export function defineModule<TSettings = Record<string, unknown>, TSecrets = Record<string, unknown>>(

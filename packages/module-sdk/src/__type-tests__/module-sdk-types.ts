@@ -1,9 +1,14 @@
 import {
   createJobHandler,
+  createService,
+  createWorkflow,
+  createWorkflowSchedule,
+  createWorkflowTrigger,
   defineModule,
   createModuleContext,
   type JobContext,
-  type ModuleCapabilityOverrides
+  type ModuleCapabilityOverrides,
+  type ServiceContext
 } from '..';
 
 type GeneratorSettings = {
@@ -36,6 +41,63 @@ const generatorJob = createJobHandler<GeneratorSettings, GeneratorSecrets>({
   }
 });
 
+const dashboardService = createService<GeneratorSettings, GeneratorSecrets, { start: () => Promise<void> }>(
+  {
+    name: 'dashboard',
+    handler: async (context: ServiceContext<GeneratorSettings, GeneratorSecrets>) => {
+      await context.capabilities.filestore?.ensureDirectory({ path: 'services' });
+      return {
+        async start() {
+          context.logger.info('starting service');
+        }
+      };
+    }
+  }
+);
+
+const aggregateWorkflow = createWorkflow<GeneratorSettings, GeneratorSecrets>({
+  name: 'observatory-dashboard-aggregate',
+  description: 'Aggregate observatory metrics',
+  definition: {
+    slug: 'observatory-dashboard-aggregate',
+    steps: []
+  },
+  triggers: [
+    createWorkflowTrigger({
+      name: 'partition-ready',
+      eventType: 'observatory.minute.partition-ready',
+      predicates: [
+        {
+          path: 'payload.datasetSlug',
+          operator: 'equals',
+          value: 'observatory-timeseries'
+        }
+      ],
+      throttle: {
+        windowMs: 60000,
+        count: 5
+      }
+    }),
+    {
+      name: 'fallback',
+      eventType: 'observatory.minute.raw-uploaded',
+      metadata: { priority: 'low' }
+    }
+  ],
+  schedules: [
+    createWorkflowSchedule({
+      name: 'hourly-backfill',
+      cron: '0 * * * *',
+      timezone: 'UTC',
+      enabled: true
+    }),
+    {
+      name: 'daily-maintenance',
+      cron: '0 6 * * *'
+    }
+  ]
+});
+
 const moduleDefinition = defineModule<GeneratorSettings, GeneratorSecrets>({
   metadata: {
     name: 'observatory-module',
@@ -51,7 +113,7 @@ const moduleDefinition = defineModule<GeneratorSettings, GeneratorSecrets>({
     defaults: {}
   },
   capabilities: {},
-  targets: [generatorJob]
+  targets: [generatorJob, dashboardService, aggregateWorkflow]
 });
 
 const context = createModuleContext<GeneratorSettings, GeneratorSecrets>({
