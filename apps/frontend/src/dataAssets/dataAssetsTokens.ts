@@ -1,3 +1,6 @@
+export const DATA_ASSET_PAGE_TITLE = 'text-scale-xl font-weight-semibold text-primary';
+export const DATA_ASSET_PAGE_SUBTITLE = 'text-scale-sm text-secondary';
+
 export const DATA_ASSET_FOCUS_RING =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
