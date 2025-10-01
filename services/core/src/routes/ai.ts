@@ -22,6 +22,11 @@ import { buildCodexContextFiles } from '../ai/contextFiles';
 import { collectBundleContexts, type AiBundleContext } from '../ai/bundleContext';
 import { runOpenAiGeneration, buildOpenAiPromptMessages } from '../ai/openAiRunner';
 import { runOpenRouterGeneration } from '../ai/openRouterRunner';
+import {
+  generateTimestoreSql,
+  type TimestoreSqlProvider,
+  type TimestoreSqlSchema
+} from '../ai/timestoreSqlGenerator';
 import { publishGeneratedBundle, type AiGeneratedBundleSuggestion } from '../ai/bundlePublisher';
 import { estimateTokenBreakdown, estimateTokenCount } from '../ai/tokenCounter';
 import {
@@ -104,6 +109,79 @@ const aiBuilderSuggestSchema = z
         });
       }
     } else if (provider === 'openrouter') {
+      const apiKey = value.providerOptions?.openRouterApiKey?.trim();
+      if (!apiKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['providerOptions', 'openRouterApiKey'],
+          message: 'OpenRouter API key is required when provider is "openrouter".'
+        });
+      }
+    }
+  });
+
+const timestoreSqlProviderSchema = z.enum(['openai', 'openrouter']);
+
+const timestoreSqlProviderOptionsSchema = z
+  .object({
+    openAiApiKey: z.string().min(8).max(200).optional(),
+    openAiBaseUrl: z.string().url().max(400).optional(),
+    openAiMaxOutputTokens: z
+      .number({ coerce: true })
+      .int()
+      .min(256)
+      .max(8_192)
+      .optional(),
+    openRouterApiKey: z.string().min(8).max(200).optional(),
+    openRouterReferer: z.string().url().max(600).optional(),
+    openRouterTitle: z.string().min(1).max(200).optional()
+  })
+  .partial()
+  .strict();
+
+const timestoreSqlColumnSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256),
+    type: z.string().trim().min(1).max(256).optional().nullable(),
+    description: z.string().trim().min(1).max(1_000).optional().nullable()
+  })
+  .strict();
+
+const timestoreSqlTableSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256),
+    description: z.string().trim().min(1).max(1_000).optional().nullable(),
+    columns: z.array(timestoreSqlColumnSchema).nonempty()
+  })
+  .strict();
+
+const timestoreSqlSchemaSchema = z
+  .object({
+    tables: z.array(timestoreSqlTableSchema)
+  })
+  .strict();
+
+const timestoreSqlGenerateSchema = z
+  .object({
+    prompt: z.string().trim().min(1).max(AI_PROMPT_MAX_LENGTH),
+    schema: timestoreSqlSchemaSchema,
+    provider: timestoreSqlProviderSchema.optional(),
+    providerOptions: timestoreSqlProviderOptionsSchema.optional()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const provider: TimestoreSqlProvider = value.provider ?? 'openai';
+    if (provider === 'openai') {
+      const apiKey = value.providerOptions?.openAiApiKey?.trim();
+      if (!apiKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['providerOptions', 'openAiApiKey'],
+          message: 'OpenAI API key is required when provider is "openai".'
+        });
+      }
+    }
+    if (provider === 'openrouter') {
       const apiKey = value.providerOptions?.openRouterApiKey?.trim();
       if (!apiKey) {
         ctx.addIssue({
@@ -619,6 +697,67 @@ function mergeMapMetadata(base: Record<string, JsonValue>, patch: Record<string,
 }
 
 export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
+  app.post('/ai/timestore/sql', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'ai.timestore.sql.generate',
+      resource: 'timestore-sql',
+      requiredScopes: ['timestore:sql:read']
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseBody = timestoreSqlGenerateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    const provider: TimestoreSqlProvider = payload.provider ?? 'openai';
+    const schema = payload.schema as TimestoreSqlSchema;
+
+    try {
+      const result = await generateTimestoreSql({
+        prompt: payload.prompt,
+        schema,
+        provider,
+        providerOptions: payload.providerOptions
+      });
+
+      reply.status(200);
+      await authResult.auth.log('succeeded', {
+        provider: result.provider,
+        warnings: result.warnings.length
+      });
+      return {
+        data: {
+          sql: result.sql,
+          notes: result.notes,
+          caveats: result.caveats,
+          provider: result.provider,
+          warnings: result.warnings
+        }
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate SQL.';
+      const isZodError = err instanceof z.ZodError;
+      const statusCode = isZodError ? 502 : 422;
+      reply.status(statusCode);
+      request.log.error({ err, provider }, 'Timestore SQL generation failed');
+      await authResult.auth.log('failed', {
+        reason: isZodError ? 'ai_response_invalid' : 'generation_error',
+        provider,
+        error: message
+      });
+      return { error: message };
+    }
+  });
+
   app.get('/ai/builder/context', async (request, reply) => {
     const authResult = await requireOperatorScopes(request, reply, {
       action: 'ai.builder.context.read',

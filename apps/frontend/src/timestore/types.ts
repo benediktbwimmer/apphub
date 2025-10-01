@@ -309,3 +309,13 @@ export const savedSqlQueryListResponseSchema = z.object({
 });
 
 export type SavedSqlQueryListResponse = z.infer<typeof savedSqlQueryListResponseSchema>;
+
+export const timestoreAiSqlSuggestionSchema = z.object({
+  sql: z.string(),
+  notes: z.string().nullable().optional(),
+  caveats: z.string().nullable().optional(),
+  provider: z.enum(['openai', 'openrouter']),
+  warnings: z.array(z.string()).optional()
+});
+
+export type TimestoreAiSqlSuggestion = z.infer<typeof timestoreAiSqlSuggestionSchema>;

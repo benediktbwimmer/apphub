@@ -18,7 +18,7 @@ import {
   upsertSavedSqlQuery,
   type SqlQueryRequest
 } from '../api';
-import type { SqlQueryResult, SqlSchemaResponse, SqlSchemaTable } from '../types';
+import type { SqlQueryResult, SqlSchemaResponse, SqlSchemaTable, TimestoreAiSqlSuggestion } from '../types';
 import {
   addHistoryEntry,
   clearUnpinnedHistory,
@@ -31,6 +31,7 @@ import {
 } from './sqlHistory';
 import type { SqlHistoryEntry } from './sqlHistory';
 import { SQL_KEYWORDS } from './sqlKeywords';
+import { TimestoreAiQueryDialog } from './TimestoreAiQueryDialog';
 import { ROUTE_PATHS } from '../../routes/paths';
 import {
   CARD_SURFACE,
@@ -181,6 +182,8 @@ export default function TimestoreSqlEditorPage() {
   const [history, setHistory] = useState<SqlHistoryEntry[]>(() => readHistoryFromStorage(storage));
   const [isExecuting, setIsExecuting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -317,6 +320,7 @@ export default function TimestoreSqlEditorPage() {
   }, [authorizedFetch, history, searchParams, showError, showInfo, setHistory]);
 
   const schemaTables = useMemo(() => schemaData?.tables ?? [], [schemaData]);
+  const canUseAi = schemaTables.length > 0 && !schemaLoading;
 
   useEffect(() => {
     const warnings = schemaData?.warnings ?? [];
@@ -596,6 +600,31 @@ export default function TimestoreSqlEditorPage() {
     [authorizedFetch, history, showError, showSuccess]
   );
 
+  const handleAiBusyChange = useCallback((value: boolean) => {
+    setAiBusy(value);
+  }, []);
+
+  const handleAiResult = useCallback(
+    (result: TimestoreAiSqlSuggestion) => {
+      setStatement(result.sql);
+      editorRef.current?.focus();
+      showSuccess('AI query ready', 'Review the generated SQL before running it.');
+      if (result.notes) {
+        showInfo('AI notes', result.notes);
+      }
+      if (result.caveats) {
+        showWarning('AI caveats', result.caveats);
+      }
+      result.warnings?.forEach((warning) => {
+        if (warning && warning.trim().length > 0) {
+          showWarning('AI context warning', warning);
+        }
+      });
+      setAiDialogOpen(false);
+    },
+    [showInfo, showSuccess, showWarning]
+  );
+
   const handleClearHistory = useCallback(() => {
     setHistory((prev) => clearUnpinnedHistory(prev));
   }, []);
@@ -714,20 +743,21 @@ export default function TimestoreSqlEditorPage() {
   const effectiveResultMode = canChart ? resultMode : resultMode === 'chart' ? 'table' : resultMode;
 
   return (
-    <section className="flex flex-col gap-6">
-      <header className={PANEL_ELEVATED}>
-        <div className="flex flex-col gap-2">
-          <h2 className="text-scale-lg font-weight-semibold text-primary">SQL Editor</h2>
-          <p className={STATUS_MESSAGE}>
-            Explore Timestore datasets with ad-hoc SQL. Use{' '}
-            <kbd className={KBD_BADGE}>⌘/Ctrl + Enter</kbd> to run the current statement.
-          </p>
-        </div>
-      </header>
+    <>
+      <section className="flex flex-col gap-6">
+        <header className={PANEL_ELEVATED}>
+          <div className="flex flex-col gap-2">
+            <h2 className="text-scale-lg font-weight-semibold text-primary">SQL Editor</h2>
+            <p className={STATUS_MESSAGE}>
+              Explore Timestore datasets with ad-hoc SQL. Use{' '}
+              <kbd className={KBD_BADGE}>⌘/Ctrl + Enter</kbd> to run the current statement.
+            </p>
+          </div>
+        </header>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr),minmax(0,1fr)]">
-        <div className="flex flex-col gap-6">
-          <div className={PANEL_ELEVATED}>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr),minmax(0,1fr)]">
+          <div className="flex flex-col gap-6">
+            <div className={PANEL_ELEVATED}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <button
@@ -737,6 +767,14 @@ export default function TimestoreSqlEditorPage() {
                   className={PRIMARY_BUTTON}
                 >
                   {isExecuting ? 'Running…' : 'Run query'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAiDialogOpen(true)}
+                  disabled={!canUseAi || aiBusy}
+                  className={PRIMARY_BUTTON_COMPACT}
+                >
+                  {aiBusy ? 'Preparing…' : 'Ask AI'}
                 </button>
                 <label className="flex items-center gap-2 text-scale-sm text-secondary">
                   <span className={FIELD_LABEL}>Max rows</span>
@@ -1104,8 +1142,17 @@ export default function TimestoreSqlEditorPage() {
             </div>
           </div>
         </div>
-      </div>
-    </section>
+        </div>
+      </section>
+      <TimestoreAiQueryDialog
+        open={aiDialogOpen}
+        onClose={() => setAiDialogOpen(false)}
+        schemaTables={schemaTables}
+        authorizedFetch={authorizedFetch}
+        onApply={handleAiResult}
+        onBusyChange={handleAiBusyChange}
+      />
+    </>
   );
 }
 

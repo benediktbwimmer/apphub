@@ -25,7 +25,9 @@ type OperatorScope =
   | 'filestore:read'
   | 'filestore:write'
   | 'filestore:admin'
-  | 'runtime:write';
+  | 'runtime:write'
+  | 'timestore:sql:read'
+  | 'timestore:sql:exec';
 
 const ALL_SCOPES: OperatorScope[] = [
   'jobs:write',
@@ -38,7 +40,9 @@ const ALL_SCOPES: OperatorScope[] = [
   'filestore:read',
   'filestore:write',
   'filestore:admin',
-  'runtime:write'
+  'runtime:write',
+  'timestore:sql:read',
+  'timestore:sql:exec'
 ];
 
 export const OPERATOR_SCOPES: readonly OperatorScope[] = [...ALL_SCOPES];
@@ -54,7 +58,9 @@ const SCOPE_ALIASES: Record<OperatorScope, OperatorScope[]> = {
   'filestore:read': [],
   'filestore:write': ['filestore:read'],
   'filestore:admin': ['filestore:write', 'filestore:read'],
-  'runtime:write': []
+  'runtime:write': [],
+  'timestore:sql:read': [],
+  'timestore:sql:exec': ['timestore:sql:read']
 };
 
 type OperatorKind = 'user' | 'service';

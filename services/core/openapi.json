@@ -39130,6 +39130,15 @@
         }
       }
     },
+    "/ai/timestore/sql": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/ai/builder/context": {
       "get": {
         "responses": {

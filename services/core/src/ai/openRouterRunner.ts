@@ -8,12 +8,21 @@ export type OpenRouterGenerationOptions = CodexGenerationOptions & {
   apiKey: string;
   referer?: string;
   title?: string;
+  responseFormat?:
+    | { type: 'json_object' }
+    | {
+        type: 'json_schema';
+        json_schema: {
+          name: string;
+          schema: Record<string, unknown>;
+        };
+      };
 };
 
 export async function runOpenRouterGeneration(
   options: OpenRouterGenerationOptions
 ): Promise<OpenAiGenerationResult> {
-  const { apiKey, referer, title, ...rest } = options;
+  const { apiKey, referer, title, responseFormat, ...rest } = options;
   const extraHeaders: Record<string, string> = {};
   if (referer) {
     extraHeaders['HTTP-Referer'] = referer;
@@ -28,6 +37,6 @@ export async function runOpenRouterGeneration(
     baseUrl: OPENROUTER_BASE_URL,
     model: OPENROUTER_DEFAULT_MODEL,
     extraHeaders,
-    responseFormat: { type: 'json_object' }
+    responseFormat: responseFormat ?? { type: 'json_object' }
   });
 }

@@ -1,4 +1,4 @@
-import { TIMESTORE_BASE_URL } from '../config';
+import { API_BASE_URL, TIMESTORE_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import type {
   ArchiveDatasetRequest,
@@ -18,7 +18,9 @@ import type {
   SavedSqlQueryListResponse,
   SavedSqlQueryStats,
   SqlQueryResult,
-  SqlSchemaResponse
+  SqlSchemaResponse,
+  SqlSchemaTable,
+  TimestoreAiSqlSuggestion
 } from './types';
 import {
   archiveDatasetRequestSchema,
@@ -37,7 +39,8 @@ import {
   savedSqlQueryListResponseSchema,
   savedSqlQueryResponseSchema,
   sqlQueryResultSchema,
-  sqlSchemaResponseSchema
+  sqlSchemaResponseSchema,
+  timestoreAiSqlSuggestionSchema
 } from './types';
 
 export type DatasetAccessAuditListParams = {
@@ -83,6 +86,24 @@ export type SqlQueryExport = {
   requestId: string | null;
 };
 
+export type TimestoreAiSqlProvider = 'openai' | 'openrouter';
+
+export type TimestoreAiSqlProviderOptions = {
+  openAiApiKey?: string;
+  openAiBaseUrl?: string;
+  openAiMaxOutputTokens?: number;
+  openRouterApiKey?: string;
+  openRouterReferer?: string;
+  openRouterTitle?: string;
+};
+
+export type TimestoreAiSqlRequest = {
+  prompt: string;
+  schemaTables: SqlSchemaTable[];
+  provider: TimestoreAiSqlProvider;
+  providerOptions?: TimestoreAiSqlProviderOptions;
+};
+
 async function parseJson<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
   const payload = await response.json();
   return schema.parse(payload);
@@ -119,6 +140,49 @@ async function parseDatasetResponse(response: Response): Promise<DatasetResponse
     dataset: parsed.dataset,
     etag: normalizedEtag
   };
+}
+
+function buildAiSchemaPayload(tables: SqlSchemaTable[]): {
+  tables: Array<{
+    name: string;
+    description?: string | null;
+    columns: Array<{
+      name: string;
+      type?: string | null;
+      description?: string | null;
+    }>;
+  }>;
+} {
+  return {
+    tables: tables.map((table) => ({
+      name: table.name,
+      description: table.description ?? null,
+      columns: table.columns.map((column) => ({
+        name: column.name,
+        type: column.type ?? null,
+        description: column.description ?? null
+      }))
+    }))
+  };
+}
+
+async function parseAiSqlError(response: Response): Promise<never> {
+  const bodyText = await response.text();
+  if (bodyText) {
+    try {
+      const parsed = JSON.parse(bodyText) as { error?: unknown; message?: unknown };
+      const message = parsed.error ?? parsed.message;
+      if (typeof message === 'string' && message.trim().length > 0) {
+        throw new Error(message.trim());
+      }
+    } catch {
+      const trimmed = bodyText.trim();
+      if (trimmed.length > 0) {
+        throw new Error(trimmed);
+      }
+    }
+  }
+  throw new Error(`AI SQL generation failed with status ${response.status}`);
 }
 
 function sanitizeSqlStatement(sql: string): string {
@@ -491,6 +555,48 @@ export async function fetchSqlSchema(
   }
   const payload = await response.json();
   return sqlSchemaResponseSchema.parse(payload);
+}
+
+export async function generateSqlWithAi(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  input: TimestoreAiSqlRequest,
+  options: { signal?: AbortSignal } = {}
+): Promise<TimestoreAiSqlSuggestion> {
+  const url = new URL('ai/timestore/sql', API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`);
+
+  const providerOptions = input.providerOptions
+    ? Object.fromEntries(
+        Object.entries(input.providerOptions).filter(([, value]) =>
+          typeof value === 'number' ? Number.isFinite(value) : typeof value === 'string' ? value.trim().length > 0 : Boolean(value)
+        )
+      )
+    : undefined;
+
+  const payload: Record<string, unknown> = {
+    prompt: input.prompt,
+    schema: buildAiSchemaPayload(input.schemaTables),
+    provider: input.provider
+  };
+  if (providerOptions && Object.keys(providerOptions).length > 0) {
+    payload.providerOptions = providerOptions;
+  }
+
+  const response = await authorizedFetch(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: options.signal
+  });
+
+  if (!response.ok) {
+    await parseAiSqlError(response);
+  }
+
+  const raw = await response.json();
+  if (!raw || typeof raw !== 'object' || !('data' in raw)) {
+    throw new Error('Unexpected AI SQL generation response format.');
+  }
+  return timestoreAiSqlSuggestionSchema.parse((raw as { data: unknown }).data);
 }
 
 export async function executeSqlQuery(
