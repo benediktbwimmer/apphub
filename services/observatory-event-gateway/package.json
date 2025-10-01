@@ -1,5 +1,5 @@
 {
-  "name": "@apphub/filestore-ingest-watcher",
+  "name": "@apphub/observatory-event-gateway",
   "version": "0.1.0",
   "private": true,
   "type": "module",

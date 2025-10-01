@@ -402,26 +402,32 @@ function TokenSections({
   return (
     <div className="flex flex-col gap-4">
       <TokenAccordion title="Semantic colors">
-        {semanticTokenGroups.map((group) => (
-          <TokenGroup
-            key={group.key}
-            group={group}
-            values={draft.semantics[group.key as keyof ThemeDraft['semantics']] as Record<string, string>}
-            errorMap={errorMap}
-            onChange={(token, value) => onSemanticChange(group.key as keyof ThemeDraft['semantics'], token, value)}
-          />
-        ))}
+        {semanticTokenGroups.map((group) => {
+          const sectionKey = group.key as keyof ThemeDraft['semantics'];
+          return (
+            <TokenGroup
+              key={group.key}
+              group={group}
+              values={draft.semantics[sectionKey]}
+              errorMap={errorMap}
+              onChange={(token, value) => onSemanticChange(sectionKey, token, value)}
+            />
+          );
+        })}
       </TokenAccordion>
       <TokenAccordion title="Typography">
-        {typographySections.map((group) => (
-          <TokenGroup
-            key={group.key}
-            group={group}
-            values={draft.typography[group.key as keyof ThemeDraft['typography']] as Record<string, unknown>}
-            errorMap={errorMap}
-            onChange={(token, value) => onTypographyChange(group.key as keyof ThemeDraft['typography'], token, value)}
-          />
-        ))}
+        {typographySections.map((group) => {
+          const sectionKey = group.key as keyof ThemeDraft['typography'];
+          return (
+            <TokenGroup
+              key={group.key}
+              group={group}
+              values={draft.typography[sectionKey]}
+              errorMap={errorMap}
+              onChange={(token, value) => onTypographyChange(sectionKey, token, value)}
+            />
+          );
+        })}
       </TokenAccordion>
       <TokenAccordion title="Spacing">
         <TokenList
@@ -451,14 +457,19 @@ function TokenSections({
   );
 }
 
+type TokenGroupValues =
+  | ThemeDraft['semantics'][keyof ThemeDraft['semantics']]
+  | ThemeDraft['typography'][keyof ThemeDraft['typography']];
+
 interface TokenGroupProps {
   readonly group: ThemeTokenGroupMeta;
-  readonly values: Record<string, unknown>;
+  readonly values: TokenGroupValues;
   readonly errorMap: Map<string, string>;
   readonly onChange: (token: string, value: string) => void;
 }
 
 function TokenGroup({ group, values, errorMap, onChange }: TokenGroupProps) {
+  const resolvedValues = values as Record<string, unknown>;
   return (
     <section className="rounded-xl border border-[var(--color-border-subtle,#e2e8f0)] bg-[var(--color-surface-sunken,#f8fafc)] p-4">
       <div className="flex flex-col gap-1">
@@ -472,7 +483,7 @@ function TokenGroup({ group, values, errorMap, onChange }: TokenGroupProps) {
           <TokenInput
             key={token.key}
             token={token}
-            value={String(values[token.key] ?? '')}
+            value={String(resolvedValues[token.key] ?? '')}
             error={errorMap.get(`semantics.${group.key}.${token.key}`) ?? errorMap.get(`typography.${group.key}.${token.key}`)}
             onChange={(next) => onChange(token.key, next)}
           />

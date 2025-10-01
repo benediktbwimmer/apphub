@@ -1,11 +1,11 @@
 {
   "scenarios": [
     {
-      "id": "observatory-file-watcher-service",
+      "id": "observatory-event-gateway-service",
       "type": "service-manifest",
       "title": "Observatory event-driven services",
-      "summary": "Registers the watcher and dashboard services wired for the event-driven observatory import.",
-      "description": "Imports the event-driven observatory service manifest so the watcher streams inbox uploads, the dashboard refreshes automatically, and downstream workflows receive the correct dataset references out of the box.",
+      "summary": "Registers the event gateway and dashboard services wired for the event-driven observatory import.",
+      "description": "Imports the event-driven observatory service manifest so the gateway brokers inbox uploads, the dashboard refreshes automatically, and downstream workflows receive the correct dataset references out of the box.",
       "difficulty": "beginner",
       "tags": [
         "observatory",
@@ -30,9 +30,9 @@
           "href": "https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/service-manifests/service-manifest.json"
         },
         {
-          "label": "Watcher service",
-          "path": "examples/environmental-observatory-event-driven/services/observatory-file-watcher/",
-          "href": "https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory-event-driven/services/observatory-file-watcher"
+          "label": "Event gateway service",
+          "path": "services/observatory-event-gateway/",
+          "href": "https://github.com/benediktbwimmer/apphub/tree/main/services/observatory-event-gateway"
         },
         {
           "label": "Dashboard service",
@@ -52,15 +52,15 @@
       "analyticsTag": "service__observatory_services"
     },
     {
-      "id": "observatory-file-watcher-app",
+      "id": "observatory-event-gateway-app",
       "type": "app",
-      "title": "Observatory file watcher app",
-      "summary": "Packages the watcher service into a container image.",
-      "description": "Registers the watcher repository so AppHub can build and launch it as a container. The Dockerfile installs dependencies, builds the TypeScript project, and runs the compiled watcher entry point.",
+      "title": "Observatory event gateway app",
+      "summary": "Packages the event gateway service into a container image.",
+      "description": "Registers the event gateway repository so AppHub can build and launch it as a container. The Dockerfile installs dependencies, builds the TypeScript project, and runs the gateway entry point that brokers workflow events.",
       "difficulty": "intermediate",
       "tags": [
         "observatory",
-        "workflow watcher",
+        "event gateway",
         "event-driven"
       ],
       "docs": [
@@ -71,22 +71,22 @@
       ],
       "assets": [
         {
-          "label": "Watcher repository",
-          "path": "examples/environmental-observatory-event-driven/services/observatory-file-watcher/",
-          "href": "https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory-event-driven/services/observatory-file-watcher"
+          "label": "Event gateway repository",
+          "path": "services/observatory-event-gateway/",
+          "href": "https://github.com/benediktbwimmer/apphub/tree/main/services/observatory-event-gateway"
         },
         {
           "label": "Dockerfile",
-          "path": "examples/environmental-observatory-event-driven/services/observatory-file-watcher/Dockerfile",
-          "href": "https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/services/observatory-file-watcher/Dockerfile"
+          "path": "services/observatory-event-gateway/Dockerfile",
+          "href": "https://github.com/benediktbwimmer/apphub/blob/main/services/observatory-event-gateway/Dockerfile"
         }
       ],
       "form": {
-        "id": "observatory-file-watcher",
-        "name": "Observatory File Watcher",
-        "description": "Watches the observatory inbox for minute-level CSV drops and triggers ingest workflows automatically.",
+        "id": "observatory-event-gateway",
+        "name": "Observatory Event Gateway",
+        "description": "Brokers observatory ingest signals from inbox uploads and dispatches downstream workflows automatically.",
         "repoUrl": "https://github.com/benediktbwimmer/apphub.git",
-        "dockerfilePath": "examples/environmental-observatory-event-driven/services/observatory-file-watcher/Dockerfile",
+        "dockerfilePath": "services/observatory-event-gateway/Dockerfile",
         "tags": [
           {
             "key": "language",
@@ -100,9 +100,9 @@
         "sourceType": "remote",
         "metadataStrategy": "explicit"
       },
-      "analyticsTag": "app__observatory_file_watcher",
+      "analyticsTag": "app__observatory_event_gateway",
       "requiresServices": [
-        "observatory-file-watcher"
+        "observatory-event-gateway"
       ]
     },
     {
@@ -1294,15 +1294,15 @@
       "type": "scenario",
       "title": "Environmental observatory (event-driven)",
       "summary": "Loads the end-to-end observatory example with schedules and triggers prewired.",
-      "description": "Prefills the importer with the watcher + dashboard services, supporting jobs, and the event-driven observatory workflows so you can replay the one-click demo with schedules and event triggers applied automatically.",
+      "description": "Prefills the importer with the event gateway + dashboard services, supporting jobs, and the event-driven observatory workflows so you can replay the one-click demo with schedules and event triggers applied automatically.",
       "tags": [
         "observatory",
         "end-to-end",
         "event-driven"
       ],
       "includes": [
-        "observatory-file-watcher-service",
-        "observatory-file-watcher-app",
+        "observatory-event-gateway-service",
+        "observatory-event-gateway-app",
         "observatory-dashboard-app",
         "observatory-data-generator-job",
         "observatory-inbox-normalizer-job",

@@ -22,8 +22,8 @@ The event-driven flavour now partitions Timestore manifests per instrument and p
 ```mermaid
 graph TD
   Instruments[[Field instruments]] -->|Minute CSV drops| Inbox[[Inbox directory]]
-  Inbox --> Watcher{{Filestore ingest watcher}}
-  Watcher -->|Uploads + triggers workflow| Normalizer[observatory-inbox-normalizer]
+  Inbox --> Gateway{{Observatory event gateway}}
+  Gateway -->|Uploads + triggers workflow| Normalizer[observatory-inbox-normalizer]
   Normalizer --> Staging[(staging/<minute>/)]
   Normalizer --> Archive[(archive/<instrument>/<hour>/<minute>.csv)]
   Normalizer --> RawAsset[(Asset: observatory.timeseries.raw)]
@@ -102,7 +102,7 @@ The lineage graph forms a linear chain: inbox → Timestore → plots → report
 
 Two workflows manage the example. Their JSON definitions live in `examples/environmental-observatory-event-driven/workflows/`.
 
-- **Trigger:** Manual or filesystem watcher (optional) when the minute inbox directory receives new CSVs.
+- **Trigger:** Manual or filesystem gateway (optional) when the minute inbox directory receives new CSVs.
 - **Steps:**
   1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by minute. As part of normalization it resolves the latest Metastore calibration for each instrument, logs gaps/future-effective versions, and records the reference in both the per-file metadata and the `calibrationsApplied` summary. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off Timestore ingestion.
   2. `observatory-timestore-loader` consumes the raw asset, fetches the referenced calibration snapshot (or the active calibration when ingest is re-run), applies offsets/scales to each reading before streaming into Timestore, and produces `observatory.timeseries.timestore` with `freshness.ttlMs` tuned for minute cadence plus calibration lineage in the manifest summary.
@@ -151,7 +151,7 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 
 ## Running the demo locally
 
-1. Install dependencies for the watcher, visualization, and publisher bundles:
+1. Install dependencies for the gateway, visualization, and publisher bundles:
 ```bash
 npm install --prefix examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader
 npm install --prefix examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner
@@ -160,7 +160,7 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
 
    The core rebuilds each observatory bundle automatically when you import the example jobs. Every `/job-imports` request now copies the bundle into an isolated workspace, runs `npm ci`, executes the build, and force-publishes the tarball so the core overwrites any previous artifact. Pre-installing dependencies locally keeps the first rebuild snappy; otherwise the API performs the install step inside the container on every import.
 2. Publish bundles and register the job definitions exported from the example module.
-3. Import the bundled service manifest (`examples/environmental-observatory-event-driven/service-manifests/service-manifest.json`) through the core UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the core now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
+3. Import the bundled service manifest (`examples/environmental-observatory-event-driven/service-manifests/service-manifest.json`) through the core UI or copy it into your manifest directory so the gateway and dashboard show up as managed services. When importing through the UI the core now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
    > ⚠️ **Event proxy configuration**
    >
@@ -170,11 +170,11 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
    > bundles outside of the core sandbox (for example, calling the proxy from a custom
    > script) or when you need to override the defaults.
 
-4. Launch the filestore ingest watcher so new inbox files land in MinIO and trigger `observatory-minute-ingest` automatically (configured via the observatory service manifest described above):
+4. Launch the observatory event gateway so new inbox files land in MinIO and trigger `observatory-minute-ingest` automatically (configured via the observatory service manifest described above):
    ```bash
    npm run dev:minio
 
-   cd services/filestore-ingest-watcher
+   cd services/observatory-event-gateway
    npm install
 
    WATCH_ROOT=/tmp/apphub-scratch/observatory/inbox \
@@ -184,8 +184,8 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
    FILESTORE_TARGET_PREFIX=datasets/observatory/inbox \
    npm run dev
    ```
-   The watcher streams new inbox files into the `apphub-filestore` bucket (via Filestore) before launching the ingest workflow. Adjust `FILESTORE_BACKEND_ID` if you provisioned a different mount via `npm run obs:event:config`.
-5. Launch the dashboard alongside the watcher so the latest `status.html` is always visible:
+   The gateway streams new inbox files into the `apphub-filestore` bucket (via Filestore) before launching the ingest workflow. Adjust `FILESTORE_BACKEND_ID` if you provisioned a different mount via `npm run obs:event:config`.
+5. Launch the dashboard alongside the gateway so the latest `status.html` is always visible:
    ```bash
    cd examples/environmental-observatory-event-driven/services/observatory-dashboard
    npm install
@@ -198,7 +198,7 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
    cp examples/environmental-observatory-event-driven/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
    cp examples/environmental-observatory-event-driven/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
    ```
-7. Simulate an instrument drop by writing new minute CSV files into `inbox` (the watcher will mirror them into `staging/<minute>/` and queue the ingest workflow automatically). Trigger the ingest workflow manually with:
+7. Simulate an instrument drop by writing new minute CSV files into `inbox` (the gateway will mirror them into `staging/<minute>/` and queue the ingest workflow automatically). Trigger the ingest workflow manually with:
    ```bash
    curl -X POST http://127.0.0.1:4000/workflows/observatory-minute-ingest/run \
      -H "Authorization: Bearer $TOKEN" \

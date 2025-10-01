@@ -51,7 +51,7 @@ const filestoreToken = process.env.FILESTORE_TOKEN ?? process.env.APPHUB_FILESTO
 const client = new FilestoreClient({
   baseUrl: filestoreBaseUrl,
   token: filestoreToken ? filestoreToken.trim() : undefined,
-  userAgent: 'filestore-ingest-watcher/0.1.0'
+  userAgent: 'observatory-event-gateway/0.1.0'
 });
 
 const ensuredRemoteDirectories = new Set<string>();
@@ -226,7 +226,7 @@ async function processQueue(): Promise<void> {
 
 async function startWatcher(): Promise<void> {
   await ensureLocalDirectories();
-  logger.info({ watchRoot, archiveRoot, maxConcurrency, targetPrefix }, 'Starting filestore ingest watcher');
+  logger.info({ watchRoot, archiveRoot, maxConcurrency, targetPrefix }, 'Starting observatory event gateway');
 
   const watcher = chokidar.watch(watchRoot, {
     ignoreInitial: false,
@@ -281,6 +281,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  logger.error({ err: error }, 'filestore ingest watcher failed to start');
+  logger.error({ err: error }, 'observatory event gateway failed to start');
   process.exitCode = 1;
 });

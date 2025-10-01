@@ -1,6 +1,6 @@
-# Filestore Ingest Watcher
+# Observatory Event Gateway
 
-The filestore ingest watcher bridges legacy filesystem drops into the AppHub Filestore service. It observes a local directory with `chokidar`, uploads files into an S3-compatible bucket via the Filestore API (MinIO in development), and triggers downstream workflows once the upload succeeds. The service exposes `/healthz` and `/status` endpoints so operators can verify activity while testing ingest pipelines.
+The observatory event gateway bridges legacy filesystem drops into the AppHub Filestore service. It observes a local directory with `chokidar`, uploads files into an S3-compatible bucket via the Filestore API (MinIO in development), and signals downstream workflows once the upload succeeds. The service exposes `/healthz` and `/status` endpoints so operators can verify activity while testing ingest pipelines.
 
 ## Quick start
 
@@ -12,10 +12,10 @@ WATCH_ARCHIVE_DIR=$(pwd)/examples/environmental-observatory/data/archive \
 FILESTORE_BASE_URL=http://127.0.0.1:4300 \
 FILESTORE_BACKEND_ID=1 \
 FILESTORE_TARGET_PREFIX=datasets/observatory/inbox \
-npm run dev --workspace @apphub/filestore-ingest-watcher
+npm run dev --workspace @apphub/observatory-event-gateway
 ```
 
-Point `FILESTORE_BACKEND_ID` at an existing S3/S3-compatible backend mount (the observatory config generator creates one automatically). By default the watcher moves processed files into the archive directory; set `WATCH_DELETE_AFTER_UPLOAD=true` if you prefer to delete them instead.
+Point `FILESTORE_BACKEND_ID` at an existing S3/S3-compatible backend mount (the observatory config generator creates one automatically). By default the gateway moves processed files into the archive directory; set `WATCH_DELETE_AFTER_UPLOAD=true` if you prefer to delete them instead.
 
 ## Configuration
 
