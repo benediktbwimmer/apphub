@@ -1,5 +1,5 @@
 import classNames from 'classnames';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { ThemeDefinition } from '@apphub/shared/designTokens';
 import { useTheme, type ThemePreference } from '../theme';
 import ThemeCustomizationPanel from './ThemeCustomizationPanel';
@@ -90,7 +90,7 @@ export default function ThemeSettingsPage() {
               option={option}
               isSelected={preference === option.preference}
               onSelect={setPreference}
-              activeThemeId={theme.id}
+              activeTheme={theme}
             />
           ))}
         </div>
@@ -115,12 +115,21 @@ type ThemeOptionCardProps = {
   readonly option: ThemeOption;
   readonly isSelected: boolean;
   readonly onSelect: (preference: ThemePreference) => void;
-  readonly activeThemeId: string;
+  readonly activeTheme: ThemeDefinition;
 };
 
-function ThemeOptionCard({ option, isSelected, onSelect, activeThemeId }: ThemeOptionCardProps) {
+function ThemeOptionCard({ option, isSelected, onSelect, activeTheme }: ThemeOptionCardProps) {
   const { preference, label, description, theme } = option;
-  const isActiveTheme = theme?.id === activeThemeId;
+  const isActiveTheme = theme?.id === activeTheme.id;
+  const accentColor = theme?.semantics.accent.default ?? activeTheme.semantics.accent.default;
+  const onAccentColor = theme?.semantics.accent.onAccent ?? activeTheme.semantics.accent.onAccent;
+
+  const cardStyle: CSSProperties | undefined = isSelected
+    ? ({
+        borderColor: accentColor,
+        '--tw-ring-color': accentColor
+      } as CSSProperties)
+    : undefined;
 
   return (
     <label
@@ -129,6 +138,7 @@ function ThemeOptionCard({ option, isSelected, onSelect, activeThemeId }: ThemeO
         isSelected ? SETTINGS_THEME_CARD_SELECTED : SETTINGS_THEME_CARD_UNSELECTED,
         isSelected ? SETTINGS_THEME_SELECTED_RING : undefined
       )}
+      style={cardStyle}
     >
       <input
         type="radio"
@@ -143,9 +153,13 @@ function ThemeOptionCard({ option, isSelected, onSelect, activeThemeId }: ThemeO
           <span className={SETTINGS_THEME_OPTION_LABEL}>{label}</span>
           <span className={SETTINGS_THEME_OPTION_DESCRIPTION}>{description}</span>
         </div>
-        {isSelected && <SelectedBadge />}
+        {isSelected && <SelectedBadge accentColor={accentColor} onAccentColor={onAccentColor} />}
       </div>
-      {theme ? <ThemeSwatch theme={theme} isActive={isActiveTheme} /> : <SystemSwatch />}
+      {theme ? (
+        <ThemeSwatch theme={theme} isActive={isActiveTheme} />
+      ) : (
+        <SystemSwatch accentColor={accentColor} isSelected={isSelected} />
+      )}
     </label>
   );
 }
@@ -154,6 +168,17 @@ function ThemeSwatch({ theme, isActive }: { theme: ThemeDefinition; isActive: bo
   const surface = theme.semantics.surface;
   const text = theme.semantics.text;
   const accent = theme.semantics.accent;
+  const previewStyle: CSSProperties = isActive
+    ? ({
+        background: surface.raised,
+        color: text.primary,
+        borderColor: accent.default,
+        '--tw-ring-color': accent.default
+      } as CSSProperties)
+    : {
+        background: surface.raised,
+        color: text.primary
+      };
 
   return (
     <div className="flex items-center gap-3" aria-hidden="true">
@@ -162,12 +187,9 @@ function ThemeSwatch({ theme, isActive }: { theme: ThemeDefinition; isActive: bo
         <div
           className={classNames(
             SETTINGS_THEME_PREVIEW_TILE,
-            isActive ? SETTINGS_THEME_SELECTED_RING : SETTINGS_THEME_PREVIEW_TILE_BORDER
+            isActive ? classNames('border', SETTINGS_THEME_SELECTED_RING) : SETTINGS_THEME_PREVIEW_TILE_BORDER
           )}
-          style={{
-            background: surface.raised,
-            color: text.primary
-          }}
+          style={previewStyle}
         >
           <div className={SETTINGS_THEME_OPTION_DESCRIPTION} style={{ color: text.muted }}>
             Navigation
@@ -187,14 +209,25 @@ function ThemeSwatch({ theme, isActive }: { theme: ThemeDefinition; isActive: bo
   );
 }
 
-function SystemSwatch() {
+function SystemSwatch({ accentColor, isSelected }: { accentColor?: string; isSelected: boolean }) {
+  const tileClasses = classNames(
+    SETTINGS_THEME_PREVIEW_TILE,
+    'bg-surface-glass',
+    isSelected ? classNames('border', SETTINGS_THEME_SELECTED_RING) : SETTINGS_THEME_PREVIEW_TILE_BORDER
+  );
+
+  const tileStyle: CSSProperties | undefined = isSelected && accentColor
+    ? ({
+        borderColor: accentColor,
+        '--tw-ring-color': accentColor
+      } as CSSProperties)
+    : undefined;
+
   return (
     <div className="flex items-center gap-3" aria-hidden="true">
       <span className={SETTINGS_THEME_PREVIEW_LABEL}>Preview</span>
       <div className={SETTINGS_THEME_PREVIEW_FRAME}>
-        <div
-          className={classNames(SETTINGS_THEME_PREVIEW_TILE, SETTINGS_THEME_PREVIEW_TILE_BORDER, 'bg-surface-glass')}
-        >
+        <div className={tileClasses} style={tileStyle}>
           <span className={SETTINGS_THEME_OPTION_DESCRIPTION}>Follows system</span>
         </div>
         <div className="h-10 w-12 rounded-md border border-subtle bg-surface-glass" />
@@ -204,9 +237,19 @@ function SystemSwatch() {
   );
 }
 
-function SelectedBadge() {
+function SelectedBadge({ accentColor, onAccentColor }: { accentColor?: string; onAccentColor?: string }) {
+  const style: CSSProperties | undefined = accentColor
+    ? ({
+        backgroundColor: accentColor,
+        color: onAccentColor
+      } as CSSProperties)
+    : undefined;
+
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-1 text-scale-2xs font-weight-semibold text-on-accent">
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-1 text-scale-2xs font-weight-semibold text-on-accent"
+      style={style}
+    >
       <CheckIcon /> Selected
     </span>
   );
