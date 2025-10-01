@@ -681,7 +681,7 @@ function BuildSummarySection({ build }: { build: AppRecord['latestBuild'] }) {
         <span className="text-scale-sm text-muted">Docker build in progress…</span>
       )}
       {build.logsPreview && (
-        <pre className="max-h-40 overflow-auto rounded-xl bg-surface-sunken p-4 text-scale-xs text-inverse shadow-inner">
+        <pre className="max-h-40 overflow-auto rounded-xl bg-surface-sunken p-4 text-scale-xs text-primary shadow-inner">
           {build.logsPreview}
           {build.logsTruncated ? '\n…' : ''}
         </pre>
@@ -1007,7 +1007,7 @@ function LaunchSummarySection({
           <p className="text-scale-sm text-muted">
             Custom Docker commands are temporarily disabled. Launches will use the generated command below.
           </p>
-          <pre className="max-h-40 overflow-auto rounded-xl bg-surface-sunken p-4 text-scale-xs text-inverse shadow-inner">
+          <pre className="max-h-40 overflow-auto rounded-xl bg-surface-sunken p-4 text-scale-xs text-primary shadow-inner">
             {generatedDefaultCommand}
           </pre>
         </div>
@@ -1218,7 +1218,7 @@ function BuildTimeline({
               <p className="text-scale-sm font-weight-medium text-status-danger">{build.errorMessage}</p>
             )}
             {build.logsPreview && (
-              <pre className="max-h-40 overflow-auto rounded-xl bg-surface-sunken p-4 text-scale-xs text-inverse">
+              <pre className="max-h-40 overflow-auto rounded-xl bg-surface-sunken p-4 text-scale-xs text-primary">
                 {build.logsPreview}
                 {build.logsTruncated ? '\n…' : ''}
               </pre>
@@ -1268,7 +1268,7 @@ function BuildTimeline({
                         <time dateTime={logUpdatedAt}>Updated {new Date(logUpdatedAt).toLocaleString()}</time>
                       )}
                     </div>
-                    <pre className="max-h-60 overflow-auto rounded-xl bg-surface-sunken p-4 font-mono text-scale-xs leading-5 text-inverse shadow-inner">
+                    <pre className="max-h-60 overflow-auto rounded-xl bg-surface-sunken p-4 font-mono text-scale-xs leading-5 text-primary shadow-inner">
                       {logState?.content ?? 'No logs available yet.'}
                     </pre>
                   </>
