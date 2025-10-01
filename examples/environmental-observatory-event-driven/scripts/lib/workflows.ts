@@ -312,7 +312,7 @@ function buildTriggerDefinitions(config: EventDrivenObservatoryConfig): TriggerD
       eventType: 'timestore.partition.created',
       predicates: [
         {
-          path: 'payload.datasetSlug',
+          path: '$.payload.datasetSlug',
           operator: 'equals',
           value: config.timestore.datasetSlug
         }

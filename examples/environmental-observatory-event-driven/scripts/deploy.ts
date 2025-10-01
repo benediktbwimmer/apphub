@@ -142,7 +142,17 @@ async function deployExampleBundles(
     if (response.data.mode === 'queued') {
       await waitForBundleCompletion(baseUrl, token, slug);
     }
+
+    await importExampleJob(baseUrl, token, slug);
   }
+}
+
+async function importExampleJob(baseUrl: string, token: string, slug: string): Promise<void> {
+  console.log(`  • Publishing ${slug}`);
+  await coreRequest(baseUrl, token, 'POST', '/job-imports', {
+    source: 'example',
+    slug
+  });
 }
 
 function deriveDataRoot(config: EventDrivenObservatoryConfig): string {
@@ -157,11 +167,11 @@ function deriveDataRoot(config: EventDrivenObservatoryConfig): string {
 async function importServiceManifests(
   baseUrl: string,
   token: string | null,
-  repoRoot: string,
+  moduleRoot: string,
   config: EventDrivenObservatoryConfig,
   configPath: string
 ): Promise<void> {
-  const modulePath = path.resolve(repoRoot);
+  const modulePath = path.resolve(moduleRoot);
   const payload = {
     module: OBSERVATORY_MODULE_ID,
     path: modulePath,
@@ -191,8 +201,8 @@ export type DeployObservatoryResult = {
 export async function deployEnvironmentalObservatoryExample(
   options: DeployObservatoryOptions = {}
 ): Promise<DeployObservatoryResult> {
-  const repoRoot = path.resolve(options.repoRoot ?? path.join(__dirname, '..', '..'));
-  const { config, outputPath } = await materializeObservatoryConfig({ repoRoot });
+  const moduleRoot = path.resolve(options.repoRoot ?? path.join(__dirname, '..', '..'));
+  const { config, outputPath } = await materializeObservatoryConfig({ repoRoot: moduleRoot });
   const coreBaseUrl = (config.core?.baseUrl ?? 'http://127.0.0.1:4000').replace(/\/+$/, '');
   const coreToken = config.core?.apiToken ?? '';
 
@@ -200,13 +210,13 @@ export async function deployEnvironmentalObservatoryExample(
     throw new Error('Core API token missing. Set core.apiToken in the observatory config.');
   }
 
-  await importServiceManifests(coreBaseUrl, coreToken, repoRoot, config, outputPath);
-  await deployExampleBundles(coreBaseUrl, coreToken, repoRoot);
+  await importServiceManifests(coreBaseUrl, coreToken, moduleRoot, config, outputPath);
+  await deployExampleBundles(coreBaseUrl, coreToken, moduleRoot);
   await synchronizeObservatoryWorkflowsAndTriggers({
     config,
     coreBaseUrl,
     coreToken,
-    repoRoot,
+    repoRoot: moduleRoot,
     logger: options.logger,
     omitGeneratorSchedule: options.skipGeneratorSchedule
   });

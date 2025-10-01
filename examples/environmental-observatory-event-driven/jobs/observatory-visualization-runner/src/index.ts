@@ -28,9 +28,11 @@ type VisualizationParameters = {
   filestorePrincipal?: string;
   visualizationsPrefix: string;
   partitionKey: string;
+  partitionWindow: string;
   lookbackMinutes: number;
   siteFilter?: string;
   instrumentId?: string;
+  dataset?: string;
 };
 
 type TimestoreQueryResponse = {
@@ -75,9 +77,11 @@ type VisualizationMetrics = {
   averagePm25: number;
   maxPm25: number;
   partitionKey: string;
+  partitionWindow: string;
   lookbackMinutes: number;
   siteFilter?: string;
   instrumentId?: string;
+  dataset?: string;
 };
 
 type VisualizationArtifact = {
@@ -92,6 +96,7 @@ type VisualizationArtifact = {
 type VisualizationAssetPayload = {
   generatedAt: string;
   partitionKey: string;
+  partitionWindow: string;
   storagePrefix: string;
   lookbackMinutes: number;
   artifacts: VisualizationArtifact[];
@@ -149,11 +154,24 @@ function parseParameters(raw: unknown): VisualizationParameters {
     throw new Error('timestoreDatasetSlug parameter is required');
   }
   const timestoreAuthToken = ensureString(raw.timestoreAuthToken ?? raw.timestore_auth_token ?? '');
-  const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key);
-  const instrumentId = ensureString(raw.instrumentId ?? raw.instrument_id ?? '');
-  if (!partitionKey) {
+ const partitionKeyFields = extractPartitionKeyFields(raw.partitionKeyFields ?? raw.partition_key_fields);
+  const minuteFallback = ensureString(
+    raw.partitionWindow ??
+      raw.partition_window ??
+      raw.minute ??
+      raw.minuteKey ??
+      raw.window ??
+      ''
+  );
+  const partitionKeyInput = ensureString(
+    raw.partitionKey ?? raw.partition_key ?? partitionKeyFields.raw ?? minuteFallback
+  );
+  const normalizedPartition = normalizePartitionKey(partitionKeyInput, partitionKeyFields, minuteFallback);
+  if (!normalizedPartition.window) {
     throw new Error('partitionKey parameter is required');
   }
+  const instrumentId =
+    ensureString(raw.instrumentId ?? raw.instrument_id ?? '') || normalizedPartition.instrument || undefined;
   const filestoreBaseUrl = ensureString(
     raw.filestoreBaseUrl ??
       raw.filestore_base_url ??
@@ -187,7 +205,7 @@ function parseParameters(raw: unknown): VisualizationParameters {
     1,
     ensureNumber(raw.lookbackMinutes ?? raw.lookback_minutes ?? raw.lookbackHours ?? raw.lookback_hours, 180)
   );
-  const siteFilter = ensureString(raw.siteFilter ?? raw.site_filter ?? '');
+  const siteFilter = ensureString(raw.siteFilter ?? raw.site_filter ?? '') || normalizedPartition.site || '';
   return {
     timestoreBaseUrl,
     timestoreDatasetSlug,
@@ -197,11 +215,96 @@ function parseParameters(raw: unknown): VisualizationParameters {
     filestoreToken: filestoreToken || undefined,
     filestorePrincipal: filestorePrincipal || undefined,
     visualizationsPrefix,
-    partitionKey,
+    partitionKey: normalizedPartition.raw,
+    partitionWindow: normalizedPartition.window,
     lookbackMinutes,
     siteFilter: siteFilter || undefined,
-    instrumentId: instrumentId || undefined
+    instrumentId: instrumentId || undefined,
+    dataset: normalizedPartition.dataset || undefined
   } satisfies VisualizationParameters;
+}
+
+type PartitionKeyFields = {
+  raw?: string;
+  window?: string;
+  instrument?: string;
+  dataset?: string;
+  site?: string;
+};
+
+function extractPartitionKeyFields(value: unknown): PartitionKeyFields {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    raw: ensureString(record.partitionKey ?? record.partition_key ?? ''),
+    window: ensureString(record.window ?? record.minute ?? record.hour ?? ''),
+    instrument: ensureString(record.instrument ?? record.instrumentId ?? record.instrument_id ?? ''),
+    dataset: ensureString(record.dataset ?? record.datasetSlug ?? record.dataset_slug ?? ''),
+    site: ensureString(record.site ?? record.location ?? '')
+  };
+}
+
+function normalizePartitionKey(
+  partitionKey: string,
+  fields: PartitionKeyFields,
+  minuteFallback: string
+): { raw: string; window: string; instrument?: string; dataset?: string; site?: string } {
+  let raw = partitionKey || fields.raw || '';
+  const map = parseCompositePartitionKey(raw);
+
+  const window =
+    fields.window ||
+    map.get('window') ||
+    map.get('minute') ||
+    map.get('partition') ||
+    minuteFallback ||
+    (raw && !raw.includes('=') ? raw : '');
+
+  const instrument = fields.instrument || map.get('instrument') || map.get('instrument_id');
+  const dataset = fields.dataset || map.get('dataset') || map.get('dataset_slug');
+  const site = fields.site || map.get('site') || map.get('location');
+
+  if (!raw && window) {
+    raw = window;
+  }
+
+  if (!window) {
+    return { raw, window: '' };
+  }
+
+  return {
+    raw: raw || window,
+    window,
+    instrument: instrument || undefined,
+    dataset: dataset || undefined,
+    site: site || undefined
+  };
+}
+
+function parseCompositePartitionKey(value: string): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!value || !value.includes('=')) {
+    return map;
+  }
+  for (const segment of value.split('|')) {
+    const trimmed = segment.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const [key, ...rest] = trimmed.split('=');
+    if (!key || rest.length === 0) {
+      continue;
+    }
+    const normalizedKey = key.trim().toLowerCase();
+    const normalizedValue = rest.join('=').trim();
+    if (!normalizedKey || !normalizedValue) {
+      continue;
+    }
+    map.set(normalizedKey, normalizedValue);
+  }
+  return map;
 }
 
 function toIsoMinute(partitionKey: string): string {
@@ -212,13 +315,13 @@ function toIsoMinute(partitionKey: string): string {
 }
 
 function computeTimeRange(
-  partitionKey: string,
+  partitionWindow: string,
   lookbackMinutes: number
 ): { startIso: string; endIso: string } {
-  const endIso = toIsoMinute(partitionKey);
+  const endIso = toIsoMinute(partitionWindow);
   const endDate = new Date(endIso);
   if (Number.isNaN(endDate.getTime())) {
-    throw new Error(`Invalid partitionKey '${partitionKey}', expected format YYYY-MM-DDTHH:mm`);
+    throw new Error(`Invalid partition window '${partitionWindow}', expected format YYYY-MM-DDTHH:mm`);
   }
   const startDate = new Date(endDate.getTime() - (lookbackMinutes - 1) * 60 * 1000);
   const startIso = startDate.toISOString().slice(0, 19) + 'Z';
@@ -454,7 +557,14 @@ function buildPm25Svg(rows: TrendRow[]): string {
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
-  const { startIso, endIso } = computeTimeRange(parameters.partitionKey, parameters.lookbackMinutes);
+  context.logger('Visualization request parameters', {
+    partitionKey: parameters.partitionKey,
+    partitionWindow: parameters.partitionWindow,
+    dataset: parameters.dataset ?? null,
+    instrumentId: parameters.instrumentId ?? null,
+    siteFilter: parameters.siteFilter ?? null
+  });
+  const { startIso, endIso } = computeTimeRange(parameters.partitionWindow, parameters.lookbackMinutes);
   const filestoreClient = new FilestoreClient({
     baseUrl: parameters.filestoreBaseUrl,
     token: parameters.filestoreToken,
@@ -464,8 +574,15 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     ? parameters.instrumentId.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'unknown'
     : 'all';
   const normalizedPrefix = parameters.visualizationsPrefix.replace(/\/+$/g, '');
-  const partitionSafe = parameters.partitionKey.replace(/:/g, '-');
-  const storagePrefix = `${normalizedPrefix}/${instrumentKey}/${partitionSafe}`;
+  const datasetKey = (parameters.dataset ?? 'dataset')
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '') || 'dataset';
+  const partitionSafe = parameters.partitionWindow
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '') || 'window';
+  const storagePrefix = `${normalizedPrefix}/${datasetKey}/${instrumentKey}/${partitionSafe}`;
   await ensureFilestoreHierarchy(
     filestoreClient,
     parameters.filestoreBackendId,
@@ -491,9 +608,11 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     averagePm25: summary.avg_pm25,
     maxPm25: summary.max_pm25,
     partitionKey: parameters.partitionKey,
+    partitionWindow: parameters.partitionWindow,
     lookbackMinutes: parameters.lookbackMinutes,
     siteFilter: parameters.siteFilter || undefined,
-    instrumentId: parameters.instrumentId || undefined
+    instrumentId: parameters.instrumentId || undefined,
+    dataset: parameters.dataset || undefined
   } satisfies VisualizationMetrics;
 
   const temperatureSvg = buildTemperatureSvg(trendRows);
@@ -507,8 +626,10 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     principal: parameters.filestorePrincipal,
     metadata: {
       partitionKey: parameters.partitionKey,
+      partitionWindow: parameters.partitionWindow,
       instrumentId: parameters.instrumentId ?? null,
       siteFilter: parameters.siteFilter ?? null,
+      dataset: parameters.dataset ?? null,
       variant: 'temperature'
     }
   });
@@ -522,8 +643,10 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     principal: parameters.filestorePrincipal,
     metadata: {
       partitionKey: parameters.partitionKey,
+      partitionWindow: parameters.partitionWindow,
       instrumentId: parameters.instrumentId ?? null,
       siteFilter: parameters.siteFilter ?? null,
+      dataset: parameters.dataset ?? null,
       variant: 'pm25'
     }
   });
@@ -537,8 +660,10 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     principal: parameters.filestorePrincipal,
     metadata: {
       partitionKey: parameters.partitionKey,
+      partitionWindow: parameters.partitionWindow,
       instrumentId: parameters.instrumentId ?? null,
       siteFilter: parameters.siteFilter ?? null,
+      dataset: parameters.dataset ?? null,
       variant: 'metrics'
     }
   });
@@ -575,6 +700,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     partitionKey: parameters.partitionKey,
     storagePrefix,
     lookbackMinutes: parameters.lookbackMinutes,
+    partitionWindow: parameters.partitionWindow,
     artifacts,
     metrics
   } satisfies VisualizationAssetPayload;
@@ -590,6 +716,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     status: 'succeeded',
     result: {
       partitionKey: parameters.partitionKey,
+      partitionWindow: parameters.partitionWindow,
+      dataset: parameters.dataset ?? null,
       visualization: payload,
       assets: [
         {

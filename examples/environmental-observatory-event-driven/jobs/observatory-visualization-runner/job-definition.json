@@ -3,7 +3,7 @@
   "name": "Observatory Visualization Runner",
   "type": "batch",
   "runtime": "node",
-  "entryPoint": "bundle:observatory-visualization-runner@0.1.0#handler",
+  "entryPoint": "bundle:observatory-visualization-runner@0.2.0#handler",
   "timeoutMs": 150000,
   "retryPolicy": {
     "maxAttempts": 2,
@@ -21,18 +21,20 @@
       "filestoreToken": { "type": "string" },
       "filestorePrincipal": { "type": "string" },
       "visualizationsPrefix": { "type": "string", "minLength": 1 },
-      "partitionKey": { "type": "string", "minLength": 1 },
+      "partitionKey": { "type": "string" },
+      "partitionWindow": { "type": "string" },
+      "partitionKeyFields": { "type": "object", "additionalProperties": true },
       "instrumentId": { "type": "string" },
       "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
-      "siteFilter": { "type": "string" }
+      "siteFilter": { "type": "string" },
+      "dataset": { "type": "string" }
     },
     "required": [
       "timestoreBaseUrl",
       "timestoreDatasetSlug",
       "filestoreBaseUrl",
       "filestoreBackendId",
-      "visualizationsPrefix",
-      "partitionKey"
+      "visualizationsPrefix"
     ]
   },
   "defaultParameters": {
@@ -40,15 +42,20 @@
     "instrumentId": null,
     "filestorePrincipal": null,
     "filestoreToken": null,
-    "siteFilter": null
+    "siteFilter": null,
+    "partitionKey": null,
+    "partitionWindow": null,
+    "dataset": null
   },
   "outputSchema": {
     "type": "object",
     "properties": {
       "generatedAt": { "type": "string", "format": "date-time" },
       "partitionKey": { "type": "string" },
+      "partitionWindow": { "type": "string" },
       "storagePrefix": { "type": "string" },
       "lookbackMinutes": { "type": "number" },
+      "dataset": { "type": "string" },
       "artifacts": {
         "type": "array",
         "items": {
@@ -66,9 +73,41 @@
       },
       "metrics": {
         "type": "object",
-        "additionalProperties": true
+        "properties": {
+          "samples": { "type": "number" },
+          "instrumentCount": { "type": "number" },
+          "siteCount": { "type": "number" },
+          "averageTemperatureC": { "type": "number" },
+          "averagePm25": { "type": "number" },
+          "maxPm25": { "type": "number" },
+          "partitionKey": { "type": "string" },
+          "partitionWindow": { "type": "string" },
+          "lookbackMinutes": { "type": "number" },
+          "siteFilter": { "type": ["string", "null"] },
+          "instrumentId": { "type": ["string", "null"] },
+          "dataset": { "type": ["string", "null"] }
+        },
+        "required": [
+          "samples",
+          "instrumentCount",
+          "siteCount",
+          "averageTemperatureC",
+          "averagePm25",
+          "maxPm25",
+          "partitionKey",
+          "partitionWindow",
+          "lookbackMinutes"
+        ]
       }
     },
-    "required": ["generatedAt", "partitionKey", "storagePrefix", "artifacts"]
+    "required": [
+      "generatedAt",
+      "partitionKey",
+      "partitionWindow",
+      "storagePrefix",
+      "lookbackMinutes",
+      "artifacts",
+      "metrics"
+    ]
   }
 }

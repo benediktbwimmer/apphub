@@ -5,8 +5,9 @@
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "filestoreToken": null,
+    "filestorePrincipal": "observatory-visualization-runner",
     "visualizationsPrefix": "datasets/observatory/visualizations",
     "partitionKey": "2025-08-01T09:00",
-    "lookbackMinutes": 90
+    "lookbackMinutes": 180
   }
 }

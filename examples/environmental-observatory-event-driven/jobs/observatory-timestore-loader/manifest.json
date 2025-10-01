@@ -1,6 +1,6 @@
 {
   "name": "Observatory Timestore Loader",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "entry": "dist/index.js",
   "runtime": "node18",
   "description": "Ingests normalized observatory readings into Timestore and emits observatory.timeseries.timestore assets.",

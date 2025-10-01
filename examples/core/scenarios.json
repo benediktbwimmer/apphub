@@ -230,7 +230,7 @@
       "type": "job",
       "title": "Observatory Timestore loader",
       "summary": "Streams normalized readings into Timestore.",
-      "description": "Uploads the `observatory-timestore-loader` bundle (0.1.0) to materialize `observatory.timeseries.timestore` assets after normalization completes.",
+      "description": "Uploads the `observatory-timestore-loader` bundle (0.2.0) to materialize `observatory.timeseries.timestore` assets after normalization completes.",
       "difficulty": "intermediate",
       "tags": [
         "observatory",
@@ -251,7 +251,7 @@
       ],
       "form": {
         "source": "upload",
-        "reference": "observatory-timestore-loader@0.1.0",
+        "reference": "observatory-timestore-loader@0.2.0",
         "notes": "Bundle packaged from examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader. Provide the Timestore base URL and dataset slug used by your ingest workflow."
       },
       "exampleSlug": "observatory-timestore-loader",
@@ -262,7 +262,7 @@
       "type": "job",
       "title": "Observatory visualization runner",
       "summary": "Builds SVG plots and metrics from Timestore timeseries.",
-      "description": "Uploads the `observatory-visualization-runner` bundle (0.1.0). Use it to generate observatory dashboards and feed the publication workflow.",
+      "description": "Uploads the `observatory-visualization-runner` bundle (0.2.0). Use it to generate observatory dashboards and feed the publication workflow.",
       "difficulty": "intermediate",
       "tags": [
         "observatory",
@@ -283,7 +283,7 @@
       ],
       "form": {
         "source": "upload",
-        "reference": "observatory-visualization-runner@0.1.0",
+        "reference": "observatory-visualization-runner@0.2.0",
         "notes": "Bundle sourced from examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner. Provide timestoreBaseUrl and plotsDir when previewing."
       },
       "exampleSlug": "observatory-visualization-runner",

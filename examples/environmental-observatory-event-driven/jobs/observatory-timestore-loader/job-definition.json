@@ -3,7 +3,7 @@
   "name": "Observatory Timestore Loader",
   "type": "batch",
   "runtime": "node",
-  "entryPoint": "bundle:observatory-timestore-loader@0.1.0#handler",
+  "entryPoint": "bundle:observatory-timestore-loader@0.2.0#handler",
   "timeoutMs": 180000,
   "retryPolicy": {
     "maxAttempts": 3,
@@ -21,13 +21,13 @@
       "storageTargetId": { "type": "string" },
       "partitionNamespace": { "type": "string" },
       "minute": { "type": "string", "minLength": 1 },
-      "rawAsset": { "type": "object" },
+      "rawAsset": { "type": ["object", "null"] },
       "idempotencyKey": { "type": "string", "minLength": 1 },
       "calibrationsBaseUrl": { "type": "string" },
       "calibrationsNamespace": { "type": "string" },
       "calibrationsAuthToken": { "type": "string" }
     },
-    "required": ["datasetSlug", "tableName", "timestoreBaseUrl", "minute", "rawAsset"]
+    "required": ["datasetSlug", "tableName", "timestoreBaseUrl", "minute"]
   },
   "defaultParameters": {
     "tableName": "observations",

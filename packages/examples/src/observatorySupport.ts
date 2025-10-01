@@ -401,7 +401,7 @@ export async function ensureObservatoryBackend(
   const desiredConfig = stripUndefined({
     endpoint: config.filestore.endpoint ?? 'http://127.0.0.1:9000',
     region: config.filestore.region ?? 'us-east-1',
-    forcePathStyle: config.filestore.forcePathStyle !== false,
+    force_path_style: config.filestore.forcePathStyle !== false,
     accessKeyId: config.filestore.accessKeyId ?? 'apphub',
     secretAccessKey: config.filestore.secretAccessKey ?? 'apphub123',
     sessionToken: config.filestore.sessionToken ?? undefined

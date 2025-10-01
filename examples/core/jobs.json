@@ -435,7 +435,7 @@
       "jobDefinitionPath": "examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader/job-definition.json",
       "manifest": {
         "name": "Observatory Timestore Loader",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "entry": "dist/index.js",
         "runtime": "node18",
         "description": "Ingests normalized observatory readings into Timestore and emits observatory.timeseries.timestore assets.",
@@ -449,7 +449,7 @@
         "name": "Observatory Timestore Loader",
         "type": "batch",
         "runtime": "node",
-        "entryPoint": "bundle:observatory-timestore-loader@0.1.0#handler",
+        "entryPoint": "bundle:observatory-timestore-loader@0.2.0#handler",
         "timeoutMs": 180000,
         "retryPolicy": {
           "maxAttempts": 3,
@@ -489,7 +489,7 @@
               "minLength": 1
             },
             "rawAsset": {
-              "type": "object"
+              "type": ["object", "null"]
             },
             "idempotencyKey": {
               "type": "string",
@@ -500,8 +500,7 @@
             "datasetSlug",
             "tableName",
             "timestoreBaseUrl",
-            "minute",
-            "rawAsset"
+            "minute"
           ]
         },
         "defaultParameters": {
@@ -543,13 +542,13 @@
     },
     {
       "slug": "observatory-visualization-runner",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner",
       "manifestPath": "examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner/manifest.json",
       "jobDefinitionPath": "examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner/job-definition.json",
       "manifest": {
         "name": "Observatory Visualization Runner",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "entry": "dist/index.js",
         "runtime": "node18",
         "description": "Queries Timestore for aggregates, builds SVG plots, and emits observatory visualization assets.",
@@ -563,7 +562,7 @@
         "name": "Observatory Visualization Runner",
         "type": "batch",
         "runtime": "node",
-        "entryPoint": "bundle:observatory-visualization-runner@0.1.0#handler",
+        "entryPoint": "bundle:observatory-visualization-runner@0.2.0#handler",
         "timeoutMs": 150000,
         "retryPolicy": {
           "maxAttempts": 2,
@@ -573,99 +572,101 @@
         "parametersSchema": {
           "type": "object",
           "properties": {
-            "timestoreBaseUrl": {
-              "type": "string",
-              "minLength": 1
-            },
-            "timestoreDatasetSlug": {
-              "type": "string",
-              "minLength": 1
-            },
-            "timestoreAuthToken": {
-              "type": "string"
-            },
-            "plotsDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "partitionKey": {
-              "type": "string",
-              "minLength": 1
-            },
-            "instrumentId": {
-              "type": "string"
-            },
-            "lookbackMinutes": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 10080
-            },
-            "siteFilter": {
-              "type": "string"
-            }
+            "timestoreBaseUrl": { "type": "string", "minLength": 1 },
+            "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
+            "timestoreAuthToken": { "type": "string" },
+            "filestoreBaseUrl": { "type": "string", "minLength": 1 },
+            "filestoreBackendId": { "type": "number", "minimum": 1 },
+            "filestoreToken": { "type": "string" },
+            "filestorePrincipal": { "type": "string" },
+            "visualizationsPrefix": { "type": "string", "minLength": 1 },
+            "partitionKey": { "type": "string" },
+            "partitionWindow": { "type": "string" },
+            "partitionKeyFields": { "type": "object", "additionalProperties": true },
+            "instrumentId": { "type": "string" },
+            "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
+            "siteFilter": { "type": "string" },
+            "dataset": { "type": "string" }
           },
           "required": [
             "timestoreBaseUrl",
             "timestoreDatasetSlug",
-            "plotsDir",
-            "partitionKey",
-            "instrumentId"
+            "filestoreBaseUrl",
+            "filestoreBackendId",
+            "visualizationsPrefix"
           ]
         },
         "defaultParameters": {
           "lookbackMinutes": 180,
-          "instrumentId": null
+          "instrumentId": null,
+          "filestorePrincipal": null,
+          "filestoreToken": null,
+          "siteFilter": null,
+          "partitionKey": null,
+          "partitionWindow": null,
+          "dataset": null
         },
         "outputSchema": {
           "type": "object",
           "properties": {
-            "generatedAt": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "partitionKey": {
-              "type": "string"
-            },
-            "plotsDir": {
-              "type": "string"
-            },
-            "lookbackMinutes": {
-              "type": "number"
-            },
+            "generatedAt": { "type": "string", "format": "date-time" },
+            "partitionKey": { "type": "string" },
+            "partitionWindow": { "type": "string" },
+            "storagePrefix": { "type": "string" },
+            "lookbackMinutes": { "type": "number" },
+            "dataset": { "type": "string" },
             "artifacts": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "relativePath": {
-                    "type": "string"
-                  },
-                  "mediaType": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "sizeBytes": {
-                    "type": "number"
-                  }
+                  "path": { "type": "string" },
+                  "nodeId": { "type": "number" },
+                  "mediaType": { "type": "string" },
+                  "description": { "type": "string" },
+                  "sizeBytes": { "type": "number" },
+                  "checksum": { "type": "string" }
                 },
-                "required": [
-                  "relativePath",
-                  "mediaType"
-                ]
+                "required": ["path", "mediaType"]
               }
             },
             "metrics": {
               "type": "object",
-              "additionalProperties": true
+              "properties": {
+                "samples": { "type": "number" },
+                "instrumentCount": { "type": "number" },
+                "siteCount": { "type": "number" },
+                "averageTemperatureC": { "type": "number" },
+                "averagePm25": { "type": "number" },
+                "maxPm25": { "type": "number" },
+                "partitionKey": { "type": "string" },
+                "partitionWindow": { "type": "string" },
+                "lookbackMinutes": { "type": "number" },
+                "siteFilter": { "type": ["string", "null"] },
+                "instrumentId": { "type": ["string", "null"] },
+                "dataset": { "type": ["string", "null"] }
+              },
+              "required": [
+                "samples",
+                "instrumentCount",
+                "siteCount",
+                "averageTemperatureC",
+                "averagePm25",
+                "maxPm25",
+                "partitionKey",
+                "partitionWindow",
+                "lookbackMinutes"
+              ]
             }
           },
           "required": [
             "generatedAt",
             "partitionKey",
-            "plotsDir",
-            "artifacts"
+            "partitionWindow",
+            "storagePrefix",
+            "lookbackMinutes",
+            "artifacts",
+            "metrics"
           ]
         }
       }
