@@ -433,14 +433,31 @@ async function collectInboxNodes(
   const normalizedPrefix = parameters.inboxPrefix.replace(/\/+$/g, '');
 
   while (matches.length < parameters.maxFiles) {
-    const result = await client.listNodes({
-      backendMountId: parameters.filestoreBackendId,
-      path: normalizedPrefix,
-      limit,
-      offset,
-      depth: 1,
-      kinds: ['file']
-    });
+    let result;
+    try {
+      result = await client.listNodes({
+        backendMountId: parameters.filestoreBackendId,
+        path: normalizedPrefix,
+        limit,
+        offset,
+        depth: 1,
+        kinds: ['file']
+      });
+    } catch (error) {
+      if (error instanceof FilestoreClientError && (error.statusCode ?? 0) >= 500) {
+        console.warn('[observatory-inbox-normalizer] listNodes failed; treating as empty inbox', {
+          statusCode: error.statusCode ?? null,
+          code: error.code ?? null,
+          message: error.message
+        });
+        break;
+      }
+      throw error;
+    }
+
+    if (!result) {
+      break;
+    }
 
     for (const node of result.nodes) {
       if (nodeMatchesMinute(node, parameters.minute, minuteSuffixes)) {
@@ -1019,7 +1036,25 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     const missingPath = normalizedCommandPath
       ? `Inbox file ${normalizedCommandPath} not found for minute ${parameters.minute}`
       : `No inbox files matching minute ${parameters.minute} under ${parameters.inboxPrefix}`;
-    throw new Error(missingPath);
+    context.logger('Skipping normalization because inbox file is missing', {
+      commandPath: normalizedCommandPath,
+      inboxPrefix: parameters.inboxPrefix,
+      minute: parameters.minute
+    });
+    await context.update({
+      filesProcessed: 0,
+      filesArchived: 0,
+      recordCount: 0,
+      skipped: true,
+      reason: missingPath
+    });
+    return {
+      status: 'succeeded',
+      result: {
+        skipped: true,
+        reason: missingPath
+      }
+    } satisfies JobRunResult;
   }
 
   const filename = inboxNode.path.split('/').pop() ?? '';
