@@ -5,8 +5,12 @@ import {
   type DeployObservatoryOptions,
   type DeployObservatoryResult
 } from '../../examples/environmental-observatory-event-driven/scripts/deploy';
+import {
+  MINIO_ENDPOINT,
+  OBSERVATORY_OPERATOR_TOKEN,
+  configureE2EEnvironment
+} from './env';
 
-const DEFAULT_S3_ENDPOINT = 'http://127.0.0.1:9000';
 const DEFAULT_S3_REGION = 'us-east-1';
 const DEFAULT_ACCESS_KEY = 'apphub';
 const DEFAULT_SECRET_KEY = 'apphub123';
@@ -20,8 +24,9 @@ type EnsureBucketsOptions = {
 };
 
 async function ensureBuckets(options: EnsureBucketsOptions = {}): Promise<void> {
+  console.info('[observatory] Ensuring MinIO buckets exist');
   const client = new S3Client({
-    endpoint: options.endpoint ?? DEFAULT_S3_ENDPOINT,
+    endpoint: options.endpoint ?? MINIO_ENDPOINT,
     region: options.region ?? DEFAULT_S3_REGION,
     forcePathStyle: true,
     credentials: {
@@ -31,6 +36,7 @@ async function ensureBuckets(options: EnsureBucketsOptions = {}): Promise<void> 
   });
 
   for (const bucket of REQUIRED_BUCKETS) {
+    console.info('[observatory] Checking bucket', { bucket });
     let exists = false;
     try {
       await client.send(new HeadBucketCommand({ Bucket: bucket }));
@@ -40,9 +46,11 @@ async function ensureBuckets(options: EnsureBucketsOptions = {}): Promise<void> 
     }
 
     if (exists) {
+      console.info('[observatory] Bucket present', { bucket });
       continue;
     }
 
+    console.info('[observatory] Creating missing bucket', { bucket });
     await client.send(new CreateBucketCommand({ Bucket: bucket }));
   }
 }
@@ -62,19 +70,32 @@ export type ObservatoryContext = {
 export async function prepareObservatoryExample(
   options: PrepareObservatoryOptions = {}
 ): Promise<ObservatoryContext> {
-  await ensureBuckets();
+  const restoreEnv = configureE2EEnvironment();
+  try {
+    console.info('[observatory] Preparing example', { options });
+    await ensureBuckets();
 
-  const deployOptions: DeployObservatoryOptions = {
-    repoRoot: options.repoRoot,
-    skipGeneratorSchedule: options.skipGeneratorSchedule ?? true
-  };
+    const deployOptions: DeployObservatoryOptions = {
+      repoRoot: options.repoRoot,
+      skipGeneratorSchedule: options.skipGeneratorSchedule ?? true
+    };
 
-  const result: DeployObservatoryResult = await deployEnvironmentalObservatoryExample(deployOptions);
+    console.info('[observatory] Deploying observatory example', deployOptions);
 
-  return {
-    config: result.config,
-    configPath: result.configPath,
-    coreBaseUrl: result.coreBaseUrl,
-    coreToken: result.coreToken
-  };
+    const result: DeployObservatoryResult = await deployEnvironmentalObservatoryExample(deployOptions);
+
+    if (!result.coreToken) {
+      result.coreToken = OBSERVATORY_OPERATOR_TOKEN;
+    }
+
+    return {
+      config: result.config,
+      configPath: result.configPath,
+      coreBaseUrl: result.coreBaseUrl,
+      coreToken: result.coreToken
+    } satisfies ObservatoryContext;
+  } finally {
+    console.info('[observatory] Restoring environment overrides');
+    restoreEnv();
+  }
 }

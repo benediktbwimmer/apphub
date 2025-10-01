@@ -4,16 +4,17 @@ import { performance } from 'node:perf_hooks';
 
 import { runE2E } from '../helpers';
 import { startExternalStack } from './stack';
-import { startDevRunner } from './devRunner';
 import { prepareObservatoryExample } from './observatory';
 import { triggerGeneratorWorkflow } from './flows';
 import { verifyFilestoreIngest, verifyMetastore, verifyTimestore } from './verification';
 import { requestJson, waitForEndpoint } from './httpClient';
-
-const CORE_BASE_URL = 'http://127.0.0.1:4000';
-const METASTORE_BASE_URL = 'http://127.0.0.1:4100';
-const TIMESTORE_BASE_URL = 'http://127.0.0.1:4200';
-const FILESTORE_BASE_URL = 'http://127.0.0.1:4300';
+import {
+  CORE_BASE_URL,
+  METASTORE_BASE_URL,
+  TIMESTORE_BASE_URL,
+  FILESTORE_BASE_URL,
+  configureE2EEnvironment
+} from './env';
 
 type BenchmarkScenario = {
   name: string;
@@ -55,10 +56,10 @@ async function runScenario(scenario: BenchmarkScenario): Promise<{ name: string;
 }
 
 async function runBenchmarks(): Promise<void> {
-  await waitForEndpoint(`${CORE_BASE_URL}/readyz`);
-  await waitForEndpoint(`${METASTORE_BASE_URL}/readyz`);
-  await waitForEndpoint(`${TIMESTORE_BASE_URL}/readyz`);
-  await waitForEndpoint(`${FILESTORE_BASE_URL}/readyz`);
+  await waitForEndpoint(`${CORE_BASE_URL}/health`);
+  await waitForEndpoint(`${METASTORE_BASE_URL}/health`);
+  await waitForEndpoint(`${TIMESTORE_BASE_URL}/health`);
+  await waitForEndpoint(`${FILESTORE_BASE_URL}/health`);
 
   const observatory = await prepareObservatoryExample();
   await verifyFilestoreIngest(observatory);
@@ -148,8 +149,8 @@ runE2E(async (context) => {
     context.registerCleanup(() => stack.stop());
   }
 
-  const devRunner = await startDevRunner({ logPrefix: '[dev]' });
-  context.registerCleanup(() => devRunner.stop());
+  const restoreEnv = configureE2EEnvironment();
+  context.registerCleanup(() => restoreEnv());
 
   await runBenchmarks();
 }, {

@@ -7,17 +7,18 @@ The repository ships a full-stack smoke test and lightweight benchmark harness t
 - Node.js environment with workspace dependencies installed (`npm install`)
 - Local ports `5432`, `6379`, `9000`, `4000`, `4100`, `4200`, and `4300` available
 
-Set `APPHUB_E2E_SKIP_STACK=1` if you want to reuse an already running dependency stack instead of letting the harness manage containers.
+Set `APPHUB_E2E_SKIP_STACK=1` if you want to reuse an already running container stack instead of letting the harness manage Docker Compose lifecycle.
 
 ## Smoke Test
 ```
 npm run e2e
 ```
 The runner:
-- Brings up Postgres, Redis, and MinIO via `docker compose`
-- Launches the full AppHub dev stack (`npm run dev`)
+- Builds and starts the AppHub services alongside Postgres, Redis, and MinIO via `docker compose`
 - Materialises the observatory example configuration and deploys bundles/workflows with the generator schedule disabled
 - Drives the Core, Filestore, Metastore, and Timestore services through their OpenAPI endpoints to verify health and a generator workflow run
+
+Services are published on high ports (`4400`, `4410`, `4420`, `4430`) so the smoke test can run alongside a local `npm run dev` session without fighting for the default development ports.
 
 All processes are torn down automatically unless `APPHUB_E2E_SKIP_STACK=1` is set.
 

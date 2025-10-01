@@ -175,7 +175,7 @@ async function importServiceManifests(
   const payload = {
     module: OBSERVATORY_MODULE_ID,
     path: modulePath,
-    configPath: 'service-manifests/service-manifest.json',
+    configPath: 'config.json',
     variables: {
       OBSERVATORY_CONFIG_PATH: configPath,
       OBSERVATORY_DATA_ROOT: deriveDataRoot(config)
@@ -201,7 +201,7 @@ export type DeployObservatoryResult = {
 export async function deployEnvironmentalObservatoryExample(
   options: DeployObservatoryOptions = {}
 ): Promise<DeployObservatoryResult> {
-  const moduleRoot = path.resolve(options.repoRoot ?? path.join(__dirname, '..', '..'));
+  const moduleRoot = path.resolve(options.repoRoot ?? path.dirname(__dirname));
   const { config, outputPath } = await materializeObservatoryConfig({ repoRoot: moduleRoot });
   const coreBaseUrl = (config.core?.baseUrl ?? 'http://127.0.0.1:4000').replace(/\/+$/, '');
   const coreToken = config.core?.apiToken ?? '';

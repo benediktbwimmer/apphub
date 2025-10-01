@@ -47,7 +47,9 @@ export async function materializeObservatoryConfig(
   options: MaterializeConfigOptions = {}
 ): Promise<{ config: EventDrivenObservatoryConfig; outputPath: string }>
 {
-  const repoRoot = options.repoRoot ?? path.resolve(__dirname, '..', '..', '..');
+  const repoRoot = options.repoRoot
+    ? path.resolve(options.repoRoot)
+    : path.resolve(__dirname, '..', '..');
   const { config, outputPath } = createEventDrivenObservatoryConfig({
     repoRoot,
     variables: process.env

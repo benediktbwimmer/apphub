@@ -3,8 +3,13 @@ import net from 'node:net';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { MINIO_PORT } from './env';
+
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_COMPOSE_FILE = path.join(REPO_ROOT, 'docker', 'e2e-stack.compose.yml');
+const DEFAULT_OPERATOR_TOKEN = 'apphub-e2e-operator';
+const DEFAULT_REPO_ROOT_ENV = 'APPHUB_E2E_REPO_ROOT';
+const DEFAULT_OPERATOR_TOKEN_ENV = 'APPHUB_E2E_OPERATOR_TOKEN';
 const DEFAULT_PROJECT = 'apphub-e2e-stack';
 
 type RunCommandOptions = {
@@ -16,6 +21,7 @@ async function runCommand(
   command: string[],
   options: RunCommandOptions = {}
 ): Promise<{ stdout: string; stderr: string }> {
+  console.info('[stack] Executing command', { command: command.join(' ') });
   return await new Promise((resolve, reject) => {
     const child = spawn(command[0], command.slice(1), {
       cwd: options.cwd ?? REPO_ROOT,
@@ -37,6 +43,7 @@ async function runCommand(
     });
     child.once('close', (code) => {
       if (code === 0) {
+        console.info('[stack] Command completed', { command: command.join(' '), code });
         resolve({ stdout, stderr });
       } else {
         const message = `Command failed (${command.join(' ')}): exit ${code}\n${stderr || stdout}`;
@@ -54,6 +61,7 @@ type PortTarget = {
 
 async function waitForPort(target: PortTarget, timeoutMs = 120_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
+  console.info('[stack] Waiting for port', { target, timeoutMs });
 
   const attempt = async (): Promise<boolean> =>
     await new Promise<boolean>((resolve) => {
@@ -74,6 +82,7 @@ async function waitForPort(target: PortTarget, timeoutMs = 120_000): Promise<voi
   while (Date.now() < deadline) {
     const ok = await attempt();
     if (ok) {
+      console.info('[stack] Port ready', { target });
       return;
     }
     await sleep(1_000);
@@ -98,6 +107,16 @@ export async function startExternalStack(options: StartStackOptions = {}): Promi
   const composeFile = options.composeFile ?? DEFAULT_COMPOSE_FILE;
   const projectName = options.projectName ?? DEFAULT_PROJECT;
 
+  const envOverrides: NodeJS.ProcessEnv = {
+    [DEFAULT_REPO_ROOT_ENV]: REPO_ROOT,
+    [DEFAULT_OPERATOR_TOKEN_ENV]: process.env.APPHUB_E2E_OPERATOR_TOKEN ?? DEFAULT_OPERATOR_TOKEN
+  };
+
+  console.info('[stack] Starting external stack', {
+    composeFile,
+    projectName,
+    skipContainers: options.skipContainers ?? false
+  });
   if (!options.skipContainers) {
     await runCommand([
       'docker',
@@ -109,17 +128,16 @@ export async function startExternalStack(options: StartStackOptions = {}): Promi
       'up',
       '-d',
       '--remove-orphans'
-    ]);
+    ], { env: envOverrides });
   }
 
-  await waitForPort({ host: '127.0.0.1', port: 5432, label: 'postgres' });
-  await waitForPort({ host: '127.0.0.1', port: 6379, label: 'redis' });
-  await waitForPort({ host: '127.0.0.1', port: 9000, label: 'minio' });
+  await waitForPort({ host: '127.0.0.1', port: MINIO_PORT, label: 'minio' });
 
   return {
     projectName,
     composeFile,
     stop: async () => {
+      console.info('[stack] Stopping external stack', { projectName });
       await runCommand([
         'docker',
         'compose',
@@ -129,7 +147,7 @@ export async function startExternalStack(options: StartStackOptions = {}): Promi
         composeFile,
         'down',
         '-v'
-      ]);
+      ], { env: envOverrides });
     }
   } satisfies ExternalStackHandle;
 }

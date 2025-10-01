@@ -794,6 +794,28 @@ export const openApiDocument: OpenAPIV3.Document = {
         }
       }
     },
+    '/health': {
+      get: {
+        tags: ['System'],
+        summary: 'Health probe',
+        operationId: 'health',
+        responses: {
+          '200': {
+            description: 'Service healthy',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     '/healthz': {
       get: {
         tags: ['System'],

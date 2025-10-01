@@ -156,4 +156,22 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(body.status, 'stalled');
   assert.ok(typeof body.lagSeconds === 'number' && body.lagSeconds >= 4);
   assert.equal(body.thresholdSeconds, 1);
+
+  const healthResponse = await app.inject({
+    method: 'GET',
+    url: '/health'
+  });
+  assert.equal(healthResponse.statusCode, 200, healthResponse.body);
+  const healthBody = healthResponse.json() as {
+    status: string;
+    filestore: Record<string, unknown>;
+  };
+  assert.equal(healthBody.status, 'ok');
+
+  const healthzResponse = await app.inject({
+    method: 'GET',
+    url: '/healthz'
+  });
+  assert.equal(healthzResponse.statusCode, 200, healthzResponse.body);
+  assert.deepEqual(healthzResponse.json(), healthBody);
 });

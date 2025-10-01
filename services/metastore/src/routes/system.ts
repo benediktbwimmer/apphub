@@ -2,11 +2,14 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { withConnection } from '../db/client';
 import { getFilestoreHealthSnapshot } from '../filestore/consumer';
 
+const buildHealthResponse = () => ({
+  status: 'ok' as const,
+  filestore: getFilestoreHealthSnapshot()
+});
+
 export async function registerSystemRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/healthz', async () => ({
-    status: 'ok',
-    filestore: getFilestoreHealthSnapshot()
-  }));
+  app.get('/health', async () => buildHealthResponse());
+  app.get('/healthz', async () => buildHealthResponse());
 
   app.get('/readyz', async (_request: FastifyRequest, reply: FastifyReply) => {
     const filestoreHealth = getFilestoreHealthSnapshot();
