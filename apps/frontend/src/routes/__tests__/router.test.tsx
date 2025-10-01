@@ -12,7 +12,7 @@ describe('appRouteConfig', () => {
     const childPaths = new Set((root?.children ?? []).map((child) => (child.index ? 'index' : child.path)));
 
     expect(childPaths.has('index')).toBe(true);
-    expect(childPaths.has(ROUTE_SEGMENTS.catalog)).toBe(true);
+    expect(childPaths.has(ROUTE_SEGMENTS.core)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.events)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.services)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.workflows)).toBe(true);

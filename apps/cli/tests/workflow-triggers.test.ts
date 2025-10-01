@@ -15,7 +15,7 @@ type RecordedRequest = {
   body: unknown;
 };
 
-async function startMockCatalogServer(
+async function startMockCoreServer(
   handler: (req: http.IncomingMessage, body: unknown, res: http.ServerResponse) => void
 ): Promise<{
   url: string;
@@ -74,8 +74,8 @@ async function runProgram(program: ReturnType<typeof createProgram>, argv: strin
   }
 }
 
-test('workflow triggers list command calls catalog API', { concurrency: false }, async (t) => {
-  const server = await startMockCatalogServer((req, _body, res) => {
+test('workflow triggers list command calls core API', { concurrency: false }, async (t) => {
+  const server = await startMockCoreServer((req, _body, res) => {
     if (req.method === 'GET' && req.url?.startsWith('/workflows/demo/triggers')) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
@@ -111,7 +111,7 @@ test('workflow triggers list command calls catalog API', { concurrency: false },
     'demo',
     '--token',
     'test-token',
-    '--catalog-url',
+    '--core-url',
     server.url
   ]);
 
@@ -125,7 +125,7 @@ test('workflow triggers list command calls catalog API', { concurrency: false },
 });
 
 test('workflow triggers create command posts definition payload', { concurrency: false }, async (t) => {
-  const server = await startMockCatalogServer((req, body, res) => {
+  const server = await startMockCoreServer((req, body, res) => {
     if (req.method === 'POST' && req.url === '/workflows/demo/triggers') {
       res.writeHead(201, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ data: { id: 'trigger-1', status: 'active' } }));
@@ -176,7 +176,7 @@ test('workflow triggers create command posts definition payload', { concurrency:
     definitionPath,
     '--token',
     'test-token',
-    '--catalog-url',
+    '--core-url',
     server.url,
     '--yes'
   ]);

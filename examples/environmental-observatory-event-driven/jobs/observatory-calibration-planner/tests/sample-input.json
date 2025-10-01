@@ -7,7 +7,7 @@
       "metastoreVersion": 1
     }
   ],
-  "catalogBaseUrl": "http://127.0.0.1:4000",
+  "coreBaseUrl": "http://127.0.0.1:4000",
   "ingestWorkflowSlug": "observatory-minute-ingest",
   "ingestAssetId": "observatory.timeseries.timestore",
   "plansPrefix": "datasets/observatory/calibrations/plans",

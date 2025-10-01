@@ -6,7 +6,7 @@ import process from 'node:process';
 const NAMESPACE = 'apphub-system';
 const IMAGE_PREFIX = process.env.APPHUB_IMAGE_PREFIX ?? 'apphub';
 const IMAGE_TAG = process.env.APPHUB_IMAGE_TAG ?? 'dev';
-const SERVICES = ['catalog', 'metastore', 'filestore', 'timestore', 'frontend'];
+const SERVICES = ['core', 'metastore', 'filestore', 'timestore', 'frontend'];
 
 const flags = parseFlags(process.argv.slice(2));
 

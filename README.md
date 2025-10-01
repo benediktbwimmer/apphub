@@ -1,6 +1,6 @@
 # Osiris AppHub
 
-"YouTube of web applications" prototype that catalogs container-ready repositories, surfaces searchable metadata, and offers a keyboard-first tag experience.
+"YouTube of web applications" prototype whose core service indexes container-ready repositories, surfaces searchable metadata, and offers a keyboard-first tag experience.
 
 ## Project Layout
 
@@ -13,7 +13,7 @@ apphub/
 │   ├── shared/               # Shared types + registries consumed by multiple services
 │   └── examples/             # Placeholder workspace for the consolidated example registry
 ├── services/
-│   ├── catalog/              # Fastify API + background workers
+│   ├── core/              # Fastify API + background workers
 │   └── metastore/            # Flexible metadata storage + search service
 └── apps/
     ├── cli/                  # Workspace-aware job bundle tooling
@@ -54,10 +54,10 @@ npm run minikube:down
 
 Prerequisites: Docker, minikube, kubectl, and enough local resources (recommended: 4 CPUs, 8 GiB RAM). See `infra/minikube/README.md` for detailed ingress and troubleshooting notes.
 
-### Catalog API
+### Core API
 
 ```bash
-npm run dev --workspace @apphub/catalog
+npm run dev --workspace @apphub/core
 ```
 
 The API listens on `http://localhost:4000` by default and serves:
@@ -72,7 +72,7 @@ Metadata persists in PostgreSQL. By default the API connects to `postgres://apph
 
 #### Example Bundle Storage
 
-Example bundle packaging now stores status records in PostgreSQL and pushes bundle archives to an S3-compatible object store. Set the `APPHUB_BUNDLE_STORAGE_*` variables before starting the catalog service. For local smoke tests you can keep `APPHUB_BUNDLE_STORAGE_BACKEND=local`, but multi-replica setups (including minikube) should point to MinIO or AWS S3. See [`docs/example-bundle-storage.md`](docs/example-bundle-storage.md) for a configuration walkthrough and migration instructions.
+Example bundle packaging now stores status records in PostgreSQL and pushes bundle archives to an S3-compatible object store. Set the `APPHUB_BUNDLE_STORAGE_*` variables before starting the core service. For local smoke tests you can keep `APPHUB_BUNDLE_STORAGE_BACKEND=local`, but multi-replica setups (including minikube) should point to MinIO or AWS S3. See [`docs/example-bundle-storage.md`](docs/example-bundle-storage.md) for a configuration walkthrough and migration instructions.
 
 ### Metastore Service
 
@@ -91,7 +91,7 @@ Use `POST /apps/:id/retry` to manually requeue a failed repository; the UI offer
 `GET /apps/:id/history` returns the latest ingestion events including status, message, attempt number, commit SHA (when available), and duration in milliseconds for deeper debugging.
 
 ```bash
-npm run ingest --workspace @apphub/catalog
+npm run ingest --workspace @apphub/core
 ```
 
 Ensure a Redis instance is running and reachable via `REDIS_URL` before starting the worker.
@@ -112,7 +112,7 @@ downstream processing.
 Spin up the workflow coordinator alongside the API and workers:
 
 ```bash
-npm run workflows --workspace @apphub/catalog
+npm run workflows --workspace @apphub/core
 ```
 
 Runtime configuration highlights:
@@ -136,7 +136,7 @@ runs with `trigger.type = 'auto-materialize'` for auditing. The worker can run
 inline (Redis `inline` mode) or via BullMQ with delayed expiry jobs.
 
 ```bash
-npm run materializer --workspace @apphub/catalog
+npm run materializer --workspace @apphub/core
 ```
 
 Key environment variables:
@@ -161,7 +161,7 @@ npm run dev --workspace @apphub/frontend
 
 The Vite dev server binds to `http://localhost:5173`.
 
-Override `VITE_FILESTORE_BASE_URL` in `.env.local` when the filestore service runs on a distinct origin from the catalog proxy.
+Override `VITE_FILESTORE_BASE_URL` in `.env.local` when the filestore service runs on a distinct origin from the core proxy.
 
 ### Kubernetes runtime (recommended)
 
@@ -215,15 +215,15 @@ docker run --rm -it \
   apphub:latest
 ```
 
-#### Catalog Kubernetes Runtime
+#### Core Kubernetes Runtime
 
-The modular catalog runtime (`docker/Dockerfile.services` `--target catalog-runtime`) now bundles Kubernetes tooling for build and launch workers. The image installs `kubectl` 1.29 and `helm` 3.14 and starts via `/app/services/catalog/scripts/catalog-runtime-entrypoint.sh`, which:
+The modular core runtime (`docker/Dockerfile.services` `--target core-runtime`) now bundles Kubernetes tooling for build and launch workers. The image installs `kubectl` 1.29 and `helm` 3.14 and starts via `/app/services/core/scripts/core-runtime-entrypoint.sh`, which:
 
-- Executes `kubectl version --client` through `services/catalog/dist/scripts/kubernetesSmoke.js` and logs warnings if the binary is missing or credentials are not mounted.
+- Executes `kubectl version --client` through `services/core/dist/scripts/kubernetesSmoke.js` and logs warnings if the binary is missing or credentials are not mounted.
 - Sets minikube-friendly defaults when unset: `APPHUB_K8S_BUILDER_SERVICE_ACCOUNT=apphub-builder`, `APPHUB_K8S_LAUNCH_SERVICE_ACCOUNT=apphub-preview`, and `APPHUB_K8S_REGISTRY_ENDPOINT=registry.kube-system.svc.cluster.local:5000`.
 - Respects `APPHUB_K8S_DISABLE_DEFAULTS=1` to skip those defaults and `APPHUB_K8S_REQUIRE_TOOLING=1` to fail the container when the smoke check reports an error.
 
-Override the `CMD` at runtime to switch between the API (`node services/catalog/dist/server.js`), build worker (`node services/catalog/dist/buildWorker.js`), and launch worker (`node services/catalog/dist/launchWorker.js`) while keeping the Kubernetes tooling layer and smoke checks consistent.
+Override the `CMD` at runtime to switch between the API (`node services/core/dist/server.js`), build worker (`node services/core/dist/buildWorker.js`), and launch worker (`node services/core/dist/launchWorker.js`) while keeping the Kubernetes tooling layer and smoke checks consistent.
 
 #### Production
 
@@ -265,7 +265,7 @@ VITE_LAUNCH_INTERNAL_PORT=3000
 
 Update as needed for different deployment targets.
 
-`services/catalog` reads the following environment variables (defaults shown where applicable):
+`services/core` reads the following environment variables (defaults shown where applicable):
 
 **Core service & database**
 
@@ -293,7 +293,7 @@ APPHUB_EVENTS_MODE=                    # "inline" (requires APPHUB_ALLOW_INLINE_
 APPHUB_EVENTS_CHANNEL=apphub:events
 APPHUB_EVENT_PROXY_URL=                # Optional HTTP endpoint for publishing events without BullMQ
 APPHUB_EVENT_PROXY_TOKEN=              # Bearer token used by sandboxed bundles when calling the proxy
-APPHUB_EVENT_PROXY_TOKENS=             # Comma-separated list of accepted proxy tokens on the catalog service
+APPHUB_EVENT_PROXY_TOKENS=             # Comma-separated list of accepted proxy tokens on the core service
 INGEST_QUEUE_NAME=apphub_queue
 BUILD_QUEUE_NAME=apphub_build_queue
 LAUNCH_QUEUE_NAME=apphub_launch_queue
@@ -395,7 +395,7 @@ APPHUB_JOB_BUNDLES_DISABLE_FALLBACK_SLUGS=
 APPHUB_JOB_BUNDLE_MAX_SIZE=16777216
 APPHUB_JOB_BUNDLE_DOWNLOAD_TTL_MS=300000
 APPHUB_JOB_BUNDLE_STORAGE_BACKEND=local
-APPHUB_JOB_BUNDLE_STORAGE_DIR=services/catalog/data/job-bundles
+APPHUB_JOB_BUNDLE_STORAGE_DIR=services/core/data/job-bundles
 APPHUB_JOB_BUNDLE_SIGNING_SECRET=
 APPHUB_JOB_BUNDLE_CACHE_MAX_ENTRIES=16
 APPHUB_JOB_BUNDLE_CACHE_TTL_MS=900000
@@ -413,7 +413,7 @@ APPHUB_JOB_BUNDLE_SANDBOX_MAX_LOGS=200
 **Logging & observability**
 
 ```bash
-APPHUB_LOG_SOURCE=catalog-service
+APPHUB_LOG_SOURCE=core-service
 APPHUB_LOG_AGGREGATOR_URL=
 APPHUB_LOG_AGGREGATOR_TOKEN=
 ```
@@ -445,20 +445,20 @@ binary into Linux containers and works for both `npm run dev` and the Docker ima
 4. Optionally require a shared secret: `export CODEX_PROXY_TOKEN="change-me"`.
 5. Launch the service: `codex-proxy` (defaults to `127.0.0.1:3030`).
 
-When the catalog API runs inside Docker, set `APPHUB_CODEX_PROXY_URL=http://host.docker.internal:3030` so it can reach the host.
+When the core API runs inside Docker, set `APPHUB_CODEX_PROXY_URL=http://host.docker.internal:3030` so it can reach the host.
 For processes running on the host directly, the default `http://127.0.0.1:3030` also works. Additional guidance lives in
 `docs/ai-builder.md`.
 - The proxy exposes `/v1/codex/jobs` for long-running generations; the API polls this endpoint to stream stdout/stderr into the AI builder UI.
 
 Operator tokens are defined as JSON objects with a `subject`, `token`, and optional `scopes`. Tokens default to full access when
-no scopes are provided. A starter template lives at `services/catalog/config/operatorTokens.example.json`.
+no scopes are provided. A starter template lives at `services/core/config/operatorTokens.example.json`.
 
 ```bash
 APPHUB_OPERATOR_TOKENS='[{"subject":"platform-ops","token":"dev-ops-token","scopes":["jobs:write","jobs:run","workflows:write","workflows:run"]}]'
 ```
 
 Secrets referenced by workflow and job steps resolve through the secret store. Provide entries inline with
-`APPHUB_SECRET_STORE` or via `APPHUB_SECRET_STORE_PATH`. See `services/catalog/config/secretStore.example.json` for a sample layout:
+`APPHUB_SECRET_STORE` or via `APPHUB_SECRET_STORE_PATH`. See `services/core/config/secretStore.example.json` for a sample layout:
 
 ```bash
 APPHUB_SECRET_STORE='{"TEST_SERVICE_TOKEN":{"value":"workflow-secret-token","version":"v1"}}'
@@ -468,7 +468,7 @@ Every secret resolution is captured in the audit log with the requesting actor, 
 
 ### Metrics & Observability
 
-- Structured JSON logs are emitted with the `source` identifier (default `catalog-service`) and forwarded to
+- Structured JSON logs are emitted with the `source` identifier (default `core-service`) and forwarded to
   `APPHUB_LOG_AGGREGATOR_URL` when configured.
 - `GET /metrics` exposes aggregated job and workflow run counts, average durations, and failure rates for dashboards.
 - Configure `WORKFLOW_FAILURE_ALERT_THRESHOLD`, `WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES`, and (optionally)
@@ -477,7 +477,7 @@ Every secret resolution is captured in the audit log with the requesting actor, 
 
 ### Service Configuration
 
-The catalog no longer reads service manifests or configuration modules from disk at startup. Instead, operators import manifests on
+The core no longer reads service manifests or configuration modules from disk at startup. Instead, operators import manifests on
 command—typically from checked-in example repos—using the runtime APIs. Each import clones the referenced repository (or opens the
 local path you supply), resolves the manifest graph, and applies the resulting services and service networks directly to the
 registry and SQLite store. Subsequent imports for the same module replace the previous definitions so you can iterate without
@@ -498,13 +498,13 @@ curl -X POST http://127.0.0.1:4000/service-config/import \
       }'
 ```
 
-The response includes the module identifier, resolved commit SHA, and number of discovered services. The catalog no longer
+The response includes the module identifier, resolved commit SHA, and number of discovered services. The core no longer
 ingests manifests automatically on boot—invoke the import endpoints (or trigger the example loader in the UI) whenever you want to
 sync declarative definitions into the registry.
 
 ### Run Everything Locally
 
-From the repository root you can start Redis, the catalog API, the ingestion worker, and the frontend dev server in a single command:
+From the repository root you can start Redis, the core API, the ingestion worker, and the frontend dev server in a single command:
 
 ```bash
 npm install
@@ -513,7 +513,7 @@ npm run dev
 
 This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis`). The script launches:
 - Redis (`redis-server --save "" --appendonly no`)
-- Catalog API on `http://127.0.0.1:4000`
+- Core API on `http://127.0.0.1:4000`
 - Ingestion worker
 - Service orchestrator (`npm run dev:services`) that spawns the dev commands defined in the supplied manifest (defaults to the
   environmental observatory example; pass manifest paths as CLI arguments to override)
@@ -525,9 +525,9 @@ Stop the stack with `Ctrl+C`.
 
 ### Docker Image
 
-A single container image bundles PostgreSQL, Redis, the catalog API, background workers, and the static frontend. Update
-`services/catalog/config/operator-tokens.json` and (optionally) copy `services/catalog/config/secretStore.example.json` to
-`services/catalog/config/secret-store.json` before launching so the container can mount your tokens and secrets read-only:
+A single container image bundles PostgreSQL, Redis, the core API, background workers, and the static frontend. Update
+`services/core/config/operator-tokens.json` and (optionally) copy `services/core/config/secretStore.example.json` to
+`services/core/config/secret-store.json` before launching so the container can mount your tokens and secrets read-only:
 
 ```bash
 docker build -t apphub .
@@ -538,7 +538,7 @@ docker run \
   -p 4173:4173 \
   -p 6379:6379 \
   -v apphub-data:/app/data \
-  -v "$(pwd)/services/catalog/config:/app/config:ro" \
+  -v "$(pwd)/services/core/config:/app/config:ro" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e APPHUB_OPERATOR_TOKENS_PATH=/app/config/operator-tokens.json \
   -e APPHUB_SECRET_STORE_PATH=/app/config/secret-store.json \
@@ -570,10 +570,10 @@ The script tags the image with the current Git SHA by default and optionally app
 
 ## Testing
 
-End-to-end suite spins up the catalog API, BullMQ worker (using an in-memory Redis mock), and a temporary Git repository to verify the full ingestion loop:
+End-to-end suite spins up the core API, BullMQ worker (using an in-memory Redis mock), and a temporary Git repository to verify the full ingestion loop:
 
 ```bash
-npm run test:e2e --workspace @apphub/catalog
+npm run test:e2e --workspace @apphub/core
 ```
 
 The script launches an embedded PostgreSQL instance, registers a sample repo, waits for ingestion to finish, and asserts that history events capture status transitions, attempt counts, commit SHA, and duration.
@@ -588,13 +588,13 @@ npx tsx apps/cli/src/index.ts jobs test ./examples/summary-job --input-json '{"f
 npx tsx apps/cli/src/index.ts jobs publish ./examples/summary-job --token dev-operator-token
 ```
 
-The CLI creates `apphub.bundle.json`, validates `manifest.json` against the registry schema, emits reproducible tarballs with SHA-256 signatures, and wires a local harness for executing handlers with sample payloads. See `docs/job-bundles.md` for a complete walkthrough. The example importer no longer relies on prebuilt archives—when you load an example bundle, the catalog API packages the sources on demand and streams the result directly into the registry. The first run may take longer while dependencies are installed inside each bundle directory; subsequent imports reuse the compiled output.
+The CLI creates `apphub.bundle.json`, validates `manifest.json` against the registry schema, emits reproducible tarballs with SHA-256 signatures, and wires a local harness for executing handlers with sample payloads. See `docs/job-bundles.md` for a complete walkthrough. The example importer no longer relies on prebuilt archives—when you load an example bundle, the core API packages the sources on demand and streams the result directly into the registry. The first run may take longer while dependencies are installed inside each bundle directory; subsequent imports reuse the compiled output.
 
 ## Current Functionality
 
-- Optional seeded catalog of sample web apps with tags like `framework:nextjs`, `category:media`, `runtime:node18`. A
+- Optional seeded core of sample web apps with tags like `framework:nextjs`, `category:media`, `runtime:node18`. A
   Postgres-compatible seed script is planned; the legacy SQLite fixture at
-  `services/catalog/tests/fixtures/seeded-catalog.sql` remains for reference only. The application now starts with an empty catalog by default.
+  `services/core/tests/fixtures/seeded-core.sql` remains for reference only. The application now starts with an empty core by default.
 - Tag-aware search (AND semantics) plus free-text filtering on app name/description.
 - Keyboard-friendly autocomplete (`Tab` to accept, arrow keys to navigate, `Esc` to dismiss).
 - Styled card grid highlighting repo link + Dockerfile path.

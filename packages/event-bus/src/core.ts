@@ -40,16 +40,16 @@ type WorkflowRuntimeModule = {
 
 function resolveWorkflowContextReader(): (() => unknown) | null {
   const candidates = [
-    '@apphub/catalog/workflowEventContext',
-    '@apphub/catalog/dist/workflowEventContext.js',
-    '@apphub/catalog/dist/workflowEventContext',
-    '@apphub/catalog/src/workflowEventContext.ts',
-    '@apphub/catalog/src/workflowEventContext',
-    '@apphub/catalog/dist/jobs/runtime.js',
-    '@apphub/catalog/dist/jobs/runtime',
-    '@apphub/catalog/jobs/runtime',
-    '@apphub/catalog/src/jobs/runtime.ts',
-    '@apphub/catalog/src/jobs/runtime'
+    '@apphub/core/workflowEventContext',
+    '@apphub/core/dist/workflowEventContext.js',
+    '@apphub/core/dist/workflowEventContext',
+    '@apphub/core/src/workflowEventContext.ts',
+    '@apphub/core/src/workflowEventContext',
+    '@apphub/core/dist/jobs/runtime.js',
+    '@apphub/core/dist/jobs/runtime',
+    '@apphub/core/jobs/runtime',
+    '@apphub/core/src/jobs/runtime.ts',
+    '@apphub/core/src/jobs/runtime'
   ];
 
   for (const specifier of candidates) {

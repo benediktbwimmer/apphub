@@ -6,10 +6,10 @@ import process from 'node:process';
 const NAMESPACE = 'apphub-system';
 const DEFAULT_MEMORY = process.env.APPHUB_MINIKUBE_MEMORY ?? '8192';
 const DEFAULT_CPUS = process.env.APPHUB_MINIKUBE_CPUS ?? '4';
-const DEFAULT_VITE_API_BASE_URL = process.env.APPHUB_MINIKUBE_API_BASE ?? 'http://catalog.apphub.local';
+const DEFAULT_VITE_API_BASE_URL = process.env.APPHUB_MINIKUBE_API_BASE ?? 'http://core.apphub.local';
 const IMAGE_PREFIX = process.env.APPHUB_IMAGE_PREFIX ?? 'apphub';
 const IMAGE_TAG = process.env.APPHUB_IMAGE_TAG ?? 'dev';
-const SERVICES = ['catalog', 'metastore', 'filestore', 'timestore', 'frontend'];
+const SERVICES = ['core', 'metastore', 'filestore', 'timestore', 'frontend'];
 
 const flags = parseFlags(process.argv.slice(2));
 
@@ -264,7 +264,7 @@ async function summarize() {
 
   const table = [
     { host: 'apphub.local', description: 'Frontend UI' },
-    { host: 'catalog.apphub.local', description: 'Catalog API' },
+    { host: 'core.apphub.local', description: 'Core API' },
     { host: 'metastore.apphub.local', description: 'Metastore API' },
     { host: 'filestore.apphub.local', description: 'Filestore API' },
     { host: 'timestore.apphub.local', description: 'Timestore API' }

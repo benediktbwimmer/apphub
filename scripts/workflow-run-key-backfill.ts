@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import process from 'node:process';
 import { Client } from 'pg';
-import { normalizeRunKey } from '../services/catalog/src/workflows/runKey';
+import { normalizeRunKey } from '../services/core/src/workflows/runKey';
 
 type WorkflowRunRow = {
   id: string;

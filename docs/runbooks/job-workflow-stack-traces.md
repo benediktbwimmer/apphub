@@ -11,7 +11,7 @@ When any sandboxed bundle, static job handler, or workflow step fails, AppHub no
 ## Validation Steps
 
 1. Re-run the failing workflow or job.
-2. Inspect the latest job run via the catalog service (`/jobs/runs/:id`) and confirm the `context.stack` field contains the captured stack trace.
+2. Inspect the latest job run via the core service (`/jobs/runs/:id`) and confirm the `context.stack` field contains the captured stack trace.
 3. For workflows, fetch the workflow run record and locate the failing step in `context.steps[stepId]`. Confirm `errorStack` matches the job stack.
 4. Tail `benchmark-run.log` – you should see stack traces in sandbox and workflow log messages. Multi-line stacks are preserved and chunked where necessary.
 

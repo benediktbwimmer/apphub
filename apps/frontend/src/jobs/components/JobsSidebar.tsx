@@ -58,7 +58,7 @@ export function JobsSidebar({
       <div className={PANEL_CLASSES}>
         <div className="mb-4 flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-scale-sm font-weight-semibold text-primary">Job catalog</h2>
+            <h2 className="text-scale-sm font-weight-semibold text-primary">Job core</h2>
             {jobsLoading && (
               <Spinner
                 label="Loading jobs…"

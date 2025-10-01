@@ -9,17 +9,17 @@
     "moduleResolution": "Node",
     "baseUrl": ".",
     "paths": {
-      "@apphub/catalog": [
-        "services/catalog/src"
+      "@apphub/core": [
+        "services/core/src"
       ],
-      "@apphub/catalog/*": [
-        "services/catalog/src/*"
+      "@apphub/core/*": [
+        "services/core/src/*"
       ],
-      "@apphub/catalog-tests": [
-        "services/catalog/tests"
+      "@apphub/core-tests": [
+        "services/core/tests"
       ],
-      "@apphub/catalog-tests/*": [
-        "services/catalog/tests/*"
+      "@apphub/core-tests/*": [
+        "services/core/tests/*"
       ],
       "@apphub/test-helpers": [
         "tests/helpers/index.ts"

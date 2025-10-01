@@ -14,7 +14,7 @@ Actions that rely on automation stay disabled when the corresponding workflow ha
 
 ## Wiring the workflows
 
-The playbooks assume the following workflow slugs are available in the catalog service:
+The playbooks assume the following workflow slugs are available in the core service:
 
 - `filestore-drift-audit` – compiles watcher signals and recent commands into an audit artefact.
 - `filestore-restore-missing-node` – restores or archives paths flagged as missing.
@@ -34,4 +34,4 @@ Each payload carries the node id, mount id, node state, playbook id, and action 
 
 ## Extending or customising
 
-Edit `apps/frontend/src/filestore/playbooks.ts` when you need to add states, swap workflow slugs, or tune copy. The definitions expose straightforward TypeScript objects (titles, summaries, and action builders) so bespoke environments can inject additional workflows without touching service code. Remember to add companion documentation and to keep the workflow slugs aligned with the catalog.
+Edit `apps/frontend/src/filestore/playbooks.ts` when you need to add states, swap workflow slugs, or tune copy. The definitions expose straightforward TypeScript objects (titles, summaries, and action builders) so bespoke environments can inject additional workflows without touching service code. Remember to add companion documentation and to keep the workflow slugs aligned with the core.

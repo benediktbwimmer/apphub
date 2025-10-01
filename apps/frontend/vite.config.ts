@@ -10,7 +10,7 @@ import { generateThemeCss } from './src/theme/generateThemeCss';
 
 const frontendRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(frontendRoot, '..', '..');
-const catalogSrcPath = resolve(workspaceRoot, 'services', 'catalog', 'src');
+const coreSrcPath = resolve(workspaceRoot, 'services', 'core', 'src');
 const sharedSrcPath = resolve(workspaceRoot, 'packages', 'shared', 'src');
 const examplesSrcPath = resolve(workspaceRoot, 'packages', 'examples', 'src');
 const examplesBrowserEntryPath = resolve(examplesSrcPath, 'index.browser.ts');
@@ -112,7 +112,7 @@ const config: UserConfig & { test: VitestUserConfig['test'] } = {
   resolve: {
     extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
     alias: [
-      { find: '@apphub/catalog', replacement: catalogSrcPath },
+      { find: '@apphub/core', replacement: coreSrcPath },
       { find: '@apphub/shared', replacement: sharedSrcPath },
       { find: '@apphub/examples/types', replacement: examplesTypesPath },
       { find: '@apphub/examples', replacement: examplesBrowserEntryPath },

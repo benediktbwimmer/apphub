@@ -4,7 +4,7 @@ This runbook captures the staged rollout procedure for migrating the filesystem 
 
 ## Prerequisites
 - Published bundles `fs-read-file@1.0.0` and `fs-write-file@1.0.0` exist in the job registry and match the legacy handler behaviour.
-- Catalog service is deployed with ticket 009 changes (bundle-aware runtime, telemetry, feature flags).
+- Core service is deployed with ticket 009 changes (bundle-aware runtime, telemetry, feature flags).
 - Observability dashboards include the `sandbox` metrics/context fields recorded on job runs.
 
 ## Configuration Flags
@@ -22,9 +22,9 @@ Fallback executions mark the job run with `metrics.bundleFallback = true` and in
 
 ## Rollout Steps
 1. **Staging Validation**
-   - Deploy catalog service with bundle runtime changes to staging.
+   - Deploy core service with bundle runtime changes to staging.
 - Set `APPHUB_JOB_BUNDLES_ENABLE_SLUGS=fs-read-file,fs-write-file`.
-   - Run end-to-end smoke tests (`npm run test:e2e --workspace @apphub/catalog`, or targeted job workflows) and manual job triggers.
+   - Run end-to-end smoke tests (`npm run test:e2e --workspace @apphub/core`, or targeted job workflows) and manual job triggers.
    - Confirm job runs execute via sandbox (presence of `sandbox` metrics/context). Investigate any `bundleFallback` entries.
 
 2. **Telemetry Review**
@@ -32,7 +32,7 @@ Fallback executions mark the job run with `metrics.bundleFallback = true` and in
    - Ensure new bundles emit expected logs and metrics.
 
 3. **Production Enablement**
-   - Deploy the same catalog release to production with feature flags off.
+   - Deploy the same core release to production with feature flags off.
 - Enable per-slug overrides: `APPHUB_JOB_BUNDLES_ENABLE_SLUGS=fs-read-file,fs-write-file`.
    - Observe runtime metrics for at least one full ingest/build cycle.
    - Once fallbacks drop to zero for 24h, set `APPHUB_JOB_BUNDLES_ENABLED=true` to make bundles the default (optional but recommended for future migrations).
@@ -44,7 +44,7 @@ Fallback executions mark the job run with `metrics.bundleFallback = true` and in
 ## Rollback Procedure
 1. Set `APPHUB_JOB_BUNDLES_DISABLE_FALLBACK=true` **off** (or remove slugs from the per-slug list) to re-enable legacy fallbacks.
 2. Remove affected slugs from `APPHUB_JOB_BUNDLES_ENABLE_SLUGS` (or set `APPHUB_JOB_BUNDLES_ENABLED=false`).
-3. Restart catalog workers. Job runs immediately revert to the legacy handler registrations.
+3. Restart core workers. Job runs immediately revert to the legacy handler registrations.
 4. Investigate bundle issues (registry availability, sandbox failures) before re-attempting rollout.
 
 Record any anomalies and follow-up tasks in the incident tracker.

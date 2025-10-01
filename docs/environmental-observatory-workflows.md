@@ -11,10 +11,10 @@ The event-driven flavour now partitions Timestore manifests per instrument and p
 ## Event-driven benchmark status (2025-09-29)
 
 - The `environmentalObservatoryEventDrivenBenchmark.e2e.ts` harness now provisions dedicated Dockerized MinIO and Redis instances, packages example bundles inline, and wires cleanup on `SIGINT/SIGTERM` so the scenario runs from a single command.
-- Embedded Postgres plus catalog/filestore/metastore/timestore test servers start successfully and the data generator uploads 10 instrument CSVs to MinIO with matching metastore records.
-- Inbox normalizer emits `observatory.minute.raw-uploaded` events into the catalog queue, trigger deliveries are created, but the `observatory-minute-ingest` workflow never launches; the benchmark currently fails waiting for that run.
-- Suspect area: catalog event trigger processing when queues run against the external Redis container. The next session should inspect the event ingress queue and trigger delivery retries to confirm whether events are enqueued but not drained, or if a rendering error drops the job before launch.
-- To resume quickly: rerun `npx tsx examples/tests/catalog/environmentalObservatoryEventDrivenBenchmark.e2e.ts` (set `OBSERVATORY_BENCH_INSTRUMENTS=10`) and tail catalog logs for trigger processing around the first minute (look for `Trigger delivery not found for retry`).
+- Embedded Postgres plus core/filestore/metastore/timestore test servers start successfully and the data generator uploads 10 instrument CSVs to MinIO with matching metastore records.
+- Inbox normalizer emits `observatory.minute.raw-uploaded` events into the core queue, trigger deliveries are created, but the `observatory-minute-ingest` workflow never launches; the benchmark currently fails waiting for that run.
+- Suspect area: core event trigger processing when queues run against the external Redis container. The next session should inspect the event ingress queue and trigger delivery retries to confirm whether events are enqueued but not drained, or if a rendering error drops the job before launch.
+- To resume quickly: rerun `npx tsx examples/tests/core/environmentalObservatoryEventDrivenBenchmark.e2e.ts` (set `OBSERVATORY_BENCH_INSTRUMENTS=10`) and tail core logs for trigger processing around the first minute (look for `Trigger delivery not found for retry`).
 
 
 ## Architecture overview
@@ -81,10 +81,10 @@ Four Node jobs orchestrate the pipeline. Bundle them with `npx tsx apps/cli/src/
 | ------ | ---- | ------- |
 | `examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, archives the originals under instrument/hour folders, extracts metadata, and emits the partitioned raw asset. |
 | `examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, producing per-instrument minute partitions and tagging each manifest entry with instrument metadata. |
-| `examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `plots`, and emits a visualization asset cataloguing the artifacts. |
+| `examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `plots`, and emits a visualization asset curating the artifacts. |
 | `examples/environmental-observatory-event-driven/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
 
-Each bundle ships with an `apphub.bundle.json` and Node entry point so you can register them via the catalog API once built.
+Each bundle ships with an `apphub.bundle.json` and Node entry point so you can register them via the core API once built.
 
 ## Assets and lineage
 
@@ -138,7 +138,7 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 - **Upload panel:** Paste instrument metadata (instrument id, effective timestamp, offsets/scales, optional notes) and submit. The UI writes the payload to the configured `filestore.calibrationsPrefix`, shows the resulting node id/path, and refreshes the calibration history fetched from the Metastore search API.
 - **Plan browser:** The left rail lists calibration reprocessing plans stored under `observatory.reprocess.plans`. Selecting a plan loads the raw artifact from Filestore, renders per-instrument summaries, and polls every five seconds so the state counts track ongoing runs.
 - **Partition control:** Individual partitions can be selected from the plan detail table. Two actions are available: “Process selected partitions” (sends the chosen keys to `/observatory/plans/:planId/reprocess` with `mode=selected`) and “Process entire plan” (delegates the full artifact). Optional overrides for max concurrency, poll interval, run key, and triggered-by are surfaced so operators can tune reruns without editing YAML.
-- All operations are backed by catalog endpoints (`/observatory/calibrations`, `/observatory/plans`, `/observatory/plans/:planId`, `/observatory/calibrations/upload`, and `/observatory/plans/:planId/reprocess`), each returning structured JSON envelopes so other tools can orchestrate uploads, plan inspection, or reruns programmatically.
+- All operations are backed by core endpoints (`/observatory/calibrations`, `/observatory/plans`, `/observatory/plans/:planId`, `/observatory/calibrations/upload`, and `/observatory/plans/:planId/reprocess`), each returning structured JSON envelopes so other tools can orchestrate uploads, plan inspection, or reruns programmatically.
 
 ## Auto-materialization flow
 
@@ -158,16 +158,16 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
 npm install --prefix examples/environmental-observatory-event-driven/jobs/observatory-report-publisher
 ```
 
-   The catalog rebuilds each observatory bundle automatically when you import the example jobs. Every `/job-imports` request now copies the bundle into an isolated workspace, runs `npm ci`, executes the build, and force-publishes the tarball so the catalog overwrites any previous artifact. Pre-installing dependencies locally keeps the first rebuild snappy; otherwise the API performs the install step inside the container on every import.
+   The core rebuilds each observatory bundle automatically when you import the example jobs. Every `/job-imports` request now copies the bundle into an isolated workspace, runs `npm ci`, executes the build, and force-publishes the tarball so the core overwrites any previous artifact. Pre-installing dependencies locally keeps the first rebuild snappy; otherwise the API performs the install step inside the container on every import.
 2. Publish bundles and register the job definitions exported from the example module.
-3. Import the bundled service manifest (`examples/environmental-observatory-event-driven/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the catalog now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
+3. Import the bundled service manifest (`examples/environmental-observatory-event-driven/service-manifests/service-manifest.json`) through the core UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the core now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
    > ⚠️ **Event proxy configuration**
    >
-   > The sandboxed bundles publish events through the HTTP proxy. The catalog now injects
+   > The sandboxed bundles publish events through the HTTP proxy. The core now injects
    > `APPHUB_EVENT_PROXY_URL` automatically for every job run and forwards
    > `APPHUB_EVENT_PROXY_TOKEN` when configured. Export these variables only when running
-   > bundles outside of the catalog sandbox (for example, calling the proxy from a custom
+   > bundles outside of the core sandbox (for example, calling the proxy from a custom
    > script) or when you need to override the defaults.
 
 4. Launch the filestore ingest watcher so new inbox files land in MinIO and trigger `observatory-minute-ingest` automatically (configured via the observatory service manifest described above):

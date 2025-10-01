@@ -1,4 +1,4 @@
-import type { AssetExpiredEvent, AssetProducedEvent } from '../../catalog/types';
+import type { AssetExpiredEvent, AssetProducedEvent } from '../../core/types';
 import type { WorkflowEventSchedulerHealth, WorkflowRun } from '../types';
 import type {
   WorkflowGraphAssetStatus,

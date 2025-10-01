@@ -75,7 +75,7 @@ export default function PreviewSettingsPage() {
         <header className="space-y-1">
           <h2 className={SETTINGS_HEADER_TITLE_CLASSES}>Preview Dimensions</h2>
           <p className={SETTINGS_HEADER_SUBTITLE_CLASSES}>
-            Adjust the width and height of preview tiles. These values drive the layout in the catalog and apps gallery.
+            Adjust the width and height of preview tiles. These values drive the layout in the core and apps gallery.
           </p>
         </header>
         <div className={SETTINGS_CARD_CONTAINER_CLASSES}>

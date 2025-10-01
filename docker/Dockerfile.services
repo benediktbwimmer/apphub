@@ -13,8 +13,8 @@ COPY apps/frontend/package.json apps/frontend/
 COPY apps/frontend/package-lock.json apps/frontend/
 COPY apps/cli/package.json apps/cli/
 COPY apps/cli/package-lock.json apps/cli/
-COPY services/catalog/package.json services/catalog/
-COPY services/catalog/package-lock.json services/catalog/
+COPY services/core/package.json services/core/
+COPY services/core/package-lock.json services/core/
 COPY services/metastore/package.json services/metastore/
 COPY services/timestore/package.json services/timestore/
 COPY services/filestore/package.json services/filestore/
@@ -61,7 +61,7 @@ ARG VITE_API_BASE_URL=http://localhost:4000
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 COPY . .
 
-RUN npm run build --workspace @apphub/catalog \
+RUN npm run build --workspace @apphub/core \
  && npm run build --workspace @apphub/metastore \
  && npm run build:bundle --workspace @apphub/frontend \
  && npm run build --workspace @apphub/timestore \
@@ -111,16 +111,16 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 
-# Catalog runtime (API + workers share this image)
-FROM runtime-base AS catalog-runtime
-COPY --from=builder /app/services/catalog ./services/catalog
+# Core runtime (API + workers share this image)
+FROM runtime-base AS core-runtime
+COPY --from=builder /app/services/core ./services/core
 COPY --from=builder /app/apps/cli ./apps/cli
 COPY --from=builder /app/examples ./examples
 
-RUN chmod +x /app/services/catalog/scripts/catalog-runtime-entrypoint.sh
+RUN chmod +x /app/services/core/scripts/core-runtime-entrypoint.sh
 
-ENTRYPOINT ["/app/services/catalog/scripts/catalog-runtime-entrypoint.sh"]
-CMD ["node", "services/catalog/dist/server.js"]
+ENTRYPOINT ["/app/services/core/scripts/core-runtime-entrypoint.sh"]
+CMD ["node", "services/core/dist/server.js"]
 
 # Metastore API runtime
 FROM runtime-base AS metastore-runtime

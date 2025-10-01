@@ -28,7 +28,7 @@ npm run minikube:verify
 
 ---
 
-This directory delivers an opinionated Kustomize overlay for spinning up AppHub and its dependencies on a local Kubernetes cluster (minikube by default). A single `kubectl apply -k infra/minikube` command provisions Postgres, Redis, MinIO, and every AppHub workload (catalog API + workers, metastore, filestore, timestore, and frontend) inside the `apphub-system` namespace.
+This directory delivers an opinionated Kustomize overlay for spinning up AppHub and its dependencies on a local Kubernetes cluster (minikube by default). A single `kubectl apply -k infra/minikube` command provisions Postgres, Redis, MinIO, and every AppHub workload (core API + workers, metastore, filestore, timestore, and frontend) inside the `apphub-system` namespace.
 
 ## What Gets Installed
 
@@ -37,10 +37,10 @@ This directory delivers an opinionated Kustomize overlay for spinning up AppHub 
   - *Redis* (`StatefulSet`) with append-only files enabled and a 2Gi PVC for BullMQ state.
   - *MinIO* (single-replica `Deployment`) backed by a 5Gi PVC. A bootstrap job seeds buckets for example bundles, filestore content, and timestore partitions.
 - **Shared configuration**
-  - `apphub-core-config` exposes cluster-friendly defaults for service discovery (`APPHUB_*_BASE_URL`), MinIO endpoints, bundle storage, auth bypass, and Kubernetes namespace wiring for catalog workers.
+  - `apphub-core-config` exposes cluster-friendly defaults for service discovery (`APPHUB_*_BASE_URL`), MinIO endpoints, bundle storage, auth bypass, and Kubernetes namespace wiring for core workers.
   - `apphub-core-secrets` carries connection strings, Redis URLs, and S3 credentials referencing the in-cluster services.
 - **Runtime workloads**
-  - *Catalog API* (2 replicas) plus dedicated Deployments for ingest, build, launch, workflow, asset materializer, example bundle, event ingress, and trigger workers. Build/launch workers use service accounts (`apphub-builder`, `apphub-preview`) and enable `WORKFLOW_SCHEDULER_ADVISORY_LOCKS=1` for the scheduler.
+  - *Core API* (2 replicas) plus dedicated Deployments for ingest, build, launch, workflow, asset materializer, example bundle, event ingress, and trigger workers. Build/launch workers use service accounts (`apphub-builder`, `apphub-preview`) and enable `WORKFLOW_SCHEDULER_ADVISORY_LOCKS=1` for the scheduler.
   - *Metastore API* with `/readyz` and `/healthz` probes enabled.
   - *Filestore API* and reconciliation worker, wired to Redis queues and MinIO-backed storage.
   - *Timestore API* with ingestion, partition build, and lifecycle workers running against the MinIO-backed S3 driver.
@@ -70,7 +70,7 @@ The overlay publishes an ingress resource that serves:
 | Host | Target service |
 | --- | --- |
 | `apphub.local` | Frontend (nginx, port 80) |
-| `catalog.apphub.local` | Catalog API (port 4000) |
+| `core.apphub.local` | Core API (port 4000) |
 | `metastore.apphub.local` | Metastore API (port 4100) |
 | `filestore.apphub.local` | Filestore API (port 4300) |
 | `timestore.apphub.local` | Timestore API (port 4100) |
@@ -85,12 +85,12 @@ The overlay publishes an ingress resource that serves:
    On Docker Desktop this will usually be `127.0.0.1`; use that instead of the VM IP to avoid timeouts.
 2. Add it to `/etc/hosts` so your browser and CLI can resolve the ingress hosts:
    ```bash
-   sudo sh -c "echo \"$INGRESS_IP apphub.local catalog.apphub.local metastore.apphub.local filestore.apphub.local timestore.apphub.local\" >> /etc/hosts"
+   sudo sh -c "echo \"$INGRESS_IP apphub.local core.apphub.local metastore.apphub.local filestore.apphub.local timestore.apphub.local\" >> /etc/hosts"
    ```
 3. (Optional) If your driver does not expose LoadBalancer services automatically, run `minikube tunnel` in a separate terminal.
 4. Hit the services:
    ```bash
-   curl http://catalog.apphub.local/health
+   curl http://core.apphub.local/health
    curl http://metastore.apphub.local/readyz
    curl http://filestore.apphub.local/readyz
    curl http://timestore.apphub.local/ready
@@ -99,10 +99,10 @@ The overlay publishes an ingress resource that serves:
 
 ### Frontend API base URL
 
-The frontend image is built with `VITE_API_BASE_URL` baked into the assets. When you rebuild the services images for minikube, point that variable at the ingress host so browser requests reach the catalog API:
+The frontend image is built with `VITE_API_BASE_URL` baked into the assets. When you rebuild the services images for minikube, point that variable at the ingress host so browser requests reach the core API:
 
 ```bash
-VITE_API_BASE_URL=http://catalog.apphub.local APPHUB_IMAGE_TAG=dev npm run docker:build:services
+VITE_API_BASE_URL=http://core.apphub.local APPHUB_IMAGE_TAG=dev npm run docker:build:services
 ```
 
 (Adjust the tag/prefix to match your workflow.)
@@ -132,7 +132,7 @@ VITE_API_BASE_URL=http://catalog.apphub.local APPHUB_IMAGE_TAG=dev npm run docke
 
 ## Customisation Tips
 
-- **Resource sizing** – Adjust CPU/memory requests or replica counts in the relevant Deployment manifests (e.g., `catalog/deployments.yaml`) before reapplying the overlay.
+- **Resource sizing** – Adjust CPU/memory requests or replica counts in the relevant Deployment manifests (e.g., `core/deployments.yaml`) before reapplying the overlay.
 - **Credentials** – Edit `secrets.yaml` to rotate local-only passwords or MinIO keys. Ensure dependent pods are restarted after changes (`kubectl rollout restart deployment -n apphub-system <name>`).
 - **Bucket/queue tweaks** – Update `minio/bootstrap-job.yaml` or the worker env vars inside the Deployment manifests when introducing new buckets or BullMQ queues.
 

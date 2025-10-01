@@ -49,7 +49,7 @@ import {
 } from './api';
 import { filestoreRollupStateSchema, type FilestoreRollupState } from './types';
 import { FILESTORE_BASE_URL } from '../config';
-import { formatBytes } from '../catalog/utils';
+import { formatBytes } from '../core/utils';
 import { describeFilestoreEvent, type ActivityEntry } from './eventSummaries';
 import { useAnalytics } from '../utils/useAnalytics';
 import { triggerWorkflowRun } from '../dataAssets/api';

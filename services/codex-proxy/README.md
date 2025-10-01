@@ -36,7 +36,7 @@ Example request body (for either `POST` endpoint):
 }
 ```
 
-Both endpoints also accept an optional `contextFiles` array. Each entry provides a relative `path` and `contents`; the proxy writes these files into the Codex workspace before launching the CLI. This is how the catalog service shares JSON Schemas (`context/schemas/*.json`) and Markdown summaries with Codex.
+Both endpoints also accept an optional `contextFiles` array. Each entry provides a relative `path` and `contents`; the proxy writes these files into the Codex workspace before launching the CLI. This is how the core service shares JSON Schemas (`context/schemas/*.json`) and Markdown summaries with Codex.
 
 `GET /v1/codex/jobs/{jobId}` replies with:
 

@@ -1,19 +1,19 @@
 # Filesystem Summary Workflow Reference
 
-This guide captures the repeatable steps required to make the filesystem summary workflow available when the catalog service is running inside the `apphub` container. It covers publishing the filesystem job bundles and registering the workflow. Database cleanup steps are intentionally excluded.
+This guide captures the repeatable steps required to make the filesystem summary workflow available when the core service is running inside the `apphub` container. It covers publishing the filesystem job bundles and registering the workflow. Database cleanup steps are intentionally excluded.
 
 ## Prerequisites
 - The `apphub` container is running (see the `docker run ... apphub` invocation).
 - You can exec into the container: `docker exec -it apphub bash`.
 - An operator token with `job-bundles:write`, `jobs:write`, and `workflows:write` scopes is available. In the default config, `example-operator-token-123` works.
-- Node.js and the catalog service code are available inside the container at `/app/services/catalog` (already satisfied by the runtime image).
+- Node.js and the core service code are available inside the container at `/app/services/core` (already satisfied by the runtime image).
 
 ## 1. Publish the Filesystem Job Bundles
 The filesystem read/write jobs need to be published to the local bundle registry before workflows can reference them.
 
 1. Create a script that packages and publishes both bundles via the in-process registry service. From the host, run:
    ```bash
-   cat <<'NODE' | docker exec -i apphub bash -lc 'cd /app/services/catalog && node -'
+   cat <<'NODE' | docker exec -i apphub bash -lc 'cd /app/services/core && node -'
    const { publishBundleVersion } = require('./dist/jobs/registryService.js');
    const { closePool } = require('./dist/db/index.js');
 
@@ -213,7 +213,7 @@ exports.handler = async function handler(context) {
 2. Verify the bundles are registered:
    ```bash
    docker exec apphub psql -U apphub -d apphub -c "SELECT slug, latest_version FROM job_bundles;"
-   docker exec apphub ls /app/services/catalog/data/job-bundles
+   docker exec apphub ls /app/services/core/data/job-bundles
    ```
 
 ## 2. Register the Filesystem Summary Workflow
@@ -300,7 +300,7 @@ With the bundles published, register the workflow that stitches the filesystem j
    }
    ```
 
-2. POST the workflow definition to the catalog API:
+2. POST the workflow definition to the core API:
    ```bash
    curl -sS -X POST http://127.0.0.1:4000/workflows \
      -H "Authorization: Bearer example-operator-token-123" \

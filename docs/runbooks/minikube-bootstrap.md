@@ -32,7 +32,7 @@ Add the suggested `/etc/hosts` line so your browser can resolve the ingress host
 
 ```bash
 IP=$(minikube ip)
-sudo sh -c "echo \"$IP apphub.local catalog.apphub.local metastore.apphub.local filestore.apphub.local timestore.apphub.local\" >> /etc/hosts"
+sudo sh -c "echo \"$IP apphub.local core.apphub.local metastore.apphub.local filestore.apphub.local timestore.apphub.local\" >> /etc/hosts"
 ```
 
 (Alternatively run `minikube tunnel` if you prefer a LoadBalancer IP.)
@@ -49,7 +49,7 @@ Health checks cover:
 - Redis `PING` response.
 - Postgres connectivity and schema availability.
 - MinIO buckets (`apphub-example-bundles`, `apphub-filestore`, `apphub-timestore`).
-- HTTP probes for catalog, metastore, filestore, and timestore APIs.
+- HTTP probes for core, metastore, filestore, and timestore APIs.
 
 Pass `-- --check-ingress` to include an ingress host summary that echoes the `/etc/hosts` entry.
 
@@ -58,7 +58,7 @@ Pass `-- --check-ingress` to include an ingress host summary that echoes the `/e
 After updating `/etc/hosts`, open:
 
 - `http://apphub.local` – Frontend UI (served by nginx).
-- `http://catalog.apphub.local/health` – Catalog API health probe.
+- `http://core.apphub.local/health` – Core API health probe.
 - `http://metastore.apphub.local/readyz` – Metastore readiness probe.
 - `http://filestore.apphub.local/readyz` – Filestore readiness probe.
 - `http://timestore.apphub.local/ready` – Timestore readiness probe.
@@ -82,9 +82,9 @@ Flags:
 | `npm run minikube:up` fails to build images | Ensure Docker Desktop (or dockerd) is running, and that you have free disk space. Re-run with `--skip-start` if minikube is already running. |
 | `minikube image load` errors with permission denied | Run `minikube delete` followed by `minikube start --memory=8192 --cpus=4` to reset the environment, or switch minikube to the Docker driver. |
 | Pods stuck in `Pending` because of storage | Run `minikube addons enable storage-provisioner` (enabled by default) and confirm the `standard` storage class exists: `kubectl get sc`. |
-| Catalog build or launch workers crash with RBAC errors | Check the `apphub-builder` / `apphub-preview` service accounts in `infra/minikube/rbac.yaml`. If you customised the namespace, reapply the overlay and re-run the bootstrap. |
+| Core build or launch workers crash with RBAC errors | Check the `apphub-builder` / `apphub-preview` service accounts in `infra/minikube/rbac.yaml`. If you customised the namespace, reapply the overlay and re-run the bootstrap. |
 | Ingress hosts return 404 | Verify `minikube addons enable ingress` succeeded and that the `/etc/hosts` entry points to `$(minikube ip)`. Re-run `npm run minikube:verify -- --check-ingress` for hints. |
-| `npm run minikube:verify` fails on HTTP checks | Inspect pod logs (`kubectl logs deployment/apphub-catalog-api -n apphub-system`) and ensure environment variables are wired correctly. Re-run the bootstrap after fixing the underlying issue. |
+| `npm run minikube:verify` fails on HTTP checks | Inspect pod logs (`kubectl logs deployment/apphub-core-api -n apphub-system`) and ensure environment variables are wired correctly. Re-run the bootstrap after fixing the underlying issue. |
 | MinIO bucket checks fail | Delete and reapply the bootstrap job: `kubectl delete job/apphub-minio-bootstrap -n apphub-system` then `kubectl apply -k infra/minikube`. |
 
 ## Production alignment

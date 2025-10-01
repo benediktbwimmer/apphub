@@ -10,7 +10,7 @@
 
 ## Workflow topology data layer
 
-The workflows surface now exposes a dedicated client and store for the topology graph. The `fetchWorkflowTopologyGraph` API reads the catalog payload and `normalizeWorkflowGraph` builds derived lookup maps (per-workflow indexes, asset/trigger adjacency, cache metadata) for downstream consumption. React code can access the data by wrapping pages in `WorkflowGraphProvider` and calling `useWorkflowGraph()`, which exposes loading/error state, the normalized graph, cache meta, and helper methods for manual refreshes.
+The workflows surface now exposes a dedicated client and store for the topology graph. The `fetchWorkflowTopologyGraph` API reads the core payload and `normalizeWorkflowGraph` builds derived lookup maps (per-workflow indexes, asset/trigger adjacency, cache metadata) for downstream consumption. React code can access the data by wrapping pages in `WorkflowGraphProvider` and calling `useWorkflowGraph()`, which exposes loading/error state, the normalized graph, cache meta, and helper methods for manual refreshes.
 
 The provider automatically listens for `workflow.run.*` and `workflow.definition.updated` websocket events, queuing them for later visualization work while triggering a debounced background refresh after definitions change. Tests for the store live in `src/workflows/hooks/__tests__/useWorkflowGraph.test.tsx`, and Storybook-friendly mocks are available in `src/workflows/graph/mocks.ts` for building UI scenarios.
 
@@ -40,7 +40,7 @@ The client automatically applies auth headers, attempts to decode JSON once, and
 
 Set the following variables in `.env.local` to target locally running services:
 
-- `VITE_API_BASE_URL` – Catalog API base URL (defaults to `http://localhost:4000`).
+- `VITE_API_BASE_URL` – Core API base URL (defaults to `http://localhost:4000`).
 - `VITE_TIMESTORE_BASE_URL` – Timestore API base URL (defaults to `${VITE_API_BASE_URL}/timestore`).
 - `VITE_METASTORE_BASE_URL` – Metastore API base URL (defaults to `${VITE_API_BASE_URL}/metastore`).
 - `VITE_FILESTORE_BASE_URL` – Filestore API base URL (defaults to `${VITE_API_BASE_URL}/filestore`).

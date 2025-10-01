@@ -1,6 +1,6 @@
 # Service Registry Shared State Runbook
 
-This runbook covers the Postgres-backed service registry introduced in Ticket 150. The registry now stores service manifests, service network definitions, and health snapshots in shared tables so multiple catalog replicas stay consistent.
+This runbook covers the Postgres-backed service registry introduced in Ticket 150. The registry now stores service manifests, service network definitions, and health snapshots in shared tables so multiple core replicas stay consistent.
 
 ## Schema Overview
 
@@ -12,7 +12,7 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 
 ## Bootstrap & Backfill
 
-1. **Migrate** – `npm run lint --workspace @apphub/catalog` (runs typecheck + migrations automatically) or invoke `ensureDatabase()` in the catalog process.
+1. **Migrate** – `npm run lint --workspace @apphub/core` (runs typecheck + migrations automatically) or invoke `ensureDatabase()` in the core process.
 2. **Backfill manifests** – run the helper script from repo root:
 
    ```bash
@@ -30,8 +30,8 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 
 ## Minikube Validation
 
-1. Deploy two catalog replicas (`kubectl scale deploy catalog-api --replicas=2`). Ensure `REDIS_URL` points to the shared cluster so cache invalidations broadcast.
-2. Port-forward the catalog API (`kubectl port-forward deploy/catalog-api 4000:4000`).
+1. Deploy two core replicas (`kubectl scale deploy core-api --replicas=2`). Ensure `REDIS_URL` points to the shared cluster so cache invalidations broadcast.
+2. Port-forward the core API (`kubectl port-forward deploy/core-api 4000:4000`).
 3. Run the backfill script against the minikube endpoint (uses shared Postgres):
    ```bash
    DATABASE_URL=postgres://... npm run backfill:service-registry -- --path examples/environmental-observatory-event-driven
@@ -42,9 +42,9 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 ## Rollout Steps
 
 - **Staging**
-  1. Deploy migrations + new catalog build with feature flag `APPHUB_SERVICE_REGISTRY_DUAL_WRITE=1` (if required).
+  1. Deploy migrations + new core build with feature flag `APPHUB_SERVICE_REGISTRY_DUAL_WRITE=1` (if required).
   2. Run the backfill script.
-  3. Tail catalog logs for `[service-registry]` miss/hit ratios; expect cache hits after first load.
+  3. Tail core logs for `[service-registry]` miss/hit ratios; expect cache hits after first load.
   4. Scale to two replicas and verify manifests stay in sync when importing via UI.
 
 - **Production**
@@ -55,7 +55,7 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 
 ## Rollback
 
-1. Scale catalog replicas to one to avoid divergence.
+1. Scale core replicas to one to avoid divergence.
 2. Set `APPHUB_SERVICE_REGISTRY_USE_SHARED_STATE=0` (or revert commit).
 3. Truncate the new tables if unrecoverable (`DELETE FROM service_manifests; DELETE FROM service_health_snapshots;`) — they are append-only.
 4. Redeploy previous build.

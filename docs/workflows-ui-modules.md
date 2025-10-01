@@ -5,7 +5,7 @@ The workflows surface is now composed from a set of focused modules that mirror 
 ## Hooks & Providers
 
 - `WorkflowsProviders` (see `apps/frontend/src/workflows/hooks/useWorkflowsController.ts`) wraps the page with ordered providers for access, definitions, runs, analytics, assets, event triggers, and builder state.
-- `useWorkflowDefinitions` handles catalog queries, filter/search state, service reachability, and runtime summaries used by the list panel.
+- `useWorkflowDefinitions` handles core queries, filter/search state, service reachability, and runtime summaries used by the list panel.
 - `useWorkflowRuns` owns workflow details, run history, step hydration, manual-run enqueueing, and live run updates via sockets.
 - `useWorkflowAnalytics` manages stats/metrics snapshots, history buffers, and range/outcome selections while reacting to analytics socket events.
 - `useWorkflowAssets` fetches inventory, asset details, partitions, and auto-materialization activity with per-workflow caches.

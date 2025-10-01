@@ -20,7 +20,7 @@ AppHub's runtime surfaces now pull their colours from the shared design token re
 - Status-driven helpers (`text-status-*`, `border-[color:var(--color-status-...)]`) keep toasts, form feedback, and JSON highlights aligned with semantic palettes.
 - `getStatusToneClasses` centralises badge styling by mapping workflow/build statuses onto the new status token utilities, removing duplicated colour strings across feature modules.
 - Typography helpers (`text-scale-*`, `font-weight-*`, `leading-scale-*`, `tracking-scale-*`) bind font sizing, weight, line height, and letter spacing to theme overrides.
-- Catalog previews now rely on `catalog-preview-overlay`, `catalog-preview-pill`, and `catalog-preview-dot` utilities when rendering gallery cards or live tiles, while fullscreen takeovers reuse `catalog-fullscreen-backdrop`, `catalog-fullscreen-frame`, and `catalog-fullscreen-message` so gradients and overlays inherit tenant token palettes without custom dark-mode branches. Workflow builder overlays share the same approach via `workflow-dialog-backdrop`.
+- Core previews now rely on `core-preview-overlay`, `core-preview-pill`, and `core-preview-dot` utilities when rendering gallery cards or live tiles, while fullscreen takeovers reuse `core-fullscreen-backdrop`, `core-fullscreen-frame`, and `core-fullscreen-message` so gradients and overlays inherit tenant token palettes without custom dark-mode branches. Workflow builder overlays share the same approach via `workflow-dialog-backdrop`.
 - The custom ESLint rule `semantic-tokens/no-raw-color-classnames` guards the components layer from regressing to raw Tailwind colours; use `[color:var(--token)]` escapes or the provided utilities when new combinations are required.
 
 ## Adding New Themes

@@ -10,7 +10,7 @@ Playwright covers the topology explorer to guard against theme regressions, invi
 ```sh
 npm run test:ui --workspace @apphub/frontend
 ```
-The command launches the Vite dev server automatically and runs the tests headlessly against a mocked catalog API. Use `FRONTEND_UI_PORT` to override the server port if the default `4173` is occupied.
+The command launches the Vite dev server automatically and runs the tests headlessly against a mocked core API. Use `FRONTEND_UI_PORT` to override the server port if the default `4173` is occupied.
 
 ## Fixtures and stubs
 Topology scenarios reuse the shared `createSmallWorkflowGraph` fixture to seed deterministic responses. Playwright intercepts `/auth/identity`, `/auth/api-keys`, `/workflows/graph`, and `/admin/event-health` so the UI renders without the backend. Update those fixtures in `apps/frontend/tests/topology/topology.spec.ts` when the canonical graph sample changes.

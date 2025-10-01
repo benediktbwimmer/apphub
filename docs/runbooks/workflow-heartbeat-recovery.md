@@ -45,7 +45,7 @@ ORDER BY id;
 > Tip: When operators provide a run key from the UI, resolve it to a UUID with `SELECT id FROM workflow_runs WHERE run_key_normalized = '<normalized-key>'`. Normalization trims, lowercases, and collapses non-alphanumeric characters as described in the run-key RFC.
 
 ## Manual Recovery Steps
-1. **Validate Environment:** Ensure workers are online (`npm run workflows --workspace @apphub/catalog`) and Redis connectivity is healthy.
+1. **Validate Environment:** Ensure workers are online (`npm run workflows --workspace @apphub/core`) and Redis connectivity is healthy.
 2. **Check History:** Query `workflow_execution_history` for `step.timeout` events to confirm which steps were retried or exhausted. Record the run key from `workflow_runs` so follow-up responders can correlate logs and dashboards without the UUID.
 3. **Requeue If Needed:** If automation has not retried a stalled run, enqueue it manually: `node -e "require('./dist/queue').enqueueWorkflowRun('<run-id>')"` (or use the API endpoint once exposed). Include the run key in commit messages or incident notes (`order-import-2024-05-01` for example) so partners can search the UI quickly.
 4. **Reset Run:** To force a full rerun, update `workflow_run_steps` for the affected run to `pending`, clear `job_run_id`, `last_heartbeat_at`, and increment `retry_count` as needed, then enqueue the run. Always append a manual event to `workflow_execution_history` describing the intervention and reference the run key you acted on.

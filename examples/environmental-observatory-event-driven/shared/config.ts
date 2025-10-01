@@ -48,7 +48,7 @@ export type ObservatoryMetastoreConfig = {
   authToken?: string;
 };
 
-export type ObservatoryCatalogConfig = {
+export type ObservatoryCoreConfig = {
   baseUrl?: string;
   apiToken?: string;
 };
@@ -77,7 +77,7 @@ export type ObservatoryConfig = {
   filestore: ObservatoryFilestoreConfig;
   timestore: ObservatoryTimestoreConfig;
   metastore?: ObservatoryMetastoreConfig;
-  catalog?: ObservatoryCatalogConfig;
+  core?: ObservatoryCoreConfig;
   workflows: ObservatoryWorkflowConfig;
 };
 

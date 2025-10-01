@@ -17,7 +17,7 @@ fi
 
 # target:repo suffix
 declare -a TARGETS=(
-  "catalog-runtime:catalog"
+  "core-runtime:core"
   "metastore-runtime:metastore"
   "filestore-runtime:filestore"
   "timestore-runtime:timestore"

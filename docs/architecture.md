@@ -1,20 +1,20 @@
 # Platform Architecture
 
 ## Vision
-Build a "YouTube of web applications" where each application is sourced from a Git repository. Every repository contains a `Dockerfile`, allowing the platform to build, catalogue, and sandbox-run the app and surface metadata for discovery via a tag-driven search UI with keyboard-friendly autocomplete.
+Build a "YouTube of web applications" where each application is sourced from a Git repository. Every repository contains a `Dockerfile`, allowing the platform to build, index, and sandbox-run the app and surface metadata for discovery via a tag-driven search UI with keyboard-friendly autocomplete.
 
 ## Core Components
 - **Ingestion Service**: Validates repository metadata, clones repos, inspects `Dockerfile`, and triggers container image builds. The prototype uses a BullMQ (Redis-backed) worker that consumes ingestion jobs, verifies the declared Dockerfile (or discovers one), enriches tags from repo artifacts, and records commit SHA + elapsed time for each attempt.
-- **Registry & Metadata Store**: Persists repositories, tag associations, build status, runtime configuration, and user curation data. The catalog now runs on PostgreSQL (via the `pg` connection pool) for concurrency and cloud deployments.
+- **Registry & Metadata Store**: Persists repositories, tag associations, build status, runtime configuration, and user curation data. The core now runs on PostgreSQL (via the `pg` connection pool) for concurrency and cloud deployments.
 - **Metastore Service**: A Fastify API backed by the shared PostgreSQL instance that stores arbitrary JSON metadata keyed by namespace + record key. It exposes CRUD, optimistic locking, rich filtering (`eq/neq`, range, containment, boolean composition), metrics, and audit logging so downstream teams can persist configuration without schema changes.
 - **Runner Service**: Schedules containerized apps, exposes preview URLs, handles lifecycle (start/stop) with resource quotas.
 - **Search & Recommendation API**: Indexes metadata, supports tag-based search (`key:value` pairs), and powers autocomplete suggestions.
 - **Frontend Web App**: Provides a search-first experience with keyboard-centric autocomplete, surfaces app cards, and allows launching previews.
 - **Background Workers**: Handle ingestion and build pipelines, periodic repo sync (polling webhooks), tag enrichment, stale build cleanup, and asset auto-materialization. The ingestion worker hydrates metadata before handing off to a dedicated build worker that can run inline (dev) or via BullMQ (prod). A separate asset materializer worker maintains workflow asset graphs, listens to `asset.produced`/`asset.expired` events, and enqueues runs when freshness policies demand updates.
-- **Timestore Service**: DuckDB-backed time series store that partitions datasets by semantic keys, persists manifests in PostgreSQL, and exposes query/maintenance APIs. It reuses the catalog Postgres instance while maintaining an isolated schema (`timestore`).
+- **Timestore Service**: DuckDB-backed time series store that partitions datasets by semantic keys, persists manifests in PostgreSQL, and exposes query/maintenance APIs. It reuses the core Postgres instance while maintaining an isolated schema (`timestore`).
 - **Filestore Service**: Transactional filesystem gateway that tracks local and S3-backed trees, persists node metadata in Postgres, executes mutations via orchestrated executors, and emits Redis events so Metastore and Timestore stay aligned without manual file edits.
-- **Service Registry**: Maintains a catalogue of auxiliary services (kind, base URL, health, capabilities) in PostgreSQL. Services can be registered declaratively via manifest or at runtime through authenticated API calls, and health polling keeps status changes flowing to subscribers.
-- **Real-Time Event Stream**: A lightweight event bus in the catalog service emits repository, build, launch, workflow, and asset lifecycle changes (`asset.produced` / `asset.expired`). Fastify exposes these events over a WebSocket endpoint so the frontend can react without polling.
+- **Service Registry**: Maintains a collection of auxiliary services (kind, base URL, health, capabilities) in PostgreSQL. Services can be registered declaratively via manifest or at runtime through authenticated API calls, and health polling keeps status changes flowing to subscribers.
+- **Real-Time Event Stream**: A lightweight event bus in the core service emits repository, build, launch, workflow, and asset lifecycle changes (`asset.produced` / `asset.expired`). Fastify exposes these events over a WebSocket endpoint so the frontend can react without polling.
 
 ## Service vs. App Boundaries
 
@@ -28,7 +28,7 @@ Services and apps collaborate but play distinct roles:
 
 ### Shared Service Registry State
 
-Service manifests, service networks, and health snapshots now persist in Postgres (`service_manifests`, `service_networks`, and `service_health_snapshots`). Each catalog replica keeps a short-lived in-memory cache for hot reads and subscribes to Redis invalidation events. Imports, backfills, and health pollers write through the shared store and publish an invalidation so sibling replicas refresh their caches. See `docs/runbooks/service-registry-shared-state.md` for rollout and operational guidance. The `examples/environmental-observatory-event-driven` module is the canonical smoke test for verifying shared state locally and in staging.
+Service manifests, service networks, and health snapshots now persist in Postgres (`service_manifests`, `service_networks`, and `service_health_snapshots`). Each core replica keeps a short-lived in-memory cache for hot reads and subscribes to Redis invalidation events. Imports, backfills, and health pollers write through the shared store and publish an invalidation so sibling replicas refresh their caches. See `docs/runbooks/service-registry-shared-state.md` for rollout and operational guidance. The `examples/environmental-observatory-event-driven` module is the canonical smoke test for verifying shared state locally and in staging.
 | **Typical consumers** | Workflow service steps, operator dashboards, manifest sync tooling. | Launch previews, build retry UI, workflow jobs that consume container artifacts. |
 
 ```mermaid
@@ -36,7 +36,7 @@ graph LR
   subgraph Registry
     S[Service metadata]
   end
-  subgraph Catalog
+  subgraph Core
     R[App repository]
     B[Build]
   end
@@ -62,10 +62,10 @@ Key takeaways:
 graph TD
   User((User))
   Frontend["Frontend (Vite + React)"]
-  API["Catalog API (Fastify)"]
+  API["Core API (Fastify)"]
   Worker["Ingestion Worker (BullMQ)"]
   Redis[("Redis Queue")]
-  Postgres[("PostgreSQL Catalog DB")]
+  Postgres[("PostgreSQL Core DB")]
   Repo[("Git Repositories")]
   Services[("Service Manifest / Registry")]
   Events[["WebSocket Event Stream"]]
@@ -85,10 +85,10 @@ graph TD
 
 ## Timestore Service
 
-Timestore complements the catalog API by storing columnar time series partitions in DuckDB files that live on either local disk (`services/data/timestore`) or object storage. Metadata, manifests, and retention policy state reuse the existing catalog PostgreSQL instance but live inside a dedicated `timestore` schema so tables do not collide.
+Timestore complements the core API by storing columnar time series partitions in DuckDB files that live on either local disk (`services/data/timestore`) or object storage. Metadata, manifests, and retention policy state reuse the existing core PostgreSQL instance but live inside a dedicated `timestore` schema so tables do not collide.
 
-- **Local development**: run `npm run dev:timestore` (server) and optionally `npm run dev:timestore:lifecycle` (maintenance worker). Both commands default to `TIMESTORE_DATABASE_URL=<catalog DATABASE_URL>` and ensure the schema exists on boot.
-- **Configuration**: environment variables prefixed with `TIMESTORE_` manage host/port, storage driver (`local`, `s3`, `gcs`, or `azure_blob`), storage root, and schema. The service shares the catalog pool helper, so overriding `DATABASE_URL` automatically propagates to both services.
+- **Local development**: run `npm run dev:timestore` (server) and optionally `npm run dev:timestore:lifecycle` (maintenance worker). Both commands default to `TIMESTORE_DATABASE_URL=<core DATABASE_URL>` and ensure the schema exists on boot.
+- **Configuration**: environment variables prefixed with `TIMESTORE_` manage host/port, storage driver (`local`, `s3`, `gcs`, or `azure_blob`), storage root, and schema. The service shares the core pool helper, so overriding `DATABASE_URL` automatically propagates to both services.
 - **APIs**: the skeleton exposes `/health` and `/ready` endpoints; future tickets add ingestion, querying, and lifecycle automation.
 - **APIs**: ingestion requests hit `POST /datasets/:datasetSlug/ingest`, enqueue BullMQ jobs (or run inline for tests), and on success publish new manifests plus partition metadata tied to the shared Postgres schema. The query gateway (`POST /datasets/:datasetSlug/query`) plans against published manifests, attaches DuckDB partition files (local or S3), and optionally downsamples results via aggregations before streaming JSON back to callers.
 - **Metadata schema**: the `timestore` Postgres schema tracks storage targets, datasets, schema versions, manifests, partitions, retention policies, and idempotent ingestion batches. Manifests are versioned per dataset, require monotonically increasing versions, and roll up partition counts/bytes/rows for fast discovery.
@@ -161,7 +161,7 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
    - Optional warm pool for popular apps.
 
 5. **Service Discovery & Health Tracking**
-  - Operators sync JSON manifests describing external services through registry import endpoints; the catalog does not auto-ingest manifests at startup. Manifests can embed placeholder variables (for example `${CATALOG_API_TOKEN}` or an object form with metadata) so the API and UI prompt for values before the manifest is applied.
+  - Operators sync JSON manifests describing external services through registry import endpoints; the core does not auto-ingest manifests at startup. Manifests can embed placeholder variables (for example `${CORE_API_TOKEN}` or an object form with metadata) so the API and UI prompt for values before the manifest is applied.
    - A background poller probes each service's health endpoint, updates status/metadata in PostgreSQL, and publishes `service.updated` events over Redis/WebSocket so consumers can react immediately.
    - Operators or services themselves can register/patch definitions at runtime using `POST /services` and `PATCH /services/:slug` with a shared token, enabling dynamic onboarding without code changes.
 
@@ -195,7 +195,7 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 - Billing/quotas for heavy usage.
 
 ## Workflow Operations UI
-- Dedicated Workflows page renders the catalog of workflow definitions with status, repository, service, and tag filters backed by live metadata.
+- Dedicated Workflows page renders the core of workflow definitions with status, repository, service, and tag filters backed by live metadata.
 - Operators can explore definitions, inspect DAG visualizations, and monitor run history in real time via the existing WebSocket event stream.
 - Manual run initiation now uses JSON Schema–driven forms or raw JSON editing with client-side validation (AJV) before enqueuing runs.
 - Run details surface per-step metrics, log links, and error messages, keeping context for troubleshooting without leaving the UI.
@@ -221,7 +221,7 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 ## Security & Access Controls
 - Operator and service automations currently authenticate with scoped bearer tokens supplied via `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH`. Scopes (`jobs:write`, `jobs:run`, `workflows:write`, `workflows:run`) gate job/workflow definition changes and manual executions.
 - We are transitioning to session-backed OAuth2/OIDC sign-in for interactive operators plus user-managed API keys for automation. See `docs/auth-strategy.md` for the full rollout plan, new data model, and migration timeline. Legacy operator tokens remain supported behind a feature flag during the cutover.
-- The catalog API exposes `GET /auth/identity`, allowing the frontend to introspect the active identity’s subject and scopes so UI controls (create/edit workflow actions) can be hidden or disabled for unauthorized operators. This endpoint will work for both session-backed users and API keys.
+- The core API exposes `GET /auth/identity`, allowing the frontend to introspect the active identity’s subject and scopes so UI controls (create/edit workflow actions) can be hidden or disabled for unauthorized operators. This endpoint will work for both session-backed users and API keys.
 - All sensitive actions, including failed authorization attempts, are written to the `audit_logs` table with actor identity, IP/user-agent, and contextual metadata for post-incident forensics.
 - Job handlers gain a `resolveSecret` helper that records audit entries whenever runtime secrets are fetched.
 
@@ -232,7 +232,7 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 
 ## Observability Enhancements
 - All worker and orchestration logs emit structured JSON and (optionally) forward to an external log aggregation service via `APPHUB_LOG_AGGREGATOR_URL`.
-- The catalog API exposes `GET /metrics`, publishing aggregate job/workflow run counts, average duration, and failure rates for dashboards and alerting baselines.
+- The core API exposes `GET /metrics`, publishing aggregate job/workflow run counts, average duration, and failure rates for dashboards and alerting baselines.
 - Repeated workflow failures trigger structured warnings and optional webhooks once `WORKFLOW_FAILURE_ALERT_THRESHOLD` is exceeded within the sliding window defined by `WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES`.
 - Alert payloads include workflow definition IDs, run keys, run IDs, failure counts, and triggers so incident responders can pivot quickly.
 
@@ -241,4 +241,4 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 
 ### Asset Auto-Materialization
 
-The catalog publishes structured asset lifecycle events and ships with an asset materializer worker that automatically reconciles downstream workflows. The policies, event payloads, and worker behavior are described in detail in `docs/assets-overview.md`.
+The core publishes structured asset lifecycle events and ships with an asset materializer worker that automatically reconciles downstream workflows. The policies, event payloads, and worker behavior are described in detail in `docs/assets-overview.md`.

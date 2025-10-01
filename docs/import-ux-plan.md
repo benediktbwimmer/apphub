@@ -20,7 +20,7 @@ The AppHub operator UI will consolidate all import functionality into a single "
   - App registration lives under the `submit` tab (`SubmitApp` route) with its own layout, success state, and toast usage.
   - There is currently no UI for job bundle imports; operators rely on CLI tooling (`apphub jobs publish`) and backoffice ingestion.
 - **Shared concerns**
-  - The Navbar component already persists active tab selection; consolidating imports requires renaming the stored tab key and providing nested routing to avoid clobbering existing catalog/app navigation.
+  - The Navbar component already persists active tab selection; consolidating imports requires renaming the stored tab key and providing nested routing to avoid clobbering existing core/app navigation.
   - Form patterns lean on Tailwind utility classes for styling and inline validation messages. To reduce duplication, shared form scaffolding should move to `apps/frontend/src/components` (e.g., `FormSection`, `FormActions`, `FormFeedback`).
 
 ## Proposed Information Architecture
@@ -44,7 +44,7 @@ The AppHub operator UI will consolidate all import functionality into a single "
   1. Repository URL + optional branch input.
   2. Metadata fields (name, description, categories).
   3. Optional webhook toggle for metadata sync.
-- Provide inline validation and toast notifications identical to the Service Manifest tab. Show a summary card with the new app slug, detected integrations, and quick links to view in catalog.
+- Provide inline validation and toast notifications identical to the Service Manifest tab. Show a summary card with the new app slug, detected integrations, and quick links to view in core.
 - Support saving drafts (auto-populate fields from `localStorage`) to satisfy the caching requirement.
 
 ### Jobs

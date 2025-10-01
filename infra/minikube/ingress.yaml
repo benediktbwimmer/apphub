@@ -20,14 +20,14 @@ spec:
                 name: apphub-frontend
                 port:
                   number: 80
-    - host: catalog.apphub.local
+    - host: core.apphub.local
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: apphub-catalog
+                name: apphub-core
                 port:
                   number: 4000
     - host: metastore.apphub.local

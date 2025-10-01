@@ -16,7 +16,7 @@ const BASE_COMMANDS = [
   },
   {
     name: 'api',
-    command: 'npm run dev --workspace @apphub/catalog',
+    command: 'npm run dev --workspace @apphub/core',
     cwd: ROOT_DIR,
     env: {
       PORT: '4000',
@@ -25,35 +25,35 @@ const BASE_COMMANDS = [
   },
   {
     name: 'worker',
-    command: 'npm run ingest --workspace @apphub/catalog'
+    command: 'npm run ingest --workspace @apphub/core'
   },
   {
     name: 'builds',
-    command: 'npm run builds --workspace @apphub/catalog'
+    command: 'npm run builds --workspace @apphub/core'
   },
   {
     name: 'launches',
-    command: 'npm run launches --workspace @apphub/catalog'
+    command: 'npm run launches --workspace @apphub/core'
   },
   {
     name: 'workflows',
-    command: 'npm run workflows --workspace @apphub/catalog'
+    command: 'npm run workflows --workspace @apphub/core'
   },
   {
     name: 'events',
-    command: 'npm run events --workspace @apphub/catalog'
+    command: 'npm run events --workspace @apphub/core'
   },
   {
     name: 'event-triggers',
-    command: 'npm run event-triggers --workspace @apphub/catalog'
+    command: 'npm run event-triggers --workspace @apphub/core'
   },
   {
     name: 'materializer',
-    command: 'npm run materializer --workspace @apphub/catalog'
+    command: 'npm run materializer --workspace @apphub/core'
   },
   {
     name: 'examples',
-    command: 'npm run examples --workspace @apphub/catalog'
+    command: 'npm run examples --workspace @apphub/core'
   },
   {
     name: 'metastore',
@@ -130,7 +130,7 @@ async function main() {
     }
   };
 
-  // Catalog bundle storage (example bundles + job bundles) now defaults to MinIO.
+  // Core bundle storage (example bundles + job bundles) now defaults to MinIO.
   ensureEnv('APPHUB_BUNDLE_STORAGE_BACKEND', 's3');
   ensureEnv('APPHUB_BUNDLE_STORAGE_BUCKET', 'apphub-example-bundles');
   ensureEnv('APPHUB_BUNDLE_STORAGE_ENDPOINT', 'http://127.0.0.1:9000');

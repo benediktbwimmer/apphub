@@ -4,7 +4,7 @@ Example modules now describe their runtime surface through a root-level `config.
 
 ## Schema
 - JSON Schema: [`docs/schemas/example-config.schema.json`](schemas/example-config.schema.json)
-- TypeScript: `exampleConfigDescriptorSchema` exported from `services/catalog/src/serviceConfigLoader.ts`
+- TypeScript: `exampleConfigDescriptorSchema` exported from `services/core/src/serviceConfigLoader.ts`
 
 Descriptors accept the existing service-manifest payloads plus:
 - `placeholders`: default values and descriptions keyed by placeholder name. Services keep using `${PLACEHOLDER}` strings while metadata flows from the descriptor.

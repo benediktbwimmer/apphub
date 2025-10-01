@@ -4,5 +4,5 @@ export {
   listExampleJobBundles,
   getExampleJobBundle,
   isExampleJobSlug,
-  loadExampleCatalog
+  loadExampleCore
 } from '@apphub/examples';

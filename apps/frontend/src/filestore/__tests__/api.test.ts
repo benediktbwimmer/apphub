@@ -140,7 +140,7 @@ describe('filestore api helpers', () => {
       data: {
         backendMountId: 2,
         nodeId: 17,
-        path: 'datasets/catalog',
+        path: 'datasets/core',
         detectedAt: iso,
         reason: 'hash_mismatch',
         reporter: 'watcher',

@@ -1,4 +1,4 @@
-import type { WorkflowEventSeverity } from './catalogEvents';
+import type { WorkflowEventSeverity } from './coreEvents';
 
 type NullableString = string | null | undefined;
 

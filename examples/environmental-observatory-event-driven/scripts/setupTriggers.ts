@@ -46,7 +46,7 @@ async function getWorkflow(baseUrl: string, token: string, slug: string): Promis
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new Error(`Catalog request failed (${response.status}): ${text}`);
+    throw new Error(`Core request failed (${response.status}): ${text}`);
   }
 
   return response.json();
@@ -110,7 +110,7 @@ async function request<T>(
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new Error(`Catalog request failed (${response.status}): ${text}`);
+    throw new Error(`Core request failed (${response.status}): ${text}`);
   }
 
   return (await response.json()) as T;
@@ -187,11 +187,11 @@ async function ensureTrigger(
 async function main(): Promise<void> {
   const rawConfig = loadObservatoryConfig();
   const config = rawConfig as EventDrivenObservatoryConfig;
-  const catalogBaseUrl = config.catalog?.baseUrl ?? 'http://127.0.0.1:4000';
-  const catalogToken = config.catalog?.apiToken;
+  const coreBaseUrl = config.core?.baseUrl ?? 'http://127.0.0.1:4000';
+  const coreToken = config.core?.apiToken;
 
-  if (!catalogToken) {
-    throw new Error('Catalog API token missing. Set catalog.apiToken in the observatory config.');
+  if (!coreToken) {
+    throw new Error('Core API token missing. Set core.apiToken in the observatory config.');
   }
 
   const workflowSlugs = new Set<string>();
@@ -208,7 +208,7 @@ async function main(): Promise<void> {
   workflowSlugs.add(calibrationReprocessSlug);
 
   for (const slug of workflowSlugs) {
-    await ensureWorkflow(catalogBaseUrl, catalogToken, slug, config);
+    await ensureWorkflow(coreBaseUrl, coreToken, slug, config);
   }
 
   const ingestMetadata: Record<string, unknown> = {
@@ -397,9 +397,9 @@ async function main(): Promise<void> {
       prefix: config.filestore.calibrationsPrefix,
       plansPrefix: config.filestore.plansPrefix ?? null
     },
-    catalog: {
-      baseUrl: config.catalog?.baseUrl ?? 'http://127.0.0.1:4000',
-      apiToken: config.catalog?.apiToken ?? null
+    core: {
+      baseUrl: config.core?.baseUrl ?? 'http://127.0.0.1:4000',
+      apiToken: config.core?.apiToken ?? null
     }
   } satisfies Record<string, unknown>;
 
@@ -412,8 +412,8 @@ async function main(): Promise<void> {
     calibrationNodeId: '{{ event.payload.node.id }}',
     calibrationsPrefix: '{{ trigger.metadata.calibrations.prefix }}',
     plansPrefix: '{{ trigger.metadata.calibrations.plansPrefix }}',
-    catalogBaseUrl: '{{ trigger.metadata.catalog.baseUrl }}',
-    catalogApiToken: '{{ trigger.metadata.catalog.apiToken }}',
+    coreBaseUrl: '{{ trigger.metadata.core.baseUrl }}',
+    coreApiToken: '{{ trigger.metadata.core.apiToken }}',
     checksum: '{{ event.payload.node.checksum }}',
     metastoreBaseUrl: '{{ trigger.metadata.metastore.baseUrl }}',
     metastoreNamespace: '{{ trigger.metadata.metastore.namespace }}',
@@ -547,7 +547,7 @@ async function main(): Promise<void> {
   const normalizedTriggers = triggers.map((trigger) => sanitizeTriggerDefinition(trigger));
 
   for (const trigger of normalizedTriggers) {
-    await ensureTrigger(catalogBaseUrl, catalogToken, trigger);
+    await ensureTrigger(coreBaseUrl, coreToken, trigger);
   }
 
   console.log('Workflow event triggers applied successfully.');

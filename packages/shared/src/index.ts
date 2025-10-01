@@ -3,7 +3,7 @@ export * from './exampleJobBundles';
 export * from './duckdb';
 export * from './postgres';
 export * from './filestoreEvents';
-export * from './catalogEvents';
+export * from './coreEvents';
 export * from './timestoreAdmin';
 export * from './filestoreMounts';
 export * from './filestoreFilters';

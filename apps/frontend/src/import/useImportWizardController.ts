@@ -307,8 +307,8 @@ export function useImportWizardController() {
   const { trackEvent } = useAnalytics();
   const { pushToast } = useToasts();
 
-  const [catalogLoading, setCatalogLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [coreLoading, setCoreLoading] = useState(true);
+  const [coreError, setCoreError] = useState<string | null>(null);
   const [scenarios, setScenarios] = useState<ExampleScenario[]>([]);
 
   const [activeStep, setActiveStep] = useState<ImportWizardStep>(() => {
@@ -398,28 +398,28 @@ export function useImportWizardController() {
 
   useEffect(() => {
     let cancelled = false;
-    async function loadCatalog() {
-      setCatalogLoading(true);
+    async function loadCore() {
+      setCoreLoading(true);
       try {
-        const response = await authorizedFetch(`${API_BASE_URL}/examples/catalog`);
+        const response = await authorizedFetch(`${API_BASE_URL}/examples/core`);
         if (!response.ok) {
-          throw new Error(`Failed to load example catalog (status ${response.status})`);
+          throw new Error(`Failed to load example core (status ${response.status})`);
         }
         const payload = (await response.json()) as {
-          data?: { catalog?: { scenarios?: ExampleScenario[] } };
+          data?: { core?: { scenarios?: ExampleScenario[] } };
         };
         if (cancelled) {
           return;
         }
-        const fetched = payload.data?.catalog?.scenarios ?? [];
+        const fetched = payload.data?.core?.scenarios ?? [];
         setScenarios(fetched);
-        setCatalogError(null);
+        setCoreError(null);
       } catch (error) {
         if (cancelled) {
           return;
         }
-        const message = error instanceof Error ? error.message : 'Failed to load example catalog';
-        setCatalogError(message);
+        const message = error instanceof Error ? error.message : 'Failed to load example core';
+        setCoreError(message);
         pushToast({
           tone: 'error',
           title: 'Failed to load examples',
@@ -427,11 +427,11 @@ export function useImportWizardController() {
         });
       } finally {
         if (!cancelled) {
-          setCatalogLoading(false);
+          setCoreLoading(false);
         }
       }
     }
-    void loadCatalog();
+    void loadCore();
     return () => {
       cancelled = true;
     };
@@ -1317,8 +1317,8 @@ export function useImportWizardController() {
   }, []);
 
   return {
-    catalogLoading,
-    catalogError,
+    coreLoading,
+    coreError,
     scenarios,
     activeStep,
     setActiveStep,

@@ -3,7 +3,7 @@
 The timestore service exposes a Fastify API that fronts a DuckDB-backed time series warehouse. It owns dataset metadata, manifest bookkeeping, and background workers that maintain partitioned DuckDB files across local and remote storage targets.
 
 ## Local Development
-- Ensure a PostgreSQL instance is running. The service defaults to the catalog database at `postgres://apphub:apphub@127.0.0.1:5432/apphub`.
+- Ensure a PostgreSQL instance is running. The service defaults to the core database at `postgres://apphub:apphub@127.0.0.1:5432/apphub`.
 - From the monorepo root, run `npm install` once to link dependencies, then start the server with `npm run dev:timestore`.
 - Optional: launch the lifecycle worker placeholder with `npm run dev:timestore:lifecycle` in a separate terminal.
 - Launch the ingestion worker with `npm run dev:timestore:ingest` to process queued ingestion batches (BullMQ + Redis).
@@ -31,7 +31,7 @@ Environment variables control networking, storage, and database access:
 | --- | --- | --- |
 | `TIMESTORE_HOST` | Bind address for the Fastify server. | `127.0.0.1` |
 | `TIMESTORE_PORT` | Port for HTTP traffic. | `4100` |
-| `TIMESTORE_DATABASE_URL` | Connection string; falls back to the catalog `DATABASE_URL`. | `postgres://apphub:apphub@127.0.0.1:5432/apphub` |
+| `TIMESTORE_DATABASE_URL` | Connection string; falls back to the core `DATABASE_URL`. | `postgres://apphub:apphub@127.0.0.1:5432/apphub` |
 | `TIMESTORE_PG_SCHEMA` | Dedicated schema within the shared Postgres instance. | `timestore` |
 | `TIMESTORE_STORAGE_DRIVER` | `local`, `s3`, `gcs`, or `azure_blob`, toggles storage adapter. | `local` |
 | `TIMESTORE_STORAGE_ROOT` | Local filesystem root for DuckDB partitions. | `<repo>/services/data/timestore` |
@@ -85,7 +85,7 @@ Environment variables control networking, storage, and database access:
 | `FILESTORE_REDIS_URL` | Redis connection shared with the filestore service (`inline` for tests). | `redis://127.0.0.1:6379` |
 | `FILESTORE_EVENTS_CHANNEL` | Pub/sub channel that carries `filestore.*` events. | `apphub:filestore` |
 
-When the service boots it ensures the configured Postgres schema exists, runs timestore-specific migrations, and reuses the catalog connection pool helpers so migrations and manifests share the managed database.
+When the service boots it ensures the configured Postgres schema exists, runs timestore-specific migrations, and reuses the core connection pool helpers so migrations and manifests share the managed database.
 
 ### Streaming & Bulk Connectors
 - Enable connector workers by setting `TIMESTORE_CONNECTORS_ENABLED=true`. When disabled, connector definitions are ignored even if configured.

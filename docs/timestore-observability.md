@@ -89,7 +89,7 @@ await publisher.publish({
 });
 ```
 
-The catalog ingests the event into `workflow_events`, exposes it over `/ws`, and surfaces it in `GET /admin/events` for live debugging.
+The core ingests the event into `workflow_events`, exposes it over `/ws`, and surfaces it in `GET /admin/events` for live debugging.
 
 Additional events emitted:
 - `timestore.partition.created` whenever ingestion finalizes a new partition/manifest.

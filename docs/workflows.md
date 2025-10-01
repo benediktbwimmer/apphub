@@ -1,6 +1,6 @@
 # Workflow Management API
 
-The catalog service exposes authenticated REST endpoints for managing workflow event triggers. All routes require an operator token with the `workflows:write` scope (local development can set `APPHUB_AUTH_DISABLED=1`).
+The core service exposes authenticated REST endpoints for managing workflow event triggers. All routes require an operator token with the `workflows:write` scope (local development can set `APPHUB_AUTH_DISABLED=1`).
 
 ## Admin UI
 
@@ -17,15 +17,15 @@ The UI calls the same endpoints described below and surfaces API validation mess
 
 ### Scheduler Coordination & Scaling
 
-The workflow scheduler now coordinates replica ownership using Postgres advisory locks. Enable the coordination loop by setting `WORKFLOW_SCHEDULER_ADVISORY_LOCKS=1` on every catalog workflow worker. The active leader obtains `pg_try_advisory_lock` on a well-known namespace, renews the lock with a keepalive, and materialises due schedules while holding schedule-level `pg_try_advisory_xact_lock` guards. Replica pods that cannot obtain the leader lock idle until the active coordinator relinquishes control.
+The workflow scheduler now coordinates replica ownership using Postgres advisory locks. Enable the coordination loop by setting `WORKFLOW_SCHEDULER_ADVISORY_LOCKS=1` on every core workflow worker. The active leader obtains `pg_try_advisory_lock` on a well-known namespace, renews the lock with a keepalive, and materialises due schedules while holding schedule-level `pg_try_advisory_xact_lock` guards. Replica pods that cannot obtain the leader lock idle until the active coordinator relinquishes control.
 
 Lock acquisition, contention, optimistic conflict, and processing counters are surfaced through `/admin/event-health` under the new `workflowScheduler` payload (the Admin UI renders the same data on **Event Health**). Alerts fire if a replica fails to acquire the leader lock for more than 30 seconds or if schedule-level locks persistently contend.
 
 When running in minikube—or promoting to production—scale workflow workers with the feature flag enabled so two replicas share scheduling responsibilities safely:
 
 ```yaml
-# helm upgrade catalog ./charts/catalog -f values.yaml -f minikube-values.yaml
-catalog:
+# helm upgrade core ./charts/core -f values.yaml -f minikube-values.yaml
+core:
   workflowWorker:
     replicas: 2
     env:
@@ -92,7 +92,7 @@ Predicates are evaluated with AND semantics. Invalid combinations—such as miss
 
 ## CLI Support
 
-The internal CLI (`apps/cli`) provides shortcuts for the API. Commands default to `http://127.0.0.1:4000` and read `APPHUB_TOKEN`; override with `--catalog-url` / `--token` when needed.
+The internal CLI (`apps/cli`) provides shortcuts for the API. Commands default to `http://127.0.0.1:4000` and read `APPHUB_TOKEN`; override with `--core-url` / `--token` when needed.
 
 ```
 apphub workflows triggers list <workflow-slug> [--status active|disabled] [--event-type type] [--event-source source]

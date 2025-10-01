@@ -200,7 +200,7 @@ export default function ServiceManifestsTab({
                 onImported();
               }}
             >
-              View in catalog
+              View in core
             </FormButton>
           )}
         </div>

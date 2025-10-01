@@ -436,7 +436,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
       {metadataSummary && (
         <details className={DIVIDER_CARD}>
           <summary className="cursor-pointer font-weight-semibold text-primary">
-            Catalog snapshot shared with {activeProviderLabel}
+            Core snapshot shared with {activeProviderLabel}
           </summary>
           <pre className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-secondary">
             {formatSummary(metadataSummary)}

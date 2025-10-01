@@ -1,11 +1,11 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-AppHub runs as an npm workspace monorepo. Services live under `services/` (catalog API and workers, metastore, filestore, timestore). Clients sit in `apps/` (`frontend` for the Vite + React UI, `cli` for bundle tooling). Shared code belongs in `packages/`, while scenario bundles reside in `examples/`. Use `docs/` for architecture notes, `tests/` for integration harnesses, and `scripts/` for repo-wide automation. Add new modules beside the closest existing workspace to keep boundaries tidy.
+AppHub runs as an npm workspace monorepo. Services live under `services/` (core API and workers, metastore, filestore, timestore). Clients sit in `apps/` (`frontend` for the Vite + React UI, `cli` for bundle tooling). Shared code belongs in `packages/`, while scenario bundles reside in `examples/`. Use `docs/` for architecture notes, `tests/` for integration harnesses, and `scripts/` for repo-wide automation. Add new modules beside the closest existing workspace to keep boundaries tidy.
 
 ## Build, Test, and Development Commands
 - `npm install` — install all workspaces.
-- `npm run dev --workspace @apphub/catalog` — run the API and workers at `localhost:4000`.
+- `npm run dev --workspace @apphub/core` — run the API and workers at `localhost:4000`.
 - `npm run dev --workspace @apphub/frontend` — start the Vite dev server.
 - `npm run dev` — launch Redis plus the full stack via `concurrently`.
 - `npm run build`, `npm run lint`, `npm run test --workspace <name>` — build, lint, or test every targeted workspace.

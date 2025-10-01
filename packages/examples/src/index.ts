@@ -1,7 +1,7 @@
 export type * from './types';
 export { groupScenariosByType, isScenarioType } from './types';
 export {
-  loadExampleCatalog,
+  loadExampleCore,
   listExampleJobBundles,
   listExampleWorkflows,
   listExampleScenarios,
@@ -10,9 +10,9 @@ export {
   getExampleScenario,
   isExampleJobSlug,
   isExampleWorkflowSlug,
-  clearExampleCatalogCache
-} from './catalog';
-export type { ExampleCatalogData, LoadCatalogOptions } from './catalog';
+  clearExampleCoreCache
+} from './core';
+export type { ExampleCoreData, LoadCoreOptions } from './core';
 export { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
 export { resolveContainerPath } from './containerPaths';
 export {

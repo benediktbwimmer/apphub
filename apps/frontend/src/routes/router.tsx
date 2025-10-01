@@ -1,6 +1,6 @@
 import { Navigate, type RouterProviderProps, createBrowserRouter, type RouteObject } from 'react-router-dom';
 import AppLayout from '../App';
-import CatalogRoute from './CatalogRoute';
+import CoreRoute from './CoreRoute';
 import OverviewRoute from './OverviewRoute';
 import ImportRoute from './ImportRoute';
 import LegacyImportRedirect from './LegacyImportRedirect';
@@ -44,8 +44,8 @@ export const appRouteConfig: RouteObject[] = [
         element: <OverviewRoute />
       },
       {
-        path: ROUTE_SEGMENTS.catalog,
-        element: <CatalogRoute />
+        path: ROUTE_SEGMENTS.core,
+        element: <CoreRoute />
       },
       {
         path: ROUTE_SEGMENTS.events,

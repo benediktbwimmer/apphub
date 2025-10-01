@@ -3,7 +3,7 @@
 This variant of the observatory example uses **Filestore** uploads as the system of record, **workflow event triggers** to launch minute ingest automatically, and **Timestore/Metastore** to keep downstream plots and reports current. The original file-watcher driven walkthrough still lives in `examples/environmental-observatory`; this directory contains the new event-driven stack.
 
 - **Filestore first:** the data generator pushes CSVs through the Filestore API so every mutation is journaled; the inbox normalizer converts `filestore.command.completed` notifications into example-specific `observatory.minute.raw-uploaded` events once files are copied into the staging prefix.
-- **Workflow triggers:** catalog triggers consume the observatory events and launch the `observatory-minute-ingest` workflow with fully materialised parameters (paths, tokens, dataset slugs) captured from the shared config file.
+- **Workflow triggers:** core triggers consume the observatory events and launch the `observatory-minute-ingest` workflow with fully materialised parameters (paths, tokens, dataset slugs) captured from the shared config file.
 - **Per-instrument ingestion:** the timestore loader groups normalized rows by instrument and writes a dedicated partition (keyed by instrument + window) for each sensor, attaching the instrument id as partition attributes.
 - **Aggregate overview:** a second workflow reacts to `timestore.partition.created` (with a safeguard fallback on the ingest event), waits for the Timestore partition to materialize, runs the dashboard aggregator job, and publishes an interactive HTML overview backed by live Timestore queries.
 - **Timestore + Metastore:** once ingestion completes, the timestore loader emits `observatory.minute.partition-ready`; the publication workflow regenerates plots and status reports, optionally upserting metadata into the Metastore.
@@ -40,7 +40,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
    ```bash
    npx tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts
    ```
-   The script reads the config file, talks to the catalog API (`catalog.baseUrl`, `catalog.apiToken`), and upserts three triggers:
+   The script reads the config file, talks to the core API (`core.baseUrl`, `core.apiToken`), and upserts three triggers:
    - `observatory.minute.raw-uploaded` → `observatory-minute-ingest`
    - `observatory.minute.partition-ready` → `observatory-daily-publication`
    - `timestore.partition.created` → `observatory-dashboard-aggregate`
@@ -51,7 +51,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
    npm run dev
    ```
 6. Kick off the synthetic instruments manually (`observatory-minute-data-generator` workflow) or leave the trigger to respond as Filestore uploads arrive. The dashboard streams both the per-instrument reports and the aggregate visualization straight from Filestore once new data lands.
-   - Want more (or fewer) sensors? Set `OBSERVATORY_INSTRUMENT_COUNT` (alias `OBSERVATORY_GENERATOR_INSTRUMENT_COUNT`) before running `npm run obs:event:config`, or edit the generator schedule in the catalog UI afterwards. The value feeds the workflow’s `instrumentCount` parameter at runtime.
+   - Want more (or fewer) sensors? Set `OBSERVATORY_INSTRUMENT_COUNT` (alias `OBSERVATORY_GENERATOR_INSTRUMENT_COUNT`) before running `npm run obs:event:config`, or edit the generator schedule in the core UI afterwards. The value feeds the workflow’s `instrumentCount` parameter at runtime.
 
 ## Related Scripts
 Convenience aliases (add to your global npm scripts if desired):

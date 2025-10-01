@@ -1,10 +1,10 @@
 # RFC: Human-Readable Workflow Run Keys
 
 ## Status
-- **Author:** Catalog platform
+- **Author:** Core platform
 - **Last Updated:** 2025-09-29
 - **Related Tickets:** [Ticket 200](../tickets/200-workflow-run-key-design.md) and follow-ups 201-204
-- **Reviewers Needed:** Catalog/backend, Frontend, Operations, SRE
+- **Reviewers Needed:** Core/backend, Frontend, Operations, SRE
 
 ## Summary
 Introduce an optional-but-encouraged human-readable `runKey` that accompanies the existing UUID `workflow_runs.id`. The key expresses business context (partition, trigger dedupe key, schedule window) and enforces Temporal-style uniqueness so only one active run with a given business identifier executes at a time. We preserve UUIDs for referential integrity while surfacing the friendly key to operators, automation clients, and observability.
@@ -100,6 +100,6 @@ All entry points rely on shared helper `normalizeRunKey(input?: string, context:
 - Backfill ordering: by newest-first or partition-based? (Operations to confirm preference.)
 
 ## Acceptance Criteria
-- RFC reviewed and signed off by catalog, frontend, and operations leads.
+- RFC reviewed and signed off by core, frontend, and operations leads.
 - Tickets 201-204 reference this document for normalization rules and collision handling.
 - Feature flag plan documented and initial telemetry charts defined.

@@ -62,7 +62,7 @@ export const EVENTS_EXPLORER_PRESETS: readonly EventsExplorerPreset[] = [
   {
     id: 'metastore',
     label: 'Metastore',
-    description: 'Track catalog and metadata changes',
+    description: 'Track core and metadata changes',
     filters: { source: 'metastore', type: 'metastore.' }
   },
   {

@@ -2,11 +2,11 @@
 .gitmodules
 node_modules
 npm-debug.log
-services/catalog/node_modules
+services/core/node_modules
 apps/frontend/node_modules
 services/external
 services/manifests
-services/catalog/tests
+services/core/tests
 **/*.log
 dist
 coverage

@@ -1,20 +1,20 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import catalog from '../../../../../examples/catalog/scenarios.json';
+import core from '../../../../../examples/core/scenarios.json';
 import ImportWorkspace from '../ImportWorkspace';
 import type { ExampleScenario } from '../examples';
 import type { ExampleBundleStatus } from '../exampleBundles';
 
-const catalogData = catalog as { scenarios?: ExampleScenario[] };
-const catalogScenarios: ExampleScenario[] = catalogData.scenarios ?? [];
+const coreData = core as { scenarios?: ExampleScenario[] };
+const coreScenarios: ExampleScenario[] = coreData.scenarios ?? [];
 
 const SCENARIO_FIXTURE_IDS = new Set([
   'observatory-inbox-normalizer-job',
   'observatory-timestore-loader-job',
   'observatory-minute-ingest-workflow'
 ]);
-const exampleScenarios: ExampleScenario[] = catalogScenarios.filter((scenario) =>
+const exampleScenarios: ExampleScenario[] = coreScenarios.filter((scenario) =>
   SCENARIO_FIXTURE_IDS.has(scenario.id)
 );
 
@@ -50,9 +50,9 @@ let bundleStatuses: ExampleBundleStatus[] = [];
 beforeEach(() => {
   bundleStatuses = [];
   authorizedFetchMock.mockImplementation(async (url: string) => {
-    if (url.includes('/examples/catalog')) {
+    if (url.includes('/examples/core')) {
       return new Response(
-        JSON.stringify({ data: { catalog: { scenarios: exampleScenarios } } }),
+        JSON.stringify({ data: { core: { scenarios: exampleScenarios } } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }

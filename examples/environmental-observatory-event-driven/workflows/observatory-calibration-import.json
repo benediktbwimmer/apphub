@@ -14,8 +14,8 @@
       "calibrationNodeId": { "type": "number", "minimum": 1 },
       "calibrationsPrefix": { "type": "string", "minLength": 1 },
       "plansPrefix": { "type": "string", "minLength": 1 },
-      "catalogBaseUrl": { "type": "string", "minLength": 1 },
-      "catalogApiToken": { "type": "string" },
+      "coreBaseUrl": { "type": "string", "minLength": 1 },
+      "coreApiToken": { "type": "string" },
       "checksum": { "type": "string" },
       "metastoreBaseUrl": { "type": "string", "minLength": 1 },
       "metastoreNamespace": { "type": "string", "minLength": 1 },
@@ -38,8 +38,8 @@
     "metastoreAuthToken": null,
     "calibrationsPrefix": "datasets/observatory/calibrations",
     "plansPrefix": "datasets/observatory/calibrations/plans",
-    "catalogBaseUrl": "http://127.0.0.1:4000",
-    "catalogApiToken": null
+    "coreBaseUrl": "http://127.0.0.1:4000",
+    "coreApiToken": null
   },
   "steps": [
     {
@@ -107,8 +107,8 @@
         "filestoreToken": "{{ parameters.filestoreToken }}",
         "filestorePrincipal": "observatory-calibration-planner",
         "plansPrefix": "{{ parameters.plansPrefix }}",
-        "catalogBaseUrl": "{{ parameters.catalogBaseUrl }}",
-        "catalogApiToken": "{{ parameters.catalogApiToken }}",
+        "coreBaseUrl": "{{ parameters.coreBaseUrl }}",
+        "coreApiToken": "{{ parameters.coreApiToken }}",
         "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
         "metastoreNamespace": "{{ parameters.metastoreNamespace }}",
         "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}",
@@ -167,8 +167,8 @@
             "calibrationNodeId": "{{ event.payload.node.id }}",
             "calibrationsPrefix": "{{ trigger.metadata.calibrations.prefix }}",
             "plansPrefix": "{{ trigger.metadata.calibrations.plansPrefix }}",
-            "catalogBaseUrl": "{{ trigger.metadata.catalog.baseUrl }}",
-            "catalogApiToken": "{{ trigger.metadata.catalog.apiToken }}",
+            "coreBaseUrl": "{{ trigger.metadata.core.baseUrl }}",
+            "coreApiToken": "{{ trigger.metadata.core.apiToken }}",
             "checksum": "{{ event.payload.node.checksum }}",
             "metastoreBaseUrl": "{{ trigger.metadata.metastore.baseUrl }}",
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
@@ -190,9 +190,9 @@
               "prefix": "{{ trigger.metadata.calibrations.prefix }}",
               "plansPrefix": "{{ trigger.metadata.calibrations.plansPrefix }}"
             },
-            "catalog": {
-              "baseUrl": "{{ defaultParameters.catalogBaseUrl }}",
-              "apiToken": "{{ defaultParameters.catalogApiToken }}"
+            "core": {
+              "baseUrl": "{{ defaultParameters.coreBaseUrl }}",
+              "apiToken": "{{ defaultParameters.coreApiToken }}"
             }
           },
           "idempotencyKeyExpression": "observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: '/', '_' }}",

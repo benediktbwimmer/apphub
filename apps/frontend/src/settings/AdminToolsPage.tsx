@@ -15,10 +15,10 @@ import {
 export default function AdminToolsPage() {
   const authorizedFetch = useAuthorizedFetch();
   const [isNukingRunData, setIsNukingRunData] = useState(false);
-  const [isNukingCatalog, setIsNukingCatalog] = useState(false);
+  const [isNukingCore, setIsNukingCore] = useState(false);
   const [isNukingEverything, setIsNukingEverything] = useState(false);
   const [runDataError, setRunDataError] = useState<string | null>(null);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [coreError, setCoreError] = useState<string | null>(null);
   const [everythingError, setEverythingError] = useState<string | null>(null);
 
   const parseErrorMessage = useCallback((raw: string | null | undefined, fallback: string) => {
@@ -44,7 +44,7 @@ export default function AdminToolsPage() {
   }, []);
 
   const handleNukeRunData = useCallback(async () => {
-    if (isNukingRunData || isNukingCatalog || isNukingEverything) {
+    if (isNukingRunData || isNukingCore || isNukingEverything) {
       return;
     }
 
@@ -59,59 +59,59 @@ export default function AdminToolsPage() {
     setRunDataError(null);
 
     try {
-      const response = await authorizedFetch(`${API_BASE_URL}/admin/catalog/nuke/run-data`, { method: 'POST' });
+      const response = await authorizedFetch(`${API_BASE_URL}/admin/core/nuke/run-data`, { method: 'POST' });
       if (!response.ok) {
         const bodyText = await response.text();
-        throw new Error(parseErrorMessage(bodyText, 'Failed to delete catalog run data.'));
+        throw new Error(parseErrorMessage(bodyText, 'Failed to delete core run data.'));
       }
 
       window.location.reload();
     } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : 'Failed to delete catalog run data.';
+      const message = err instanceof Error && err.message ? err.message : 'Failed to delete core run data.';
       setRunDataError(message);
     } finally {
       setIsNukingRunData(false);
     }
-  }, [authorizedFetch, isNukingCatalog, isNukingEverything, isNukingRunData, parseErrorMessage]);
+  }, [authorizedFetch, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
 
-  const handleNukeCatalog = useCallback(async () => {
-    if (isNukingCatalog || isNukingRunData || isNukingEverything) {
+  const handleNukeCore = useCallback(async () => {
+    if (isNukingCore || isNukingRunData || isNukingEverything) {
       return;
     }
 
     const confirmed = window.confirm(
-      'This will permanently delete all catalog data, including apps, builds, launches, and services. Continue?'
+      'This will permanently delete all core data, including apps, builds, launches, and services. Continue?'
     );
     if (!confirmed) {
       return;
     }
 
-    setIsNukingCatalog(true);
-    setCatalogError(null);
+    setIsNukingCore(true);
+    setCoreError(null);
 
     try {
-      const response = await authorizedFetch(`${API_BASE_URL}/admin/catalog/nuke`, { method: 'POST' });
+      const response = await authorizedFetch(`${API_BASE_URL}/admin/core/nuke`, { method: 'POST' });
       if (!response.ok) {
         const bodyText = await response.text();
-        throw new Error(parseErrorMessage(bodyText, 'Failed to nuke the catalog database.'));
+        throw new Error(parseErrorMessage(bodyText, 'Failed to nuke the core database.'));
       }
 
       window.location.reload();
     } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : 'Failed to nuke the catalog database.';
-      setCatalogError(message);
+      const message = err instanceof Error && err.message ? err.message : 'Failed to nuke the core database.';
+      setCoreError(message);
     } finally {
-      setIsNukingCatalog(false);
+      setIsNukingCore(false);
     }
-  }, [authorizedFetch, isNukingCatalog, isNukingEverything, isNukingRunData, parseErrorMessage]);
+  }, [authorizedFetch, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
 
   const handleNukeEverything = useCallback(async () => {
-    if (isNukingEverything || isNukingCatalog || isNukingRunData) {
+    if (isNukingEverything || isNukingCore || isNukingRunData) {
       return;
     }
 
     const confirmed = window.confirm(
-      'This will completely reset the catalog database, including all seeds, jobs, workflows, and historical data. Continue?'
+      'This will completely reset the core database, including all seeds, jobs, workflows, and historical data. Continue?'
     );
     if (!confirmed) {
       return;
@@ -121,7 +121,7 @@ export default function AdminToolsPage() {
     setEverythingError(null);
 
     try {
-      const response = await authorizedFetch(`${API_BASE_URL}/admin/catalog/nuke/everything`, { method: 'POST' });
+      const response = await authorizedFetch(`${API_BASE_URL}/admin/core/nuke/everything`, { method: 'POST' });
       if (!response.ok) {
         const bodyText = await response.text();
         throw new Error(parseErrorMessage(bodyText, 'Failed to nuke the entire database.'));
@@ -134,9 +134,9 @@ export default function AdminToolsPage() {
     } finally {
       setIsNukingEverything(false);
     }
-  }, [authorizedFetch, isNukingCatalog, isNukingEverything, isNukingRunData, parseErrorMessage]);
+  }, [authorizedFetch, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
 
-  const isBusy = isNukingRunData || isNukingCatalog || isNukingEverything;
+  const isBusy = isNukingRunData || isNukingCore || isNukingEverything;
 
   return (
     <div className="flex flex-col gap-6">
@@ -154,7 +154,7 @@ export default function AdminToolsPage() {
           </h3>
           <p className={SETTINGS_DANGER_TEXT_CLASSES}>
             Use these controls to delete run data (builds, launches, service network state) or wipe the entire
-            catalog. There is no undo.
+            core. There is no undo.
           </p>
         </div>
         <div className="flex flex-col gap-4">
@@ -179,26 +179,26 @@ export default function AdminToolsPage() {
 
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div className={classNames('text-scale-sm font-weight-medium', SETTINGS_DANGER_TEXT_CLASSES)}>
-              Permanently delete all catalog data
+              Permanently delete all core data
             </div>
             <button
               type="button"
               className={classNames(SETTINGS_DANGER_BUTTON_CLASSES, getStatusToneClasses('danger'))}
-              onClick={handleNukeCatalog}
+              onClick={handleNukeCore}
               disabled={isBusy}
             >
-              {isNukingCatalog ? 'Nuking catalog…' : 'Nuke catalog'}
+              {isNukingCore ? 'Nuking core…' : 'Nuke core'}
             </button>
           </div>
-          {catalogError && (
+          {coreError && (
             <p className={SETTINGS_DANGER_META_TEXT_CLASSES} role="alert" aria-live="polite">
-              {catalogError}
+              {coreError}
             </p>
           )}
 
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div className={classNames('text-scale-sm font-weight-medium', SETTINGS_DANGER_TEXT_CLASSES)}>
-              Reset everything (jobs, workflows, seeds, and catalog data)
+              Reset everything (jobs, workflows, seeds, and core data)
             </div>
             <button
               type="button"

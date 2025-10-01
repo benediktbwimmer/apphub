@@ -8,7 +8,7 @@ Legacy workflow events published before metadata enrichment can leave the event 
 - The `/admin/event-sampling` snapshot reports large `replay.pending` counts or repeated failures.
 
 ## Automated Worker
-- Start the background worker locally: `npm run event-sampling:worker --workspace @apphub/catalog`.
+- Start the background worker locally: `npm run event-sampling:worker --workspace @apphub/core`.
 - Environment knobs:
   - `EVENT_SAMPLING_REPLAY_LOOKBACK_MS` (default 7 days)
   - `EVENT_SAMPLING_REPLAY_CHUNK_SIZE` (default 200 events per cycle)
@@ -17,7 +17,7 @@ Legacy workflow events published before metadata enrichment can leave the event 
 - The worker logs cycle summaries and honours `SIGINT`/`SIGTERM` for clean shutdowns.
 
 ## Ad-hoc Replay
-- CLI: `npm run event-sampling:replay --workspace @apphub/catalog -- --lookback-minutes 60 --limit 250`
+- CLI: `npm run event-sampling:replay --workspace @apphub/core -- --lookback-minutes 60 --limit 250`
   - `--dry-run` evaluates candidates without writing samples or replay state.
   - `--include-processed` lists already-succeeded events (skipped by default).
 - Admin API (requires operator scopes):

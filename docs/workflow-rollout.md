@@ -6,7 +6,7 @@ Ticket 005 introduces hardened authentication, secret management, and observabil
 ## Workflow Definition Versioning & Migration
 - **Authoring:** Keep workflow definitions in source control alongside the services they orchestrate. Increment the `version` field whenever contract changes (step IDs, parameters, triggers) occur.
 - **Promotion Pipeline:**
-  1. Develop and lint definitions locally; exercise with inline Redis/SQLite via `npm run test:e2e --workspace @apphub/catalog`.
+  1. Develop and lint definitions locally; exercise with inline Redis/SQLite via `npm run test:e2e --workspace @apphub/core`.
   2. Promote to staging by applying the same JSON payloads via the secured `/workflows` endpoint, using environment-specific operator tokens.
   3. Store exported definitions (e.g., `GET /workflows/:slug`) as artifacts so production migrations can be audited.
 - **Schema Compatibility:** Favor additive changes (new optional parameters, additional steps) to maintain backward compatibility. When breaking changes are unavoidable, deploy new versions under a suffixed slug (`slug-v2`) and migrate consumers before retiring the previous version.

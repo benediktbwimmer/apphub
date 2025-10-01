@@ -2,7 +2,7 @@ import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { normalizePreviewUrl } from '../utils/url';
-import { formatFetchError } from '../catalog/utils';
+import { formatFetchError } from '../core/utils';
 import { usePreviewLayout } from '../settings/previewLayoutContext';
 import { Spinner } from '../components';
 import type { ServiceSummary, ServicesResponse } from './types';

@@ -12,4 +12,4 @@ Environment variables are minimal because both services load the scratch config 
 - `PORT` / `HOST` – standard Fastify binding options.
 - `DASHBOARD_REFRESH_MS` – polling interval for the dashboard.
 
-Import the manifest through the catalog UI or copy it into your manifest directory once the config file exists. The services do not prompt for inbox/staging/report paths anymore; they resolve the shared configuration file instead.
+Import the manifest through the core UI or copy it into your manifest directory once the config file exists. The services do not prompt for inbox/staging/report paths anymore; they resolve the shared configuration file instead.

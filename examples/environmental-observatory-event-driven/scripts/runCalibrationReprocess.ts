@@ -51,8 +51,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const config = loadObservatoryConfig();
 
-  const catalogBaseUrl = config.catalog?.baseUrl ?? 'http://127.0.0.1:4000';
-  const catalogToken = config.catalog?.apiToken ?? 'dev-token';
+  const coreBaseUrl = config.core?.baseUrl ?? 'http://127.0.0.1:4000';
+  const coreToken = config.core?.apiToken ?? 'dev-token';
   const filestoreBaseUrl = config.filestore.baseUrl ?? 'http://127.0.0.1:4300';
   const metastoreBaseUrl = config.metastore?.baseUrl ?? null;
   const metastoreNamespace = config.metastore?.namespace ?? 'observatory.reprocess.plans';
@@ -65,8 +65,8 @@ async function main(): Promise<void> {
       mode: args.mode,
       selectedPartitions: args.selectedPartitions,
       pollIntervalMs: args.pollIntervalMs,
-      catalogBaseUrl,
-      catalogApiToken: catalogToken,
+      coreBaseUrl,
+      coreApiToken: coreToken,
       filestoreBaseUrl,
       filestoreBackendId: config.filestore.backendMountId,
       filestoreToken: config.filestore.token ?? null,
@@ -77,11 +77,11 @@ async function main(): Promise<void> {
     }
   } as const;
 
-  const response = await fetch(`${catalogBaseUrl.replace(/\/+$/, '')}/workflows/observatory-calibration-reprocess/run`, {
+  const response = await fetch(`${coreBaseUrl.replace(/\/+$/, '')}/workflows/observatory-calibration-reprocess/run`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      authorization: `Bearer ${catalogToken}`,
+      authorization: `Bearer ${coreToken}`,
       'user-agent': 'observatory-calibration-reprocess-cli/0.1.0'
     },
     body: JSON.stringify(requestBody)

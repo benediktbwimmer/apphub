@@ -9,7 +9,7 @@
 
 ## Personas & Access Modes
 - **Interactive operators**: log into the web UI, manage workflows/jobs, inspect builds. Require browser-based SSO, session persistence, and scoped authorizations.
-- **Automation/CLI clients**: call the catalog API programmatically. Need long-lived API keys with optional scope constraints and rotation support.
+- **Automation/CLI clients**: call the core API programmatically. Need long-lived API keys with optional scope constraints and rotation support.
 - **Background services**: ingestion/build workers and any external services acting on behalf of the platform. Continue to authenticate with managed service principals that can be migrated to the new API-key flow.
 
 ## Proposed Architecture
@@ -19,7 +19,7 @@
 - Configure provider metadata via `APPHUB_OIDC_ISSUER`, `APPHUB_OIDC_CLIENT_ID`, `APPHUB_OIDC_CLIENT_SECRET`, and `APPHUB_OIDC_ALLOWED_DOMAINS` (comma-separated) to restrict who can log in.
 - During login, request `openid email profile` scopes. Persist the stable `sub` claim as the primary external identifier, with email + profile data for display only.
 
-### Backend Components (Fastify / services/catalog)
+### Backend Components (Fastify / services/core)
 - **/auth/login**: initiates the PKCE authorization request, sets a short-lived nonce in an encrypted cookie.
 - **/auth/callback**: exchanges the authorization code for tokens, validates `state` + `nonce`, retrieves the user profile, and creates (or reuses) a local user record.
 - **Session service**: issues HTTP-only, Secure, SameSite-strict cookies containing a signed session identifier. Store session data server-side (recommended):
@@ -115,7 +115,7 @@
 - Align with legal/compliance for session retention policies and audit log storage duration.
 
 ## Impact Summary
-- **services/catalog**: new auth routes, session middleware, DB models, and updated `requireOperatorScopes` to support session-derived identities.
+- **services/core**: new auth routes, session middleware, DB models, and updated `requireOperatorScopes` to support session-derived identities.
 - **apps/frontend**: replace token selector UI with user account dropdown, implement SSO redirect flows, and add API key management screens.
 - **docs**: update `docs/architecture.md` security section to reference this strategy.
 - **Operations**: configure Google OAuth credentials, rotate signing keys, and document runbooks for login issues and key revocation.

@@ -3,14 +3,14 @@
 > The Docker job runner is deprecated in favour of the Kubernetes-based build and launch platform described in `remote-build-launch.md`. Use this runbook only when maintaining the legacy fallback (`APPHUB_BUILD_EXECUTION_MODE=docker`).
 
 ## Overview
-- Validates the catalog Docker job runner end-to-end using the new integration suite in `services/catalog/tests/dockerRuntimeValidation.e2e.ts`.
+- Validates the core Docker job runner end-to-end using the new integration suite in `services/core/tests/dockerRuntimeValidation.e2e.ts`.
 - Covers filestore staging, container execution, output collection, and job telemetry without depending on external Docker or Filestore services.
 - Designed for operators planning the staged rollout of Docker jobs across environments while CI and dashboard automation remain pending.
 
 ## Automated Coverage
 - Run the validation locally before promotions:
-  - `npm run test --workspace @apphub/catalog -- --runInBand services/catalog/tests/dockerRuntimeValidation.e2e.ts`
-  - or `npx tsx services/catalog/tests/dockerRuntimeValidation.e2e.ts`
+  - `npm run test --workspace @apphub/core -- --runInBand services/core/tests/dockerRuntimeValidation.e2e.ts`
+  - or `npx tsx services/core/tests/dockerRuntimeValidation.e2e.ts`
 - The harness assembles a synthetic Docker job, emulates filestore transfers, runs the Docker CLI through a deterministic mock, and asserts:
   - Inputs land on disk and stay within workspace limits.
   - The container produces stdout/stderr plus an output artifact.
@@ -19,17 +19,17 @@
 
 ## Manual Validation Checklist (Staging)
 - Preconditions
-  - Docker daemon accessible to the catalog workers (`LAUNCH_RUNNER_MODE=docker`).
-  - Filestore base URL (`CATALOG_FILESTORE_BASE_URL`) and credentials present in the deployment environment.
+  - Docker daemon accessible to the core workers (`LAUNCH_RUNNER_MODE=docker`).
+  - Filestore base URL (`CORE_FILESTORE_BASE_URL`) and credentials present in the deployment environment.
   - Redis and Postgres healthy (`/readyz` reports ready).
 - Dry Run
   - Execute the integration test command above on a staging host to ensure mocks resolve correctly.
-  - Trigger a representative Docker job through the catalog UI or API with sample inputs mirrored from production filestore paths.
+  - Trigger a representative Docker job through the core UI or API with sample inputs mirrored from production filestore paths.
   - Confirm `job_runs.context->docker` includes workspace stats, exit code, and log tail; `job_runs.metrics->filestore` should show bytes in/out > 0.
   - Verify uploaded artifacts by fetching the path declared in the job definition and inspecting checksums.
 - Rollback Plan
   - Switch `LAUNCH_RUNNER_MODE=stub` on workers to keep scheduling but bypass Docker execution.
-  - Disable the Docker job toggle or feature flag in the catalog UI to prevent new launches.
+  - Disable the Docker job toggle or feature flag in the core UI to prevent new launches.
   - Clean up residual containers or workspaces with `docker rm -f apphub-*` and by pruning `/tmp/apphub-docker*` directories.
 
 ## Production Rollout Checklist
@@ -42,7 +42,7 @@
   - Launch smoke-test jobs referencing production filestore paths; confirm success and artifact integrity.
   - Gradually expand to remaining workers while monitoring job success rate and worker CPU/memory headroom.
 - Post-Launch Monitoring (temporary approach)
-  - Watch catalog worker logs for `docker`-tagged entries and elevated failure rates.
+  - Watch core worker logs for `docker`-tagged entries and elevated failure rates.
   - Track job run metrics in the database (`SELECT status, COUNT(*) FROM job_runs WHERE runtime='docker' GROUP BY 1;`).
   - Capture manual notes on runtime performance for future dashboard automation.
 

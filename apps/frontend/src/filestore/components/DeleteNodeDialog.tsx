@@ -65,7 +65,7 @@ export default function DeleteNodeDialog({ open, path, disabled = false, onClose
               Soft-delete node
             </h2>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              This marks the node as deleted in the catalog. Content removal is performed asynchronously by workers.
+              This marks the node as deleted in the core. Content removal is performed asynchronously by workers.
             </p>
           </div>
           <button

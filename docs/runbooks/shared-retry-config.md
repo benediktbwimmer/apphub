@@ -1,6 +1,6 @@
 # Shared Retry Configuration Helpers
 
-Centralised helpers in `@apphub/shared/retries/config` remove copy-pasted number coercion logic across catalog workers. New queues and workers should adopt them to keep retry policies aligned.
+Centralised helpers in `@apphub/shared/retries/config` remove copy-pasted number coercion logic across core workers. New queues and workers should adopt them to keep retry policies aligned.
 
 ## Getting Started
 

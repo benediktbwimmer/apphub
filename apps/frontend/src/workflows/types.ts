@@ -1,10 +1,10 @@
 import type {
   WorkflowEventDerived,
   WorkflowEventLinkHints,
-  WorkflowEventSeverity as CatalogWorkflowEventSeverity
-} from '@apphub/shared/catalogEvents';
+  WorkflowEventSeverity as CoreWorkflowEventSeverity
+} from '@apphub/shared/coreEvents';
 
-export type WorkflowEventSeverity = CatalogWorkflowEventSeverity;
+export type WorkflowEventSeverity = CoreWorkflowEventSeverity;
 
 export type WorkflowFanOutTemplateStep = {
   id: string;

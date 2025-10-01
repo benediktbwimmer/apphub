@@ -18,7 +18,7 @@ type IconComponent = (props: IconProps) => JSX.Element;
 
 const NAV_ICON_MAP: Record<PrimaryNavKey, IconComponent> = {
   overview: OverviewIcon,
-  catalog: AppsIcon,
+  core: AppsIcon,
   events: EventsIcon,
   assets: AssetsIcon,
   services: ServicesIcon,

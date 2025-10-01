@@ -35,7 +35,7 @@ class ContextFile(BaseModel):
 class GenerateRequest(BaseModel):
     mode: Literal["workflow", "job", "job-with-bundle", "workflow-with-jobs"]
     operatorRequest: str = Field(default="", description="Operator prompt text")
-    metadataSummary: str = Field(default="", description="Catalog metadata summary")
+    metadataSummary: str = Field(default="", description="Core metadata summary")
     additionalNotes: Optional[str] = Field(default=None, description="Extra prompt instructions")
     timeoutMs: Optional[int] = Field(default=None, ge=1_000, description="Request-specific timeout in ms")
     contextFiles: Optional[list[ContextFile]] = Field(
@@ -268,7 +268,7 @@ def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
         workflow_jobs_instructions = "\n".join(
             [
                 "For workflow-with-jobs mode, output a JSON object containing `workflow`, `dependencies`, and optional `notes` fields.",
-                "Use `dependencies` to list every job the workflow relies on. Tag catalog jobs with `kind` = `existing-job` and include a short description.",
+                "Use `dependencies` to list every job the workflow relies on. Tag core jobs with `kind` = `existing-job` and include a short description.",
                 "For new jobs set `kind` = `job` or `job-with-bundle` and provide a reusable `prompt` explaining how to generate that job in the next step.",
                 "When `kind` is `job-with-bundle`, include a `bundleOutline` with the intended entry point, required capabilities, and any notable files.",
                 "Keep guidance concise and actionable. Document broader operator follow-up (like secrets to provision) in the `notes` field.",
@@ -301,8 +301,8 @@ def _write_workspace(request: GenerateRequest) -> tuple[Path, Path, Path]:
     instructions_path.write_text(instructions, encoding="utf-8")
 
     normalized_request = request.operatorRequest.strip() or "Operator did not provide a description."
-    normalized_summary = request.metadataSummary.strip() or "No catalog metadata was supplied."
-    metadata_body = "# Operator Request\n\n{request}\n\n# Catalog Snapshot\n\n{summary}\n".format(
+    normalized_summary = request.metadataSummary.strip() or "No core metadata was supplied."
+    metadata_body = "# Operator Request\n\n{request}\n\n# Core Snapshot\n\n{summary}\n".format(
         request=normalized_request,
         summary=normalized_summary,
     )

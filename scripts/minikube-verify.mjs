@@ -27,7 +27,7 @@ async function main() {
   await checkRedis();
   await checkPostgres();
   await checkMinio();
-  await checkHttp('catalog-api', 'http://apphub-catalog:4000/health');
+  await checkHttp('core-api', 'http://apphub-core:4000/health');
   await checkHttp('metastore-api', 'http://apphub-metastore:4100/readyz');
   await checkHttp('filestore-api', 'http://apphub-filestore:4300/readyz');
   await checkHttp('timestore-api', 'http://apphub-timestore:4100/ready');
@@ -165,7 +165,7 @@ async function showIngressSummary() {
   step('Ingress host summary');
   const ipRes = await runCapture('minikube', ['ip']).catch(() => ({ stdout: '<minikube-ip>' }));
   const minikubeIp = ipRes.stdout.trim() || '<minikube-ip>';
-  const hosts = ['apphub.local', 'catalog.apphub.local', 'metastore.apphub.local', 'filestore.apphub.local', 'timestore.apphub.local'];
+  const hosts = ['apphub.local', 'core.apphub.local', 'metastore.apphub.local', 'filestore.apphub.local', 'timestore.apphub.local'];
   console.log(`Ingress available via:\n  ${hosts.map((h) => `http://${h}`).join('\n  ')}`);
   console.log(`\n/etc/hosts entry:\n  ${minikubeIp} ${hosts.join(' ')}`);
 }

@@ -7,19 +7,19 @@ import type {
 } from '../../src/workflows/zodSchemas';
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
-const jobsCatalogPath = path.join(repoRoot, 'examples', 'catalog', 'jobs.json');
-const workflowsCatalogPath = path.join(repoRoot, 'examples', 'catalog', 'workflows.json');
+const jobsCorePath = path.join(repoRoot, 'examples', 'core', 'jobs.json');
+const workflowsCorePath = path.join(repoRoot, 'examples', 'core', 'workflows.json');
 
-const jobCatalog = JSON.parse(readFileSync(jobsCatalogPath, 'utf8')) as { bundles: ExampleJobBundle[] };
-const workflowCatalog = JSON.parse(readFileSync(workflowsCatalogPath, 'utf8')) as {
+const jobCore = JSON.parse(readFileSync(jobsCorePath, 'utf8')) as { bundles: ExampleJobBundle[] };
+const workflowCore = JSON.parse(readFileSync(workflowsCorePath, 'utf8')) as {
   workflows: ExampleWorkflow[];
 };
 
-const JOB_MAP = new Map(jobCatalog.bundles.map((bundle) => [bundle.slug, bundle]));
-const WORKFLOW_MAP = new Map(workflowCatalog.workflows.map((workflow) => [workflow.slug, workflow]));
+const JOB_MAP = new Map(jobCore.bundles.map((bundle) => [bundle.slug, bundle]));
+const WORKFLOW_MAP = new Map(workflowCore.workflows.map((workflow) => [workflow.slug, workflow]));
 
-const JOB_SLUGS = jobCatalog.bundles.map((bundle) => bundle.slug);
-const WORKFLOW_SLUGS = workflowCatalog.workflows.map((workflow) => workflow.slug);
+const JOB_SLUGS = jobCore.bundles.map((bundle) => bundle.slug);
+const WORKFLOW_SLUGS = workflowCore.workflows.map((workflow) => workflow.slug);
 
 const jobCache = new Map<string, JobDefinitionCreateInput>();
 const workflowCache = new Map<string, WorkflowDefinitionCreateInput>();

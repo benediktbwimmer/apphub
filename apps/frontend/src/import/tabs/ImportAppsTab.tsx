@@ -72,7 +72,7 @@ function formatRelativeTime(timestamp: number | null) {
 
 type ImportAppsTabProps = {
   onAppRegistered?: (id: string) => void;
-  onViewCatalog?: () => void;
+  onViewCore?: () => void;
   scenario?: AppScenario | null;
   scenarioRequestToken?: number;
   onScenarioCleared?: () => void;
@@ -83,7 +83,7 @@ type ImportAppsTabProps = {
 
 export default function ImportAppsTab({
   onAppRegistered,
-  onViewCatalog,
+  onViewCore,
   scenario,
   scenarioRequestToken,
   onScenarioCleared,
@@ -208,7 +208,7 @@ export default function ImportAppsTab({
       return (
         <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/70 p-4 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300">
           <p>
-            Register a repository to make it discoverable in the catalog. AppHub will clone the repository, queue an
+            Register a repository to make it discoverable in the core. AppHub will clone the repository, queue an
             ingestion run, and surface build history alongside detected integrations.
           </p>
           <a
@@ -289,11 +289,11 @@ export default function ImportAppsTab({
           <FormButton
             size="sm"
             onClick={() => {
-              onViewCatalog?.();
+              onViewCore?.();
             }}
             type="button"
           >
-            View in catalog
+            View in core
           </FormButton>
           <FormButton size="sm" variant="secondary" type="button" onClick={() => fetchHistory(app.id)}>
             Refresh history
@@ -395,7 +395,7 @@ export default function ImportAppsTab({
             className={TEXTAREA_CLASSES}
             value={form.description}
             onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-            placeholder="Short summary shown in the catalog"
+            placeholder="Short summary shown in the core"
             required
           />
         </FormField>

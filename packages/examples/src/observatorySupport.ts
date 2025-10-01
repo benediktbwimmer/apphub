@@ -218,8 +218,8 @@ export function applyObservatoryWorkflowDefaults(
         ? defaults.selectedPartitions
         : [];
       defaults.pollIntervalMs = defaults.pollIntervalMs ?? 1500;
-      defaults.catalogBaseUrl = config.catalog?.baseUrl ?? defaults.catalogBaseUrl ?? null;
-      defaults.catalogApiToken = config.catalog?.apiToken ?? defaults.catalogApiToken ?? null;
+      defaults.coreBaseUrl = config.core?.baseUrl ?? defaults.coreBaseUrl ?? null;
+      defaults.coreApiToken = config.core?.apiToken ?? defaults.coreApiToken ?? null;
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
       defaults.filestoreBackendId = config.filestore.backendMountId;
       defaults.filestoreToken = config.filestore.token ?? null;

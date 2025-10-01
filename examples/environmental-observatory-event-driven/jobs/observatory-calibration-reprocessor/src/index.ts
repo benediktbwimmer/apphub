@@ -41,8 +41,8 @@ type ReprocessorParameters = {
   mode: 'all' | 'selected';
   selectedPartitions: string[];
   pollIntervalMs: number;
-  catalogBaseUrl: string;
-  catalogApiToken?: string;
+  coreBaseUrl: string;
+  coreApiToken?: string;
   ingestWorkflowSlug: string;
   filestoreBaseUrl: string;
   filestoreBackendId: number;
@@ -67,7 +67,7 @@ type PartitionRunOutcome = {
   errorMessage?: string | null;
 };
 
-type CatalogRunRecord = {
+type CoreRunRecord = {
   id: string;
   status: string;
   runKey: string | null;
@@ -184,11 +184,11 @@ function parseParameters(raw: unknown): ReprocessorParameters {
     ? Math.min(pollIntervalCandidate, 10_000)
     : DEFAULT_POLL_INTERVAL_MS;
 
-  const catalogBaseUrl = normalizeBaseUrl(
-    ensureString(raw.catalogBaseUrl ?? raw.catalog_base_url ?? 'http://127.0.0.1:4000')
+  const coreBaseUrl = normalizeBaseUrl(
+    ensureString(raw.coreBaseUrl ?? raw.core_base_url ?? 'http://127.0.0.1:4000')
   );
-  if (!catalogBaseUrl) {
-    throw new Error('catalogBaseUrl is required');
+  if (!coreBaseUrl) {
+    throw new Error('coreBaseUrl is required');
   }
 
   const ingestWorkflowSlug = ensureString(
@@ -222,8 +222,8 @@ function parseParameters(raw: unknown): ReprocessorParameters {
     mode,
     selectedPartitions,
     pollIntervalMs,
-    catalogBaseUrl,
-    catalogApiToken: ensureString(raw.catalogApiToken ?? raw.catalog_api_token ?? ''),
+    coreBaseUrl,
+    coreApiToken: ensureString(raw.coreApiToken ?? raw.core_api_token ?? ''),
     ingestWorkflowSlug,
     filestoreBaseUrl,
     filestoreBackendId,
@@ -528,14 +528,14 @@ async function enqueueWorkflowRun(
   calibration: CalibrationPlanCalibration,
   partition: CalibrationPlanPartition,
   partitionParameters: Record<string, JsonValue>
-): Promise<CatalogRunRecord> {
-  const runUrl = `${parameters.catalogBaseUrl}/workflows/${encodeURIComponent(parameters.ingestWorkflowSlug)}/run`;
+): Promise<CoreRunRecord> {
+  const runUrl = `${parameters.coreBaseUrl}/workflows/${encodeURIComponent(parameters.ingestWorkflowSlug)}/run`;
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     'user-agent': USER_AGENT
   };
-  if (parameters.catalogApiToken) {
-    headers.authorization = `Bearer ${parameters.catalogApiToken}`;
+  if (parameters.coreApiToken) {
+    headers.authorization = `Bearer ${parameters.coreApiToken}`;
   }
 
   const partitionKeyFromParameters = ensureString(
@@ -589,20 +589,20 @@ async function enqueueWorkflowRun(
     startedAt: ensureString(data.startedAt ?? ''),
     completedAt: ensureString(data.completedAt ?? ''),
     triggeredBy: ensureString(data.triggeredBy ?? '') || null
-  } satisfies CatalogRunRecord;
+  } satisfies CoreRunRecord;
 }
 
 async function fetchWorkflowRun(
   parameters: ReprocessorParameters,
   runId: string
-): Promise<CatalogRunRecord> {
-  const url = `${parameters.catalogBaseUrl}/workflow-runs/${encodeURIComponent(runId)}`;
+): Promise<CoreRunRecord> {
+  const url = `${parameters.coreBaseUrl}/workflow-runs/${encodeURIComponent(runId)}`;
   const headers: Record<string, string> = {
     accept: 'application/json',
     'user-agent': USER_AGENT
   };
-  if (parameters.catalogApiToken) {
-    headers.authorization = `Bearer ${parameters.catalogApiToken}`;
+  if (parameters.coreApiToken) {
+    headers.authorization = `Bearer ${parameters.coreApiToken}`;
   }
 
   const response = await fetch(url, { headers });
@@ -622,7 +622,7 @@ async function fetchWorkflowRun(
     startedAt: ensureString(data.startedAt ?? '') || null,
     completedAt: ensureString(data.completedAt ?? '') || null,
     triggeredBy: ensureString(data.triggeredBy ?? '') || null
-  } satisfies CatalogRunRecord;
+  } satisfies CoreRunRecord;
 }
 
 async function processPartitionExecution(
@@ -637,7 +637,7 @@ async function processPartitionExecution(
   context: JobRunContext
 ): Promise<PartitionRunOutcome> {
   const partitionParameters = cloneParameters(partition.parameters);
-  let queuedRun: CatalogRunRecord | null = null;
+  let queuedRun: CoreRunRecord | null = null;
 
  try {
    queuedRun = await enqueueWorkflowRun(parameters, plan, calibration, partition, partitionParameters);
@@ -684,7 +684,7 @@ async function processPartitionExecution(
 
   while (true) {
     await delay(pollIntervalMs);
-    let runRecord: CatalogRunRecord;
+    let runRecord: CoreRunRecord;
     try {
       runRecord = await fetchWorkflowRun(parameters, queuedRun.id);
     } catch (error) {

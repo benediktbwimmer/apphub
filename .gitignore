@@ -8,13 +8,13 @@ yarn-error.log*
 .DS_Store
 
 # Service specific
-services/catalog/data/*.db
-services/catalog/data/*.db-*
-services/catalog/tests/fixtures/*.db
-services/catalog/data/example-bundles/
+services/core/data/*.db
+services/core/data/*.db-*
+services/core/tests/fixtures/*.db
+services/core/data/example-bundles/
 services/data/*
 services/data/*.db-*
-services/catalog/dist/
+services/core/dist/
 packages/*/dist/
 services/timestore/services/
 
@@ -24,7 +24,7 @@ apps/frontend/node_modules/
 
 # Local env files
 apps/frontend/.env.local
-services/catalog/.env
+services/core/.env
 
 # Local development storage
 .dev/minio/

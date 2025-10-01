@@ -10,12 +10,12 @@ export {
   validateThemeDraft,
   generateThemeId
 } from './themeDraft';
-export type { ThemeTokenMeta, ThemeTokenGroupMeta } from './themeFieldCatalog';
+export type { ThemeTokenMeta, ThemeTokenGroupMeta } from './themeFieldCore';
 export {
   semanticTokenGroups,
   typographySections,
   spacingTokens,
   radiusTokens,
   shadowTokens
-} from './themeFieldCatalog';
+} from './themeFieldCore';
 export { useThemeDraft, type ThemeDraftController } from './useThemeDraft';

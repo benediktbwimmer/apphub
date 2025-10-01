@@ -49,7 +49,7 @@ import type {
   WorkflowEventDerived,
   WorkflowEventLinkHints,
   WorkflowEventSeverity
-} from '@apphub/shared/catalogEvents';
+} from '@apphub/shared/coreEvents';
 
 export type WorkflowSummary = {
   workflow: WorkflowDefinition;

@@ -142,9 +142,9 @@
             "namespace": "{{ env.OBSERVATORY_METASTORE_NAMESPACE | default:observatory.reports }}",
             "authToken": "{{ env.OBSERVATORY_METASTORE_TOKEN | default:null }}"
           },
-          "catalog": {
-            "baseUrl": "{{ env.OBSERVATORY_CATALOG_BASE_URL | default:http://127.0.0.1:4000 }}",
-            "apiToken": "{{ env.OBSERVATORY_CATALOG_TOKEN | default:dev-token }}"
+          "core": {
+            "baseUrl": "{{ env.OBSERVATORY_CORE_BASE_URL | default:http://127.0.0.1:4000 }}",
+            "apiToken": "{{ env.OBSERVATORY_CORE_TOKEN | default:dev-token }}"
           },
           "workflows": {
             "generatorSlug": "{{ env.OBSERVATORY_GENERATOR_WORKFLOW_SLUG | default:observatory-minute-data-generator }}",
@@ -240,8 +240,8 @@
               "filestorePrincipal": "observatory-calibration-importer",
               "calibrationsPrefix": "{{ env.OBSERVATORY_FILESTORE_CALIBRATIONS_PREFIX | default:datasets/observatory/calibrations }}",
               "plansPrefix": "{{ env.OBSERVATORY_FILESTORE_PLANS_PREFIX | default:datasets/observatory/calibrations/plans }}",
-              "catalogBaseUrl": "{{ env.OBSERVATORY_CATALOG_BASE_URL | default:http://127.0.0.1:4000 }}",
-              "catalogApiToken": "{{ env.OBSERVATORY_CATALOG_TOKEN | default:dev-token }}",
+              "coreBaseUrl": "{{ env.OBSERVATORY_CORE_BASE_URL | default:http://127.0.0.1:4000 }}",
+              "coreApiToken": "{{ env.OBSERVATORY_CORE_TOKEN | default:dev-token }}",
               "metastoreBaseUrl": "{{ env.OBSERVATORY_METASTORE_BASE_URL | default:http://127.0.0.1:4100 }}",
               "metastoreNamespace": "{{ env.OBSERVATORY_CALIBRATION_NAMESPACE | default:observatory.calibrations }}",
               "metastoreAuthToken": "{{ env.OBSERVATORY_METASTORE_TOKEN | default:null }}"
@@ -250,8 +250,8 @@
           {
             "slug": "observatory-calibration-reprocess",
             "defaults": {
-              "catalogBaseUrl": "{{ env.OBSERVATORY_CATALOG_BASE_URL | default:http://127.0.0.1:4000 }}",
-              "catalogApiToken": "{{ env.OBSERVATORY_CATALOG_TOKEN | default:dev-token }}",
+              "coreBaseUrl": "{{ env.OBSERVATORY_CORE_BASE_URL | default:http://127.0.0.1:4000 }}",
+              "coreApiToken": "{{ env.OBSERVATORY_CORE_TOKEN | default:dev-token }}",
               "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
               "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
               "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",

@@ -21,7 +21,7 @@ let warnedMissingLsof = false;
 
 const PORT_RULES = [
   { port: 6379, label: 'Redis', type: 'redis' },
-  { port: 4000, label: 'Catalog API', type: 'repo' },
+  { port: 4000, label: 'Core API', type: 'repo' },
   { port: 4100, label: 'Metastore API', type: 'repo' },
   { port: 4200, label: 'Filestore API', type: 'repo' },
   { port: 4310, label: 'Observatory file watcher', type: 'repo' },

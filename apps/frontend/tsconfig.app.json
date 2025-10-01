@@ -34,6 +34,6 @@
   "references": [
     { "path": "../../packages/shared" },
     { "path": "../../packages/examples" },
-    { "path": "../../services/catalog" }
+    { "path": "../../services/core" }
   ]
 }

@@ -1,8 +1,8 @@
 # Observatory dashboard aggregator times out waiting for dataset
 
 ## Context
-- Scenario: `environmentalObservatoryEventDrivenBenchmark` (examples/tests/catalog/environmentalObservatoryEventDrivenBenchmark.e2e.ts)
-- Stack: local catalog/timestore/filestore test harness using external Postgres (127.0.0.1:6543) and Redis.
+- Scenario: `environmentalObservatoryEventDrivenBenchmark` (examples/tests/core/environmentalObservatoryEventDrivenBenchmark.e2e.ts)
+- Stack: local core/timestore/filestore test harness using external Postgres (127.0.0.1:6543) and Redis.
 - When the benchmark reaches the `observatory-dashboard-aggregator` job the handler loops on `waitForDatasetReady` (examples/environmental-observatory-event-driven/jobs/observatory-dashboard-aggregator/src/index.ts) and eventually fails with `Timestore dataset observatory-timeseries not ready after waiting 24000ms`.
 - A timestore ingestion job finishes earlier in the flow, but because the dataset poll runs immediately after ingestion, the dashboard aggregator has to retry ~24 times (24s) per run. With multiple retries from the workflow orchestrator, the publication workflow never completes within the benchmark timeout.
 

@@ -21,7 +21,7 @@ const TABS = [
     label: 'Preview Scaling',
     path: ROUTE_SEGMENTS.settingsPreview,
     description:
-      'Adjust how embedded previews render inside the catalog and apps gallery.'
+      'Adjust how embedded previews render inside the core and apps gallery.'
   },
   {
     key: 'api',

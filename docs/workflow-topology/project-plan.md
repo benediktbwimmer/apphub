@@ -9,7 +9,7 @@
 | Frontend Data Layer | 093 | L. Flores | 2024-03-26 | 2024-04-02 | Ensure websocket client alignment with runtime overlay schema. |
 | Rendering Foundations | 094 | M. Chen | 2024-03-25 | 2024-04-03 | Deliver decision record + reusable graph component. |
 | UX & Interaction Polish | 095 | H. Armstrong (Design), M. Chen (Frontend) | 2024-04-01 | 2024-04-08 | Includes accessibility pass and detail drawer integration. |
-| Live Status Overlay | 096 | L. Flores | 2024-04-05 | 2024-04-12 | Throttling strategy co-designed with catalog team. |
+| Live Status Overlay | 096 | L. Flores | 2024-04-05 | 2024-04-12 | Throttling strategy co-designed with core team. |
 | QA & Rollout | 097 | P. Shah | 2024-04-10 | 2024-04-17 | Feature flag gating + operator enablement runbook. |
 
 ## Milestones
@@ -30,7 +30,7 @@
 - **Shared Types**: Tickets 091 & 093 must agree on `packages/shared/workflow-topology.ts`; schema changes require notification to frontend.
 - **Caching Strategy**: Ticket 092 depends on ops validating Redis cluster sizing; coordinate via Ops weekly sync.
 - **Graph Library Decision**: Ticket 094 decision record blocks Ticket 095; spike scheduled 2024-03-22.
-- **Event Stream**: Ticket 096 relies on catalog exposing runtime overlay channel; work tracked via ops backlog item `OPS-142`.
+- **Event Stream**: Ticket 096 relies on core exposing runtime overlay channel; work tracked via ops backlog item `OPS-142`.
 
 ## Risks & Mitigations
 - **Performance regressions**: Run Lighthouse + profiling after Tickets 094/095; capture baselines in QA ticket 097.
@@ -41,7 +41,7 @@
 ## Communication Plan
 - Weekly project stand-up (Tues 10:00 PT) covering progress/risks.
 - Async updates in `#apphub-workflows` channel every Friday.
-- Demo checkpoint after milestone 2 with stakeholders from catalog + ops.
+- Demo checkpoint after milestone 2 with stakeholders from core + ops.
 - Pre-GA review with support + documentation (Ticket 097 deliverable).
 
 ## Success Metrics

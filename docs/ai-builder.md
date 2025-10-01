@@ -1,11 +1,11 @@
 # AI-Assisted Workflow Builder
 
-The AI builder introduces a guided experience for generating workflow and job definitions inside the operator console. Operators describe the desired automation, review Codex output, apply edits, and submit the definition without leaving the page. The builder reuses the catalog schemas so validation matches the API contracts.
+The AI builder introduces a guided experience for generating workflow and job definitions inside the operator console. Operators describe the desired automation, review Codex output, apply edits, and submit the definition without leaving the page. The builder reuses the core schemas so validation matches the API contracts.
 
 ## UI Overview
 - Launch the builder from **Workflows → AI builder**. Visibility requires an operator token with either `workflows:write` or `jobs:write` scope (the existing `Create workflow` button still requires `workflows:write`).
 - Choose a generation provider: the built-in Codex CLI, OpenAI GPT-5, or xAI's Grok 4 fast model via OpenRouter. Save the relevant API key(s) under **Settings → AI builder** before switching.
-- Enter a natural-language description plus optional notes. The frontend collects catalog metadata (jobs, services, workflows) and the backend summarises it for Codex.
+- Enter a natural-language description plus optional notes. The frontend collects core metadata (jobs, services, workflows) and the backend summarises it for Codex.
 - Codex runs via the host proxy service and writes the draft JSON to `./output/suggestion.json`; the UI streams CLI stdout/stderr while the job runs and never relies on the CLI printing the payload.
 - The preview panel shows validation status using the shared Zod schemas. Operators can edit the JSON directly.
 - Available actions:
@@ -31,17 +31,17 @@ Both endpoints accept the original payload shape:
 }
 ```
 
-The catalog service checks operator scopes, gathers metadata, and calls the proxy's `/v1/codex/jobs`. The proxy writes `instructions.md` and `context/metadata.md`, streams `codex exec`, and exposes incremental stdout/stderr so the UI can render progress in real time. In addition to the metadata summary, the server now ships JSON catalogs under `context/jobs/`, `context/workflows/`, and `context/services/`, plus per-service OpenAPI documents when available. Codex can consume these files to reason about existing jobs, workflow shapes, and HTTP endpoints while drafting suggestions. When the CLI finishes, the backend validates the JSON output (using the shared Zod schemas) and stores the result in an in-memory session map so operators can leave the dialog and return later without losing context. In `job-with-bundle` mode the response includes both the job definition and bundle blueprint, along with validation warnings when files or entry points are missing.
+The core service checks operator scopes, gathers metadata, and calls the proxy's `/v1/codex/jobs`. The proxy writes `instructions.md` and `context/metadata.md`, streams `codex exec`, and exposes incremental stdout/stderr so the UI can render progress in real time. In addition to the metadata summary, the server now ships JSON indices under `context/jobs/`, `context/workflows/`, and `context/services/`, plus per-service OpenAPI documents when available. Codex can consume these files to reason about existing jobs, workflow shapes, and HTTP endpoints while drafting suggestions. When the CLI finishes, the backend validates the JSON output (using the shared Zod schemas) and stores the result in an in-memory session map so operators can leave the dialog and return later without losing context. In `job-with-bundle` mode the response includes both the job definition and bundle blueprint, along with validation warnings when files or entry points are missing.
 
 ### Workflow + Jobs Mode
 
-`workflow-with-jobs` now returns a workflow plan that spells out every dependency the automation requires. The plan separates catalog jobs that already exist from new jobs (and bundles) that must be generated before the workflow can run. The response looks like:
+`workflow-with-jobs` now returns a workflow plan that spells out every dependency the automation requires. The plan separates core jobs that already exist from new jobs (and bundles) that must be generated before the workflow can run. The response looks like:
 
 ```json
 {
   "workflow": { /* workflow definition */ },
   "dependencies": [
-    { "kind": "existing-job", "jobSlug": "inventory-fetcher", "description": "Reuses the catalog fetch job" },
+    { "kind": "existing-job", "jobSlug": "inventory-fetcher", "description": "Reuses the core fetch job" },
     {
       "kind": "job-with-bundle",
       "jobSlug": "inventory-sync-delta",
@@ -97,7 +97,7 @@ Set `APPHUB_CODEX_MOCK_DIR` to a directory containing `workflow.json` and `job.j
 A reusable bundle backs the AI-driven workflow steps. Publish (or republish) it with:
 
 ```
-npx tsx services/catalog/src/scripts/publishAiBundle.ts
+npx tsx services/core/src/scripts/publishAiBundle.ts
 ```
 
 Environment variables:
@@ -109,7 +109,7 @@ Environment variables:
 The bundle handler mirrors the server-side runner: it writes instructions into a temp workspace, calls the Codex CLI, reads `suggestion.json`, and returns the raw/parsed payload inside the job result. It also streams CLI stdout/stderr back to the orchestration context for audit.
 
 ## Local Testing
-- `npx tsx services/catalog/tests/codexRunner.test.ts` exercises the CLI mock path and ensures `APPHUB_CODEX_MOCK_DIR` is respected.
+- `npx tsx services/core/tests/codexRunner.test.ts` exercises the CLI mock path and ensures `APPHUB_CODEX_MOCK_DIR` is respected.
 - `CODEX_PROXY_KEEP_WORKSPACES=1` (or `APPHUB_CODEX_DEBUG_WORKSPACES=1`) keeps the proxy's temporary workspaces on disk for inspection.
 - Generations persist server-side for one hour (`CODEX_PROXY_JOB_RETENTION_SECONDS` / in-memory session TTL) so you can resume polling later.
 - The frontend uses Vite aliases to import `zodSchemas.ts` directly; run `npm run dev --workspace @apphub/frontend` to verify hot reload.

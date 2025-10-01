@@ -2,7 +2,7 @@
   "name": "@apphub/examples",
   "version": "0.1.0",
   "private": true,
-  "description": "Runtime loaders and shared types for AppHub example catalog metadata.",
+  "description": "Runtime loaders and shared types for AppHub example core metadata.",
   "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

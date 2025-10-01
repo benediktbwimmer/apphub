@@ -22,8 +22,8 @@
         "items": { "type": "string", "minLength": 1 }
       },
       "pollIntervalMs": { "type": "number", "minimum": 250, "maximum": 10000 },
-      "catalogBaseUrl": { "type": "string", "minLength": 1 },
-      "catalogApiToken": { "type": "string" },
+      "coreBaseUrl": { "type": "string", "minLength": 1 },
+      "coreApiToken": { "type": "string" },
       "ingestWorkflowSlug": { "type": "string", "minLength": 1 },
       "filestoreBaseUrl": { "type": "string", "minLength": 1 },
       "filestoreBackendId": { "type": "number", "minimum": 1 },
@@ -34,7 +34,7 @@
       "metastoreAuthToken": { "type": "string" }
     },
     "required": [
-      "catalogBaseUrl",
+      "coreBaseUrl",
       "ingestWorkflowSlug",
       "filestoreBaseUrl",
       "filestoreBackendId"
@@ -43,8 +43,8 @@
   "defaultParameters": {
     "mode": "all",
     "pollIntervalMs": 1500,
-    "catalogBaseUrl": "http://127.0.0.1:4000",
-    "catalogApiToken": null,
+    "coreBaseUrl": "http://127.0.0.1:4000",
+    "coreApiToken": null,
     "ingestWorkflowSlug": "observatory-minute-ingest",
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,

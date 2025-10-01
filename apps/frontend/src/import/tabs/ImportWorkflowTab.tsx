@@ -78,7 +78,7 @@ export default function ImportWorkflowTab({
   const [workflowSpec, setWorkflowSpec] = useState<WorkflowCreateInput | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [dependencyStatus, setDependencyStatus] = useState<DependencyStatus>(INITIAL_DEPENDENCY_STATUS);
-  const [jobCatalog, setJobCatalog] = useState<JobDefinitionSummary[]>([]);
+  const [jobCore, setJobCore] = useState<JobDefinitionSummary[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -137,15 +137,15 @@ export default function ImportWorkflowTab({
     setImportError(null);
   }, [parseInput, scenario, scenarioRequestToken]);
 
-  const fetchJobCatalog = useCallback(async () => {
+  const fetchJobCore = useCallback(async () => {
     setJobsLoading(true);
     setJobsError(null);
     try {
       const jobs = await listJobDefinitions(authorizedFetch);
-      setJobCatalog(jobs);
+      setJobCore(jobs);
       return jobs;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load job catalog.';
+      const message = err instanceof Error ? err.message : 'Failed to load job core.';
       setJobsError(message);
       throw err;
     } finally {
@@ -153,12 +153,12 @@ export default function ImportWorkflowTab({
     }
   }, [authorizedFetch]);
 
-  const ensureJobCatalog = useCallback(async () => {
-    if (jobCatalog.length > 0) {
-      return jobCatalog;
+  const ensureJobCore = useCallback(async () => {
+    if (jobCore.length > 0) {
+      return jobCore;
     }
-    return fetchJobCatalog();
-  }, [fetchJobCatalog, jobCatalog]);
+    return fetchJobCore();
+  }, [fetchJobCore, jobCore]);
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     const { value } = event.target;
@@ -181,7 +181,7 @@ export default function ImportWorkflowTab({
     }
     setDependencyStatus({ status: 'checking', missing: [], message: null, checkedAt: null });
     try {
-      const jobs = await ensureJobCatalog();
+      const jobs = await ensureJobCore();
       const missing = requiredJobSlugs.filter((slug) => !jobs.some((job) => job.slug === slug));
       if (missing.length > 0) {
         setDependencyStatus({
@@ -203,7 +203,7 @@ export default function ImportWorkflowTab({
         jobDependencyCount: requiredJobSlugs.length
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : jobsError ?? 'Failed to load job catalog.';
+      const message = err instanceof Error ? err.message : jobsError ?? 'Failed to load job core.';
       setDependencyStatus({
         status: 'invalid',
         missing: [],
@@ -211,7 +211,7 @@ export default function ImportWorkflowTab({
         checkedAt: Date.now()
       });
     }
-  }, [ensureJobCatalog, jobsError, requiredJobSlugs, trackEvent, workflowSpec]);
+  }, [ensureJobCore, jobsError, requiredJobSlugs, trackEvent, workflowSpec]);
 
   const handleImport = async (event: FormEvent) => {
     event.preventDefault();

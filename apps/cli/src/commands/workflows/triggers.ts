@@ -3,11 +3,11 @@ import { promises as fs } from 'node:fs';
 import { Command } from 'commander';
 import { parse as parseYaml } from 'yaml';
 import {
-  catalogRequest,
-  resolveCatalogToken,
-  resolveCatalogUrl,
-  CatalogError
-} from '../../lib/catalog';
+  coreRequest,
+  resolveCoreToken,
+  resolveCoreUrl,
+  CoreError
+} from '../../lib/core';
 import { confirmPrompt } from '../../lib/prompt';
 
 type TriggerRecord = {
@@ -138,9 +138,9 @@ function printTriggerTable(workflow: WorkflowSummary, triggers: TriggerRecord[])
   console.table(rows);
 }
 
-async function listTriggers(workflow: string, options: { token?: string; catalogUrl?: string; status?: string; eventType?: string; eventSource?: string }): Promise<void> {
-  const baseUrl = resolveCatalogUrl(options.catalogUrl);
-  const token = resolveCatalogToken(options.token);
+async function listTriggers(workflow: string, options: { token?: string; coreUrl?: string; status?: string; eventType?: string; eventSource?: string }): Promise<void> {
+  const baseUrl = resolveCoreUrl(options.coreUrl);
+  const token = resolveCoreToken(options.token);
 
   const params = new URLSearchParams();
   if (options.status) {
@@ -156,7 +156,7 @@ async function listTriggers(workflow: string, options: { token?: string; catalog
   const query = params.toString();
   const path = `/workflows/${workflow}/triggers${query ? `?${query}` : ''}`;
 
-  const response = await catalogRequest<TriggerListResponse>({
+  const response = await coreRequest<TriggerListResponse>({
     baseUrl,
     token,
     path
@@ -165,14 +165,14 @@ async function listTriggers(workflow: string, options: { token?: string; catalog
   printTriggerTable(response.data.workflow, response.data.triggers);
 }
 
-async function createTrigger(workflow: string, options: { token?: string; catalogUrl?: string; file?: string; yes?: boolean }): Promise<void> {
+async function createTrigger(workflow: string, options: { token?: string; coreUrl?: string; file?: string; yes?: boolean }): Promise<void> {
   if (!options.file) {
     throw new Error('Provide --file with a JSON or YAML definition.');
   }
 
   const payload = await loadDefinition(options.file);
-  const baseUrl = resolveCatalogUrl(options.catalogUrl);
-  const token = resolveCatalogToken(options.token);
+  const baseUrl = resolveCoreUrl(options.coreUrl);
+  const token = resolveCoreToken(options.token);
 
   const summary: string[] = [];
   const eventType = typeof payload.eventType === 'string' ? payload.eventType : undefined;
@@ -193,7 +193,7 @@ async function createTrigger(workflow: string, options: { token?: string; catalo
     return;
   }
 
-  const response = await catalogRequest<TriggerSingleResponse>({
+  const response = await coreRequest<TriggerSingleResponse>({
     baseUrl,
     token,
     path: `/workflows/${workflow}/triggers`,
@@ -208,10 +208,10 @@ async function createTrigger(workflow: string, options: { token?: string; catalo
 async function updateTrigger(
   workflow: string,
   triggerId: string,
-  options: { token?: string; catalogUrl?: string; file?: string; status?: string; yes?: boolean }
+  options: { token?: string; coreUrl?: string; file?: string; status?: string; yes?: boolean }
 ): Promise<void> {
-  const baseUrl = resolveCatalogUrl(options.catalogUrl);
-  const token = resolveCatalogToken(options.token);
+  const baseUrl = resolveCoreUrl(options.coreUrl);
+  const token = resolveCoreToken(options.token);
 
   let payload: Record<string, unknown> = {};
   if (options.file) {
@@ -234,7 +234,7 @@ async function updateTrigger(
     }
   }
 
-  const response = await catalogRequest<TriggerSingleResponse>({
+  const response = await coreRequest<TriggerSingleResponse>({
     baseUrl,
     token,
     path: `/workflows/${workflow}/triggers/${triggerId}`,
@@ -249,10 +249,10 @@ async function updateTrigger(
 async function disableTrigger(
   workflow: string,
   triggerId: string,
-  options: { token?: string; catalogUrl?: string; yes?: boolean }
+  options: { token?: string; coreUrl?: string; yes?: boolean }
 ): Promise<void> {
-  const baseUrl = resolveCatalogUrl(options.catalogUrl);
-  const token = resolveCatalogToken(options.token);
+  const baseUrl = resolveCoreUrl(options.coreUrl);
+  const token = resolveCoreToken(options.token);
 
   if (!(options.yes ?? false)) {
     const proceed = await confirmPrompt(`Disable trigger ${triggerId}?`);
@@ -262,7 +262,7 @@ async function disableTrigger(
     }
   }
 
-  const response = await catalogRequest<TriggerSingleResponse>({
+  const response = await coreRequest<TriggerSingleResponse>({
     baseUrl,
     token,
     path: `/workflows/${workflow}/triggers/${triggerId}`,
@@ -283,8 +283,8 @@ export function registerTriggerCommands(workflows: Command): void {
     .option('--status <status>', 'Filter by status (active|disabled)')
     .option('--event-type <type>', 'Filter by event type')
     .option('--event-source <source>', 'Filter by event source')
-    .option('--catalog-url <url>', 'Catalog API base URL (default: http://127.0.0.1:4000)')
-    .option('--token <token>', 'Catalog API token (falls back to APPHUB_TOKEN)')
+    .option('--core-url <url>', 'Core API base URL (default: http://127.0.0.1:4000)')
+    .option('--token <token>', 'Core API token (falls back to APPHUB_TOKEN)')
     .action(async (workflow: string, opts) => {
       try {
         await listTriggers(workflow, opts);
@@ -299,14 +299,14 @@ export function registerTriggerCommands(workflows: Command): void {
     .command('create <workflow>')
     .description('Create a new event trigger from a JSON or YAML definition')
     .option('--file <path>', 'Path to trigger definition (JSON or YAML)', '')
-    .option('--catalog-url <url>', 'Catalog API base URL (default: http://127.0.0.1:4000)')
-    .option('--token <token>', 'Catalog API token (falls back to APPHUB_TOKEN)')
+    .option('--core-url <url>', 'Core API base URL (default: http://127.0.0.1:4000)')
+    .option('--token <token>', 'Core API token (falls back to APPHUB_TOKEN)')
     .option('-y, --yes', 'Skip confirmation prompt')
     .action(async (workflow: string, opts) => {
       try {
         await createTrigger(workflow, opts);
       } catch (err) {
-        if (err instanceof CatalogError && err.status === 400) {
+        if (err instanceof CoreError && err.status === 400) {
           const printed = printValidationErrors(err.details);
           if (!printed) {
             console.error(err.message);
@@ -324,14 +324,14 @@ export function registerTriggerCommands(workflows: Command): void {
     .description('Update an existing trigger via JSON/YAML patch or inline flags')
     .option('--file <path>', 'Partial trigger definition (JSON or YAML)')
     .option('--status <status>', 'Set trigger status (active|disabled)')
-    .option('--catalog-url <url>', 'Catalog API base URL (default: http://127.0.0.1:4000)')
-    .option('--token <token>', 'Catalog API token (falls back to APPHUB_TOKEN)')
+    .option('--core-url <url>', 'Core API base URL (default: http://127.0.0.1:4000)')
+    .option('--token <token>', 'Core API token (falls back to APPHUB_TOKEN)')
     .option('-y, --yes', 'Skip confirmation prompt')
     .action(async (workflow: string, triggerId: string, opts) => {
       try {
         await updateTrigger(workflow, triggerId, opts);
       } catch (err) {
-        if (err instanceof CatalogError && err.status === 400) {
+        if (err instanceof CoreError && err.status === 400) {
           const printed = printValidationErrors(err.details);
           if (!printed) {
             console.error(err.message);
@@ -347,8 +347,8 @@ export function registerTriggerCommands(workflows: Command): void {
   triggers
     .command('disable <workflow> <triggerId>')
     .description('Disable a trigger (alias for update --status disabled)')
-    .option('--catalog-url <url>', 'Catalog API base URL (default: http://127.0.0.1:4000)')
-    .option('--token <token>', 'Catalog API token (falls back to APPHUB_TOKEN)')
+    .option('--core-url <url>', 'Core API base URL (default: http://127.0.0.1:4000)')
+    .option('--token <token>', 'Core API token (falls back to APPHUB_TOKEN)')
     .option('-y, --yes', 'Skip confirmation prompt')
     .action(async (workflow: string, triggerId: string, opts) => {
       try {

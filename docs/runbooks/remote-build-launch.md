@@ -1,12 +1,12 @@
 # Remote Build & Launch Platform
 
-Ticket 153 replaced the Docker socket runner with a Kubernetes-first workflow. Catalog workers now schedule build Jobs and preview Deployments directly in the target cluster so local minikube environments and remote environments share the same orchestration path.
+Ticket 153 replaced the Docker socket runner with a Kubernetes-first workflow. Core workers now schedule build Jobs and preview Deployments directly in the target cluster so local minikube environments and remote environments share the same orchestration path.
 
 ## Prerequisites
 - Kubernetes 1.27+ cluster (minikube or managed service).
-- Access credentials for the catalog process (kubeconfig or in-cluster service account).
+- Access credentials for the core process (kubeconfig or in-cluster service account).
 - Container registry reachable from the cluster. For minikube, enable the built-in registry; for production use your managed registry.
-- Kubernetes tooling (`kubectl`, optional `helm`) ships in the catalog runtime image. If you execute the workers outside the container, ensure `kubectl version --client` succeeds locally.
+- Kubernetes tooling (`kubectl`, optional `helm`) ships in the core runtime image. If you execute the workers outside the container, ensure `kubectl version --client` succeeds locally.
 
 ## Environment Variables
 
@@ -30,11 +30,11 @@ Ticket 153 replaced the Docker socket runner with a Kubernetes-first workflow. C
 
 ### Kubernetes Tooling Smoke Check
 
-The catalog runtime image now bundles `kubectl` (1.29) and `helm` (3.14). On startup the container runs `node services/catalog/dist/scripts/kubernetesSmoke.js`, which executes `kubectl version --client`, verifies the binary is executable, and logs actionable warnings when credentials are missing. Sample output:
+The core runtime image now bundles `kubectl` (1.29) and `helm` (3.14). On startup the container runs `node services/core/dist/scripts/kubernetesSmoke.js`, which executes `kubectl version --client`, verifies the binary is executable, and logs actionable warnings when credentials are missing. Sample output:
 
 ```
-[catalog][kubernetes][entrypoint] kubectl client detected (version: v1.29.3)
-[catalog][kubernetes][entrypoint] warning: No Kubernetes credentials detected. Mount a kubeconfig or in-cluster service account.
+[core][kubernetes][entrypoint] kubectl client detected (version: v1.29.3)
+[core][kubernetes][entrypoint] warning: No Kubernetes credentials detected. Mount a kubeconfig or in-cluster service account.
 ```
 
 Set `APPHUB_K8S_REQUIRE_TOOLING=1` to fail fast when the smoke check reports errors (for example, when `kubectl` is absent). Use `APPHUB_K8S_DISABLE_DEFAULTS=1` if the minikube defaults conflict with production namespace or registry naming.
@@ -56,7 +56,7 @@ Need to iterate rapidly on manifests or reuse existing images? Combine flags:
 npm run minikube:up -- --skip-build --skip-start
 ```
 
-After bootstrap, the catalog API and workers read credentials from the manifests (Secrets/ConfigMaps), and build/launch workers rely on the `apphub-builder` and `apphub-preview` service accounts defined in `infra/minikube/rbac.yaml`.
+After bootstrap, the core API and workers read credentials from the manifests (Secrets/ConfigMaps), and build/launch workers rely on the `apphub-builder` and `apphub-preview` service accounts defined in `infra/minikube/rbac.yaml`.
 
 ## Production Checklist
 
@@ -76,7 +76,7 @@ After bootstrap, the catalog API and workers read credentials from the manifests
    - Optionally configure namespaces with `ResourceQuota` and `LimitRange` objects.
 
 5. **Rollout Steps**
-   - Set `APPHUB_BUILD_EXECUTION_MODE=kubernetes` and `APPHUB_LAUNCH_EXECUTION_MODE=kubernetes` on one worker and validate end-to-end from the catalog UI.
+   - Set `APPHUB_BUILD_EXECUTION_MODE=kubernetes` and `APPHUB_LAUNCH_EXECUTION_MODE=kubernetes` on one worker and validate end-to-end from the core UI.
    - Monitor the namespace for Job completions and Deployment rollouts.
    - Gradually enable the mode on remaining workers.
 
@@ -101,4 +101,4 @@ npm run minikube:down
 
 Use `-- --purge-images --stop-cluster` to remove cached images and halt the VM after deleting the namespace.
 
-The catalog will automatically fall back to the Docker stub if `APPHUB_BUILD_EXECUTION_MODE=stub` or if Kubernetes commands fail, but the preferred flow is to keep the execution modes consistent across local and remote environments.
+The core will automatically fall back to the Docker stub if `APPHUB_BUILD_EXECUTION_MODE=stub` or if Kubernetes commands fail, but the preferred flow is to keep the execution modes consistent across local and remote environments.

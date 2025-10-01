@@ -49,8 +49,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const config = loadObservatoryConfig();
 
-  const catalogBaseUrl = config.catalog?.baseUrl ?? 'http://127.0.0.1:4000';
-  const catalogToken = config.catalog?.apiToken ?? 'dev-token';
+  const coreBaseUrl = config.core?.baseUrl ?? 'http://127.0.0.1:4000';
+  const coreToken = config.core?.apiToken ?? 'dev-token';
   const filestoreBaseUrl = config.filestore.baseUrl ?? 'http://127.0.0.1:4300';
   const plansPrefix = config.filestore.plansPrefix ?? 'datasets/observatory/calibrations/plans';
   const metastoreBaseUrl = config.metastore?.baseUrl ?? 'http://127.0.0.1:4100';
@@ -64,8 +64,8 @@ async function main(): Promise<void> {
       filestoreToken: config.filestore.token ?? null,
       filestorePrincipal: 'observatory-calibration-planner',
       plansPrefix,
-      catalogBaseUrl,
-      catalogApiToken: catalogToken,
+      coreBaseUrl,
+      coreApiToken: coreToken,
       metastoreBaseUrl,
       metastoreNamespace,
       metastoreAuthToken,
@@ -82,11 +82,11 @@ async function main(): Promise<void> {
     }
   } as const;
 
-  const response = await fetch(`${catalogBaseUrl.replace(/\/+$/, '')}/jobs/observatory-calibration-planner/run`, {
+  const response = await fetch(`${coreBaseUrl.replace(/\/+$/, '')}/jobs/observatory-calibration-planner/run`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      authorization: `Bearer ${catalogToken}`,
+      authorization: `Bearer ${coreToken}`,
       'user-agent': 'observatory-calibration-plan-cli/0.1.0'
     },
     body: JSON.stringify(requestBody)

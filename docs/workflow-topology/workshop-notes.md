@@ -4,7 +4,7 @@
 - **Date**: 2024-03-18
 - **Duration**: 90 minutes
 - **Facilitator**: B. Nguyen (Product)
-- **Participants**: Catalog (S. Patel, D. Romero), Frontend (L. Flores, M. Chen), Design (H. Armstrong), Ops (C. Rivera), QA (P. Shah)
+- **Participants**: Core (S. Patel, D. Romero), Frontend (L. Flores, M. Chen), Design (H. Armstrong), Ops (C. Rivera), QA (P. Shah)
 - **Objective**: Establish the primary jobs-to-be-done, data needs, and UX guardrails for the upcoming workflow topology explorer.
 
 ## Operator Jobs-to-Be-Done
@@ -37,7 +37,7 @@
 - Ops to confirm whether cross-tenant visibility restrictions apply for managed offerings (ticket #TBD).
 - Design to explore miniature timeline treatment inside detail drawer for dense workflows (prototype due 2024-03-25).
 - Frontend to spike on Cytoscape.js vs visx DAG layout before Ticket 094 decision record.
-- Catalog to publish event schema for `workflow.analytics.snapshot` to evaluate overlay reuse.
+- Core to publish event schema for `workflow.analytics.snapshot` to evaluate overlay reuse.
 
 ## Risks / Mitigations
 - **Large datasets causing UI lag** → introduce sampling + progressive reveal for >800 nodes, documented in Ticket 094.
@@ -52,7 +52,7 @@
 - Feature will ship behind `workflow_topology_explorer` flag with staged rollout (Ticket 097).
 
 ## Next Actions
-- Ticket 091 kickoff: D. Romero (Catalog) – start 2024-03-19
+- Ticket 091 kickoff: D. Romero (Core) – start 2024-03-19
 - Ticket 094 spike assignment: L. Flores (Frontend) – decision record draft 2024-03-22
 - Design prototype review: H. Armstrong – share Figma exploration 2024-03-25
 - Ops policy note: C. Rivera – confirm cross-tenant stance 2024-03-26

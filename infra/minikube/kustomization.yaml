@@ -16,8 +16,8 @@ resources:
   - minio/service.yaml
   - minio/pvc.yaml
   - minio/bootstrap-job.yaml
-  - catalog/service.yaml
-  - catalog/deployments.yaml
+  - core/service.yaml
+  - core/deployments.yaml
   - metastore/service.yaml
   - metastore/deployment.yaml
   - filestore/service.yaml

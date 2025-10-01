@@ -1,6 +1,6 @@
 # Event Bus & Workflow Event Ingress
 
-Apphub services now share a BullMQ-backed event bus so workflow scheduling and operator tooling can react to cross-service changes without polling. The catalog service persists every accepted event to PostgreSQL and fans it out over the existing WebSocket stream (`/ws`).
+Apphub services now share a BullMQ-backed event bus so workflow scheduling and operator tooling can react to cross-service changes without polling. The core service persists every accepted event to PostgreSQL and fans it out over the existing WebSocket stream (`/ws`).
 
 ## Envelope Contract
 
@@ -43,7 +43,7 @@ await publisher.publish({
 - `APPHUB_EVENTS_MODE=inline` keeps publishing synchronous and skips the dedicated worker—useful for local development.
 - `APPHUB_EVENT_PROXY_URL` switches `@apphub/event-bus` into HTTP proxy mode. Bundles send events to the configured URL instead of instantiating BullMQ directly.
 - `APPHUB_EVENT_PROXY_TOKEN` supplies the bearer token used by the HTTP proxy client. Multiple bundles can share the same value.
-- `APPHUB_EVENT_PROXY_TOKENS` (catalog service) lists accepted proxy tokens, comma-separated. Leave unset to allow unauthenticated requests during prototyping.
+- `APPHUB_EVENT_PROXY_TOKENS` (core service) lists accepted proxy tokens, comma-separated. Leave unset to allow unauthenticated requests during prototyping.
 
 ### Workflow Event Context
 
@@ -55,7 +55,7 @@ Workflow job executions now carry a lightweight context payload so downstream pu
 - `jobRunId`
 - `jobSlug`
 
-Node handlers running in-process can call `getWorkflowEventContext()` from `@apphub/catalog/jobs/runtime` to read the current store. Sandbox and Docker adapters serialize the same payload into the `APPHUB_WORKFLOW_EVENT_CONTEXT` environment variable; the sandbox context object also exposes `workflowEventContext` plus `getWorkflowEventContext()` (Python bundles receive matching attributes) for convenience. Child bootstrap code keeps the AsyncLocalStorage scope active so downstream imports resolve the same data.
+Node handlers running in-process can call `getWorkflowEventContext()` from `@apphub/core/jobs/runtime` to read the current store. Sandbox and Docker adapters serialize the same payload into the `APPHUB_WORKFLOW_EVENT_CONTEXT` environment variable; the sandbox context object also exposes `workflowEventContext` plus `getWorkflowEventContext()` (Python bundles receive matching attributes) for convenience. Child bootstrap code keeps the AsyncLocalStorage scope active so downstream imports resolve the same data.
 
 `@apphub/event-bus` now injects this context automatically into every envelope that does not already include `metadata.__apphubWorkflow`. The reserved block is trimmed to the required fields, strings are normalized, and payloads larger than 2 KB (UTF-8) are dropped to protect downstream storage. Existing publishers that set `metadata.__apphubWorkflow` manually keep their values; everyone else gets the enriched metadata with no API changes.
 
@@ -67,11 +67,11 @@ When bundles run inside the sandbox they cannot require `bullmq`. Set `APPHUB_EV
 export APPHUB_EVENT_PROXY_URL="http://127.0.0.1:4000/internal/events/publish"
 export APPHUB_EVENT_PROXY_TOKEN="prototype-secret"
 
-# Catalog (or any trusted publisher) should allow the same token
+# Core (or any trusted publisher) should allow the same token
 export APPHUB_EVENT_PROXY_TOKENS="prototype-secret"
 ```
 
-> Sandbox job runs now inject a proxy URL automatically. The catalog passes
+> Sandbox job runs now inject a proxy URL automatically. The core passes
 > `APPHUB_EVENT_PROXY_URL=http://127.0.0.1:<port>/internal/events/publish` to every
 > sandboxed bundle and forwards `APPHUB_EVENT_PROXY_TOKEN` when it is configured, so
 > most local setups require no additional wiring.
@@ -103,7 +103,7 @@ Once the proxy URL is configured, `createEventPublisher()` automatically chooses
 
 ## Ingress Worker & Persistence
 
-The catalog worker (`npm run events --workspace @apphub/catalog`) consumes the queue and writes into `workflow_events`:
+The core worker (`npm run events --workspace @apphub/core`) consumes the queue and writes into `workflow_events`:
 
 ```sql
 CREATE TABLE workflow_events (
@@ -121,18 +121,18 @@ CREATE TABLE workflow_events (
 
 Every record is emitted to WebSocket subscribers via `workflow.event.received` events so operators can trace trigger activity in real time.
 
-The event trigger worker (`npm run event-triggers --workspace @apphub/catalog`) consumes a dedicated queue (`apphub_event_trigger_queue` by default), evaluates trigger predicates, records delivery history, and enqueues matching workflows. In local inline mode (`REDIS_URL=inline` with `APPHUB_ALLOW_INLINE_MODE=true`) both ingress and trigger processing happen in-process without Redis.
+The event trigger worker (`npm run event-triggers --workspace @apphub/core`) consumes a dedicated queue (`apphub_event_trigger_queue` by default), evaluates trigger predicates, records delivery history, and enqueues matching workflows. In local inline mode (`REDIS_URL=inline` with `APPHUB_ALLOW_INLINE_MODE=true`) both ingress and trigger processing happen in-process without Redis.
 
 ### Monitoring & Health
 
 - `GET /admin/event-health` surfaces queue depth, in-memory metrics (per-source lag, trigger success/failure counters), current rate-limit configuration, and paused sources/triggers.
-- `GET /admin/queue-health` enumerates all catalog BullMQ queues (ingest, build, launch, workflow, example bundle, ingress triggers) with live depth and latency readings; the data also feeds the Prometheus endpoint exposed at `/metrics/prometheus`.
+- `GET /admin/queue-health` enumerates all core BullMQ queues (ingest, build, launch, workflow, example bundle, ingress triggers) with live depth and latency readings; the data also feeds the Prometheus endpoint exposed at `/metrics/prometheus`.
 - Set `EVENT_SOURCE_RATE_LIMITS` with entries like `[{"source":"metastore.api","limit":200,"intervalMs":60000,"pauseMs":60000}]` to throttle noisy publishers; default is unlimited.
 - Trigger auto-pausing is controlled via `EVENT_TRIGGER_ERROR_THRESHOLD` (default `5` failures within `EVENT_TRIGGER_ERROR_WINDOW_MS`, default `300000`) and resumes after `EVENT_TRIGGER_PAUSE_MS` (default `300000`).
 
 ## Inspecting Events
 
-Use the catalog admin API to explore historical envelopes with flexible filters and cursor pagination:
+Use the core admin API to explore historical envelopes with flexible filters and cursor pagination:
 
 ```
 GET /admin/events?type=metastore.record.updated&source=metastore.api&correlationId=req-41ac2fd3&from=2024-12-01T00:00:00Z&limit=50

@@ -6,7 +6,7 @@ import {
   useState,
   type FormEvent
 } from 'react';
-import { workflowDefinitionCreateSchema, jobDefinitionCreateSchema } from '@apphub/catalog/workflows/zodSchemas';
+import { workflowDefinitionCreateSchema, jobDefinitionCreateSchema } from '@apphub/core/workflows/zodSchemas';
 import type { ZodIssue } from 'zod';
 import {
   fetchAiGeneration,
@@ -33,7 +33,7 @@ import { useAiBuilderSettings } from '../../../ai/useAiBuilderSettings';
 import {
   DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS,
   DEFAULT_AI_BUILDER_SYSTEM_PROMPT
-} from '@apphub/catalog/ai/prompts';
+} from '@apphub/core/ai/prompts';
 import { PROVIDER_LABELS } from './constants';
 import type {
   AiBuilderDialogProps,

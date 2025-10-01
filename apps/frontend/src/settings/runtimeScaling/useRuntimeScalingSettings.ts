@@ -7,7 +7,7 @@ import {
 import type { RuntimeScalingOverview, RuntimeScalingTarget, RuntimeScalingUpdateInput } from './types';
 
 const TARGET_PRIORITY: Readonly<Record<string, number>> = {
-  'catalog:workflow': 0
+  'core:workflow': 0
 };
 
 function sortTargets(targets: RuntimeScalingTarget[]): RuntimeScalingTarget[] {

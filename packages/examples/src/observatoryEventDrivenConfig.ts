@@ -44,7 +44,7 @@ export type ObservatoryConfig = {
     namespace?: string;
     authToken?: string;
   };
-  catalog?: {
+  core?: {
     baseUrl?: string;
     apiToken?: string;
   };
@@ -372,9 +372,9 @@ export function createEventDrivenObservatoryConfig(
       namespace: optionalString(getVar('OBSERVATORY_METASTORE_NAMESPACE') ?? 'observatory.reports'),
       authToken: optionalString(getVar('OBSERVATORY_METASTORE_TOKEN'))
     },
-    catalog: {
-      baseUrl: optionalString(getVar('OBSERVATORY_CATALOG_BASE_URL') ?? 'http://127.0.0.1:4000'),
-      apiToken: optionalString(getVar('OBSERVATORY_CATALOG_TOKEN') ?? 'dev-token')
+    core: {
+      baseUrl: optionalString(getVar('OBSERVATORY_CORE_BASE_URL') ?? 'http://127.0.0.1:4000'),
+      apiToken: optionalString(getVar('OBSERVATORY_CORE_TOKEN') ?? 'dev-token')
     },
     workflows: {
       ingestSlug: resolveString(

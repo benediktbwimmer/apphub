@@ -616,7 +616,7 @@ export function WorkflowBuilderDialog({
           <FormSection>
             <h3 className={SECTION_TITLE_CLASSES}>Workflow preview</h3>
             <p className={SECTION_SUBTEXT_CLASSES}>
-              Review the derived workflow specification. Save to persist the configuration to the catalog.
+              Review the derived workflow specification. Save to persist the configuration to the core.
             </p>
             {diffEntries.length > 0 && (
               <FormFeedback tone="info">

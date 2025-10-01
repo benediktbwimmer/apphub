@@ -6,13 +6,13 @@ AppHub's frontend now relies on React Router to manage primary navigation instea
 ## Canonical Routes
 The router defines the following top-level paths:
 
-- `/catalog` – catalog search and management experience.
+- `/core` – core search and management experience.
 - `/services` – service gallery (previously the “Apps” tab).
 - `/workflows` – operator workflow management surface (guarded).
 - `/import` – import workspace for manifests, apps, and jobs (guarded).
 - `/api` – API access and token management.
 
-Visiting `/` redirects to `/catalog`.
+Visiting `/` redirects to `/core`.
 
 ## Legacy Redirects
 Historical entry points `/submit` and `/import-manifest` now redirect to `/import`. A console warning is emitted and an analytics event (`navigation_legacy_redirect`) records the redirect source so downstream dashboards can monitor remaining traffic.

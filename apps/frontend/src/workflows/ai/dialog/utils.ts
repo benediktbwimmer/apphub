@@ -1,5 +1,5 @@
 export function formatSummary(summary: string): string {
-  return summary.trim() || 'No catalog metadata summary available.';
+  return summary.trim() || 'No core metadata summary available.';
 }
 
 export function formatBytes(bytes: number): string {

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useOverviewData } from './useOverviewData';
 import { ROUTE_PATHS } from '../routes/paths';
 import { Spinner } from '../components';
-import type { AppRecord, StatusFacet } from '../catalog/types';
+import type { AppRecord, StatusFacet } from '../core/types';
 import type { ServiceSummary } from '../services/types';
 import type { JobRunListItem, WorkflowActivityRunEntry } from '../runs/api';
 import { getStatusToneClasses } from '../theme/statusTokens';
@@ -122,7 +122,7 @@ export default function OverviewPage() {
       <header className="flex flex-col gap-2">
         <h1 className="text-scale-xl font-weight-semibold text-primary">Overview</h1>
         <p className="text-scale-sm text-secondary">
-          Snapshot of catalog health, auxiliary services, and most recent runs.
+          Snapshot of core health, auxiliary services, and most recent runs.
         </p>
       </header>
 
@@ -140,7 +140,7 @@ export default function OverviewPage() {
       </section>
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Card title="Recently updated apps" actionLabel="View catalog" actionHref={ROUTE_PATHS.catalog} loading={loading && recentApps.length === 0}>
+        <Card title="Recently updated apps" actionLabel="View core" actionHref={ROUTE_PATHS.core} loading={loading && recentApps.length === 0}>
           {recentApps.length === 0 ? (
             <EmptyState message="No apps available yet." />
           ) : (
@@ -160,7 +160,7 @@ export default function OverviewPage() {
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-[0.25em] text-muted">
                     <span>Updated {formatDateTime(app.updatedAt)}</span>
                     <Link
-                      to={`${ROUTE_PATHS.catalog}?seed=${encodeURIComponent(app.id)}`}
+                      to={`${ROUTE_PATHS.core}?seed=${encodeURIComponent(app.id)}`}
                       className={ACCENT_LINK_CLASSES}
                     >
                       Inspect

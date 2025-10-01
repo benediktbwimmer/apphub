@@ -22,5 +22,5 @@ Select **React Flow** as the visualization foundation. It balances performance a
 
 ## Follow-ups
 - Integrate advanced keyboard navigation and detail drawer interactions (Ticket 095).
-- Layer runtime/event overlays once catalog emits live updates (Ticket 096).
+- Layer runtime/event overlays once core emits live updates (Ticket 096).
 - Monitor bundle impact; if React Flow grows we can explore code-splitting the topology view behind route-level chunks.

@@ -1,11 +1,11 @@
 # Workflow Topology Backend Assembly
 
-Ticket 091 adds a dedicated assembly layer inside the catalog service that emits a normalized workflow topology graph.
+Ticket 091 adds a dedicated assembly layer inside the core service that emits a normalized workflow topology graph.
 This module is responsible for loading workflow definitions, schedules, event triggers, and asset declarations, and
 condensing them into the shared `@apphub/shared/workflowTopology` payload that downstream clients consume.
 
 ## Module Overview
-- **Entry point**: `services/catalog/src/workflows/workflowGraph.ts`
+- **Entry point**: `services/core/src/workflows/workflowGraph.ts`
   - `buildWorkflowTopologyGraph()` orchestrates data loading from `listWorkflowDefinitions()` and
     `listWorkflowAssetDeclarations()` and returns a `WorkflowTopologyGraph`.
   - `assembleWorkflowTopologyGraph()` is a pure helper that accepts pre-hydrated definitions plus asset declarations and
@@ -15,12 +15,12 @@ condensing them into the shared `@apphub/shared/workflowTopology` payload that d
 - **Helpers**:
   - DAG metadata is merged with step definitions via `applyDagMetadataToSteps()` to ensure `dependsOn`/`dependents`
     relationships align with orchestrator validation.
-  - Asset IDs reuse `canonicalAssetId()` and `normalizeAssetId()` from `services/catalog/src/assets/identifiers.ts` so
+  - Asset IDs reuse `canonicalAssetId()` and `normalizeAssetId()` from `services/core/src/assets/identifiers.ts` so
     producers and consumers agree on casing and trimming rules.
 
 ## API Endpoint & Caching
-- The catalog API exposes the graph at `GET /workflows/graph`, gated by the `workflows:write` operator scope.
-- Responses come from an in-memory cache (`services/catalog/src/workflows/workflowGraphCache.ts`) that rebuilds on
+- The core API exposes the graph at `GET /workflows/graph`, gated by the `workflows:write` operator scope.
+- Responses come from an in-memory cache (`services/core/src/workflows/workflowGraphCache.ts`) that rebuilds on
   demand and invalidates when `workflow.definition.updated` events fire (workflow edits, schedules, triggers) or on
   explicit refresh. Set `APPHUB_WORKFLOW_GRAPH_CACHE_TTL_MS` to override the default 30 second TTL.
 - Each response includes cache metadata (`meta.cache`) so clients can observe hit/miss rates and refresh timers.
@@ -40,7 +40,7 @@ condensing them into the shared `@apphub/shared/workflowTopology` payload that d
   and last-seen timestamp) derived from the event sampling store.
 
 ## Testing Strategy
-`services/catalog/tests/workflowGraph.test.ts` exercises the assembly helper with representative fixtures:
+`services/core/tests/workflowGraph.test.ts` exercises the assembly helper with representative fixtures:
 1. Linear DAG relationships and root edges.
 2. Fan-out steps including template metadata.
 3. Cross-workflow asset dependencies with auto-materialize policies.
@@ -52,7 +52,7 @@ Redis, analytics jobs) while still covering canonicalization logic.
 
 ## Extension Points
 - Additional node types (e.g., runtime overlays) can be layered by extending the shared type module and updating the
-  assembler. Because assembly is pure, integration tests can cover new scenarios without bootstrapping the catalog
+  assembler. Because assembly is pure, integration tests can cover new scenarios without bootstrapping the core
   stack.
 - Downstream services should import the shared types instead of redefining payload interfaces to avoid drift.
 - Future tickets can supply alternate data sources by calling `assembleWorkflowTopologyGraph()` directly and passing in

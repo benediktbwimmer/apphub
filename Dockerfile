@@ -11,7 +11,7 @@ COPY tsconfig.base.json tsconfig.base.json
 
 COPY apps/frontend/package.json apps/frontend/package-lock.json apps/frontend/
 COPY apps/cli/package.json apps/cli/package-lock.json apps/cli/
-COPY services/catalog/package.json services/catalog/package-lock.json services/catalog/
+COPY services/core/package.json services/core/package-lock.json services/core/
 COPY services/metastore/package.json services/metastore/
 COPY services/timestore/package.json services/timestore/
 COPY services/filestore/package.json services/filestore/
@@ -53,14 +53,14 @@ COPY . .
 ARG VITE_API_BASE_URL=http://localhost:4000
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
-RUN npm run build --workspace @apphub/catalog
+RUN npm run build --workspace @apphub/core
 RUN npm run build --workspace @apphub/metastore
 RUN npm run build --workspace @apphub/frontend
 RUN npm run build --workspace @apphub/timestore
 RUN npm run build --workspace @apphub/filestore
 RUN npm run build --workspace @apphub/filestore-client
 RUN npm prune --omit=dev
-RUN rm -rf services/catalog/node_modules && ln -s ../../node_modules services/catalog/node_modules
+RUN rm -rf services/core/node_modules && ln -s ../../node_modules services/core/node_modules
 RUN rm -rf services/metastore/node_modules && ln -s ../../node_modules services/metastore/node_modules
 RUN rm -rf services/timestore/node_modules && ln -s ../../node_modules services/timestore/node_modules
 RUN rm -rf services/filestore/node_modules && ln -s ../../node_modules services/filestore/node_modules
@@ -105,7 +105,7 @@ RUN apt-get update \
 ENV NODE_ENV=production \
     PORT=4000 \
     HOST=0.0.0.0 \
-    CATALOG_DB_PATH=/app/data/catalog.db \
+    CORE_DB_PATH=/app/data/core.db \
     REDIS_URL=redis://127.0.0.1:6379 \
     FRONTEND_PORT=4173 \
     DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub \
@@ -127,10 +127,10 @@ ENV NODE_ENV=production \
 
 COPY --from=builder /app/node_modules node_modules
 COPY --from=builder /app/packages packages
-COPY --from=builder /app/services/catalog/package.json services/catalog/package.json
-COPY --from=builder /app/services/catalog/package-lock.json services/catalog/package-lock.json
-COPY --from=builder /app/services/catalog/node_modules services/catalog/node_modules
-COPY --from=builder /app/services/catalog/dist services/catalog/dist
+COPY --from=builder /app/services/core/package.json services/core/package.json
+COPY --from=builder /app/services/core/package-lock.json services/core/package-lock.json
+COPY --from=builder /app/services/core/node_modules services/core/node_modules
+COPY --from=builder /app/services/core/dist services/core/dist
 COPY --from=builder /app/services/metastore/package.json services/metastore/package.json
 COPY --from=builder /app/services/metastore/node_modules services/metastore/node_modules
 COPY --from=builder /app/services/metastore/dist services/metastore/dist
@@ -182,8 +182,8 @@ stdout_logfile_maxbytes=0
 stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
-[program:catalog-api]
-command=node services/catalog/dist/server.js
+[program:core-api]
+command=node services/core/dist/server.js
 directory=/app
 priority=20
 autostart=true
@@ -263,7 +263,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:ingestion-worker]
-command=node services/catalog/dist/ingestionWorker.js
+command=node services/core/dist/ingestionWorker.js
 directory=/app
 priority=35
 autostart=true
@@ -274,7 +274,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:build-worker]
-command=node services/catalog/dist/buildWorker.js
+command=node services/core/dist/buildWorker.js
 directory=/app
 priority=45
 autostart=true
@@ -285,7 +285,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:example-bundle-worker]
-command=node services/catalog/dist/exampleBundleWorker.js
+command=node services/core/dist/exampleBundleWorker.js
 directory=/app
 priority=47
 autostart=true
@@ -296,7 +296,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:event-ingress-worker]
-command=node services/catalog/dist/eventIngressWorker.js
+command=node services/core/dist/eventIngressWorker.js
 directory=/app
 priority=48
 autostart=true
@@ -307,7 +307,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:event-trigger-worker]
-command=node services/catalog/dist/eventTriggerWorker.js
+command=node services/core/dist/eventTriggerWorker.js
 directory=/app
 priority=49
 autostart=true
@@ -318,7 +318,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:workflow-worker]
-command=node services/catalog/dist/workflowWorker.js
+command=node services/core/dist/workflowWorker.js
 directory=/app
 priority=50
 autostart=true
@@ -329,7 +329,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:launch-worker]
-command=node services/catalog/dist/launchWorker.js
+command=node services/core/dist/launchWorker.js
 directory=/app
 priority=55
 autostart=true
@@ -340,7 +340,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:auto-materializer-worker]
-command=node services/catalog/dist/assetMaterializerWorker.js
+command=node services/core/dist/assetMaterializerWorker.js
 directory=/app
 priority=60
 autostart=true

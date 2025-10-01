@@ -1,10 +1,10 @@
 # Workflow Assets & Auto-Materialization
 
-Workflow assets turn ad-hoc outputs into first-class records the catalog can index, audit, and reuse. When steps declare which named assets they produce or consume, every run automatically contributes to a shared lineage graph and can participate in automatic freshness reconciliation.
+Workflow assets turn ad-hoc outputs into first-class records the core can index, audit, and reuse. When steps declare which named assets they produce or consume, every run automatically contributes to a shared lineage graph and can participate in automatic freshness reconciliation.
 
 ## Why Assets Matter
 - **Ownership & Dependencies:** Producers/consumers are captured for each asset, making it easy to see which steps (and workflows) emit or rely on a given dataset, report, or model.
-- **Always-Fresh Snapshots:** The catalog records the latest payload, schema, freshness hints, producer step status, and run timestamps. Downstream automation can decide when to reuse or regenerate an asset based on declared TTLs or cadence.
+- **Always-Fresh Snapshots:** The core records the latest payload, schema, freshness hints, producer step status, and run timestamps. Downstream automation can decide when to reuse or regenerate an asset based on declared TTLs or cadence.
 - **History & Auditing:** Each production event is versioned; `/workflows/:slug/assets/:assetId/history` exposes prior payloads so you can diff outputs, trace regressions, or rebuild from a specific run.
 - **Cross-Workflow Sharing:** Assets provide a contract between workflows. One workflow can `consume` an asset produced by another, and the orchestrator will ensure the dependency exists (or rerun the producer) before advancing.
 - **Automation Hooks:** Structured metadata enables policy checks (e.g. fail deployments if an asset is stale), alerting when high-value assets change, or feeding dashboards with provenance data.
@@ -99,7 +99,7 @@ The workflow orchestrator publishes structured events to the AppHub event bus:
 Both events flow through Redis (or inline during tests) and are consumed by the asset materializer worker and any other interested services.
 
 ## Asset Materializer Worker
-`services/catalog/src/assetMaterializerWorker.ts` maintains an in-memory graph of workflow asset producers/consumers. It:
+`services/core/src/assetMaterializerWorker.ts` maintains an in-memory graph of workflow asset producers/consumers. It:
 
 1. Loads workflow definitions and tracks which workflows produce and consume each asset.
 2. Subscribes to `asset.produced`, `asset.expired`, and `workflow.definition.updated` events.
@@ -108,10 +108,10 @@ Both events flow through Redis (or inline during tests) and are consumed by the 
 
 The worker also processes the `apphub_asset_event_queue` BullMQ queue to fire delayed `asset.expired` events scheduled when assets provide a TTL or cadence.
 
-Operators can now inspect auto-materialization activity without reaching for SQL. The catalog API exposes `/workflows/:slug/auto-materialize`, returning recent auto-runs, any active materializer claim, and the current failure backoff window. The Workflows UI surfaces the same data in the **Auto-Materialization Activity** panel on the workflow detail page, alongside quick filters and freshness indicators for auto-managed assets.
+Operators can now inspect auto-materialization activity without reaching for SQL. The core API exposes `/workflows/:slug/auto-materialize`, returning recent auto-runs, any active materializer claim, and the current failure backoff window. The Workflows UI surfaces the same data in the **Auto-Materialization Activity** panel on the workflow detail page, alongside quick filters and freshness indicators for auto-managed assets.
 
 ## Inspecting Assets via API
-The catalog exposes inventory and history endpoints:
+The core exposes inventory and history endpoints:
 
 - **List assets for a workflow**
   ```bash
@@ -144,7 +144,7 @@ Some datasets are naturally partitioned (e.g. daily exports, per-customer snapsh
 Supported partition strategies:
 - `static`: enumerate a finite list of partition keys.
 - `timeWindow`: rolling hourly/daily/weekly/monthly windows (optionally with a timezone and custom key format).
-- `dynamic`: keys discovered at runtime (the catalog records every novel key it sees).
+- `dynamic`: keys discovered at runtime (the core records every novel key it sees).
 
 When a workflow produces a partitioned asset, the run **must** supply a `partitionKey` (via the `/workflows/:slug/run` payload). If the job handler omits `partitionKey` from the emitted asset, the orchestrator defaults to the run-level key so lineage stays consistent.
 
@@ -154,12 +154,12 @@ API helpers:
 
 ## Operational Notes
 - The worker respects `ASSET_MATERIALIZER_BASE_BACKOFF_MS`, `ASSET_MATERIALIZER_MAX_BACKOFF_MS`, and `ASSET_MATERIALIZER_REFRESH_INTERVAL_MS` environment variables for tuning backoff and graph refresh cadence.
-- Launch the worker via `npm run materializer --workspace @apphub/catalog` (or `npm run dev:materializer` from the repo root during local development).
+- Launch the worker via `npm run materializer --workspace @apphub/core` (or `npm run dev:materializer` from the repo root during local development).
 - Event handling degrades gracefully when Redis is configured as `inline`; delayed expirations fall back to in-process timers.
 
 ## Design Patterns
 - Use structured payloads (rich JSON objects) so downstream consumers can extract metrics without hitting the filesystem.
-- Include TTL or cadence in the schema if data freshness matters; the catalog stores these hints for monitoring.
+- Include TTL or cadence in the schema if data freshness matters; the core stores these hints for monitoring.
 - When migrating workflows, update `produces` declarations first so subsequent runs populate lineage immediately.
 - Combine assets with queue-based automation: use downstream workflows to block deployments until a critical asset is fresh, or kick off reporting runs when a new partition materialises.
 - Model hourly instrument drops with the environmental observatory walkthrough (`docs/environmental-observatory-workflows.md`) to watch Filestore events trigger ingestion, Timestore partitions, and downstream visualisations automatically.

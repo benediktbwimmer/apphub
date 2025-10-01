@@ -38,8 +38,8 @@ type PlannerCalibration = {
 
 type PlannerParameters = {
   calibrations: PlannerCalibration[];
-  catalogBaseUrl: string;
-  catalogApiToken?: string;
+  coreBaseUrl: string;
+  coreApiToken?: string;
   ingestWorkflowSlug: string;
   ingestAssetId: string;
   downstreamWorkflows: CalibrationPlanDownstreamWorkflow[];
@@ -70,14 +70,14 @@ type JobRunContext = {
   update: (updates: Record<string, unknown>) => Promise<void>;
 };
 
-type CatalogPartitionSummary = {
+type CorePartitionSummary = {
   partitionKey: string | null;
   materializations: number;
-  latest: CatalogPartitionLatest | null;
+  latest: CorePartitionLatest | null;
   parameters: unknown;
 };
 
-type CatalogPartitionLatest = {
+type CorePartitionLatest = {
   runId: string | null;
   runStatus: string | null;
   stepId: string | null;
@@ -281,11 +281,11 @@ function parseParameters(raw: unknown): PlannerParameters {
   }
 
   const calibrations = parseCalibrations(raw.calibrations ?? raw);
-  const catalogBaseUrl = normalizeBaseUrl(
-    ensureString(raw.catalogBaseUrl ?? raw.catalog_base_url ?? 'http://127.0.0.1:4000')
+  const coreBaseUrl = normalizeBaseUrl(
+    ensureString(raw.coreBaseUrl ?? raw.core_base_url ?? 'http://127.0.0.1:4000')
   );
-  if (!catalogBaseUrl) {
-    throw new Error('catalogBaseUrl is required');
+  if (!coreBaseUrl) {
+    throw new Error('coreBaseUrl is required');
   }
   const ingestWorkflowSlug = ensureString(
     raw.ingestWorkflowSlug ??
@@ -341,8 +341,8 @@ function parseParameters(raw: unknown): PlannerParameters {
 
   return {
     calibrations,
-    catalogBaseUrl,
-    catalogApiToken: ensureString(raw.catalogApiToken ?? raw.catalog_api_token ?? ''),
+    coreBaseUrl,
+    coreApiToken: ensureString(raw.coreApiToken ?? raw.core_api_token ?? ''),
     ingestWorkflowSlug,
     ingestAssetId,
     downstreamWorkflows,
@@ -360,10 +360,10 @@ function parseParameters(raw: unknown): PlannerParameters {
   } satisfies PlannerParameters;
 }
 
-async function fetchAssetPartitions(parameters: PlannerParameters): Promise<CatalogPartitionSummary[]> {
+async function fetchAssetPartitions(parameters: PlannerParameters): Promise<CorePartitionSummary[]> {
   const url = new URL(
     `/workflows/${encodeURIComponent(parameters.ingestWorkflowSlug)}/assets/${encodeURIComponent(parameters.ingestAssetId)}/partitions`,
-    `${parameters.catalogBaseUrl}/`
+    `${parameters.coreBaseUrl}/`
   );
   if (parameters.lookback && parameters.lookback > 0) {
     url.searchParams.set('lookback', String(parameters.lookback));
@@ -373,8 +373,8 @@ async function fetchAssetPartitions(parameters: PlannerParameters): Promise<Cata
     accept: 'application/json',
     'user-agent': USER_AGENT
   };
-  if (parameters.catalogApiToken) {
-    headers.authorization = `Bearer ${parameters.catalogApiToken}`;
+  if (parameters.coreApiToken) {
+    headers.authorization = `Bearer ${parameters.coreApiToken}`;
   }
 
   const response = await fetch(url.toString(), {
@@ -393,7 +393,7 @@ async function fetchAssetPartitions(parameters: PlannerParameters): Promise<Cata
     data?: { partitions?: unknown };
   };
   const partitionsRaw = Array.isArray(payload.data?.partitions) ? payload.data?.partitions : [];
-  const partitions: CatalogPartitionSummary[] = [];
+  const partitions: CorePartitionSummary[] = [];
   for (const entry of partitionsRaw) {
     if (!isRecord(entry)) {
       continue;
@@ -401,7 +401,7 @@ async function fetchAssetPartitions(parameters: PlannerParameters): Promise<Cata
     const partitionKey = ensureString(entry.partitionKey ?? entry.partition_key ?? '') || null;
     const materializations = ensureNumber(entry.materializations ?? entry.count ?? 0) ?? 0;
     const rawLatest = isRecord(entry.latest) ? entry.latest : null;
-    const latest: CatalogPartitionLatest | null = rawLatest
+    const latest: CorePartitionLatest | null = rawLatest
       ? {
           runId: ensureString(rawLatest.runId ?? rawLatest.run_id ?? '') || null,
           runStatus: ensureString(rawLatest.runStatus ?? rawLatest.run_status ?? '') || null,
@@ -564,11 +564,11 @@ function evaluateCalibrationMismatch(
 
 function buildPartitionEntry(
   calibration: PlannerCalibration,
-  partition: CatalogPartitionSummary,
+  partition: CorePartitionSummary,
   minute: string,
   datasetSlug: string,
   recordedCalibration: CalibrationPlanRecordedCalibration,
-  latest: CatalogPartitionLatest | null,
+  latest: CorePartitionLatest | null,
   reason: string | null
 ): CalibrationPlanPartition {
   const status = createInitialPartitionStatus();
@@ -681,7 +681,7 @@ async function upsertPlanMetastoreRecord(
 
 function ensureCalibrationPartitions(
   calibration: PlannerCalibration,
-  partitions: CatalogPartitionSummary[],
+  partitions: CorePartitionSummary[],
   context: JobRunContext
 ): CalibrationPlanPartition[] {
   const results: CalibrationPlanPartition[] = [];
@@ -737,7 +737,7 @@ function ensureCalibrationPartitions(
 
 function buildCalibrationEntries(
   parameters: PlannerParameters,
-  partitions: CatalogPartitionSummary[],
+  partitions: CorePartitionSummary[],
   requestTimestamp: string,
   context: JobRunContext
 ): CalibrationPlanCalibration[] {

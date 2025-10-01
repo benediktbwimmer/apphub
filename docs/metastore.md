@@ -1,6 +1,6 @@
 # Metastore Service
 
-The metastore provides a flexible metadata backend for platform features that need to persist JSON documents without adding bespoke tables to the catalog schema. It runs as a standalone Fastify service in `services/metastore`, sharing the PostgreSQL instance with the catalog API but storing its data in a dedicated `metastore` schema.
+The metastore provides a flexible metadata backend for platform features that need to persist JSON documents without adding bespoke tables to the core schema. It runs as a standalone Fastify service in `services/metastore`, sharing the PostgreSQL instance with the core API but storing its data in a dedicated `metastore` schema.
 
 ## Capabilities
 - Store arbitrary JSON metadata per record, scoped by `namespace` + `key`.
@@ -171,7 +171,7 @@ await publisher.publish({
 });
 ```
 
-Events arrive in the catalog's `workflow_events` table and on the WebSocket stream (`workflow.event.received`). Downstream workflows can subscribe to these signals once event-driven scheduling is enabled.
+Events arrive in the core's `workflow_events` table and on the WebSocket stream (`workflow.event.received`). Downstream workflows can subscribe to these signals once event-driven scheduling is enabled.
 
 Emitted event types include:
 - `metastore.record.created` whenever a record is first written via POST/PUT.

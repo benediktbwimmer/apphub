@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import type { AppRecord, StatusFacet } from '../catalog/types';
-import { formatFetchError } from '../catalog/utils';
+import type { AppRecord, StatusFacet } from '../core/types';
+import { formatFetchError } from '../core/utils';
 import type { ServiceSummary } from '../services/types';
 import {
   fetchJobRuns,

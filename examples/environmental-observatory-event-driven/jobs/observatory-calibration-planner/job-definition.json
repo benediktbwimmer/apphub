@@ -26,8 +26,8 @@
           "required": ["instrumentId", "effectiveAt"]
         }
       },
-      "catalogBaseUrl": { "type": "string", "minLength": 1 },
-      "catalogApiToken": { "type": "string" },
+      "coreBaseUrl": { "type": "string", "minLength": 1 },
+      "coreApiToken": { "type": "string" },
       "ingestWorkflowSlug": { "type": "string", "minLength": 1 },
       "ingestAssetId": { "type": "string", "minLength": 1 },
       "downstreamWorkflows": {
@@ -59,7 +59,7 @@
     },
     "required": [
       "calibrations",
-      "catalogBaseUrl",
+      "coreBaseUrl",
       "ingestWorkflowSlug",
       "ingestAssetId",
       "plansPrefix",
@@ -68,8 +68,8 @@
     ]
   },
   "defaultParameters": {
-    "catalogBaseUrl": "http://127.0.0.1:4000",
-    "catalogApiToken": null,
+    "coreBaseUrl": "http://127.0.0.1:4000",
+    "coreApiToken": null,
     "ingestWorkflowSlug": "observatory-minute-ingest",
     "ingestAssetId": "observatory.timeseries.timestore",
     "downstreamWorkflows": [

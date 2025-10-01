@@ -12,7 +12,7 @@ import {
 import {
   runWithWorkflowEventContext,
   type WorkflowEventContext
-} from '@apphub/catalog/workflowEventContext';
+} from '@apphub/core/workflowEventContext';
 import type { JobsOptions, Queue } from 'bullmq';
 
 const WORKFLOW_CONTEXT_ENV = 'APPHUB_WORKFLOW_EVENT_CONTEXT';

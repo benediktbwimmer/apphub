@@ -6,7 +6,7 @@ afterEach(() => {
 });
 
 describe('config', () => {
-  it('derives filestore base from the catalog proxy when unset', async () => {
+  it('derives filestore base from the core proxy when unset', async () => {
     vi.resetModules();
     vi.unstubAllEnvs();
     vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:4500/api/');

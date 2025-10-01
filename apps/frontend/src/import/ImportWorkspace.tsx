@@ -19,7 +19,7 @@ import {
 export type ImportWorkspaceProps = {
   onAppRegistered?: (id: string) => void;
   onManifestImported?: () => void;
-  onViewCatalog?: () => void;
+  onViewCore?: () => void;
 };
 
 const STEP_HELP_TEXT: Record<ImportWizardStep, string> = {
@@ -120,7 +120,7 @@ function determineStepStatus(
 export default function ImportWorkspace({
   onAppRegistered,
   onManifestImported,
-  onViewCatalog
+  onViewCore
 }: ImportWorkspaceProps) {
   const {
     activeStep,
@@ -137,8 +137,8 @@ export default function ImportWorkspace({
     jobScenarioState,
     workflowScenarioState,
     scenarioOptions,
-    catalogLoading,
-    catalogError,
+    coreLoading,
+    coreError,
     scenarios,
     activeScenarioIds,
     loadedScenarioCounts,
@@ -329,7 +329,7 @@ export default function ImportWorkspace({
         return (
           <ImportAppsTab
             onAppRegistered={onAppRegistered}
-            onViewCatalog={onViewCatalog}
+            onViewCore={onViewCore}
             scenario={appScenarioState.active?.scenario ?? null}
             scenarioRequestToken={appScenarioState.active?.token}
             onScenarioCleared={() => handleScenarioCleared('apps')}
@@ -404,7 +404,7 @@ export default function ImportWorkspace({
               type="button"
               className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-900/20 transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100/90 dark:text-slate-900 dark:hover:bg-slate-200"
               onClick={handleOpenPicker}
-              disabled={catalogLoading || scenarios.length === 0}
+              disabled={coreLoading || scenarios.length === 0}
             >
               Load example
             </button>
@@ -412,15 +412,15 @@ export default function ImportWorkspace({
               type="button"
               className="inline-flex items-center gap-2 rounded-full border border-slate-400/60 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-violet-400 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:border-violet-300 dark:hover:text-violet-200"
               onClick={handleLoadAllExamples}
-              disabled={catalogLoading || !hasLoadAllScenario}
+              disabled={coreLoading || !hasLoadAllScenario}
             >
               Load all examples
             </button>
-            {catalogLoading ? (
+            {coreLoading ? (
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Loading examples…
               </span>
-            ) : catalogError ? (
+            ) : coreError ? (
               <span className="text-xs font-medium text-rose-500 dark:text-rose-400">
                 Examples unavailable
               </span>

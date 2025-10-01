@@ -15,8 +15,8 @@
         "items": { "type": "string", "minLength": 1 }
       },
       "pollIntervalMs": { "type": "number", "minimum": 250, "maximum": 10000 },
-      "catalogBaseUrl": { "type": "string", "minLength": 1 },
-      "catalogApiToken": { "type": "string" },
+      "coreBaseUrl": { "type": "string", "minLength": 1 },
+      "coreApiToken": { "type": "string" },
       "filestoreBaseUrl": { "type": "string", "minLength": 1 },
       "filestoreBackendId": { "type": "number", "minimum": 1 },
       "filestoreToken": { "type": "string" },
@@ -26,7 +26,7 @@
       "metastoreAuthToken": { "type": "string" }
     },
     "required": [
-      "catalogBaseUrl",
+      "coreBaseUrl",
       "filestoreBaseUrl",
       "filestoreBackendId"
     ]
@@ -35,8 +35,8 @@
     "mode": "all",
     "selectedPartitions": [],
     "pollIntervalMs": 1500,
-    "catalogBaseUrl": "http://127.0.0.1:4000",
-    "catalogApiToken": null,
+    "coreBaseUrl": "http://127.0.0.1:4000",
+    "coreApiToken": null,
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "filestoreToken": null,
@@ -58,8 +58,8 @@
         "mode": "{{ parameters.mode }}",
         "selectedPartitions": "{{ parameters.selectedPartitions }}",
         "pollIntervalMs": "{{ parameters.pollIntervalMs }}",
-        "catalogBaseUrl": "{{ parameters.catalogBaseUrl }}",
-        "catalogApiToken": "{{ parameters.catalogApiToken }}",
+        "coreBaseUrl": "{{ parameters.coreBaseUrl }}",
+        "coreApiToken": "{{ parameters.coreApiToken }}",
         "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
         "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
         "filestoreToken": "{{ parameters.filestoreToken }}",

@@ -6,8 +6,8 @@ import process from 'node:process';
 const NAMESPACE = 'apphub-system';
 const IMAGE_PREFIX = process.env.APPHUB_IMAGE_PREFIX ?? 'apphub';
 const IMAGE_TAG = process.env.APPHUB_IMAGE_TAG ?? 'dev';
-const DEFAULT_VITE_API_BASE_URL = process.env.APPHUB_MINIKUBE_API_BASE ?? 'http://catalog.apphub.local';
-const SERVICES = ['catalog', 'metastore', 'filestore', 'timestore', 'frontend'];
+const DEFAULT_VITE_API_BASE_URL = process.env.APPHUB_MINIKUBE_API_BASE ?? 'http://core.apphub.local';
+const SERVICES = ['core', 'metastore', 'filestore', 'timestore', 'frontend'];
 
 const flags = parseFlags(process.argv.slice(2));
 

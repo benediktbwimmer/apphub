@@ -1,10 +1,10 @@
 # Example Bundle Durable Storage
 
-Example bundle packaging no longer persists progress metadata or artifacts on the catalog pod filesystem. Status records now live in PostgreSQL and completed bundle tarballs are uploaded to an S3-compatible object store. This ensures every catalog replica (including minikube) can observe the same packaging state, reuse cached bundles, and serve download links without relying on pod-local disk.
+Example bundle packaging no longer persists progress metadata or artifacts on the core pod filesystem. Status records now live in PostgreSQL and completed bundle tarballs are uploaded to an S3-compatible object store. This ensures every core replica (including minikube) can observe the same packaging state, reuse cached bundles, and serve download links without relying on pod-local disk.
 
 ## Configuration
 
-Set the following environment variables for the catalog service:
+Set the following environment variables for the core service:
 
 | Variable | Description | Example |
 | --- | --- | --- |
@@ -24,7 +24,7 @@ For local development the repository ships a helper script that starts a single-
 npm run dev:minio
 ```
 
-When `APPHUB_BUNDLE_STORAGE_BACKEND=local`, artifacts are written to `services/catalog/data/example-bundles/artifacts`. This mode is convenient for quick smoke tests but does not satisfy multi-pod deployments.
+When `APPHUB_BUNDLE_STORAGE_BACKEND=local`, artifacts are written to `services/core/data/example-bundles/artifacts`. This mode is convenient for quick smoke tests but does not satisfy multi-pod deployments.
 
 ## MinIO on Minikube
 
@@ -50,7 +50,7 @@ helm upgrade --install apphub-minio minio/minio \
 kubectl port-forward svc/apphub-minio -n apphub-storage 9000:9000
 ```
 
-Populate the following environment variables (e.g., in `services/catalog/.env.local`) before starting the catalog API or workers:
+Populate the following environment variables (e.g., in `services/core/.env.local`) before starting the core API or workers:
 
 ```env
 APPHUB_BUNDLE_STORAGE_BACKEND=s3
@@ -76,7 +76,7 @@ mc mb apphub-minio/apphub-example-bundles
 
 ## Migrating Legacy Filesystem Data
 
-Projects that previously relied on `services/catalog/data/example-bundles` should migrate existing statuses and artifacts into the new storage backend:
+Projects that previously relied on `services/core/data/example-bundles` should migrate existing statuses and artifacts into the new storage backend:
 
 ```bash
 npm run migrate:example-bundles
@@ -84,4 +84,4 @@ npm run migrate:example-bundles
 
 The migration script reads every legacy status JSON file, uploads any discovered tarballs to the configured storage backend, and persists the converted metadata in PostgreSQL. After running the migration you can delete the legacy `status/` directory and any ad-hoc artifact folders.
 
-The catalog health endpoint (`GET /health`) now emits `status: "warn"` with detailed warnings while legacy data remains on disk. This helps operators verify that migrations are complete before rolling out additional replicas.
+The core health endpoint (`GET /health`) now emits `status: "warn"` with detailed warnings while legacy data remains on disk. This helps operators verify that migrations are complete before rolling out additional replicas.

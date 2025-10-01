@@ -335,20 +335,20 @@ runE2E(async ({ registerCleanup }) => {
   const countAfterIdempotent = await getJournalCount(dbClientModule);
   assert.equal(countAfterIdempotent, countAfterCreate);
 
-  const catalogResponse = await app.inject({
+  const coreResponse = await app.inject({
     method: 'POST',
     url: '/v1/directories',
     payload: {
       backendMountId,
-      path: 'datasets/catalog'
+      path: 'datasets/core'
     }
   });
-  assert.equal(catalogResponse.statusCode, 201, catalogResponse.body);
-  const catalogBody = catalogResponse.json() as {
+  assert.equal(coreResponse.statusCode, 201, coreResponse.body);
+  const coreBody = coreResponse.json() as {
     data: { node: { id: number; path: string } | null; journalEntryId: number };
   };
-  const catalogId = catalogBody.data.node?.id;
-  assert.equal(catalogBody.data.node?.path, 'datasets/catalog');
+  const coreId = coreBody.data.node?.id;
+  assert.equal(coreBody.data.node?.path, 'datasets/core');
 
   const rawResponse = await app.inject({
     method: 'POST',
@@ -417,7 +417,7 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(scopedListBody.data.filters.depth, 1);
   const scopedPaths = scopedListBody.data.nodes.map((node) => node.path);
   assert.ok(scopedPaths.includes('datasets'));
-  assert.ok(scopedPaths.includes('datasets/catalog'));
+  assert.ok(scopedPaths.includes('datasets/core'));
   assert.ok(scopedPaths.includes('datasets/observatory'));
 
   const searchResponse = await app.inject({
@@ -452,15 +452,15 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(childrenBody.data.filters.driftOnly, false);
   assert.equal(childrenBody.data.filters.search, null);
 
-  assert.ok(catalogId);
-  if (catalogId) {
+  assert.ok(coreId);
+  if (coreId) {
     await dbClientModule.withConnection(async (client) => {
       await client.query(
         `UPDATE nodes
             SET consistency_state = 'inconsistent',
                 last_drift_detected_at = NOW()
           WHERE id = $1`,
-        [catalogId]
+        [coreId]
       );
     });
   }
@@ -478,8 +478,8 @@ runE2E(async ({ registerCleanup }) => {
   };
   assert.equal(driftBody.data.filters.driftOnly, true);
   assert.ok(driftBody.data.nodes.length >= 1);
-  if (catalogId) {
-    assert.ok(driftBody.data.nodes.some((node) => node.id === catalogId));
+  if (coreId) {
+    assert.ok(driftBody.data.nodes.some((node) => node.id === coreId));
   }
 
   const byIdResponse = await app.inject({ method: 'GET', url: `/v1/nodes/${nodeId}` });

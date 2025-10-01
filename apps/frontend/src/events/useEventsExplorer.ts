@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkflowEventRecordView } from '@apphub/shared/catalogEvents';
+import type { WorkflowEventRecordView } from '@apphub/shared/coreEvents';
 import type { WorkflowEventSample, WorkflowEventSchema } from '../workflows/types';
 import type { AuthorizedFetch } from '../workflows/api';
 import {

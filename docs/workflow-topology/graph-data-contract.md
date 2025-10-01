@@ -26,12 +26,12 @@
 All nodes share base fields:
 ```json
 {
-  "id": "workflow:catalog-sync",
+  "id": "workflow:core-sync",
   "type": "workflow",
-  "label": "Catalog Sync",
+  "label": "Core Sync",
   "attributes": {
     "owner": "data-platform",
-    "domain": "catalog",
+    "domain": "core",
     "environment": "production"
   },
   "metadata": { ... }
@@ -68,7 +68,7 @@ Two flavors share a base:
 - `metadata.autoMaterialize`: policy details (onUpstreamUpdate, priority, parameter defaults).
 
 ### Event Source Nodes
-- `metadata.source`: string identifier (e.g., `apphub.catalog`).
+- `metadata.source`: string identifier (e.g., `apphub.core`).
 - `metadata.description`: optional human description.
 
 ## Edge Schema
@@ -98,13 +98,13 @@ Overlays provide real-time status without replacing base topology.
 ### Runtime Runs
 ```json
 {
-  "workflowId": "workflow:catalog-sync",
+  "workflowId": "workflow:core-sync",
   "status": "running",
   "runId": "wr-123",
   "startedAt": "2024-03-18T17:30:12.000Z",
   "completedAt": null,
   "durationMs": null,
-  "currentStepId": "step:catalog-sync.fetch",
+  "currentStepId": "step:core-sync.fetch",
   "recentFailures": 1
 }
 ```
