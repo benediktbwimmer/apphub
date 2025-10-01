@@ -30,10 +30,11 @@ import {
   JOB_SECTION_PARAGRAPH_CLASSES
 } from './jobTokens';
 
-type RuntimeFilter = 'all' | 'node' | 'python' | 'docker';
+type RuntimeFilter = 'all' | 'module' | 'node' | 'python' | 'docker';
 
 const RUNTIME_OPTIONS: Array<{ key: RuntimeFilter; label: string }> = [
   { key: 'all', label: 'All' },
+  { key: 'module', label: 'Module' },
   { key: 'node', label: 'Node' },
   { key: 'python', label: 'Python' },
   { key: 'docker', label: 'Docker' }

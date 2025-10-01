@@ -14,6 +14,13 @@ const HEADER_TITLE_CLASSES = 'text-scale-2xl font-weight-semibold text-primary';
 
 const HEADER_SUBTITLE_CLASSES = 'text-scale-sm text-secondary';
 
+const RUNTIME_LABELS: Record<JobRuntimeStatus['runtime'], string> = {
+  node: 'Node runtime',
+  python: 'Python runtime',
+  docker: 'Docker runtime',
+  module: 'Module runtime'
+};
+
 type JobsHeaderProps = {
   runtimeStatuses: JobRuntimeStatus[];
   runtimeStatusLoading: boolean;
@@ -51,12 +58,7 @@ export function JobsHeader({
             />
           ) : runtimeStatuses.length > 0 ? (
             runtimeStatuses.map((status) => {
-              const label =
-                status.runtime === 'python'
-                  ? 'Python runtime'
-                  : status.runtime === 'docker'
-                    ? 'Docker runtime'
-                    : 'Node runtime';
+              const label = RUNTIME_LABELS[status.runtime] ?? `Runtime: ${status.runtime}`;
               const details = status.details as Record<string, unknown> | null;
               const version = details && typeof details.version === 'string' ? details.version : null;
               const tooltip = status.ready ? (version ? `Version ${version}` : 'Ready') : status.reason ?? 'Unavailable';

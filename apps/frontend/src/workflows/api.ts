@@ -436,7 +436,7 @@ export type JobDefinitionCreateInput = {
   name: string;
   version?: number;
   type: 'batch' | 'service-triggered' | 'manual';
-  runtime?: 'node' | 'python' | 'docker';
+  runtime?: 'node' | 'python' | 'docker' | 'module';
   entryPoint: string;
   timeoutMs?: number | null;
   retryPolicy?: unknown;
@@ -452,7 +452,7 @@ export type JobDefinitionSummary = {
   name: string;
   version: number;
   type: string;
-  runtime: 'node' | 'python' | 'docker';
+  runtime: 'node' | 'python' | 'docker' | 'module';
   entryPoint: string;
   registryRef: string | null;
   parametersSchema: unknown;

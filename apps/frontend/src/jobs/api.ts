@@ -32,7 +32,7 @@ export type JobDetailResponse = {
 };
 
 export type JobRuntimeStatus = {
-  runtime: 'node' | 'python' | 'docker';
+  runtime: 'node' | 'python' | 'docker' | 'module';
   ready: boolean;
   reason: string | null;
   checkedAt: string;
@@ -173,7 +173,7 @@ const jobDefinitionSummarySchema = z
     name: z.string(),
     version: z.number(),
     type: z.string(),
-    runtime: z.enum(['node', 'python', 'docker']),
+    runtime: z.enum(['node', 'python', 'docker', 'module']),
     entryPoint: z.string(),
     registryRef: z.string().nullable().optional(),
     parametersSchema: z.unknown().optional(),
@@ -451,7 +451,9 @@ const jobRuntimeStatusSchema = z
         ? 'python'
         : runtimeValue === 'docker'
           ? 'docker'
-          : 'node';
+          : runtimeValue === 'module'
+            ? 'module'
+            : 'node';
     const reason = typeof value.reason === 'string' ? value.reason : null;
     const checkedAt =
       typeof value.checkedAt === 'string' ? value.checkedAt : new Date().toISOString();

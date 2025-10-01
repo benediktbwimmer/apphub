@@ -24,7 +24,7 @@ const JOB_BUTTON_ACTIVE = 'border-accent bg-accent text-on-accent shadow-elevati
 
 const JOB_BUTTON_INACTIVE = 'hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong text-secondary';
 
-type RuntimeKey = 'all' | 'node' | 'python' | 'docker';
+type RuntimeKey = 'all' | 'module' | 'node' | 'python' | 'docker';
 
 type JobsSidebarProps = {
   jobs: JobDefinitionSummary[];
