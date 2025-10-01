@@ -28,7 +28,6 @@ import ThemeSettingsPage from '../settings/ThemeSettingsPage';
 import TopologyRoute from './TopologyRoute';
 import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
 import AssetsPage from '../dataAssets/AssetsPage';
-import ObservatoryOpsPage from '../observatory/ObservatoryOpsPage';
 
 export const appRouteConfig: RouteObject[] = [
   {
@@ -95,14 +94,6 @@ export const appRouteConfig: RouteObject[] = [
             element: <MetastoreExplorerPage />
           }
         ]
-      },
-      {
-        path: ROUTE_SEGMENTS.observatory,
-        element: (
-          <RequireOperatorToken>
-            <ObservatoryOpsPage />
-          </RequireOperatorToken>
-        )
       },
       {
         path: ROUTE_SEGMENTS.runs,

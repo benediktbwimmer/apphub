@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useAuthorizedFetch } from '../api/ApiProvider';
 import { Spinner } from '../components';
 import { useToasts } from '../components/toast';
 import {

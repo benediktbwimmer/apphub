@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { API_BASE_URL } from '../config';
 import { createApiClient, type AuthorizedFetch } from '../lib/apiClient';
 import {
   calibrationSnapshotSchema,
@@ -55,7 +54,7 @@ const planReprocessRequestSchema = z
   .strict();
 
 function createClient(fetcher: AuthorizedFetch) {
-  return createApiClient(fetcher, { baseUrl: API_BASE_URL });
+  return createApiClient(fetcher);
 }
 
 function dataEnvelope<T extends z.ZodTypeAny>(schema: T) {

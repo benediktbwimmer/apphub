@@ -22,7 +22,6 @@ const NAV_ICON_MAP: Record<PrimaryNavKey, IconComponent> = {
   events: EventsIcon,
   assets: AssetsIcon,
   services: ServicesIcon,
-  observatory: ObservatoryIcon,
   runs: RunsIcon,
   jobs: JobsIcon,
   workflows: WorkflowsIcon,
@@ -205,27 +204,6 @@ function EventsIcon({ className }: IconProps) {
     >
       <path d="M5 15v2m4-8v12m4-6v6m4-14v14" />
       <path d="M3 19h18" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ObservatoryIcon({ className }: IconProps) {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 10a8 8 0 0 1 16 0" />
-      <path d="M12 2v8l6 6" />
-      <path d="M6 22h12" />
-      <path d="M9 18h6" />
     </svg>
   );
 }

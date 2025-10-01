@@ -10,7 +10,6 @@ export const ROUTE_SEGMENTS = {
   servicesTimestoreSql: 'sql',
   servicesFilestore: 'filestore',
   servicesMetastore: 'metastore',
-  observatory: 'observatory',
   runs: 'runs',
   jobs: 'jobs',
   workflows: 'workflows',
@@ -39,7 +38,6 @@ export const ROUTE_PATHS = {
   servicesTimestoreSql: `/${ROUTE_SEGMENTS.services}/${ROUTE_SEGMENTS.servicesTimestore}/${ROUTE_SEGMENTS.servicesTimestoreSql}`,
   servicesFilestore: `/${ROUTE_SEGMENTS.services}/${ROUTE_SEGMENTS.servicesFilestore}`,
   servicesMetastore: `/${ROUTE_SEGMENTS.services}/${ROUTE_SEGMENTS.servicesMetastore}`,
-  observatory: `/${ROUTE_SEGMENTS.observatory}`,
   runs: `/${ROUTE_SEGMENTS.runs}`,
   jobs: `/${ROUTE_SEGMENTS.jobs}`,
   workflows: `/${ROUTE_SEGMENTS.workflows}`,
@@ -62,7 +60,6 @@ export type PrimaryNavKey =
   | 'events'
   | 'assets'
   | 'services'
-  | 'observatory'
   | 'runs'
   | 'jobs'
   | 'workflows'
@@ -82,7 +79,6 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   { key: 'events', label: 'Events', path: ROUTE_PATHS.events },
   { key: 'assets', label: 'Assets', path: ROUTE_PATHS.assets },
   { key: 'services', label: 'Services', path: ROUTE_PATHS.services },
-  { key: 'observatory', label: 'Observatory', path: ROUTE_PATHS.observatory },
   { key: 'runs', label: 'Runs', path: ROUTE_PATHS.runs },
   { key: 'jobs', label: 'Jobs', path: ROUTE_PATHS.jobs },
   { key: 'workflows', label: 'Workflows', path: ROUTE_PATHS.workflows },

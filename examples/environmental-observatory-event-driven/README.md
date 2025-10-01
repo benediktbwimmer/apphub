@@ -15,7 +15,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
 - `data/` – historical scratch layout kept for reference; jobs now stream directly to Filestore prefixes and avoid writing to these directories.
 - `jobs/` – updated Node bundles that talk to Filestore instead of the raw filesystem (now including the calibration importer).
 - `workflows/` – minute ingest, calibration import, and publication definitions with new Filestore/Timestore parameters.
-- `services/` – the static dashboard frontend.
+- `services/` – the static dashboard frontend and the standalone admin UI.
 - `scripts/` – helper utilities for generating the config file and provisioning workflow triggers.
 - `config.json` – example descriptor wiring placeholders, bootstrap actions, and manifest references.
 - `service-manifests/` – minimal manifest for the two services (they now read the shared config instead of embedding prompts).
@@ -50,7 +50,13 @@ This variant of the observatory example uses **Filestore** uploads as the system
    cd examples/environmental-observatory-event-driven/services/observatory-dashboard
    npm run dev
    ```
-6. Kick off the synthetic instruments manually (`observatory-minute-data-generator` workflow) or leave the trigger to respond as Filestore uploads arrive. The dashboard streams both the per-instrument reports and the aggregate visualization straight from Filestore once new data lands.
+6. Launch the admin surface if you want to drive calibration uploads or trigger reprocessing runs from the example UI:
+   ```bash
+   cd examples/environmental-observatory-event-driven/services/observatory-admin
+   npm run dev
+   ```
+   The app defaults to `http://localhost:4000`; provide an operator token in the connection banner or via `VITE_API_TOKEN` to enable authenticated requests.
+7. Kick off the synthetic instruments manually (`observatory-minute-data-generator` workflow) or leave the trigger to respond as Filestore uploads arrive. The dashboard streams both the per-instrument reports and the aggregate visualization straight from Filestore once new data lands.
    - Want more (or fewer) sensors? Set `OBSERVATORY_INSTRUMENT_COUNT` (alias `OBSERVATORY_GENERATOR_INSTRUMENT_COUNT`) before running `npm run obs:event:config`, or edit the generator schedule in the core UI afterwards. The value feeds the workflow’s `instrumentCount` parameter at runtime.
 
 ## Related Scripts
