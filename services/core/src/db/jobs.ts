@@ -291,6 +291,17 @@ export async function createJobDefinition(
   return definition;
 }
 
+export async function deleteJobDefinitionBySlug(slug: string): Promise<boolean> {
+  const trimmed = slug.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return useConnection(async (client) => {
+    const { rowCount } = await client.query('DELETE FROM job_definitions WHERE slug = $1', [trimmed]);
+    return rowCount > 0;
+  });
+}
+
 export async function upsertJobDefinition(
   input: JobDefinitionCreateInput
 ): Promise<JobDefinitionRecord> {
