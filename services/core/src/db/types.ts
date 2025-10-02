@@ -1042,7 +1042,7 @@ export type WorkflowTriggerDeliveryStatus =
   | 'launched'
   | 'failed';
 
-export type RetryState = 'pending' | 'scheduled' | 'cancelled';
+export type RetryState = 'pending' | 'scheduled' | 'completed' | 'cancelled';
 
 export type WorkflowTriggerDeliveryRecord = {
   id: string;

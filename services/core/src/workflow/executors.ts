@@ -601,6 +601,42 @@ async function executeJobStep(
     });
 
     if (executed.status === 'succeeded') {
+      const completedAt = executed.completedAt ?? new Date().toISOString();
+      const previousStatus = stepRecord.status;
+      stepRecord = await deps.applyStepUpdateWithHistory(
+        stepRecord,
+        {
+          status: 'succeeded',
+          output: executed.result ?? null,
+          errorMessage: executed.errorMessage ?? null,
+          logsUrl: executed.logsUrl ?? null,
+          metrics: executed.metrics ?? null,
+          context: executed.context ?? null,
+          completedAt,
+          startedAt: executed.startedAt ?? startedAt,
+          jobRunId: executed.id,
+          retryState: 'completed',
+          nextAttemptAt: null,
+          retryMetadata: null
+        },
+        {
+          eventType: 'status',
+          eventPayload: {
+            previousStatus,
+            status: 'succeeded',
+            completedAt,
+            jobRunStatus: executed.status,
+            failure: executed.errorMessage ?? null
+          }
+        }
+      );
+
+      stepRecord = { ...stepRecord, producedAssets: assetsPersisted };
+
+      successContext = updateStepContext(successContext, step.id, {
+        completedAt: stepRecord.completedAt ?? completedAt
+      });
+
       let sharedPatch: Record<string, JsonValue | null> | undefined;
       if (step.storeResultAs) {
         const storedValue = (executed.result ?? null) as JsonValue | null;
@@ -1310,7 +1346,10 @@ async function executeServiceStep(
           errorMessage: null,
           output,
           metrics,
-          context: serviceContextToJson(serviceContext)
+          context: serviceContextToJson(serviceContext),
+          retryState: 'completed',
+          nextAttemptAt: null,
+          retryMetadata: null
         },
         {
           eventType: 'status',
@@ -1501,8 +1540,10 @@ async function scheduleWorkflowStepRetry(
   const nextAttemptAt = computeWorkflowRetryTimestamp(nextAttemptNumber, policy ?? null, attempts);
 
   const updatePayload: WorkflowRunStepUpdateInput = {
+    status: 'pending',
     retryState: 'scheduled',
     retryCount: attempts,
+    retryAttempts: attempts,
     nextAttemptAt,
     errorMessage: message ?? stepRecord.errorMessage ?? null,
     completedAt: null,
@@ -1574,6 +1615,22 @@ async function finalizeStepFailure(
   if (scheduled) {
     return scheduled;
   }
+
+  await deps.applyStepUpdateWithHistory(
+    stepRecord,
+    {
+      retryState: 'completed',
+      nextAttemptAt: null,
+      retryMetadata: null
+    },
+    {
+      eventType: 'retry-settled',
+      eventPayload: {
+        status: 'failed',
+        reason
+      }
+    }
+  );
 
   return {
     context,

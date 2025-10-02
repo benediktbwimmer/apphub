@@ -1305,6 +1305,22 @@ async function finalizeStepFailure(
     return scheduled;
   }
 
+  await applyStepUpdateWithHistory(
+    stepRecord,
+    {
+      retryState: 'completed',
+      nextAttemptAt: null,
+      retryMetadata: null
+    },
+    {
+      eventType: 'retry-settled',
+      eventPayload: {
+        status: 'failed',
+        reason
+      }
+    }
+  );
+
   return {
     context,
     stepStatus: 'failed',
@@ -2272,21 +2288,30 @@ async function executeJobStep(
 
   const stepStatus = jobStatusToStepStatus(executed.status);
   const completedAt = executed.completedAt ?? new Date().toISOString();
+  const isTerminalState = stepStatus === 'succeeded' || stepStatus === 'skipped';
+
+  const updatePayload: WorkflowRunStepUpdateInput = {
+    status: stepStatus,
+    output: executed.result ?? null,
+    errorMessage: executed.errorMessage ?? null,
+    logsUrl: executed.logsUrl ?? null,
+    metrics: executed.metrics ?? null,
+    context: executed.context ?? null,
+    completedAt,
+    startedAt: executed.startedAt ?? startedAt,
+    jobRunId: executed.id,
+    nextAttemptAt: null,
+    retryMetadata: null
+  };
+
+  if (isTerminalState) {
+    updatePayload.retryState = 'completed';
+  }
 
   const previousStatus = stepRecord.status;
   stepRecord = await applyStepUpdateWithHistory(
     stepRecord,
-    {
-      status: stepStatus,
-      output: executed.result ?? null,
-      errorMessage: executed.errorMessage ?? null,
-      logsUrl: executed.logsUrl ?? null,
-      metrics: executed.metrics ?? null,
-      context: executed.context ?? null,
-      completedAt,
-      startedAt: executed.startedAt ?? startedAt,
-      jobRunId: executed.id
-    },
+    updatePayload,
     {
       eventType: 'status',
       eventPayload: {
@@ -2708,7 +2733,10 @@ async function executeServiceStep(
           output,
           errorMessage: null,
           metrics: lastMetrics,
-          completedAt
+          completedAt,
+          retryState: 'completed',
+          nextAttemptAt: null,
+          retryMetadata: null
         },
         {
           eventType: 'status',
@@ -3194,7 +3222,10 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
             {
               status: 'failed',
               errorMessage: message,
-              completedAt
+              completedAt,
+              retryState: 'completed',
+              nextAttemptAt: null,
+              retryMetadata: null
             },
             {
               eventType: 'status',
@@ -3211,7 +3242,10 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
           await updateWorkflowRunStep(state.parentRunStepId, {
             status: 'failed',
             errorMessage: message,
-            completedAt
+            completedAt,
+            retryState: 'completed',
+            nextAttemptAt: null,
+            retryMetadata: null
           });
         }
 
@@ -3243,7 +3277,10 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
               status: 'succeeded',
               output: parentResult,
               metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
-              completedAt
+              completedAt,
+              retryState: 'completed',
+              nextAttemptAt: null,
+              retryMetadata: null
             },
             {
               eventType: 'status',
@@ -3260,7 +3297,10 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
             status: 'succeeded',
             output: parentResult,
             metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
-            completedAt
+            completedAt,
+            retryState: 'completed',
+            nextAttemptAt: null,
+            retryMetadata: null
           });
         }
 

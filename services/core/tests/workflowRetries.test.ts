@@ -110,12 +110,14 @@ async function runInlineWorkflowRetryScenario(options: { retryPolicy?: JobRetryP
   const { retryPolicy } = options;
   const previousEventsMode = process.env.APPHUB_EVENTS_MODE;
   const previousRedisUrl = process.env.REDIS_URL;
+  const previousInlineAllowed = process.env.APPHUB_ALLOW_INLINE_MODE;
   const previousBase = process.env.WORKFLOW_RETRY_BASE_MS;
   const previousFactor = process.env.WORKFLOW_RETRY_FACTOR;
   const previousMax = process.env.WORKFLOW_RETRY_MAX_MS;
   const previousJitter = process.env.WORKFLOW_RETRY_JITTER_RATIO;
 
   process.env.APPHUB_EVENTS_MODE = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = '1';
   process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
   process.env.WORKFLOW_RETRY_BASE_MS = '500';
   process.env.WORKFLOW_RETRY_FACTOR = '2';
@@ -171,6 +173,7 @@ async function runInlineWorkflowRetryScenario(options: { retryPolicy?: JobRetryP
     await closeQueueConnection().catch(() => undefined);
     restoreEnv('APPHUB_EVENTS_MODE', previousEventsMode);
     restoreEnv('REDIS_URL', previousRedisUrl);
+    restoreEnv('APPHUB_ALLOW_INLINE_MODE', previousInlineAllowed);
     restoreEnv('WORKFLOW_RETRY_BASE_MS', previousBase);
     restoreEnv('WORKFLOW_RETRY_FACTOR', previousFactor);
     restoreEnv('WORKFLOW_RETRY_MAX_MS', previousMax);
@@ -297,6 +300,116 @@ async function runQueuedWorkflowRetryScenario() {
   }
 }
 
+async function runWorkflowRetrySettlesAfterSuccessScenario() {
+  const previousEventsMode = process.env.APPHUB_EVENTS_MODE;
+  const previousRedisUrl = process.env.REDIS_URL;
+  const previousBase = process.env.WORKFLOW_RETRY_BASE_MS;
+  const previousFactor = process.env.WORKFLOW_RETRY_FACTOR;
+  const previousMax = process.env.WORKFLOW_RETRY_MAX_MS;
+  const previousJitter = process.env.WORKFLOW_RETRY_JITTER_RATIO;
+
+  process.env.APPHUB_EVENTS_MODE = 'inline';
+  process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
+  process.env.WORKFLOW_RETRY_BASE_MS = '500';
+  process.env.WORKFLOW_RETRY_FACTOR = '2';
+  process.env.WORKFLOW_RETRY_MAX_MS = '10000';
+  process.env.WORKFLOW_RETRY_JITTER_RATIO = '0';
+
+  await ensureEmbeddedPostgres();
+  let dbModule: typeof import('../src/db') | null = null;
+
+  const jobSlug = `retry-success-${randomUUID()}`.toLowerCase();
+  const { registerJobHandler } = await import('../src/jobs/runtime');
+  let attemptCount = 0;
+  registerJobHandler(jobSlug, async () => {
+    attemptCount += 1;
+    if (attemptCount === 1) {
+      return {
+        status: 'failed',
+        errorMessage: 'planned failure'
+      };
+    }
+    return {
+      status: 'succeeded',
+      result: { attempt: attemptCount }
+    };
+  });
+
+  try {
+    dbModule = await prepareDatabase();
+    const db = dbModule;
+
+    await db.createJobDefinition({
+      slug: jobSlug,
+      name: 'Retry Success Job',
+      type: 'manual',
+      runtime: 'node',
+      entryPoint: `tests.${jobSlug}`,
+      timeoutMs: 10_000,
+      retryPolicy: { maxAttempts: 3 },
+      parametersSchema: {},
+      defaultParameters: {}
+    });
+
+    const definition = await db.createWorkflowDefinition({
+      slug: `wf-retry-success-${randomUUID()}`.toLowerCase(),
+      name: 'Retry Success Workflow',
+      steps: [
+        {
+          id: 'retry-job',
+          name: 'Retry Job',
+          type: 'job',
+          jobSlug,
+          retryPolicy: {
+            maxAttempts: 3,
+            strategy: 'fixed',
+            initialDelayMs: 100
+          }
+        }
+      ]
+    });
+
+    const run = await db.createWorkflowRun((definition as WorkflowDefinitionRecord).id, {
+      status: 'running'
+    });
+
+    await runWorkflowOrchestration(run.id);
+
+    const stepAfterFailure = await db.getWorkflowRunStep(run.id, 'retry-job');
+    assert.ok(stepAfterFailure, 'expected step after initial failure');
+    assert.equal(stepAfterFailure?.status, 'pending');
+    assert.equal(stepAfterFailure?.retryState, 'scheduled');
+    assert.equal(stepAfterFailure?.retryAttempts, 1);
+
+    await runWorkflowOrchestration(run.id);
+
+    const completedStep = await db.getWorkflowRunStep(run.id, 'retry-job');
+    assert.ok(completedStep, 'expected step after retry success');
+    assert.equal(completedStep?.status, 'succeeded');
+    assert.equal(completedStep?.retryState, 'completed');
+    assert.equal(completedStep?.nextAttemptAt, null);
+    assert.ok(completedStep?.completedAt, 'expected completedAt to be set');
+    assert.equal(completedStep?.retryAttempts, 1);
+
+    const refreshedRun = await db.getWorkflowRunById(run.id);
+    assert.ok(refreshedRun, 'expected refreshed workflow run');
+    assert.equal(refreshedRun?.status, 'succeeded');
+    assert.equal(attemptCount, 2);
+  } finally {
+    if (dbModule) {
+      await dbModule.closePool().catch(() => undefined);
+    }
+    await closeQueueConnection().catch(() => undefined);
+    restoreEnv('APPHUB_EVENTS_MODE', previousEventsMode);
+    restoreEnv('REDIS_URL', previousRedisUrl);
+    restoreEnv('WORKFLOW_RETRY_BASE_MS', previousBase);
+    restoreEnv('WORKFLOW_RETRY_FACTOR', previousFactor);
+    restoreEnv('WORKFLOW_RETRY_MAX_MS', previousMax);
+    restoreEnv('WORKFLOW_RETRY_JITTER_RATIO', previousJitter);
+    await shutdownEmbeddedPostgres();
+  }
+}
+
 test('workflow workflow retries persist during throttling and failures', async (t) => {
   await t.test('workflow step retry schedules durable state when service missing', async () => {
     await runInlineWorkflowRetryScenario({
@@ -314,5 +427,9 @@ test('workflow workflow retries persist during throttling and failures', async (
 
   await t.test('workflow retry enqueues durable job for subsequent processing', async () => {
     await runQueuedWorkflowRetryScenario();
+  });
+
+  await t.test('workflow step clears retry state after succeeding following a retry', async () => {
+    await runWorkflowRetrySettlesAfterSuccessScenario();
   });
 });

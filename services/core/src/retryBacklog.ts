@@ -90,7 +90,7 @@ function normalizeSummaryRow(row: {
 }
 
 function coerceRetryState(value: unknown): RetryState {
-  if (value === 'cancelled' || value === 'scheduled' || value === 'pending') {
+  if (value === 'cancelled' || value === 'scheduled' || value === 'pending' || value === 'completed') {
     return value;
   }
   return 'pending';
