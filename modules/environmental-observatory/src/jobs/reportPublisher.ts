@@ -15,7 +15,7 @@ const visualizationArtifactSchema = z
     mediaType: z.string().min(1),
     description: z.string().optional(),
     sizeBytes: z.number().int().nullable().optional(),
-    checksum: z.string().optional()
+    checksum: z.union([z.string().min(1), z.null()]).optional()
   })
   .strip();
 
@@ -30,7 +30,9 @@ const visualizationMetricsSchema = z
     partitionKey: z.string().min(1),
     lookbackMinutes: z.number().int().positive(),
     siteFilter: z.string().optional(),
-    instrumentId: z.string().optional()
+    instrumentId: z.string().optional(),
+    partitionWindow: z.string().optional(),
+    dataset: z.string().optional()
   })
   .strict();
 
@@ -40,6 +42,8 @@ const visualizationAssetSchema = z
     partitionKey: z.string().min(1),
     storagePrefix: z.string().min(1),
     lookbackMinutes: z.number().int().positive(),
+    partitionWindow: z.string().optional(),
+    dataset: z.union([z.string().min(1), z.null()]).optional(),
     artifacts: z.array(visualizationArtifactSchema),
     metrics: visualizationMetricsSchema
   })

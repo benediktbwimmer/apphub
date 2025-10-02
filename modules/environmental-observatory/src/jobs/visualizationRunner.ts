@@ -156,7 +156,16 @@ function resolvePartitionWindow(parameters: VisualizationRunnerParameters): {
   dataset?: string;
 } {
   const map = parseCompositePartitionKey(parameters.partitionKey);
-  const window = parameters.partitionWindow || map.get('window') || map.get('minute');
+  let window = parameters.partitionWindow || map.get('window') || map.get('minute') || null;
+  if (!window) {
+    const match = parameters.partitionKey.match(/(?:window|minute)=([^|]+)/);
+    if (match?.[1]) {
+      window = match[1];
+    }
+  }
+  if (!window && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(parameters.partitionKey)) {
+    window = parameters.partitionKey;
+  }
   if (!window) {
     throw new Error('partitionWindow is required to build the visualization');
   }
