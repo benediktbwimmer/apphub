@@ -641,7 +641,7 @@ const datasetQueryRequestSchema: OpenAPIV3.SchemaObject = {
     limit: nullable({
       type: 'integer',
       minimum: 1,
-      maximum: 10000
+      maximum: 500000
     })
   }
 };
@@ -901,7 +901,11 @@ export const openApiInfo: OpenAPIV3.InfoObject = {
 export const openApiServers: OpenAPIV3.ServerObject[] = [
   {
     url: 'http://127.0.0.1:4200',
-    description: 'Local development server'
+    description: 'Local development server (legacy routes)'
+  },
+  {
+    url: 'http://127.0.0.1:4200/v1',
+    description: 'Local development server (versioned API)'
   }
 ];
 

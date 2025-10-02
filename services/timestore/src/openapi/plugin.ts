@@ -48,7 +48,7 @@ function prepareForAjv(schema: unknown): unknown {
   return schema;
 }
 
-const documentedRoutes = new Set<`${string}:${string}`>([
+const documentedRouteEntries: Array<`${string}:${string}`> = [
   'GET:/health',
   'GET:/ready',
   'POST:/datasets/:datasetSlug/ingest',
@@ -60,8 +60,19 @@ const documentedRoutes = new Set<`${string}:${string}`>([
   'GET:/sql/saved/:id',
   'PUT:/sql/saved/:id',
   'DELETE:/sql/saved/:id',
+  'POST:/v1/datasets/:datasetSlug/ingest',
+  'POST:/v1/datasets/:datasetSlug/query',
+  'GET:/v1/sql/schema',
+  'POST:/v1/sql/read',
+  'POST:/v1/sql/exec',
+  'GET:/v1/sql/saved',
+  'GET:/v1/sql/saved/:id',
+  'PUT:/v1/sql/saved/:id',
+  'DELETE:/v1/sql/saved/:id',
   'GET:/openapi.json'
-]);
+];
+
+const documentedRoutes = new Set(documentedRouteEntries);
 
 function ensureDocumentedRoutesHaveSchemas(app: FastifyInstance) {
   app.addHook('onRoute', (route: RouteOptions) => {

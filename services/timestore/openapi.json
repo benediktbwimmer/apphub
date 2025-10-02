@@ -2452,7 +2452,7 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 10000,
+            "maximum": 500000,
             "nullable": true
           }
         }
@@ -5833,7 +5833,7 @@
               "null"
             ],
             "minimum": 1,
-            "maximum": 10000
+            "maximum": 500000
           }
         },
         "title": "https://timestore.apphub/schemas/DatasetQueryRequest.json"
@@ -7330,7 +7330,11 @@
   "servers": [
     {
       "url": "http://127.0.0.1:4200",
-      "description": "Local development server"
+      "description": "Local development server (legacy routes)"
+    },
+    {
+      "url": "http://127.0.0.1:4200/v1",
+      "description": "Local development server (versioned API)"
     }
   ],
   "tags": [

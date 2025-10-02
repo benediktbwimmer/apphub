@@ -152,7 +152,7 @@ export const queryRequestSchema = z.object({
   columns: z.array(z.string().min(1)).optional(),
   filters: partitionFilterSchema.optional(),
   downsample: downsampleSchema.optional(),
-  limit: z.number().int().positive().max(10000).optional()
+  limit: z.number().int().positive().max(500_000).optional()
 });
 
 export type QueryRequest = z.infer<typeof queryRequestSchema>;

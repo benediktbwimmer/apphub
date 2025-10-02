@@ -1,4 +1,5 @@
 import fastify from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { closePool, POSTGRES_SCHEMA } from './db/client';
 import { ensureSchemaExists } from './db/schema';
 import { runMigrations } from './db/migrations';
@@ -17,6 +18,26 @@ import { shutdownManifestCache } from './cache/manifestCache';
 import { initializeIngestionConnectors, shutdownIngestionConnectors } from './ingestion/connectors';
 import { initializeDatasetAccessCleanup, shutdownDatasetAccessCleanup } from './service/auditCleanup';
 import { registerOpenApi } from './openapi/plugin';
+
+const API_PREFIX = '/v1';
+
+type DatasetRouteOptions = {
+  includeSql?: boolean;
+};
+
+async function registerDatasetRoutes(
+  app: FastifyInstance,
+  options: DatasetRouteOptions = {}
+): Promise<void> {
+  const includeSql = options.includeSql ?? true;
+
+  await registerIngestionRoutes(app);
+  await registerQueryRoutes(app);
+  await registerAdminRoutes(app);
+  if (includeSql) {
+    await registerSqlRoutes(app);
+  }
+}
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
@@ -39,10 +60,10 @@ async function start(): Promise<void> {
   await registerOpenApi(app);
 
   await registerHealthRoutes(app);
-  await registerIngestionRoutes(app);
-  await registerQueryRoutes(app);
-  await registerAdminRoutes(app);
-  await registerSqlRoutes(app);
+  await registerDatasetRoutes(app, { includeSql: true });
+  await app.register(async (instance) => {
+    await registerDatasetRoutes(instance, { includeSql: false });
+  }, { prefix: API_PREFIX });
 
   await app.register(
     async (scoped) => {

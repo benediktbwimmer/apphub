@@ -59,12 +59,34 @@ export async function ensureFilestoreHierarchy(
         principal
       });
     } catch (error) {
-      if (error instanceof CapabilityRequestError && error.status === 409) {
+      if (isDirectoryConflictError(error)) {
         continue;
       }
       throw error;
     }
   }
+}
+
+function isDirectoryConflictError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  if (error instanceof CapabilityRequestError && error.status === 409) {
+    return true;
+  }
+
+  const maybeStatus = (error as { status?: unknown }).status;
+  if (maybeStatus === 409) {
+    return true;
+  }
+
+  const maybeCode = (error as { code?: unknown }).code;
+  if (typeof maybeCode === 'string' && maybeCode.toUpperCase() === 'NODE_EXISTS') {
+    return true;
+  }
+
+  return false;
 }
 
 export async function ensureResolvedBackendId<T extends {
