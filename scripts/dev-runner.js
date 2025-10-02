@@ -135,10 +135,6 @@ const BASE_COMMANDS = [
     command: 'npm run dev --workspace @apphub/metastore'
   },
   {
-    name: 'services',
-    command: 'node scripts/dev-services.js'
-  },
-  {
     name: 'filestore',
     command: 'npm run dev --workspace @apphub/filestore'
   },
@@ -159,6 +155,133 @@ const BASE_COMMANDS = [
     command: 'npm run dev --workspace @apphub/frontend'
   }
 ];
+
+const DEFAULT_DEV_MODULES = [
+  {
+    moduleDir: path.join(ROOT_DIR, 'modules', 'environmental-observatory'),
+    workspace: null,
+    registerJobs: true
+  }
+];
+
+const DISABLE_VALUES = new Set(['0', 'false', 'off', 'none']);
+const ENABLE_VALUES = new Set(['1', 'true', 'on', 'yes']);
+
+const isDisabledValue = (value) => {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return DISABLE_VALUES.has(normalized);
+};
+
+const isEnabledValue = (value) => {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return ENABLE_VALUES.has(normalized);
+};
+
+const parseDevModuleSpec = (raw) => {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const [modulePart, workspacePart] = trimmed.split('|', 2);
+  const moduleDir = modulePart?.trim();
+  if (!moduleDir) {
+    return null;
+  }
+  const resolvedDir = path.isAbsolute(moduleDir) ? moduleDir : path.join(ROOT_DIR, moduleDir);
+  const workspace = workspacePart && workspacePart.trim().length > 0 ? workspacePart.trim() : null;
+  return {
+    moduleDir: resolvedDir,
+    workspace,
+    registerJobs: true
+  };
+};
+
+const resolveDevModules = () => {
+  const raw = process.env.APPHUB_DEV_MODULES;
+  if (!raw) {
+    return DEFAULT_DEV_MODULES;
+  }
+  if (isDisabledValue(raw)) {
+    return [];
+  }
+  const seen = new Set();
+  const entries = raw
+    .split(',')
+    .map((value) => parseDevModuleSpec(value))
+    .filter((spec) => spec && spec.moduleDir)
+    .map((spec) => spec);
+  const deduped = [];
+  for (const spec of entries) {
+    const key = `${spec.moduleDir}|${spec.workspace ?? ''}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(spec);
+  }
+  return deduped;
+};
+
+async function ensureDevModulesPublished(baseEnv) {
+  if (isEnabledValue(process.env.APPHUB_DEV_SKIP_MODULE_PUBLISH)) {
+    console.log('[dev-runner] Skipping module publish (APPHUB_DEV_SKIP_MODULE_PUBLISH set).');
+    return;
+  }
+
+  const modules = resolveDevModules();
+  if (modules.length === 0) {
+    return;
+  }
+
+  const skipBuild = isEnabledValue(process.env.APPHUB_DEV_MODULE_SKIP_BUILD);
+
+  for (const spec of modules) {
+    if (!spec?.moduleDir) {
+      continue;
+    }
+
+    if (!fs.existsSync(spec.moduleDir)) {
+      const relative = path.relative(ROOT_DIR, spec.moduleDir) || spec.moduleDir;
+      console.warn(`[dev-runner] Skipping module publish; directory not found: ${relative}`);
+      continue;
+    }
+
+    const relative = path.relative(ROOT_DIR, spec.moduleDir) || spec.moduleDir;
+    const args = ['run', 'module:publish', '--', '--module', spec.moduleDir];
+    if (spec.workspace) {
+      args.push('--workspace', spec.workspace);
+    }
+    if (skipBuild) {
+      args.push('--skip-build');
+    }
+    if (spec.registerJobs !== false) {
+      args.push('--register-jobs');
+    }
+
+    console.log(`[dev-runner] Publishing module ${relative} via module:publish.`);
+    const result = spawnSync('npm', args, {
+      cwd: ROOT_DIR,
+      stdio: 'inherit',
+      env: { ...baseEnv }
+    });
+
+    if (result.error) {
+      throw result.error;
+    }
+    if (typeof result.status === 'number' && result.status !== 0) {
+      throw new Error(`[dev-runner] module:publish exited with code ${result.status} for ${relative}`);
+    }
+  }
+}
 
 function runDocker(args, options = {}) {
   const stdio = options.stdio ?? 'pipe';
@@ -485,6 +608,8 @@ async function main() {
   } catch (err) {
     throw err;
   }
+
+  await ensureDevModulesPublished(baseEnv);
 
   const normalizeEnvValue = (value) => (typeof value === 'string' ? value.trim() : '');
   const tooling = preflightResult?.tooling ?? {};

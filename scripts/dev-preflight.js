@@ -24,8 +24,6 @@ const PORT_RULES = [
   { port: 4000, label: 'Core API', type: 'repo' },
   { port: 4100, label: 'Metastore API', type: 'repo' },
   { port: 4200, label: 'Filestore API', type: 'repo' },
-  { port: 4310, label: 'Observatory file watcher', type: 'repo' },
-  { port: 4311, label: 'Observatory dashboard', type: 'repo' },
   { port: 5173, label: 'Frontend dev server', type: 'repo' },
   { port: 5174, label: 'Frontend dev server (alt)', type: 'repo' },
   { port: 5175, label: 'Frontend dev server (alt)', type: 'repo' }
