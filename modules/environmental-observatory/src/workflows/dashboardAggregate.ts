@@ -119,7 +119,7 @@ const triggers = [
     name: 'Observatory dashboard aggregate (fallback)',
     description: 'Fallback trigger so dashboards refresh as soon as the ingest workflow finishes staging.',
     eventType: 'observatory.minute.partition-ready',
-    eventSource: 'observatory.timestore-loader',
+    eventSource: 'observatory.events',
     predicates: [
       {
         path: '$.payload.datasetSlug',

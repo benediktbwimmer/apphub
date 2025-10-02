@@ -13,9 +13,13 @@ const parametersSchema = z
   .object({
     partitionKey: z.string().min(1, 'partitionKey is required'),
     partitionWindow: z.string().min(1).optional(),
-    lookbackMinutes: z.number().int().positive().max(24 * 60).optional(),
+    lookbackMinutes: z
+      .union([z.number().int().positive().max(24 * 60), z.null(), z.undefined()])
+      .transform((value) => (value == null ? undefined : value)),
     instrumentId: z.string().min(1).optional(),
-    siteFilter: z.string().min(1).optional(),
+    siteFilter: z
+      .union([z.string().min(1), z.null(), z.undefined()])
+      .transform((value) => (value == null ? undefined : value)),
     datasetSlug: z.string().min(1).optional(),
     datasetName: z.string().min(1).optional()
   })

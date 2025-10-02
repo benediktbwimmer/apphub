@@ -165,7 +165,7 @@ const triggers = [
     description:
       'Generate plots and publish observatory reports when the ingest workflow emits a partition-ready event.',
     eventType: 'observatory.minute.partition-ready',
-    eventSource: 'observatory.timestore-loader',
+    eventSource: 'observatory.events',
     predicates: [
       {
         path: '$.payload.datasetSlug',
