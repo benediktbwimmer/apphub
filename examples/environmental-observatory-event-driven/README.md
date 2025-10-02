@@ -2,6 +2,54 @@
 
 This variant of the observatory example uses **Filestore** uploads as the system of record, **workflow event triggers** to launch minute ingest automatically, and **Timestore/Metastore** to keep downstream plots and reports current. The original file-watcher driven walkthrough still lives in `examples/environmental-observatory`; this directory contains the new event-driven stack.
 
+## Module Overview
+
+The environmental observatory module simulates an end-to-end telemetry program that starts with raw sensor drops and ends with live dashboards. It is designed to exercise the shared services in the platform so operators can validate event-driven ingestion, storage, and publication patterns before rolling them out to production workloads.
+
+- **Primary outcome:** demonstrate how Filestore events can kick off ingestion pipelines, persist normalized data in Timestore, and surface curated insights through Metastore-backed dashboards.
+- **Rhythm:** minute-level sensor readings stream through the stack; calibration files arrive ad-hoc and retroactively adjust datasets and reports.
+- **Key audiences:** platform engineers wiring new workflows, data operators validating ingestion quality, and solution teams demoing observability features.
+
+### Component Inventory
+
+| Category | Component | Role |
+| --- | --- | --- |
+| Datasets | Filestore prefixes (`inbox`, `staging`, `archive`, `calibrations`) | Durable home for raw, normalized, and calibration artifacts |
+| Workflows | `observatory-minute-ingest`, `observatory-daily-publication`, `observatory-calibration-import`, `observatory-dashboard-aggregate` | Orchestrate ingest, reporting, calibration reconciliation, and dashboard refresh |
+| Jobs | Minute ingest loader, dashboard aggregator, calibration importer, synthetic data generator | Execute per-workflow tasks with access to shared config and service tokens |
+| Services | Dashboard UI, Admin UI | Surface live metrics and provide operator controls for calibration uploads and reprocessing |
+| Triggers | `observatory.minute.raw-uploaded`, `observatory.minute.partition-ready`, `timestore.partition.created` | Bridge Filestore/Timestore events into workflow invocations |
+| Shared Library | `shared/config.ts` | Loads resolved configuration for jobs, workflows, and services |
+
+### Data Flow Summary
+
+```mermaid
+flowchart TD
+  Upload[Sensor CSV Upload] -->|POST /filestore| FilestoreAPI
+  FilestoreAPI -->|journal| FilestoreJournal[(Filestore Journal)]
+  FilestoreJournal -->|event: filestore.command.completed| RawTrigger[observatory.minute.raw-uploaded]
+  RawTrigger --> MinuteIngest[Workflow: observatory-minute-ingest]
+  MinuteIngest -->|normalize + partition| Timestore[(Timestore Dataset)]
+  Timestore -->|event: timestore.partition.created| AggregateTrigger[observatory-dashboard-aggregate]
+  AggregateTrigger --> DashboardWF[Workflow: observatory-dashboard-aggregate]
+  DashboardWF --> FilestoreViz[(Filestore Visualization Prefix)]
+  MinuteIngest -->|emit observatory.minute.partition-ready| PublicationTrigger[observatory.minute.partition-ready]
+  PublicationTrigger --> PublicationWF[Workflow: observatory-daily-publication]
+  PublicationWF --> Metastore[(Metastore Records)]
+  PublicationWF --> FilestoreReports[(Filestore Reports Prefix)]
+  CalUploads[Calibration Upload] -->|POST /filestore| FilestoreAPI
+  FilestoreAPI --> CalTrigger[Workflow: observatory-calibration-import]
+  CalTrigger --> Metastore
+  CalTrigger -->|plan updates| PublicationWF
+```
+
+### Operational Highlights
+
+- Shared configuration is generated once and consumed by every job, workflow, and service to avoid drift between environments.
+- All workflows rely on queue-backed execution, enabling you to scale load by adding more worker processes without touching definitions.
+- Calibration imports write authoritative state into Metastore, which in turn lets dashboards and downstream automations react without direct Filestore queries.
+- Observability is end-to-end: Filestore and Timestore logs, workflow runs, and Metastore updates emit events that can be streamed into the dashboard for live status.
+
 - **Filestore first:** the data generator pushes CSVs through the Filestore API so every mutation is journaled; the inbox normalizer converts `filestore.command.completed` notifications into example-specific `observatory.minute.raw-uploaded` events once files are copied into the staging prefix.
 - **Workflow triggers:** core triggers consume the observatory events and launch the `observatory-minute-ingest` workflow with fully materialised parameters (paths, tokens, dataset slugs) captured from the shared config file.
 - **Per-instrument ingestion:** the timestore loader groups normalized rows by instrument and writes a dedicated partition (keyed by instrument + window) for each sensor, attaching the instrument id as partition attributes.

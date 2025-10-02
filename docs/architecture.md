@@ -83,6 +83,83 @@ graph TD
   Services --> Postgres
 ```
 
+## Core Platform Topology
+
+The diagram below highlights how the Core service coordinates with Metastore, Filestore, and Timestore while sharing infrastructure primitives.
+
+```mermaid
+flowchart LR
+  subgraph Clients
+    Web[Frontend UI]
+    CLI[CLI Tooling]
+  end
+
+  subgraph Core["Core API & Workers"]
+    CoreAPI["Core API (Fastify)"]
+    CoreWorkers["Ingestion & Build Workers"]
+    CoreQueues[("Redis / BullMQ")]
+    CoreDB[("PostgreSQL core schema")]
+    EventStream[["WebSocket Event Stream"]]
+  end
+
+  subgraph Metastore
+    MetaAPI["Metastore API"]
+    MetaDB[("PostgreSQL metastore schema")]
+  end
+
+  subgraph Filestore
+    FileAPI["Filestore API"]
+    FileExecs{"Mutation Executors"}
+    FileDB[("PostgreSQL filestore schema")]
+    FileStorage[("Object Storage / Local Volumes")]
+  end
+
+  subgraph Timestore
+    TimeAPI["Timestore API"]
+    TimeWorker["Lifecycle Worker"]
+    TimeDB[("PostgreSQL timestore schema")]
+    TimeData[("DuckDB Manifests & Partitions")]
+  end
+
+  GitRepos[("Git Repositories")]
+  Metrics[("Metrics & Logging")]
+
+  Web -->|REST & WebSocket| CoreAPI
+  CLI -->|Commands| CoreAPI
+  CoreAPI --> CoreDB
+  CoreAPI --> CoreQueues
+  CoreWorkers --> CoreQueues
+  CoreWorkers --> CoreDB
+  CoreAPI --> EventStream
+  EventStream --> Web
+  EventStream --> CLI
+  CoreAPI -->|metadata CRUD| MetaAPI
+  MetaAPI --> MetaDB
+  MetaAPI -->|schema hints| CoreAPI
+  CoreAPI -->|asset requests| FileAPI
+  FileAPI --> FileDB
+  FileAPI --> FileExecs
+  FileExecs --> FileStorage
+  FileExecs --> FileDB
+  FileAPI -->|events| CoreQueues
+  CoreQueues --> MetaAPI
+  CoreQueues --> FileAPI
+  CoreQueues --> TimeWorker
+  FileAPI -->|journal feed| TimeAPI
+  TimeAPI --> TimeDB
+  TimeWorker --> TimeDB
+  TimeAPI --> TimeData
+  TimeWorker --> TimeData
+  CoreAPI -->|query datasets| TimeAPI
+  MetaAPI -->|annotations| FileAPI
+  FileAPI -->|tag signals| MetaAPI
+  GitRepos -->|clone/build| CoreWorkers
+  CoreAPI -->|observability| Metrics
+  MetaAPI -->|observability| Metrics
+  FileAPI -->|observability| Metrics
+  TimeAPI -->|observability| Metrics
+```
+
 ## Timestore Service
 
 Timestore complements the core API by storing columnar time series partitions in DuckDB files that live on either local disk (`services/data/timestore`) or object storage. Metadata, manifests, and retention policy state reuse the existing core PostgreSQL instance but live inside a dedicated `timestore` schema so tables do not collide.
