@@ -321,6 +321,7 @@ export const reportPublisherJob = createJobHandler<
       lookbackMinutes: context.parameters.visualizationAsset.lookbackMinutes,
       siteFilter: metrics.siteFilter ?? null,
       summary,
+      metrics,
       plotsReferenced,
       visualization: {
         storagePrefix: context.parameters.visualizationAsset.storagePrefix,

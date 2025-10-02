@@ -63,6 +63,26 @@ type ReportStatusFile = {
   plotsReferenced?: Array<Record<string, unknown>>;
 };
 
+function countPathSegments(path: string): number {
+  return path.split('/').filter(Boolean).length;
+}
+
+function coerceMetrics(payload: ReportStatusFile, fallbackPartition: string): Record<string, unknown> | undefined {
+  if (payload.metrics && typeof payload.metrics === 'object') {
+    return payload.metrics as Record<string, unknown>;
+  }
+  if (payload.summary && typeof payload.summary === 'object') {
+    const summary = payload.summary as Record<string, unknown>;
+    return {
+      partitionKey: fallbackPartition,
+      instrumentCount: summary.instrumentCount ?? null,
+      siteCount: summary.siteCount ?? null,
+      alertCount: summary.alertCount ?? null
+    };
+  }
+  return undefined;
+}
+
 export const dashboardService = createService<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
@@ -155,19 +175,19 @@ export const dashboardService = createService<
         const result = await filestoreCapability.listNodes({
           backendMountId,
           path: reportsPrefix,
-          depth: 1,
+          depth: 2,
           kinds: ['directory'],
-          limit: Math.max(limit * 4, 50),
+          limit: Math.max(limit * 8, 100),
           principal: filestorePrincipal
         });
 
         const overviewNormalized = overviewPrefix;
+        const prefixDepth = countPathSegments(reportsPrefix);
         const candidates = result.nodes
           .filter((node) => node.kind === 'directory')
           .map((node) => normalizePath(node.path))
           .filter((path) => path !== overviewNormalized)
-          .sort((a, b) => b.localeCompare(a))
-          .slice(0, limit);
+          .filter((path) => countPathSegments(path) === prefixDepth + 2);
 
         const entries: Array<{
           partitionName: string;
@@ -196,12 +216,13 @@ export const dashboardService = createService<
             typeof payload.generatedAt === 'string' ? payload.generatedAt : new Date().toISOString();
           const htmlPath = `${fullPath}/status.html`;
           const markdownPath = `${fullPath}/status.md`;
+          const metrics = coerceMetrics(payload, partitionName);
 
           entries.push({
             partitionName,
             partitionKey:
-              typeof payload.metrics?.partitionKey === 'string'
-                ? (payload.metrics.partitionKey as string)
+              typeof metrics?.partitionKey === 'string'
+                ? (metrics.partitionKey as string)
                 : partitionName,
             generatedAt,
             updatedAt: generatedAt,
@@ -211,12 +232,21 @@ export const dashboardService = createService<
               json: toReportUrl(statusPath)
             },
             summary: (payload.summary as Record<string, unknown>) ?? undefined,
-            metrics: (payload.metrics as Record<string, unknown>) ?? undefined,
+            metrics,
             artifacts: payload.reportFiles ?? []
           });
         }
 
-        return entries;
+        return entries
+          .sort((left, right) => {
+            const leftTime = Date.parse(left.generatedAt);
+            const rightTime = Date.parse(right.generatedAt);
+            if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime)) {
+              return rightTime - leftTime;
+            }
+            return right.partitionName.localeCompare(left.partitionName);
+          })
+          .slice(0, limit);
       } catch (error) {
         context.logger.error('Failed to list report partitions from Filestore', { error });
         return [];
