@@ -16,6 +16,8 @@ import ReactFlow, {
   Panel,
   Handle,
   Position,
+  useNodesState,
+  useEdgesState,
   type Edge,
   type Node,
   type NodeProps,
@@ -85,6 +87,13 @@ type GraphBounds = {
   minY: number;
   maxX: number;
   maxY: number;
+};
+
+type RenderGraph = {
+  nodes: Node<WorkflowGraphCanvasNodeData>[];
+  edges: Edge<WorkflowGraphCanvasEdgeData>[];
+  bounds: GraphBounds | null;
+  structureSignature: string;
 };
 
 function computeViewportBounds(viewport: Viewport, width: number, height: number): GraphBounds {
@@ -501,135 +510,121 @@ export function WorkflowGraphCanvas({
     [onNodeSelect]
   );
 
-  const reactFlowNodes = useMemo<Node<WorkflowGraphCanvasNodeData>[]>(() => {
+  const renderGraph = useMemo<RenderGraph | null>(() => {
     if (!resolvedModel) {
-      return [];
+      return null;
     }
-    return resolvedModel.nodes.map((node) => ({
-      id: node.id,
-      position: node.position,
-      data: {
-        id: node.id,
-        refId: node.refId,
-        label: node.label,
-        subtitle: node.subtitle,
-        meta: node.meta ?? [],
-        badges: node.badges ?? [],
-        status: node.status,
-        kind: node.kind,
-        highlighted: node.highlighted,
-        onSelect: onNodeSelect
-          ? (payload) => handleNodeSelect(node.id, payload)
-          : undefined
-      },
-      type: 'workflow-graph-node',
-      draggable: false,
-      selectable: true,
-      focusable: true,
-      style: {
-        width: node.width,
-        height: node.height
-      }
-    }));
-  }, [resolvedModel, handleNodeSelect, onNodeSelect]);
+    return buildRenderGraph(resolvedModel, mergedTheme, handleNodeSelect, onNodeSelect);
+  }, [resolvedModel, mergedTheme, handleNodeSelect, onNodeSelect]);
 
-  const reactFlowEdges = useMemo<Edge<WorkflowGraphCanvasEdgeData>[]>(() => {
-    if (!resolvedModel) {
-      return [];
-    }
-    return resolvedModel.edges.map((edge) => {
-      const dashed =
-        edge.kind === 'step-consumes' || edge.kind === 'event-source' || edge.kind === 'step-event-source';
-      const stroke = edge.highlighted ? mergedTheme.edgeHighlight : dashed ? mergedTheme.edgeDashed : mergedTheme.edgeDefault;
-      const label = edge.label
-        ? edge.tooltip
-          ? (
-              <span title={edge.tooltip}>{edge.label}</span>
-            )
-          : edge.label
-        : undefined;
-      return {
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        data: {
-          kind: edge.kind,
-          highlighted: edge.highlighted
-        },
-        label,
-        labelBgPadding: [6, 3],
-        labelBgBorderRadius: 6,
-        labelBgStyle: { fill: mergedTheme.labelBackground, stroke: mergedTheme.edgeMuted },
-        labelStyle: { fill: mergedTheme.labelText, fontSize: 11, fontWeight: 600 },
-        animated: edge.highlighted,
-        type: 'smoothstep',
-        style: {
-          stroke,
-          strokeWidth: edge.highlighted ? 3 : 2.2,
-          strokeDasharray: dashed ? '6 4' : undefined,
-          opacity: edge.highlighted ? 1 : 0.9
-        },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: stroke,
-          width: 18,
-          height: 18
-        }
-      } satisfies Edge<WorkflowGraphCanvasEdgeData>;
-    });
-  }, [resolvedModel, mergedTheme.edgeDefault, mergedTheme.edgeDashed, mergedTheme.edgeHighlight, mergedTheme.edgeMuted, mergedTheme.labelBackground, mergedTheme.labelText]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<WorkflowGraphCanvasNodeData>>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<WorkflowGraphCanvasEdgeData>>([]);
 
   const [instance, setInstance] = useState<ReactFlowInstance | null>(null);
+  const layoutBoundsRef = useRef<GraphBounds | null>(null);
+  const structureSignatureRef = useRef<string | null>(null);
+  const suppressMoveEndRef = useRef(false);
+  const userInteractedRef = useRef(false);
+  const initialViewportAppliedRef = useRef(false);
   const interactive = interactionMode === 'interactive';
-  const hasRenderableNodes = Boolean(resolvedModel && resolvedModel.nodes.length > 0);
+
+  const hasRenderableNodes = nodes.length > 0;
   const showLoadingOverlay = loading && !hasRenderableNodes;
   const showErrorOverlay = Boolean(error && !loading && !hasRenderableNodes);
 
-  const ensureViewportHasContent = useCallback(() => {
-    const modelVersion = resolvedModel?.nodes.length ?? 0;
-    void modelVersion;
-    if (!instance) {
+  const persistViewport = useCallback((viewport: Viewport) => {
+    if (typeof window === 'undefined') {
       return;
     }
-    const container = containerRef.current;
-    if (!container) {
-      return;
+    try {
+      window.sessionStorage?.setItem('apphub.workflowTopology.viewport.v1', JSON.stringify(viewport));
+    } catch (err) {
+      console.warn('workflow.graph.viewport_persist_failed', err);
     }
-    const containerBounds = container.getBoundingClientRect();
-    if (containerBounds.width === 0 || containerBounds.height === 0) {
-      return;
-    }
-    const nodeBounds = computeInstanceBounds(instance);
-    if (!nodeBounds) {
-      return;
-    }
-    const viewportBounds = computeViewportBounds(
-      instance.getViewport(),
-      containerBounds.width,
-      containerBounds.height
-    );
-    if (!boundsIntersect(nodeBounds, viewportBounds)) {
+  }, []);
+
+  const ensureViewportHasContent = useCallback(
+    ({ force = false, immediate = false }: { force?: boolean; immediate?: boolean } = {}) => {
+      if (!instance) {
+        return;
+      }
+      const container = containerRef.current;
+      if (!container) {
+        return;
+      }
+      const containerBounds = container.getBoundingClientRect();
+      if (containerBounds.width === 0 || containerBounds.height === 0) {
+        return;
+      }
+      const nodeBounds = layoutBoundsRef.current ?? computeInstanceBounds(instance);
+      if (!nodeBounds) {
+        return;
+      }
+      const viewportBounds = computeViewportBounds(
+        instance.getViewport(),
+        containerBounds.width,
+        containerBounds.height
+      );
+      const shouldFit = force || !boundsIntersect(nodeBounds, viewportBounds);
+      if (!shouldFit) {
+        return;
+      }
+      shouldAutoFitRef.current = false;
       if (typeof window !== 'undefined' && window.__apphubExposeTopologyInstance) {
         window.__apphubViewportAutoFitCount = (window.__apphubViewportAutoFitCount ?? 0) + 1;
       }
-      shouldAutoFitRef.current = false;
-      instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true, duration: 140 });
-    }
-  }, [fitViewPadding, instance, resolvedModel?.nodes]);
+      suppressMoveEndRef.current = true;
+      instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true, duration: immediate ? 0 : 220 });
+    },
+    [fitViewPadding, instance]
+  );
 
   useEffect(() => {
-    if (!instance) {
+    if (!renderGraph) {
       return;
     }
-    const frame = window.requestAnimationFrame(ensureViewportHasContent);
+    setNodes(() => renderGraph.nodes);
+    setEdges(() => renderGraph.edges);
+    layoutBoundsRef.current = renderGraph.bounds;
+    const previousSignature = structureSignatureRef.current;
+    structureSignatureRef.current = renderGraph.structureSignature;
+    const structureChanged = previousSignature !== renderGraph.structureSignature;
+    const shouldForce = shouldAutoFitRef.current || (structureChanged && !userInteractedRef.current);
+    if (shouldForce) {
+      shouldAutoFitRef.current = false;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      ensureViewportHasContent({ force: shouldForce });
+    });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [instance, ensureViewportHasContent]);
+  }, [renderGraph, setNodes, setEdges, ensureViewportHasContent]);
 
   useEffect(() => {
-    ensureViewportHasContent();
-  }, [ensureViewportHasContent]);
+    if (!instance || initialViewportAppliedRef.current) {
+      return;
+    }
+    let storedViewport: Viewport | null = null;
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.sessionStorage?.getItem('apphub.workflowTopology.viewport.v1');
+        if (raw) {
+          const parsed = JSON.parse(raw) as Viewport;
+          if (Number.isFinite(parsed.x) && Number.isFinite(parsed.y) && Number.isFinite(parsed.zoom)) {
+            storedViewport = parsed;
+          }
+        }
+      } catch (err) {
+        console.warn('workflow.graph.viewport_restore_failed', err);
+      }
+    }
+    if (storedViewport) {
+      suppressMoveEndRef.current = true;
+      instance.setViewport(storedViewport, { duration: 0 });
+    }
+    initialViewportAppliedRef.current = true;
+  }, [instance]);
 
   useEffect(() => {
     return () => {
@@ -678,6 +673,7 @@ export function WorkflowGraphCanvas({
       if (!instance) {
         return;
       }
+      userInteractedRef.current = true;
       const viewport = instance.getViewport();
       instance.setViewport(
         {
@@ -692,19 +688,43 @@ export function WorkflowGraphCanvas({
   );
 
   const handleZoomIn = useCallback(() => {
-    instance?.zoomIn({ duration: 140 });
+    if (!instance) {
+      return;
+    }
+    userInteractedRef.current = true;
+    instance.zoomIn({ duration: 140 });
   }, [instance]);
 
   const handleZoomOut = useCallback(() => {
-    instance?.zoomOut({ duration: 140 });
+    if (!instance) {
+      return;
+    }
+    userInteractedRef.current = true;
+    instance.zoomOut({ duration: 140 });
   }, [instance]);
 
   const handleFitView = useCallback(() => {
     if (!instance) {
       return;
     }
+    userInteractedRef.current = true;
     instance.fitView({ padding: fitViewPadding, includeHiddenNodes: false });
   }, [instance, fitViewPadding]);
+
+  const handleMoveEnd = useCallback(
+    (_: unknown, viewport: Viewport) => {
+      persistViewport(viewport);
+      if (typeof window !== 'undefined' && window.__apphubExposeTopologyInstance) {
+        window.__apphubTopologyReactFlowInstanceViewport = viewport;
+      }
+      if (suppressMoveEndRef.current) {
+        suppressMoveEndRef.current = false;
+        return;
+      }
+      userInteractedRef.current = true;
+    },
+    [persistViewport]
+  );
 
   const handleCanvasKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -798,22 +818,6 @@ export function WorkflowGraphCanvas({
   const handleContainerMouseLeave = useCallback(() => {
     setTooltip(null);
   }, []);
-
-  useEffect(() => {
-    if (!instance || !resolvedModel || !autoFit || resolvedModel.nodes.length === 0) {
-      return;
-    }
-    if (!shouldAutoFitRef.current) {
-      return;
-    }
-    const id = window.setTimeout(() => {
-      instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true });
-    }, 16);
-    shouldAutoFitRef.current = false;
-    return () => {
-      window.clearTimeout(id);
-    };
-  }, [instance, resolvedModel, autoFit, fitViewPadding]);
 
   const containerStyle: CSSProperties = {
     height: typeof height === 'number' ? `${height}px` : height,
@@ -928,8 +932,10 @@ export function WorkflowGraphCanvas({
           </div>
         )}
         <ReactFlow
-          nodes={reactFlowNodes}
-          edges={reactFlowEdges}
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
           nodeTypes={NODE_TYPES}
           className="h-full w-full"
           onInit={(nextInstance) => {
@@ -939,6 +945,7 @@ export function WorkflowGraphCanvas({
               window.__apphubTopologyReactFlowInstanceViewport = nextInstance.getViewport();
             }
           }}
+          onMoveEnd={handleMoveEnd}
           onNodeClick={(_, node) => {
             if (!onNodeSelect) {
               return;
@@ -965,11 +972,6 @@ export function WorkflowGraphCanvas({
           onNodeMouseEnter={handleNodeMouseEnter}
           onNodeMouseMove={handleNodeMouseMove}
           onNodeMouseLeave={handleNodeMouseLeave}
-          onMoveEnd={(_, viewport) => {
-            if (typeof window !== 'undefined' && window.__apphubExposeTopologyInstance) {
-              window.__apphubTopologyReactFlowInstanceViewport = viewport;
-            }
-          }}
           onPaneClick={() => {
             setTooltip(null);
             onCanvasClick?.();
@@ -1056,3 +1058,131 @@ export function WorkflowGraphCanvas({
 export default WorkflowGraphCanvas;
 
 export type { WorkflowGraphCanvasTheme, WorkflowGraphCanvasThemeOverrides, WorkflowGraphCanvasNodeData };
+
+function computeModelBounds(modelNodes: WorkflowGraphCanvasNode[]): GraphBounds | null {
+  if (modelNodes.length === 0) {
+    return null;
+  }
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const node of modelNodes) {
+    const nodeMinX = node.position.x;
+    const nodeMinY = node.position.y;
+    const nodeMaxX = node.position.x + node.width;
+    const nodeMaxY = node.position.y + node.height;
+    if (!Number.isFinite(nodeMinX) || !Number.isFinite(nodeMinY) || !Number.isFinite(nodeMaxX) || !Number.isFinite(nodeMaxY)) {
+      continue;
+    }
+    if (nodeMinX < minX) {
+      minX = nodeMinX;
+    }
+    if (nodeMinY < minY) {
+      minY = nodeMinY;
+    }
+    if (nodeMaxX > maxX) {
+      maxX = nodeMaxX;
+    }
+    if (nodeMaxY > maxY) {
+      maxY = nodeMaxY;
+    }
+  }
+
+  if (minX === Number.POSITIVE_INFINITY || minY === Number.POSITIVE_INFINITY) {
+    return null;
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+function computeStructureSignature(model: WorkflowGraphCanvasModel): string {
+  const nodeIds = model.nodes.map((node) => node.id).sort().join('|');
+  const edgeIds = model.edges.map((edge) => edge.id).sort().join('|');
+  return `${nodeIds}::${edgeIds}`;
+}
+
+function buildRenderGraph(
+  model: WorkflowGraphCanvasModel,
+  theme: WorkflowGraphCanvasTheme,
+  handleNodeSelect: (nodeId: string, data: WorkflowGraphCanvasNodeData) => void,
+  onNodeSelect?: (nodeId: string, data: WorkflowGraphCanvasNodeData) => void
+): RenderGraph {
+  const nodes: Node<WorkflowGraphCanvasNodeData>[] = model.nodes.map((node) => ({
+    id: node.id,
+    position: node.position,
+    data: {
+      id: node.id,
+      refId: node.refId,
+      label: node.label,
+      subtitle: node.subtitle,
+      meta: node.meta ?? [],
+      badges: node.badges ?? [],
+      status: node.status,
+      kind: node.kind,
+      highlighted: node.highlighted,
+      onSelect: onNodeSelect ? (payload) => handleNodeSelect(node.id, payload) : undefined
+    },
+    type: 'workflow-graph-node',
+    draggable: false,
+    selectable: true,
+    focusable: true,
+    style: {
+      width: node.width,
+      height: node.height
+    }
+  }));
+
+  const edges: Edge<WorkflowGraphCanvasEdgeData>[] = model.edges.map((edge) => {
+    const dashed =
+      edge.kind === 'step-consumes' || edge.kind === 'event-source' || edge.kind === 'step-event-source';
+    const stroke = edge.highlighted
+      ? theme.edgeHighlight
+      : dashed
+        ? theme.edgeDashed
+        : theme.edgeDefault;
+    const label = edge.label
+      ? edge.tooltip
+        ? (
+            <span title={edge.tooltip}>{edge.label}</span>
+          )
+        : edge.label
+      : undefined;
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      data: {
+        kind: edge.kind,
+        highlighted: edge.highlighted
+      },
+      label,
+      labelBgPadding: [6, 3],
+      labelBgBorderRadius: 6,
+      labelBgStyle: { fill: theme.labelBackground, stroke: theme.edgeMuted },
+      labelStyle: { fill: theme.labelText, fontSize: 11, fontWeight: 600 },
+      animated: edge.highlighted,
+      type: 'smoothstep',
+      style: {
+        stroke,
+        strokeWidth: edge.highlighted ? 3 : 2.2,
+        strokeDasharray: dashed ? '6 4' : undefined,
+        opacity: edge.highlighted ? 1 : 0.9
+      },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: stroke,
+        width: 18,
+        height: 18
+      }
+    } satisfies Edge<WorkflowGraphCanvasEdgeData>;
+  });
+
+  return {
+    nodes,
+    edges,
+    bounds: computeModelBounds(model.nodes),
+    structureSignature: computeStructureSignature(model)
+  };
+}
