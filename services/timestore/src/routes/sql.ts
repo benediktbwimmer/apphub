@@ -22,6 +22,7 @@ import {
   type SqlSchemaColumnInfo,
   type SqlSchemaTableInfo
 } from '../sql/runtime';
+import { configureS3Support } from '../query/executor';
 import {
   deleteSavedSqlQuery,
   getSavedSqlQueryById,
@@ -29,6 +30,7 @@ import {
   upsertSavedSqlQuery
 } from '../db/sqlSavedQueries';
 import type { SavedSqlQueryRecord } from '../db/sqlSavedQueries';
+import type { StorageTargetRecord } from '../db/metadata';
 
 const SUPPORTED_FORMATS = ['json', 'csv', 'table'] as const;
 type ResponseFormat = (typeof SUPPORTED_FORMATS)[number];
@@ -199,14 +201,26 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
     try {
       const context = await loadSqlContext();
       runtime = await createDuckDbConnection(context);
+      const s3Targets = new Map<string, StorageTargetRecord>();
+      for (const dataset of context.datasets) {
+        for (const partition of dataset.partitions) {
+          if (partition.storageTarget.kind === 's3' && !s3Targets.has(partition.storageTarget.id)) {
+            s3Targets.set(partition.storageTarget.id, partition.storageTarget);
+          }
+        }
+      }
+      if (s3Targets.size > 0) {
+        await configureS3Support(runtime.connection, context.config, Array.from(s3Targets.values()));
+      }
       const execution = await executeDuckDbQuery(runtime.connection, sql, params ?? []);
+      const normalizedRows = execution.rows.map(normalizeSqlRow);
       const durationMs = elapsedMs(start);
       const executionId = `duck-${randomUUID()}`;
       const warnings = dedupeWarnings(runtime.warnings);
-      const columns = mapDuckDbColumns(execution.columns, execution.rows);
+      const columns = mapDuckDbColumns(execution.columns, normalizedRows);
       const summary: QueryResultSummary = {
         command: 'SELECT',
-        rowCount: execution.rows.length,
+        rowCount: normalizedRows.length,
         fields: []
       };
 
@@ -234,11 +248,11 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
         const payload = {
           executionId,
           columns,
-          rows: execution.rows,
+          rows: normalizedRows,
           truncated: false,
           warnings,
           statistics: {
-            rowCount: execution.rows.length,
+            rowCount: normalizedRows.length,
             elapsedMs: durationMs
           }
         };
@@ -247,12 +261,12 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
       }
 
       if (format === 'csv') {
-        const csv = renderCsv(columns, execution.rows);
+        const csv = renderCsv(columns, normalizedRows);
         baseReply.type('text/csv; charset=utf-8').send(csv);
         return;
       }
 
-      const textTable = renderTable(columns, execution.rows);
+      const textTable = renderTable(columns, normalizedRows);
       baseReply.type('text/plain; charset=utf-8').send(textTable);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error ?? '');
@@ -1129,6 +1143,29 @@ function renderTable(columns: SqlSchemaColumnInfo[], rows: Array<Record<string, 
 
   const footer = `(${rows.length} row${rows.length === 1 ? '' : 's'})`;
   return [header, separator, ...body, footer].join('\n');
+}
+
+function normalizeSqlRow(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    result[key] = normalizeSqlValue(value);
+  }
+  return result;
+}
+
+function normalizeSqlValue(value: unknown): unknown {
+  if (typeof value === 'bigint') {
+    const asNumber = Number(value);
+    return Number.isSafeInteger(asNumber) ? asNumber : value.toString();
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeSqlValue(item));
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, normalizeSqlValue(nested)]);
+    return Object.fromEntries(entries);
+  }
+  return value;
 }
 
 function padCell(value: string, width: number): string {

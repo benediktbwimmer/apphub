@@ -28,6 +28,16 @@ interface QueryResultRow {
   [key: string]: unknown;
 }
 
+interface S3RuntimeOptions {
+  bucket?: string;
+  endpoint?: string;
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+  forcePathStyle?: boolean;
+}
+
 export interface QueryExecutionResult {
   rows: QueryResultRow[];
   columns: string[];
@@ -686,16 +696,6 @@ function dedupeWarnings(warnings: string[]): string[] {
   return result;
 }
 
-interface S3RuntimeOptions {
-  bucket?: string;
-  endpoint?: string;
-  region?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  sessionToken?: string;
-  forcePathStyle?: boolean;
-}
-
 export async function configureS3Support(
   connection: any,
   config: ServiceConfig,
@@ -712,24 +712,17 @@ export async function configureS3Support(
     await run(connection, `SET s3_region='${escapeSqlLiteral(options.region)}'`);
   }
 
-  const hardCodedMinioEndpoint = 'http://127.0.0.1:9000';
-  const endpointSource = options.endpoint && options.endpoint.trim().length > 0 ? options.endpoint : hardCodedMinioEndpoint;
-  const { endpoint: normalizedEndpoint, scheme } = normalizeS3Endpoint(endpointSource);
+  const { host, scheme } = resolveS3Endpoint(options.endpoint);
 
-  // TODO(apphub-2367): remove the hard-coded MinIO fallback once runtime cache rebuilds reliably propagate storage target endpoints.
-  await run(connection, `SET s3_endpoint='${escapeSqlLiteral(normalizedEndpoint)}'`);
-  let effectiveScheme: 'http' | 'https' | null = scheme ?? null;
-  if (!effectiveScheme) {
-    if (endpointSource === hardCodedMinioEndpoint) {
-      effectiveScheme = 'http';
-    }
-  }
-  if (effectiveScheme === 'https') {
+  await run(connection, `SET s3_endpoint='${escapeSqlLiteral(host)}'`);
+  if (scheme === 'https') {
     await run(connection, 'SET s3_use_ssl=true');
-  } else if (effectiveScheme === 'http') {
+  } else {
     await run(connection, 'SET s3_use_ssl=false');
   }
-  if (options.forcePathStyle) {
+
+  const forcePath = options.forcePathStyle ?? (host.includes(':') || host.includes('127.0.0.1'));
+  if (forcePath) {
     await run(connection, `SET s3_url_style='path'`);
   }
   if (options.accessKeyId && options.secretAccessKey) {
@@ -860,24 +853,19 @@ function pickBoolean(source: Record<string, unknown>, key: string): boolean | un
   return undefined;
 }
 
-function normalizeS3Endpoint(rawEndpoint: string): { endpoint: string; scheme: 'http' | 'https' | null } {
-  const trimmed = rawEndpoint.trim();
-  if (!trimmed) {
-    return { endpoint: trimmed, scheme: null };
-  }
+function resolveS3Endpoint(rawEndpoint: string | undefined): { host: string; scheme: 'http' | 'https' } {
+  const fallback = 'http://127.0.0.1:9000'; // TODO(apphub-2367): remove hard-coded MinIO fallback when runtime cache propagation is fixed.
+  const endpoint = rawEndpoint && rawEndpoint.trim().length > 0 ? rawEndpoint.trim() : fallback;
 
-  const normalized = trimmed.replace(/\/+$/u, '');
-  const match = /^(https?):\/\/(.+)$/i.exec(normalized);
-  if (!match) {
-    return { endpoint: normalized, scheme: null };
+  try {
+    const parsed = new URL(endpoint.includes('://') ? endpoint : `${fallback.substring(0, fallback.indexOf('://'))}://${endpoint}`);
+    const scheme = parsed.protocol === 'https:' ? 'https' : 'http';
+    const host = parsed.host || parsed.hostname;
+    return { host, scheme };
+  } catch {
+    const sanitized = endpoint.replace(/\/+$/u, '');
+    return { host: sanitized, scheme: endpoint.startsWith('https://') ? 'https' : 'http' };
   }
-
-  const scheme = match[1].toLowerCase() as 'http' | 'https';
-  const host = match[2];
-  return {
-    endpoint: host,
-    scheme
-  };
 }
 
 async function ensureHttpfsLoaded(connection: any): Promise<void> {
