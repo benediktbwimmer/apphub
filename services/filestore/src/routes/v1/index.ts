@@ -894,7 +894,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
               description: 'Number of mounts to skip before collecting results.'
             },
             kinds: {
-              oneOf: [
+              anyOf: [
                 {
                   type: 'array',
                   items: {
@@ -910,7 +910,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
               description: 'Limit results to specific backend implementations.'
             },
             states: {
-              oneOf: [
+              anyOf: [
                 {
                   type: 'array',
                   items: {
@@ -926,7 +926,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
               description: 'Filter mounts by lifecycle state.'
             },
             accessModes: {
-              oneOf: [
+              anyOf: [
                 {
                   type: 'array',
                   items: {
@@ -2649,7 +2649,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
               description: 'Full-text search term across node names and metadata.'
             },
             states: {
-              oneOf: [
+              anyOf: [
                 {
                   type: 'array',
                   items: {
@@ -2665,7 +2665,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
               description: 'Filter results to nodes in the specified states.'
             },
             kinds: {
-              oneOf: [
+              anyOf: [
                 {
                   type: 'array',
                   items: {
@@ -2859,7 +2859,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
               description: 'Full-text search applied to child nodes.'
             },
             states: {
-              oneOf: [
+              anyOf: [
                 {
                   type: 'array',
                   items: {
@@ -2875,7 +2875,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
               description: 'Filter children by state.'
             },
             kinds: {
-              oneOf: [
+              anyOf: [
                 {
                   type: 'array',
                   items: {
@@ -3297,7 +3297,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
               description: 'Filter jobs by path prefix.'
             },
             status: {
-              oneOf: [
+              anyOf: [
                 {
                   type: 'array',
                   items: {
@@ -3537,7 +3537,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
               description: 'Restrict events to nodes under the specified path prefix.'
             },
             events: {
-              oneOf: [
+              anyOf: [
                 {
                   type: 'array',
                   items: {

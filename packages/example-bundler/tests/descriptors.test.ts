@@ -69,7 +69,7 @@ test('packages descriptor from git repository clone', async () => {
   }
 });
 
-test('includes declared runtime dependencies in packaged tarball', async () => {
+test('skips queue dependencies when not declared as runtime requirements', async () => {
   const bundle = await bundler().packageExampleBySlug('observatory-inbox-normalizer');
   const extractRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'bundle-runtime-'));
   try {
@@ -84,15 +84,16 @@ test('includes declared runtime dependencies in packaged tarball', async () => {
       'bullmq',
       'package.json'
     );
-    let exists = false;
-    try {
-      await fs.stat(bullmqPackagePath);
-      exists = true;
-    } catch {
-      exists = false;
-    }
+    const exists = await fs
+      .stat(bullmqPackagePath)
+      .then(() => true)
+      .catch(() => false);
 
-    assert.ok(exists, 'expected bullmq package.json in dist/node_modules/bullmq');
+    assert.equal(
+      exists,
+      false,
+      'observatory bundles should rely on inline event publishing; bullmq must not be vendored'
+    );
   } finally {
     await fs.rm(extractRoot, { recursive: true, force: true }).catch(() => {});
   }

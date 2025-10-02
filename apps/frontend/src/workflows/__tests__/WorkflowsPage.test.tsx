@@ -277,27 +277,46 @@ function createFetchMock(options?: FetchMockOptions) {
 
   return vi.fn(async (...args: FetchArgs) => {
     const [input, init] = args;
-    const url = typeof input === 'string' ? input : input.toString();
+    const rawUrl = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input instanceof Request
+          ? input.url
+          : input.toString();
+    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    const url = new URL(rawUrl, 'http://localhost');
+    const pathname = url.pathname;
 
-    if (url.endsWith('/services')) {
+    if (pathname === '/services' && method === 'GET') {
       return new Response(
         JSON.stringify({ data: services }),
-        { status: 200 }
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    if (url.endsWith('/workflows') && (!init || init.method === undefined)) {
-      return new Response(JSON.stringify({ data: [workflow] }), { status: 200 });
+    if (pathname === '/workflows' && method === 'GET') {
+      return new Response(JSON.stringify({ data: [workflow] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
-    if (url.endsWith(`/workflows/${workflow.slug}`) && (!init || init.method === undefined)) {
+    if (pathname === `/workflows/${workflow.slug}` && method === 'GET') {
       return new Response(
         JSON.stringify({ data: { workflow, runs: detailRuns } }),
-        { status: 200 }
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    if (url.includes(`/workflows/${workflow.slug}/auto-materialize`)) {
+    if (pathname === `/workflows/${workflow.slug}/assets` && method === 'GET') {
+      return new Response(
+        JSON.stringify({ data: { assets: [] } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (pathname === `/workflows/${workflow.slug}/auto-materialize` && method === 'GET') {
       return new Response(
         JSON.stringify({
           data: autoOpsPayload,
@@ -307,27 +326,34 @@ function createFetchMock(options?: FetchMockOptions) {
             offset: 0
           }
         }),
-        { status: 200 }
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    if (url.endsWith(`/workflows/${workflow.slug}/run`) && init?.method === 'POST') {
-      const body = init.body ? JSON.parse(init.body as string) : {};
+    if (pathname === `/workflows/${workflow.slug}/run` && method === 'POST') {
+      const bodyRaw = init?.body ?? (input instanceof Request ? await input.clone().text() : undefined);
+      const body = bodyRaw ? JSON.parse(typeof bodyRaw === 'string' ? bodyRaw : String(bodyRaw)) : {};
       expect(body.parameters).toEqual({ tenant: 'umbrella', retries: 2 });
       expect(body.triggeredBy).toBe('operator@apphub.test');
       return new Response(JSON.stringify({ data: run }), { status: 202 });
     }
 
-    if (url.includes(`/workflows/${workflow.slug}/stats`)) {
-      return new Response(JSON.stringify({ data: statsPayload }), { status: 200 });
+    if (pathname === `/workflows/${workflow.slug}/stats` && method === 'GET') {
+      return new Response(JSON.stringify({ data: statsPayload }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
-    if (url.includes(`/workflows/${workflow.slug}/run-metrics`)) {
-      return new Response(JSON.stringify({ data: metricsPayload }), { status: 200 });
+    if (pathname === `/workflows/${workflow.slug}/run-metrics` && method === 'GET') {
+      return new Response(JSON.stringify({ data: metricsPayload }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
-    if (/\/workflow-runs\/.+\/steps$/.test(url)) {
-      const match = url.match(/\/workflow-runs\/([^/]+)\/steps$/);
+    if (/^\/workflow-runs\/.+\/steps$/.test(pathname)) {
+      const match = pathname.match(/^\/workflow-runs\/([^/]+)\/steps$/);
       const runId = match?.[1];
       if (runId) {
         const responseRun =
@@ -335,7 +361,7 @@ function createFetchMock(options?: FetchMockOptions) {
         const responseSteps = runStepsById[runId] ?? steps;
         return new Response(
           JSON.stringify({ data: { run: responseRun, steps: responseSteps } }),
-          { status: 200 }
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
     }

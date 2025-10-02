@@ -372,18 +372,60 @@ function parseCsvContent(content: string): ObservatoryRow[] {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  if (lines.length <= 1) {
+  if (lines.length === 0) {
     return [];
   }
 
-  const headers = lines[0]?.split(',').map((entry) => entry.trim().toLowerCase()) ?? [];
-  const timestampIndex = headers.indexOf('timestamp');
-  const instrumentIndex = headers.indexOf('instrument_id');
-  const siteIndex = headers.indexOf('site');
-  const temperatureIndex = headers.indexOf('temperature_c');
-  const humidityIndex = headers.indexOf('relative_humidity_pct');
-  const pm25Index = headers.indexOf('pm2_5_ug_m3');
-  const batteryIndex = headers.indexOf('battery_voltage');
+  const requiredColumns = [
+    'timestamp',
+    'instrument_id',
+    'site',
+    'temperature_c',
+    'relative_humidity_pct',
+    'pm2_5_ug_m3',
+    'battery_voltage'
+  ];
+  const firstRowRaw = lines[0]?.split(',') ?? [];
+  let headers = firstRowRaw.map((entry) => entry.trim().toLowerCase());
+  let dataStartIndex = 1;
+
+  const headerSet = new Set(headers);
+  const missingColumns = requiredColumns.filter((column) => !headerSet.has(column));
+  if (missingColumns.length > 0) {
+    const headerlessCandidate =
+      missingColumns.length === requiredColumns.length && firstRowRaw.length >= requiredColumns.length;
+    if (headerlessCandidate) {
+      headers = [...requiredColumns];
+      dataStartIndex = 0;
+    } else {
+      throw new Error(`CSV payload is missing required columns: ${missingColumns.join(', ')}`);
+    }
+  }
+
+  const locateColumn = (column: string): number => headers.indexOf(column);
+  let timestampIndex = locateColumn('timestamp');
+  const instrumentIndex = locateColumn('instrument_id');
+  const siteIndex = locateColumn('site');
+  const temperatureIndex = locateColumn('temperature_c');
+  const humidityIndex = locateColumn('relative_humidity_pct');
+  const pm25Index = locateColumn('pm2_5_ug_m3');
+  const batteryIndex = locateColumn('battery_voltage');
+
+  if (timestampIndex === -1) {
+    const sampleRowIndex = dataStartIndex < lines.length ? dataStartIndex : 0;
+    const sampleColumns = lines[sampleRowIndex]?.split(',') ?? [];
+    const inferredIndex = sampleColumns.findIndex((value) => {
+      const candidate = ensureString(value);
+      if (!candidate) {
+        return false;
+      }
+      const parsed = new Date(candidate);
+      return !Number.isNaN(parsed.getTime());
+    });
+    if (inferredIndex >= 0) {
+      timestampIndex = inferredIndex;
+    }
+  }
 
   if (timestampIndex === -1) {
     throw new Error('CSV payload is missing a timestamp column');
@@ -391,7 +433,7 @@ function parseCsvContent(content: string): ObservatoryRow[] {
 
   const rows: ObservatoryRow[] = [];
 
-  for (let index = 1; index < lines.length; index += 1) {
+  for (let index = dataStartIndex; index < lines.length; index += 1) {
     const columns = lines[index]?.split(',') ?? [];
     const timestampRaw = ensureString(columns[timestampIndex]);
     if (!timestampRaw) {

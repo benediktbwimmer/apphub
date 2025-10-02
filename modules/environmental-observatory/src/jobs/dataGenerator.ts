@@ -111,7 +111,16 @@ function buildCsv(
     rows: number;
   };
 } {
-  const lines: string[] = [];
+  const header = [
+    'timestamp',
+    'instrument_id',
+    'site',
+    'temperature_c',
+    'relative_humidity_pct',
+    'pm2_5_ug_m3',
+    'battery_voltage'
+  ].join(',');
+  const lines: string[] = [header];
   const minuteDate = new Date(`${minute}:00Z`);
   const intervalMs = Math.max(1, intervalMinutes) * 60_000;
   const firstTimestamp = new Date(minuteDate.getTime() - intervalMs * (rows - 1));
