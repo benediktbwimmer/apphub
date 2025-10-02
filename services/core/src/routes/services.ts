@@ -175,6 +175,8 @@ async function upsertModuleWorkflows(
 }
 
 const serviceStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
+const serviceRegistrationSourceSchema = z.enum(['external']);
+const serviceSourceFilterSchema = z.enum(['module', 'external']);
 
 function jsonResponse(schemaName: string, description: string) {
   return {
@@ -195,6 +197,7 @@ export const serviceRegistrationSchema = z
     displayName: z.string().min(1),
     kind: z.string().min(1),
     baseUrl: z.string().min(1).url(),
+    source: serviceRegistrationSourceSchema.optional(),
     status: serviceStatusSchema.optional(),
     statusMessage: z.string().nullable().optional(),
     capabilities: jsonValueSchema.optional(),
@@ -518,24 +521,59 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
       schema: {
         tags: ['Services'],
         summary: 'List registered services',
+        querystring: {
+          type: 'object',
+          additionalProperties: true,
+          properties: {
+            source: { type: 'string', enum: ['module', 'external'] }
+          }
+        },
         response: {
-          200: jsonResponse('ServiceListResponse', 'Service inventory and health summary.')
+          200: jsonResponse('ServiceListResponse', 'Service inventory and health summary.'),
+          400: errorResponse('The query parameters were invalid.')
         }
       }
     },
-    async () => {
+    async (request, reply) => {
+      const parseQuery = z
+        .object({ source: serviceSourceFilterSchema.optional() })
+        .passthrough()
+        .safeParse(request.query ?? {});
+
+      if (!parseQuery.success) {
+        reply.status(400);
+        return { error: parseQuery.error.flatten() };
+      }
+
+      const { source } = parseQuery.data;
       const services = await listServices();
-      const healthSnapshots = await getServiceHealthSnapshots(services.map((service) => service.slug));
-      const healthyCount = services.filter((service) => service.status === 'healthy').length;
-      const unhealthyCount = services.length - healthyCount;
+      const filteredServices = source
+        ? services.filter((service) => service.source === source)
+        : services;
+
+      const healthSnapshots = await getServiceHealthSnapshots(
+        filteredServices.map((service) => service.slug)
+      );
+      const healthyCount = filteredServices.filter((service) => service.status === 'healthy').length;
+      const unhealthyCount = filteredServices.length - healthyCount;
+      const sourceCounts = services.reduce(
+        (acc, service) => {
+          acc[service.source] = (acc[service.source] ?? 0) + 1;
+          return acc;
+        },
+        { module: 0, external: 0 } as Record<'module' | 'external', number>
+      );
+
       return {
-        data: services.map((service) =>
+        data: filteredServices.map((service) =>
           serializeService(service, healthSnapshots.get(service.slug) ?? null)
         ),
         meta: {
-          total: services.length,
+          total: filteredServices.length,
           healthyCount,
-          unhealthyCount
+          unhealthyCount,
+          filters: source ? { source } : null,
+          sourceCounts
         }
       };
     }
@@ -582,12 +620,14 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
       const payload = parseBody.data;
       const existing = await getServiceBySlug(payload.slug);
       const metadataUpdate = mergeServiceMetadata(existing?.metadata ?? null, payload.metadata);
+      const resolvedSource = payload.source ?? existing?.source ?? 'external';
 
       const upsertPayload: ServiceUpsertInput = {
         slug: payload.slug,
         displayName: payload.displayName,
         kind: payload.kind,
         baseUrl: payload.baseUrl,
+        source: resolvedSource,
         metadata: metadataUpdate
       };
 

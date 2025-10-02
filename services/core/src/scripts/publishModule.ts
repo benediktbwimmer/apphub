@@ -690,6 +690,7 @@ async function registerModuleServices(
       displayName,
       kind,
       baseUrl,
+      source: 'module',
       metadata: mergedMetadata,
       capabilities: existing?.capabilities ?? null,
       status: existing?.status ?? 'unknown',

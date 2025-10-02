@@ -187,6 +187,7 @@ export type ServiceRow = {
   display_name: string;
   kind: string;
   base_url: string;
+  source: string;
   status: string;
   status_message: string | null;
   capabilities: unknown;

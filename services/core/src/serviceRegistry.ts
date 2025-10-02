@@ -1086,6 +1086,7 @@ async function applyManifestToDatabase(entries: ManifestMap) {
       displayName: entry.displayName,
       kind: entry.kind,
       baseUrl: entry.baseUrl,
+      source: 'external',
       metadata: mergedMetadata,
       status: existing?.status,
       statusMessage: existing?.statusMessage

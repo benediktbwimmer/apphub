@@ -89,6 +89,7 @@ export async function registerDefaultServices(logger: FastifyBaseLogger): Promis
         displayName: definition.displayName,
         kind: definition.kind,
         baseUrl,
+        source: 'external',
         metadata
       });
 

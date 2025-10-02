@@ -453,12 +453,15 @@ export type ServiceStatus = 'unknown' | 'healthy' | 'degraded' | 'unreachable';
 
 export type ServiceKind = string;
 
+export type ServiceSource = 'external' | 'module';
+
 export type ServiceRecord = {
   id: string;
   slug: string;
   displayName: string;
   kind: ServiceKind;
   baseUrl: string;
+  source: ServiceSource;
   status: ServiceStatus;
   statusMessage: string | null;
   capabilities: JsonValue | null;
@@ -519,6 +522,7 @@ export type ServiceUpsertInput = {
   displayName: string;
   kind: ServiceKind;
   baseUrl: string;
+  source?: ServiceSource;
   status?: ServiceStatus;
   statusMessage?: string | null;
   capabilities?: JsonValue | null;

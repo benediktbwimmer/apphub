@@ -800,13 +800,17 @@ const serviceMetadataSchema: OpenAPIV3.SchemaObject = {
 
 const serviceSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
-  required: ['id', 'slug', 'displayName', 'kind', 'baseUrl', 'status', 'createdAt', 'updatedAt'],
+  required: ['id', 'slug', 'displayName', 'kind', 'baseUrl', 'source', 'status', 'createdAt', 'updatedAt'],
   properties: {
     id: { type: 'string' },
     slug: { type: 'string' },
     displayName: { type: 'string' },
     kind: { type: 'string' },
     baseUrl: { type: 'string', format: 'uri' },
+    source: {
+      type: 'string',
+      enum: ['external', 'module']
+    },
     status: {
       type: 'string',
       enum: ['unknown', 'healthy', 'degraded', 'unreachable']
@@ -843,11 +847,26 @@ const serviceListResponseSchema: OpenAPIV3.SchemaObject = {
     data: { type: 'array', items: serviceSchema },
     meta: {
       type: 'object',
-      required: ['total', 'healthyCount', 'unhealthyCount'],
+      required: ['total', 'healthyCount', 'unhealthyCount', 'sourceCounts'],
       properties: {
         total: { type: 'integer', minimum: 0 },
         healthyCount: { type: 'integer', minimum: 0 },
-        unhealthyCount: { type: 'integer', minimum: 0 }
+        unhealthyCount: { type: 'integer', minimum: 0 },
+        filters: nullable({
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            source: { type: 'string', enum: ['module', 'external'] }
+          }
+        }),
+        sourceCounts: {
+          type: 'object',
+          required: ['module', 'external'],
+          properties: {
+            module: { type: 'integer', minimum: 0 },
+            external: { type: 'integer', minimum: 0 }
+          }
+        }
       }
     }
   }
@@ -879,6 +898,11 @@ const serviceRegistrationRequestSchema: OpenAPIV3.SchemaObject = {
       nullable: true,
       allOf: [schemaRef('ServiceMetadata')],
       description: 'Optional metadata describing manifest provenance, linked apps, and runtime expectations.'
+    },
+    source: {
+      type: 'string',
+      enum: ['external'],
+      description: 'Source type. External registrations must use "external".'
     }
   }
 };

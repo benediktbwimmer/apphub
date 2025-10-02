@@ -1332,6 +1332,16 @@ const migrations: Migration[] = [
       `ALTER TABLE modules
          ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN NOT NULL DEFAULT TRUE;`
     ]
+  },
+  {
+    id: '046_service_source',
+    statements: [
+      `ALTER TABLE services
+         ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'external';`,
+      `UPDATE services
+         SET source = 'module'
+       WHERE metadata -> 'config' -> 'module' IS NOT NULL;`
+    ]
   }
 ];
 

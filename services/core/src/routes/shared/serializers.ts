@@ -110,6 +110,7 @@ export function serializeService(
     displayName: service.displayName,
     kind: service.kind,
     baseUrl: service.baseUrl,
+    source: service.source,
     status: service.status,
     statusMessage: service.statusMessage,
     capabilities: service.capabilities,

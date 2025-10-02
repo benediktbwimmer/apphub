@@ -2016,6 +2016,7 @@ export function mapServiceRow(row: ServiceRow): ServiceRecord {
     displayName: row.display_name,
     kind: row.kind,
     baseUrl: row.base_url,
+    source: (row.source ?? 'external') as ServiceRecord['source'],
     status: row.status as ServiceRecord['status'],
     statusMessage: row.status_message ?? null,
     capabilities: parseJsonColumn(row.capabilities),

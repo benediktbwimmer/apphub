@@ -63,6 +63,7 @@ export async function upsertService(input: ServiceUpsertInput): Promise<ServiceR
   const displayName = input.displayName.trim();
   const kind = input.kind.trim();
   const now = new Date().toISOString();
+  const source = input.source ?? null;
 
   const record = await useTransaction(async (client) => {
     const existing = await fetchServiceBySlug(client, slug);
@@ -80,6 +81,7 @@ export async function upsertService(input: ServiceUpsertInput): Promise<ServiceR
       : existing?.metadata ?? null;
 
     const createdAt = existing?.createdAt ?? now;
+    const resolvedSource = source ?? existing?.source ?? 'external';
 
     const next: ServiceRecord = {
       id: existing?.id ?? randomUUID(),
@@ -87,6 +89,7 @@ export async function upsertService(input: ServiceUpsertInput): Promise<ServiceR
       displayName: resolvedDisplayName,
       kind,
       baseUrl,
+      source: resolvedSource,
       status,
       statusMessage,
       capabilities,
@@ -101,6 +104,7 @@ export async function upsertService(input: ServiceUpsertInput): Promise<ServiceR
       existing.displayName === next.displayName &&
       existing.kind === next.kind &&
       existing.baseUrl === next.baseUrl &&
+      existing.source === next.source &&
       existing.status === next.status &&
       existing.statusMessage === next.statusMessage &&
       existing.lastHealthyAt === next.lastHealthyAt &&
@@ -113,15 +117,16 @@ export async function upsertService(input: ServiceUpsertInput): Promise<ServiceR
 
     await client.query(
       `INSERT INTO services (
-         id, slug, display_name, kind, base_url, status, status_message,
+         id, slug, display_name, kind, base_url, source, status, status_message,
          capabilities, metadata, last_healthy_at, created_at, updated_at
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
        )
        ON CONFLICT (slug) DO UPDATE SET
          display_name = EXCLUDED.display_name,
          kind = EXCLUDED.kind,
          base_url = EXCLUDED.base_url,
+         source = EXCLUDED.source,
          status = EXCLUDED.status,
          status_message = EXCLUDED.status_message,
          capabilities = EXCLUDED.capabilities,
@@ -134,6 +139,7 @@ export async function upsertService(input: ServiceUpsertInput): Promise<ServiceR
         next.displayName,
         next.kind,
         next.baseUrl,
+        next.source,
         next.status,
         next.statusMessage,
         toJsonParameter(next.capabilities),

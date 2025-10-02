@@ -13,11 +13,11 @@
 ## Proposed direction
 1. Split service records by source: module targets declare their own endpoints, while external Docker services continue to use the legacy manifest flow.
 2. Introduce a `source` flag and optional endpoint fields in the registry schema so modules can opt out of dynamic discovery while external services still supply host/port.
-3. Update the registry loader to skip health polling for module services and retain the existing checks for external ones.
+3. Keep the shared registry poller as the single source of truth for health snapshots across module and external services so UI badges, metrics, and OpenAPI refreshes remain consistent.
 4. Provide CLI/API helpers for registering external services explicitly, instead of relying on manifest backfills.
 
 ## Acceptance criteria
 - Database schema and registry code distinguish between `module` and `external` service entries.
-- Module services no longer require stored host/port details, but external services still publish health and routing metadata.
+- Module services continue to report health through the registry poller, while external services still publish health and routing metadata.
 - Admin APIs and UI surfaces display both types clearly, with filtering by source.
 - Documentation covers how to register external Docker services alongside modules.
