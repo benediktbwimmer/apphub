@@ -3,9 +3,12 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import WebSocket, { type RawData } from 'ws';
+import { z } from 'zod';
+import { normalizeEventEnvelope, type EventEnvelopeInput } from '@apphub/event-bus';
 import { computeRunMetrics } from '../observability/metrics';
 import { getPrometheusMetrics, getPrometheusContentType } from '../observability/queueTelemetry';
 import { subscribeToApphubEvents, type ApphubEvent } from '../events';
+import { enqueueWorkflowEvent } from '../queue';
 import {
   serializeBuild,
   serializeLaunch,
@@ -52,6 +55,20 @@ type WorkflowRunEventType =
   | 'workflow.run.succeeded'
   | 'workflow.run.failed'
   | 'workflow.run.canceled';
+
+const eventPublishRequestSchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    type: z.string().min(1, 'type is required'),
+    source: z.string().min(1, 'source is required'),
+    occurredAt: z.union([z.string(), z.date()]).optional(),
+    payload: z.unknown().optional(),
+    metadata: z.unknown().optional(),
+    correlationId: z.string().min(1).optional(),
+    ttlSeconds: z.number().int().positive().optional(),
+    ttl: z.number().int().positive().optional()
+  })
+  .passthrough();
 
 type OutboundEvent =
   | { type: 'repository.updated'; data: { repository: SerializedRepository } }
@@ -194,6 +211,50 @@ export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
       sockets.delete(socket);
     }
   };
+
+  app.post('/v1/events', async (request, reply) => {
+    const parsed = eventPublishRequestSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      reply.status(400);
+      return { error: parsed.error.flatten() };
+    }
+
+    const { ttlSeconds, ttl, payload, metadata, ...rest } = parsed.data;
+
+    const envelopeInput: EventEnvelopeInput = {
+      id: rest.id,
+      type: rest.type,
+      source: rest.source,
+      occurredAt: rest.occurredAt,
+      payload: (payload ?? {}) as EventEnvelopeInput['payload'],
+      metadata: metadata as Record<string, unknown> | undefined,
+      correlationId: rest.correlationId,
+      ttl: typeof ttl === 'number' ? ttl : ttlSeconds
+    };
+
+    let envelope;
+    try {
+      envelope = normalizeEventEnvelope(envelopeInput);
+    } catch (err) {
+      reply.status(400);
+      return { error: err instanceof Error ? err.message : 'Invalid event payload.' };
+    }
+
+    try {
+      const queued = await enqueueWorkflowEvent(envelope);
+      reply.status(202);
+      return {
+        data: {
+          acceptedAt: new Date().toISOString(),
+          event: queued
+        }
+      };
+    } catch (err) {
+      request.log.error({ err }, 'Failed to enqueue workflow event');
+      reply.status(502);
+      return { error: 'Failed to enqueue workflow event.' };
+    }
+  });
 
   const unsubscribe = subscribeToApphubEvents((event) => {
     const outbound = toOutboundEvent(event);

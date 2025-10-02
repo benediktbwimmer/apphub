@@ -30,6 +30,8 @@ import type {
   ModuleTargetBinding,
   WorkflowDefinitionRecord,
   WorkflowEventTriggerPredicate,
+  WorkflowStepDefinition,
+  WorkflowTriggerDefinition,
   JsonValue
 } from '../db/types';
 
@@ -179,13 +181,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function coerceRecord(value: unknown): Record<string, unknown> | undefined {
-  if (isRecord(value)) {
-    return value as Record<string, unknown>;
-  }
-  return undefined;
-}
-
 async function loadModuleJobDefinition(
   moduleDir: string | undefined,
   candidates: Iterable<string>
@@ -250,11 +245,24 @@ async function registerModuleJobs(
 
     let slug = primarySlug;
     let displayName = target.displayName ?? target.name;
-    let defaultParameters = coerceRecord(target.metadata?.parameters?.defaults) ?? undefined;
-    let parametersSchema: Record<string, unknown> | undefined;
-    let outputSchema: Record<string, unknown> | undefined;
 
-    const jobDefinition = await loadModuleJobDefinition(moduleDir, [target.name, primarySlug, preferredSlugCandidate ?? '']);
+    const metadataShape = target.metadata as
+      | {
+          job?: { slug?: string; name?: string };
+          parameters?: { defaults?: JsonValue; schema?: JsonValue };
+          output?: { schema?: JsonValue };
+        }
+      | undefined;
+
+    let defaultParameters: JsonValue = metadataShape?.parameters?.defaults ?? {};
+    let parametersSchema: JsonValue = metadataShape?.parameters?.schema ?? {};
+    let outputSchema: JsonValue = metadataShape?.output?.schema ?? {};
+
+    const jobDefinition = await loadModuleJobDefinition(moduleDir, [
+      target.name,
+      primarySlug,
+      preferredSlugCandidate ?? ''
+    ]);
     if (jobDefinition) {
       if (typeof jobDefinition.slug === 'string' && jobDefinition.slug.trim().length > 0) {
         slug = jobDefinition.slug.trim();
@@ -262,23 +270,26 @@ async function registerModuleJobs(
       if (typeof jobDefinition.name === 'string' && jobDefinition.name.trim().length > 0) {
         displayName = jobDefinition.name.trim();
       }
-      const defaults = coerceRecord(jobDefinition.defaultParameters);
-      if (defaults) {
-        defaultParameters = defaults;
+      if (jobDefinition.defaultParameters !== undefined) {
+        defaultParameters = jobDefinition.defaultParameters as JsonValue;
       }
-      const paramsSchema = coerceRecord(jobDefinition.parametersSchema);
-      if (paramsSchema) {
-        parametersSchema = paramsSchema;
+      if (jobDefinition.parametersSchema !== undefined) {
+        parametersSchema = jobDefinition.parametersSchema as JsonValue;
       }
-      const jobOutputSchema = coerceRecord(jobDefinition.outputSchema);
-      if (jobOutputSchema) {
-        outputSchema = jobOutputSchema;
+      if (jobDefinition.outputSchema !== undefined) {
+        outputSchema = jobDefinition.outputSchema as JsonValue;
       }
     }
 
-    const mergedDefaultParameters = defaultParameters ?? {};
-    const mergedParametersSchema = parametersSchema ?? {};
-    const mergedOutputSchema = outputSchema ?? {};
+    const jobMetadata: JsonValue = {
+      module: {
+        id: result.module.id,
+        version: result.artifact.version,
+        targetName: target.name,
+        targetVersion: target.version,
+        fingerprint: target.fingerprint ?? null
+      }
+    };
 
     await upsertJobDefinition({
       slug,
@@ -287,18 +298,10 @@ async function registerModuleJobs(
       runtime: 'module',
       entryPoint: `module://${result.module.id}/${target.name}`,
       version: 1,
-      defaultParameters: mergedDefaultParameters,
-      parametersSchema: mergedParametersSchema,
-      metadata: {
-        module: {
-          id: result.module.id,
-          version: result.artifact.version,
-          targetName: target.name,
-          targetVersion: target.version,
-          fingerprint: target.fingerprint ?? null
-        }
-      },
-      outputSchema: mergedOutputSchema,
+      defaultParameters,
+      parametersSchema,
+      metadata: jobMetadata,
+      outputSchema,
       moduleBinding: binding
     });
 
@@ -320,6 +323,164 @@ interface WorkflowTargetContext {
   moduleId: string;
   targetName: string;
   targetVersion: string | null | undefined;
+  defaultParameters: Record<string, unknown>;
+}
+
+const DEFAULT_PARAMETER_EXACT_PATTERN = /^\{\{\s*defaultParameters\.([A-Za-z0-9_.-]+)\s*}}$/;
+const DEFAULT_PARAMETER_GLOBAL_PATTERN = /\{\{\s*defaultParameters\.([A-Za-z0-9_.-]+)\s*}}/g;
+
+function toDefaultParameterRecord(value: JsonValue | null | undefined): Record<string, unknown> {
+  if (isPlainObject(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function resolveDefaultParameterValue(
+  path: string,
+  context: WorkflowTargetContext
+): JsonValue | undefined {
+  const segments = path.split('.');
+  let current: unknown = context.defaultParameters;
+
+  for (const segment of segments) {
+    if (isPlainObject(current) && Object.prototype.hasOwnProperty.call(current, segment)) {
+      current = (current as Record<string, unknown>)[segment];
+      continue;
+    }
+
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (Number.isInteger(index) && index >= 0 && index < current.length) {
+        current = current[index];
+        continue;
+      }
+    }
+
+    console.warn('[module:publish] Missing default parameter reference', {
+      moduleId: context.moduleId,
+      targetName: context.targetName,
+      targetVersion: context.targetVersion,
+      placeholder: path
+    });
+    return undefined;
+  }
+
+  return current as JsonValue;
+}
+
+function resolveDefaultParameterString(
+  value: string | null,
+  context: WorkflowTargetContext
+): string | null {
+  if (!value) {
+    return value;
+  }
+
+  const match = value.trim().match(DEFAULT_PARAMETER_EXACT_PATTERN);
+  if (match) {
+    const resolved = resolveDefaultParameterValue(match[1], context);
+    if (resolved === undefined) {
+      return value;
+    }
+    if (resolved === null) {
+      return '';
+    }
+    if (typeof resolved === 'object') {
+      return JSON.stringify(resolved);
+    }
+    return String(resolved);
+  }
+
+  return value.replace(DEFAULT_PARAMETER_GLOBAL_PATTERN, (_, expression) => {
+    const resolved = resolveDefaultParameterValue(expression, context);
+    if (resolved === undefined || resolved === null) {
+      return '';
+    }
+    if (typeof resolved === 'object') {
+      return JSON.stringify(resolved);
+    }
+    return String(resolved);
+  });
+}
+
+function resolveDefaultParameterJsonValue(
+  value: JsonValue | null,
+  context: WorkflowTargetContext
+): JsonValue | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const match = trimmed.match(DEFAULT_PARAMETER_EXACT_PATTERN);
+    if (match) {
+      const resolved = resolveDefaultParameterValue(match[1], context);
+      if (resolved === undefined) {
+        return value;
+      }
+      return (resolved ?? null) as JsonValue | null;
+    }
+
+    const replaced = value.replace(DEFAULT_PARAMETER_GLOBAL_PATTERN, (_, expression) => {
+      const resolved = resolveDefaultParameterValue(expression, context);
+      if (resolved === undefined || resolved === null) {
+        return '';
+      }
+      if (typeof resolved === 'object') {
+        return JSON.stringify(resolved);
+      }
+      return String(resolved);
+    });
+    return replaced;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => resolveDefaultParameterJsonValue(entry as JsonValue, context) as JsonValue);
+  }
+
+  if (isPlainObject(value)) {
+    const output: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      output[key] = resolveDefaultParameterJsonValue(entry as JsonValue, context) as JsonValue;
+    }
+    return output;
+  }
+
+  return value;
+}
+
+function resolveTriggerPredicatesWithDefaults(
+  predicates: WorkflowEventTriggerPredicate[],
+  context: WorkflowTargetContext
+): WorkflowEventTriggerPredicate[] {
+  return predicates.map((predicate) => {
+    switch (predicate.operator) {
+      case 'equals':
+      case 'notEquals':
+      case 'contains':
+        return {
+          ...predicate,
+          value: resolveDefaultParameterJsonValue(predicate.value ?? null, context) ?? predicate.value
+        };
+      case 'in':
+      case 'notIn':
+        return {
+          ...predicate,
+          values: predicate.values.map(
+            (entry) => resolveDefaultParameterJsonValue(entry ?? null, context) ?? entry
+          )
+        };
+      case 'regex':
+        return {
+          ...predicate,
+          value: resolveDefaultParameterString(predicate.value, context) ?? predicate.value
+        };
+      default:
+        return predicate;
+    }
+  });
 }
 
 interface DesiredTrigger {
@@ -490,11 +651,19 @@ function buildDesiredTrigger(
     description,
     eventType,
     eventSource,
-    predicates,
-    parameterTemplate: coerceJsonValue(raw.parameterTemplate ?? null),
-    runKeyTemplate: typeof raw.runKeyTemplate === 'string' ? raw.runKeyTemplate : null,
+    predicates: resolveTriggerPredicatesWithDefaults(predicates, context),
+    parameterTemplate: resolveDefaultParameterJsonValue(
+      coerceJsonValue(raw.parameterTemplate ?? null),
+      context
+    ),
+    runKeyTemplate:
+      typeof raw.runKeyTemplate === 'string'
+        ? resolveDefaultParameterString(raw.runKeyTemplate, context)
+        : null,
     idempotencyKeyExpression:
-      typeof raw.idempotencyKeyExpression === 'string' ? raw.idempotencyKeyExpression : null,
+      typeof raw.idempotencyKeyExpression === 'string'
+        ? resolveDefaultParameterString(raw.idempotencyKeyExpression, context)
+        : null,
     throttleWindowMs:
       typeof throttleWindowMsRaw === 'number'
         ? throttleWindowMsRaw
@@ -513,7 +682,7 @@ function buildDesiredTrigger(
         : Number.isFinite(Number(maxConcurrencyRaw))
           ? Number(maxConcurrencyRaw)
           : null,
-    metadata: coerceJsonValue(raw.metadata ?? null),
+    metadata: resolveDefaultParameterJsonValue(coerceJsonValue(raw.metadata ?? null), context),
     status
   } satisfies DesiredTrigger;
 }
@@ -532,12 +701,19 @@ function buildDesiredSchedule(
     return null;
   }
 
-  const name = typeof raw.name === 'string' && raw.name.trim().length > 0 ? raw.name.trim() : null;
-  const description = typeof raw.description === 'string' ? raw.description : null;
-  const timezone = typeof raw.timezone === 'string' && raw.timezone.trim().length > 0 ? raw.timezone.trim() : null;
-  const parameters = coerceJsonValue(raw.parameterTemplate ?? null);
-  const startWindow = typeof raw.startWindow === 'string' ? raw.startWindow : null;
-  const endWindow = typeof raw.endWindow === 'string' ? raw.endWindow : null;
+  const rawName = typeof raw.name === 'string' && raw.name.trim().length > 0 ? raw.name.trim() : null;
+  const rawDescription = typeof raw.description === 'string' ? raw.description : null;
+  const rawTimezone = typeof raw.timezone === 'string' && raw.timezone.trim().length > 0 ? raw.timezone.trim() : null;
+  const rawParameters = coerceJsonValue(raw.parameterTemplate ?? null);
+  const rawStartWindow = typeof raw.startWindow === 'string' ? raw.startWindow : null;
+  const rawEndWindow = typeof raw.endWindow === 'string' ? raw.endWindow : null;
+
+  const name = resolveDefaultParameterString(rawName, context);
+  const description = resolveDefaultParameterString(rawDescription, context);
+  const timezone = resolveDefaultParameterString(rawTimezone, context);
+  const parameters = resolveDefaultParameterJsonValue(rawParameters, context);
+  const startWindow = resolveDefaultParameterString(rawStartWindow, context);
+  const endWindow = resolveDefaultParameterString(rawEndWindow, context);
 
   let catchUp = true;
   if (typeof raw.catchUp === 'boolean') {
@@ -840,8 +1016,10 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
         : target.description ?? null;
     const versionValue = typeof definitionData.version === 'number' ? (definitionData.version as number) : Number(target.version ?? '1');
     const version = Number.isFinite(versionValue) && versionValue > 0 ? Math.trunc(versionValue) : 1;
-    const stepsValue = Array.isArray(definitionData.steps) ? definitionData.steps : [];
-    const steps = stepsValue as unknown[];
+    const stepsValue = Array.isArray(definitionData.steps)
+      ? (definitionData.steps as WorkflowStepDefinition[])
+      : ([] as WorkflowStepDefinition[]);
+    const steps = stepsValue;
     if (steps.length === 0) {
       console.warn('[module:publish] Workflow target has no steps; skipping', {
         moduleId: result.module.id,
@@ -859,14 +1037,24 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
       fingerprint: target.fingerprint ?? null
     } as const;
 
-    const metadata: Record<string, unknown> = { module: moduleMetadata };
+    const metadataRecord: Record<string, unknown> = { module: moduleMetadata };
     if (isPlainObject(definitionData.metadata)) {
-      Object.assign(metadata, definitionData.metadata as Record<string, unknown>);
+      Object.assign(metadataRecord, definitionData.metadata as Record<string, unknown>);
     }
 
+    const metadata: JsonValue = metadataRecord as JsonValue;
+
     const definitionTriggers = Array.isArray(definitionData.triggers)
-      ? (definitionData.triggers as unknown[])
+      ? (definitionData.triggers as WorkflowTriggerDefinition[])
       : undefined;
+
+    const parametersSchemaValue: JsonValue = isPlainObject(definitionData.parametersSchema)
+      ? (definitionData.parametersSchema as JsonValue)
+      : {};
+    const defaultParametersValue: JsonValue = isPlainObject(definitionData.defaultParameters)
+      ? (definitionData.defaultParameters as JsonValue)
+      : {};
+    const outputSchemaValue: JsonValue = {};
 
     const definitionInput = {
       slug,
@@ -875,15 +1063,9 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
       description,
       steps,
       triggers: definitionTriggers,
-      parametersSchema:
-        isPlainObject(definitionData.parametersSchema)
-          ? (definitionData.parametersSchema as Record<string, unknown>)
-          : {},
-      defaultParameters:
-        isPlainObject(definitionData.defaultParameters)
-          ? (definitionData.defaultParameters as Record<string, unknown>)
-          : {},
-      outputSchema: {},
+      parametersSchema: parametersSchemaValue,
+      defaultParameters: defaultParametersValue,
+      outputSchema: outputSchemaValue,
       metadata
     } satisfies Parameters<typeof createWorkflowDefinition>[0];
 
@@ -934,17 +1116,18 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
       continue;
     }
 
-    await syncWorkflowTriggers(definitionRecord, workflowConfig.triggers, {
-      moduleId: moduleMetadata.id,
-      targetName: target.name,
-      targetVersion: target.version
-    });
+    const defaultParametersRecord = toDefaultParameterRecord(definitionRecord.defaultParameters);
 
-    await syncWorkflowSchedules(definitionRecord, workflowConfig.schedules, {
+    const workflowContext: WorkflowTargetContext = {
       moduleId: moduleMetadata.id,
       targetName: target.name,
-      targetVersion: target.version
-    });
+      targetVersion: target.version,
+      defaultParameters: defaultParametersRecord
+    };
+
+    await syncWorkflowTriggers(definitionRecord, workflowConfig.triggers, workflowContext);
+
+    await syncWorkflowSchedules(definitionRecord, workflowConfig.schedules, workflowContext);
   }
 }
 

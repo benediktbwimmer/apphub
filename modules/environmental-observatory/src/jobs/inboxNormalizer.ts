@@ -42,7 +42,7 @@ const DEFAULT_EVENT_SOURCE = 'observatory.inbox-normalizer';
 const parametersSchema = z
   .object({
     minute: z.string().min(1, 'minute parameter is required'),
-    maxFiles: z.number().int().positive().max(MAX_FILES_LIMIT).optional(),
+    maxFiles: z.coerce.number().int().positive().max(MAX_FILES_LIMIT).optional(),
     commandPath: z.string().min(1).optional()
   })
   .strip();

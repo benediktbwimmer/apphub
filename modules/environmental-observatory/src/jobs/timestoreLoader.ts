@@ -725,7 +725,44 @@ export const timestoreLoaderJob = createJobHandler<
     defaults: defaultObservatorySettings
   },
   parameters: {
-    resolve: (raw) => parametersSchema.parse(raw ?? {})
+    resolve: (raw) => {
+      const candidate: Record<string, unknown> = { ...(raw ?? {}) };
+
+      const backendId = candidate.filestoreBackendId ?? candidate.backendMountId;
+      if (typeof backendId === 'string') {
+        const parsed = Number(backendId.trim());
+        if (Number.isFinite(parsed) && parsed > 0) {
+          candidate.filestoreBackendId = parsed;
+        } else {
+          delete candidate.filestoreBackendId;
+        }
+      } else if (typeof backendId === 'number' && Number.isFinite(backendId) && backendId > 0) {
+        candidate.filestoreBackendId = backendId;
+      }
+
+      const storageTargetCandidate =
+        candidate.storageTargetId ?? candidate.timestoreStorageTargetId ?? null;
+      if (typeof storageTargetCandidate === 'string') {
+        const trimmed = storageTargetCandidate.trim();
+        candidate.storageTargetId = trimmed.length > 0 ? trimmed : null;
+      } else if (storageTargetCandidate === null || storageTargetCandidate === undefined) {
+        candidate.storageTargetId = null;
+      }
+      delete candidate.timestoreStorageTargetId;
+
+      if (typeof candidate.idempotencyKey === 'string') {
+        const trimmed = candidate.idempotencyKey.trim();
+        if (trimmed.length === 0) {
+          delete candidate.idempotencyKey;
+        } else {
+          candidate.idempotencyKey = trimmed;
+        }
+      } else if (candidate.idempotencyKey === null) {
+        delete candidate.idempotencyKey;
+      }
+
+      return parametersSchema.parse(candidate);
+    }
   },
   handler: async (context: TimestoreLoaderContext): Promise<TimestoreLoaderResult> => {
     const filestore = context.capabilities.filestore;

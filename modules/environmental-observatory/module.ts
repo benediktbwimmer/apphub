@@ -23,7 +23,7 @@ import {
 export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>({
   metadata: {
     name: 'environmental-observatory',
-    version: '0.1.0',
+    version: '0.1.2',
     displayName: 'Environmental Observatory',
     description:
       'Reference implementation of the environmental observatory scenario using the AppHub module runtime.'
@@ -33,6 +33,29 @@ export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>
   },
   secrets: {
     defaults: {}
+  },
+  capabilities: {
+    filestore: {
+      baseUrl: defaultObservatorySettings.filestore.baseUrl,
+      backendMountId: defaultObservatorySettings.filestore.backendId ?? 1
+    },
+    metastore: {
+      baseUrl: defaultObservatorySettings.metastore.baseUrl,
+      namespace: defaultObservatorySettings.metastore.namespace
+    },
+    timestore: {
+      baseUrl: defaultObservatorySettings.timestore.baseUrl
+    },
+    events: {
+      baseUrl: defaultObservatorySettings.core.baseUrl,
+      defaultSource: defaultObservatorySettings.events.source
+    },
+    coreHttp: {
+      baseUrl: defaultObservatorySettings.core.baseUrl
+    },
+    coreWorkflows: {
+      baseUrl: defaultObservatorySettings.core.baseUrl
+    }
   },
   targets: [
     dataGeneratorJob,

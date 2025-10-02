@@ -3953,94 +3953,19 @@
             "type": "string"
           },
           "parametersSchema": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           },
           "defaultParameters": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           },
           "outputSchema": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           },
           "timeoutMs": {
             "type": "integer",
@@ -4208,102 +4133,18 @@
           },
           "parametersSchema": {
             "type": "object",
-            "additionalProperties": {
-              "description": "Arbitrary JSON value.",
-              "nullable": true,
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                },
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                }
-              ]
-            }
+            "additionalProperties": true,
+            "nullable": true
           },
           "defaultParameters": {
             "type": "object",
-            "additionalProperties": {
-              "description": "Arbitrary JSON value.",
-              "nullable": true,
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                },
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                }
-              ]
-            }
+            "additionalProperties": true,
+            "nullable": true
           },
           "outputSchema": {
             "type": "object",
-            "additionalProperties": {
-              "description": "Arbitrary JSON value.",
-              "nullable": true,
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                },
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                }
-              ]
-            }
+            "additionalProperties": true,
+            "nullable": true
           },
           "metadata": {
             "description": "Arbitrary JSON value.",
@@ -4411,102 +4252,18 @@
           },
           "parametersSchema": {
             "type": "object",
-            "additionalProperties": {
-              "description": "Arbitrary JSON value.",
-              "nullable": true,
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                },
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                }
-              ]
-            }
+            "additionalProperties": true,
+            "nullable": true
           },
           "defaultParameters": {
             "type": "object",
-            "additionalProperties": {
-              "description": "Arbitrary JSON value.",
-              "nullable": true,
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                },
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                }
-              ]
-            }
+            "additionalProperties": true,
+            "nullable": true
           },
           "outputSchema": {
             "type": "object",
-            "additionalProperties": {
-              "description": "Arbitrary JSON value.",
-              "nullable": true,
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                },
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                }
-              ]
-            }
+            "additionalProperties": true,
+            "nullable": true
           },
           "metadata": {
             "description": "Arbitrary JSON value.",
@@ -4595,94 +4352,19 @@
                 "type": "string"
               },
               "parametersSchema": {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
               },
               "defaultParameters": {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
               },
               "outputSchema": {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
               },
               "timeoutMs": {
                 "type": "integer",
@@ -4824,94 +4506,19 @@
                   "type": "string"
                 },
                 "parametersSchema": {
-                  "description": "Arbitrary JSON value.",
-                  "nullable": true,
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
                 },
                 "defaultParameters": {
-                  "description": "Arbitrary JSON value.",
-                  "nullable": true,
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
                 },
                 "outputSchema": {
-                  "description": "Arbitrary JSON value.",
-                  "nullable": true,
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
                 },
                 "timeoutMs": {
                   "type": "integer",
@@ -5493,94 +5100,19 @@
                     "type": "string"
                   },
                   "parametersSchema": {
-                    "description": "Arbitrary JSON value.",
-                    "nullable": true,
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
                   },
                   "defaultParameters": {
-                    "description": "Arbitrary JSON value.",
-                    "nullable": true,
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
                   },
                   "outputSchema": {
-                    "description": "Arbitrary JSON value.",
-                    "nullable": true,
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
                   },
                   "timeoutMs": {
                     "type": "integer",
@@ -9397,154 +8929,29 @@
             }
           },
           "parametersSchema": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           },
           "defaultParameters": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           },
           "outputSchema": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           },
           "metadata": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           },
           "dag": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           },
           "createdAt": {
             "type": "string",
@@ -10413,129 +9820,23 @@
           },
           "parametersSchema": {
             "type": "object",
-            "additionalProperties": {
-              "description": "Arbitrary JSON value.",
-              "nullable": true,
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                },
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                }
-              ]
-            }
+            "additionalProperties": true,
+            "nullable": true
           },
           "defaultParameters": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           },
           "outputSchema": {
             "type": "object",
-            "additionalProperties": {
-              "description": "Arbitrary JSON value.",
-              "nullable": true,
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                },
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
-                }
-              ]
-            }
+            "additionalProperties": true,
+            "nullable": true
           },
           "metadata": {
-            "description": "Arbitrary JSON value.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
-              }
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
           }
         }
       },
@@ -11410,154 +10711,29 @@
                 }
               },
               "parametersSchema": {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
               },
               "defaultParameters": {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
               },
               "outputSchema": {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
               },
               "metadata": {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
               },
               "dag": {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
               },
               "createdAt": {
                 "type": "string",
@@ -12444,154 +11620,29 @@
                   }
                 },
                 "parametersSchema": {
-                  "description": "Arbitrary JSON value.",
-                  "nullable": true,
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
                 },
                 "defaultParameters": {
-                  "description": "Arbitrary JSON value.",
-                  "nullable": true,
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
                 },
                 "outputSchema": {
-                  "description": "Arbitrary JSON value.",
-                  "nullable": true,
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
                 },
                 "metadata": {
-                  "description": "Arbitrary JSON value.",
-                  "nullable": true,
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
                 },
                 "dag": {
-                  "description": "Arbitrary JSON value.",
-                  "nullable": true,
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
                 },
                 "createdAt": {
                   "type": "string",
@@ -13197,94 +12248,19 @@
                     "type": "string"
                   },
                   "parametersSchema": {
-                    "description": "Arbitrary JSON value.",
-                    "nullable": true,
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
                   },
                   "defaultParameters": {
-                    "description": "Arbitrary JSON value.",
-                    "nullable": true,
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
                   },
                   "outputSchema": {
-                    "description": "Arbitrary JSON value.",
-                    "nullable": true,
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
                   },
                   "timeoutMs": {
                     "type": "integer",
@@ -21999,112 +20975,25 @@
             "type": "string"
           },
           "parametersSchema": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": true
           },
           "defaultParameters": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": true
           },
           "outputSchema": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": true
           },
           "timeoutMs": {
             "type": [
@@ -22282,121 +21171,25 @@
             }
           },
           "parametersSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "description": "Arbitrary JSON value.",
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "defaultParameters": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "description": "Arbitrary JSON value.",
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "outputSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "description": "Arbitrary JSON value.",
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "metadata": {
             "anyOf": [
@@ -22510,121 +21303,25 @@
             }
           },
           "parametersSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "description": "Arbitrary JSON value.",
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "defaultParameters": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "description": "Arbitrary JSON value.",
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "outputSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "description": "Arbitrary JSON value.",
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "metadata": {
             "anyOf": [
@@ -22720,112 +21417,25 @@
                 "type": "string"
               },
               "parametersSchema": {
-                "anyOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "additionalProperties": true
               },
               "defaultParameters": {
-                "anyOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "additionalProperties": true
               },
               "outputSchema": {
-                "anyOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "additionalProperties": true
               },
               "timeoutMs": {
                 "type": [
@@ -22978,112 +21588,25 @@
                   "type": "string"
                 },
                 "parametersSchema": {
-                  "anyOf": [
-                    {
-                      "description": "Arbitrary JSON value.",
-                      "oneOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "boolean"
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "additionalProperties": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "additionalProperties": true
                 },
                 "defaultParameters": {
-                  "anyOf": [
-                    {
-                      "description": "Arbitrary JSON value.",
-                      "oneOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "boolean"
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "additionalProperties": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "additionalProperties": true
                 },
                 "outputSchema": {
-                  "anyOf": [
-                    {
-                      "description": "Arbitrary JSON value.",
-                      "oneOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "boolean"
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "additionalProperties": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "additionalProperties": true
                 },
                 "timeoutMs": {
                   "type": [
@@ -23729,112 +22252,25 @@
                     "type": "string"
                   },
                   "parametersSchema": {
-                    "anyOf": [
-                      {
-                        "description": "Arbitrary JSON value.",
-                        "oneOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          }
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "additionalProperties": true
                   },
                   "defaultParameters": {
-                    "anyOf": [
-                      {
-                        "description": "Arbitrary JSON value.",
-                        "oneOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          }
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "additionalProperties": true
                   },
                   "outputSchema": {
-                    "anyOf": [
-                      {
-                        "description": "Arbitrary JSON value.",
-                        "oneOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          }
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "additionalProperties": true
                   },
                   "timeoutMs": {
                     "type": [
@@ -28049,184 +26485,39 @@
             }
           },
           "parametersSchema": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "defaultParameters": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "outputSchema": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "metadata": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "dag": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "createdAt": {
             "type": "string",
@@ -29177,154 +27468,32 @@
             }
           },
           "parametersSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "description": "Arbitrary JSON value.",
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "defaultParameters": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "outputSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "description": "Arbitrary JSON value.",
-                  "oneOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           },
           "metadata": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
           }
         },
         "title": "https://core.apphub/schemas/WorkflowDefinitionCreateRequest.json"
@@ -30284,184 +28453,39 @@
                 }
               },
               "parametersSchema": {
-                "anyOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "additionalProperties": true
               },
               "defaultParameters": {
-                "anyOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "additionalProperties": true
               },
               "outputSchema": {
-                "anyOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "additionalProperties": true
               },
               "metadata": {
-                "anyOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "additionalProperties": true
               },
               "dag": {
-                "anyOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "additionalProperties": true
               },
               "createdAt": {
                 "type": "string",
@@ -31433,184 +29457,39 @@
                   }
                 },
                 "parametersSchema": {
-                  "anyOf": [
-                    {
-                      "description": "Arbitrary JSON value.",
-                      "oneOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "boolean"
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "additionalProperties": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "additionalProperties": true
                 },
                 "defaultParameters": {
-                  "anyOf": [
-                    {
-                      "description": "Arbitrary JSON value.",
-                      "oneOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "boolean"
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "additionalProperties": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "additionalProperties": true
                 },
                 "outputSchema": {
-                  "anyOf": [
-                    {
-                      "description": "Arbitrary JSON value.",
-                      "oneOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "boolean"
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "additionalProperties": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "additionalProperties": true
                 },
                 "metadata": {
-                  "anyOf": [
-                    {
-                      "description": "Arbitrary JSON value.",
-                      "oneOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "boolean"
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "additionalProperties": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "additionalProperties": true
                 },
                 "dag": {
-                  "anyOf": [
-                    {
-                      "description": "Arbitrary JSON value.",
-                      "oneOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "boolean"
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "additionalProperties": {
-                            "$ref": "#/components/schemas/def-0"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "additionalProperties": true
                 },
                 "createdAt": {
                   "type": "string",
@@ -32305,112 +30184,25 @@
                     "type": "string"
                   },
                   "parametersSchema": {
-                    "anyOf": [
-                      {
-                        "description": "Arbitrary JSON value.",
-                        "oneOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          }
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "additionalProperties": true
                   },
                   "defaultParameters": {
-                    "anyOf": [
-                      {
-                        "description": "Arbitrary JSON value.",
-                        "oneOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          }
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "additionalProperties": true
                   },
                   "outputSchema": {
-                    "anyOf": [
-                      {
-                        "description": "Arbitrary JSON value.",
-                        "oneOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": {
-                              "$ref": "#/components/schemas/def-0"
-                            }
-                          }
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "additionalProperties": true
                   },
                   "timeoutMs": {
                     "type": [
@@ -37219,6 +35011,15 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }

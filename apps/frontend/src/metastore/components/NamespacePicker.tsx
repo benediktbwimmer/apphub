@@ -113,6 +113,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRequestRef = useRef<AbortController | null>(null);
   const hasDiscoveryRef = useRef(false);
+  const discoveryEnabledRef = useRef(true);
   const labelId = useId();
 
   const [favorites, setFavorites] = useState<string[]>(() => loadStoredList(FAVORITES_STORAGE_KEY));
@@ -124,6 +125,10 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
   const [discoveryEnabled, setDiscoveryEnabled] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [lastError, setLastError] = useState<string | null>(null);
+
+  useEffect(() => {
+    discoveryEnabledRef.current = discoveryEnabled;
+  }, [discoveryEnabled]);
 
   const debouncedSearch = useDebouncedValue(searchTerm, 250);
 
@@ -267,7 +272,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
 
   const fetchNamespaces = useCallback(
     async (search?: string, { showErrors }: { showErrors: boolean } = { showErrors: true }): Promise<boolean> => {
-      if (!discoveryEnabled && !hasDiscoveryRef.current) {
+      if (!discoveryEnabledRef.current && !hasDiscoveryRef.current) {
         setDiscoveryEnabled(true);
       }
       if (activeRequestRef.current) {
@@ -316,7 +321,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
         }
       }
     },
-    [authorizedFetch, discoveryEnabled, showError]
+    [authorizedFetch, showError]
   );
 
   useEffect(() => {

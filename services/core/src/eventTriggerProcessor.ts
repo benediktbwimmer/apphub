@@ -270,6 +270,18 @@ async function renderStringTemplate(template: string, context: Record<string, un
   return liquid.parseAndRender(template, context);
 }
 
+function coerceRenderedScalar(rendered: string): JsonValue {
+  const trimmed = rendered.trim();
+  if (trimmed.length === 0) {
+    return '';
+  }
+  try {
+    return JSON.parse(trimmed) as JsonValue;
+  } catch {
+    return rendered;
+  }
+}
+
 async function renderJsonTemplate(
   value: JsonValue | null,
   context: Record<string, unknown>
@@ -279,7 +291,7 @@ async function renderJsonTemplate(
   }
   if (typeof value === 'string') {
     const rendered = await renderStringTemplate(value, context);
-    return rendered;
+    return coerceRenderedScalar(rendered);
   }
   if (Array.isArray(value)) {
     const results: JsonValue[] = [];

@@ -297,8 +297,9 @@ export async function deleteJobDefinitionBySlug(slug: string): Promise<boolean> 
     return false;
   }
   return useConnection(async (client) => {
-    const { rowCount } = await client.query('DELETE FROM job_definitions WHERE slug = $1', [trimmed]);
-    return rowCount > 0;
+    const result = await client.query('DELETE FROM job_definitions WHERE slug = $1', [trimmed]);
+    const affected = result.rowCount ?? 0;
+    return affected > 0;
   });
 }
 
