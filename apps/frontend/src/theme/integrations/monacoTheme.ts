@@ -33,6 +33,11 @@ function createThemeColors(theme: ThemeDefinition): Record<string, string> {
   const info = semantics.status.info;
   const warning = semantics.status.warning;
 
+  // Lean on subtle overlays so monaco markers do not overpower the editor.
+  const errorBackground = withAlpha(danger, scheme === 'dark' ? 0.08 : 0.06);
+  const errorGutterBackground = withAlpha(danger, scheme === 'dark' ? 0.12 : 0.08);
+  const errorMarkerBackground = withAlpha(danger, scheme === 'dark' ? 0.12 : 0.08);
+
   const lightSurfaceAlpha = scheme === 'dark' ? 0.92 : 0.98;
   const gutterAlpha = scheme === 'dark' ? 0.85 : 0.9;
   const lineHighlightAlpha = scheme === 'dark' ? 0.55 : 0.32;
@@ -61,7 +66,7 @@ function createThemeColors(theme: ThemeDefinition): Record<string, string> {
     'editorOverviewRuler.addedForeground': withAlpha(success, 0.4),
     'editorOverviewRuler.deletedForeground': withAlpha(danger, 0.4),
     'editorOverviewRuler.modifiedForeground': withAlpha(info, 0.45),
-    'editorOverviewRuler.errorForeground': withAlpha(danger, 0.6),
+    'editorOverviewRuler.errorForeground': withAlpha(danger, 0.35),
     'editorOverviewRuler.warningForeground': withAlpha(warning, 0.6),
     'editorMarkerNavigation.background': withAlpha(background, 0.95),
     'editorHoverWidget.background': withAlpha(raisedSurface, lightSurfaceAlpha),
@@ -76,16 +81,16 @@ function createThemeColors(theme: ThemeDefinition): Record<string, string> {
     'editorWidget.foreground': primaryText,
     'editorCodeLens.foreground': withAlpha(mutedText, 0.85),
     'editorError.foreground': danger,
-    'editorError.background': withAlpha(danger, scheme === 'dark' ? 0.25 : 0.18),
+    'editorError.background': errorBackground,
     'editorWarning.foreground': warning,
     'editorWarning.background': withAlpha(warning, scheme === 'dark' ? 0.22 : 0.16),
     'editorInfo.foreground': info,
     'editorInfo.background': withAlpha(info, scheme === 'dark' ? 0.18 : 0.12),
-    'editorGutter.errorBackground': withAlpha(danger, scheme === 'dark' ? 0.35 : 0.25),
+    'editorGutter.errorBackground': errorGutterBackground,
     'editorGutter.errorForeground': semantics.text.inverse,
     'editorGutter.warningBackground': withAlpha(warning, scheme === 'dark' ? 0.3 : 0.2),
     'editorGutter.warningForeground': semantics.text.inverse,
-    'editorMarkerNavigationError.background': withAlpha(danger, scheme === 'dark' ? 0.3 : 0.22),
+    'editorMarkerNavigationError.background': errorMarkerBackground,
     'editorMarkerNavigationWarning.background': withAlpha(warning, scheme === 'dark' ? 0.28 : 0.2),
     'editorMarkerNavigationInfo.background': withAlpha(info, scheme === 'dark' ? 0.25 : 0.18),
     'editorIndentGuide.background': withAlpha(neutralBorder, 0.5),
