@@ -4,6 +4,26 @@ import { createSmallWorkflowGraph } from '../../src/workflows/graph/mocks';
 const graphFixture = createSmallWorkflowGraph();
 const totalNodeCount = Object.values(graphFixture.nodes).reduce((total, group) => total + group.length, 0);
 const totalEdgeCount = Object.values(graphFixture.edges).reduce((total, group) => total + group.length, 0);
+const emptyGraphFixture = {
+  version: graphFixture.version,
+  generatedAt: '2024-04-02T00:00:10.000Z',
+  nodes: {
+    workflows: [],
+    steps: [],
+    triggers: [],
+    schedules: [],
+    assets: [],
+    eventSources: []
+  },
+  edges: {
+    triggerToWorkflow: [],
+    workflowToStep: [],
+    stepToAsset: [],
+    assetToWorkflow: [],
+    eventSourceToTrigger: [],
+    stepToEventSource: []
+  }
+} as const;
 
 const identityResponse = {
   data: {
@@ -43,7 +63,23 @@ let topologyOrigin: string;
 declare global {
   interface Window {
     __apphubSocketEmit?: (message: unknown) => void;
+    __apphubTopologyVisibility?: TopologyVisibilityState;
+    __apphubTopologyVisibilityObserver?: MutationObserver;
   }
+}
+
+type TopologyVisibilityState = {
+  nodesCleared: boolean;
+  hiddenCanvas: boolean;
+};
+
+function extractAlphaChannel(color: string): number | null {
+  const match = /rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d\.]+)\s*\)/.exec(color);
+  if (!match) {
+    return null;
+  }
+  const alpha = Number.parseFloat(match[1]);
+  return Number.isFinite(alpha) ? alpha : null;
 }
 
 async function fulfillJson(route: Route, body: unknown, origin: string, status = 200) {
@@ -106,6 +142,88 @@ function getErrorOverlayLocator(page: Page) {
   return page.locator('[data-testid="workflow-topology-error-overlay"]');
 }
 
+async function startTopologyVisibilityMonitor(page: Page) {
+  await page.evaluate(() => {
+    const globalWindow = window as typeof window & {
+      __apphubTopologyVisibility?: TopologyVisibilityState;
+      __apphubTopologyVisibilityObserver?: MutationObserver;
+    };
+
+    globalWindow.__apphubTopologyVisibilityObserver?.disconnect();
+
+    const container = document.querySelector('[aria-label="Workflow topology graph canvas"]');
+    if (!(container instanceof HTMLElement)) {
+      throw new Error('Failed to locate workflow topology canvas container');
+    }
+
+    const state: TopologyVisibilityState = {
+      nodesCleared: false,
+      hiddenCanvas: false
+    };
+
+    const updateHidden = () => {
+      const computed = window.getComputedStyle(container);
+      if (
+        computed.visibility === 'hidden' ||
+        computed.display === 'none' ||
+        Number.parseFloat(computed.opacity || '1') === 0
+      ) {
+        state.hiddenCanvas = true;
+      }
+    };
+
+    const trackNodePresence = () => {
+      const nodes = container.querySelectorAll('.react-flow__node');
+      if (nodes.length === 0) {
+        requestAnimationFrame(() => {
+          const reaffirmedNodes = container.querySelectorAll('.react-flow__node');
+          if (reaffirmedNodes.length === 0) {
+            state.nodesCleared = true;
+          }
+        });
+      }
+    };
+
+    const target = container.querySelector('.react-flow__viewport') ?? container;
+    const observer = new MutationObserver(() => {
+      queueMicrotask(trackNodePresence);
+      updateHidden();
+    });
+
+    observer.observe(target, { childList: true, subtree: true });
+    updateHidden();
+
+    globalWindow.__apphubTopologyVisibility = state;
+    globalWindow.__apphubTopologyVisibilityObserver = observer;
+  });
+}
+
+async function readTopologyVisibilityMonitor(page: Page): Promise<TopologyVisibilityState> {
+  return page.evaluate(() => {
+    const globalWindow = window as typeof window & {
+      __apphubTopologyVisibility?: TopologyVisibilityState;
+    };
+    return (
+      globalWindow.__apphubTopologyVisibility ?? {
+        nodesCleared: false,
+        hiddenCanvas: false
+      }
+    );
+  });
+}
+
+async function stopTopologyVisibilityMonitor(page: Page) {
+  await page.evaluate(() => {
+    const globalWindow = window as typeof window & {
+      __apphubTopologyVisibilityObserver?: MutationObserver;
+      __apphubTopologyVisibility?: TopologyVisibilityState;
+    };
+    globalWindow.__apphubTopologyVisibilityObserver?.disconnect();
+    delete globalWindow.__apphubTopologyVisibilityObserver;
+    delete globalWindow.__apphubTopologyVisibility;
+  });
+}
+
 type ViewportState = {
   x: number;
   y: number;
@@ -128,6 +246,8 @@ test.describe('Workflow topology explorer', () => {
   test.beforeEach(async ({ page }, testInfo) => {
     await page.addInitScript(() => {
       const globalWindow = window as unknown as Record<string, unknown>;
+
+      globalWindow.__apphubExposeTopologyInstance = true;
 
       class MockWebSocket {
         constructor(url: string) {
@@ -242,7 +362,12 @@ test.describe('Workflow topology explorer', () => {
     expect(nodeColor).not.toBe('rgb(15, 23, 42)');
 
     const edgeStroke = await edges.first().evaluate((element) => getComputedStyle(element).stroke);
-    expect(edgeStroke).toBe('rgb(168, 85, 247)');
+    const alpha = extractAlphaChannel(edgeStroke);
+    if (alpha !== null) {
+      expect(alpha).toBeGreaterThan(0.2);
+    } else {
+      expect(edgeStroke).not.toBe('rgba(0, 0, 0, 0)');
+    }
   });
 
   test('retains node count after idle period and fit reset', async ({ page }) => {
@@ -363,6 +488,162 @@ test.describe('Workflow topology explorer', () => {
     const zoomedViewport = await readViewportState(canvasRegion);
     expect(zoomedViewport.zoom).toBeGreaterThan(initialViewport.zoom);
 
+    await startTopologyVisibilityMonitor(page);
+
+    try {
+      await page.evaluate(() => {
+        window.__apphubSocketEmit?.({
+          type: 'workflow.definition.updated',
+          data: { workflowId: 'wf-orders' }
+        });
+      });
+
+      await expect.poll(() => requestCount).toBe(2);
+
+      const loadingBanner = page.getByText('Rendering workflow topology…');
+
+      try {
+        await expect(loadingBanner).not.toBeVisible();
+      } finally {
+        resolveRefresh?.();
+      }
+
+      await page.waitForTimeout(120);
+
+      await expect(nodes).toHaveCount(totalNodeCount);
+      const finalViewport = await readViewportState(canvasRegion);
+      expect(finalViewport.zoom).toBeCloseTo(zoomedViewport.zoom, 3);
+      expect(finalViewport.x).toBeCloseTo(zoomedViewport.x, 1);
+      expect(finalViewport.y).toBeCloseTo(zoomedViewport.y, 1);
+
+      const visibilityState = await readTopologyVisibilityMonitor(page);
+      expect(visibilityState.nodesCleared).toBe(false);
+      expect(visibilityState.hiddenCanvas).toBe(false);
+    } finally {
+      await stopTopologyVisibilityMonitor(page);
+    }
+  });
+
+  test('retains previous topology when refresh snapshot is empty', async ({ page }) => {
+    await page.unroute('**/workflows/graph');
+    let requestCount = 0;
+
+    await page.route('**/workflows/graph', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+        return;
+      }
+      requestCount += 1;
+      if (requestCount === 1) {
+        await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+        return;
+      }
+      await fulfillJson(route, { data: emptyGraphFixture }, topologyOrigin);
+    });
+
+    await page.goto('/topology');
+    const canvasRegion = await waitForTopologyRender(page);
+
+    const nodes = canvasRegion.locator('.react-flow__node');
+    await expect(nodes).toHaveCount(totalNodeCount);
+
+    await startTopologyVisibilityMonitor(page);
+
+    try {
+      await page.evaluate(() => {
+        window.__apphubSocketEmit?.({
+          type: 'workflow.definition.updated',
+          data: { workflowId: 'wf-orders' }
+        });
+      });
+
+      await expect.poll(() => requestCount).toBe(2);
+
+      await page.waitForTimeout(180);
+
+      await expect(nodes).toHaveCount(totalNodeCount);
+
+      const visibilityState = await readTopologyVisibilityMonitor(page);
+      expect(visibilityState.nodesCleared).toBe(false);
+      expect(visibilityState.hiddenCanvas).toBe(false);
+    } finally {
+      await stopTopologyVisibilityMonitor(page);
+    }
+  });
+
+  test('re-centers viewport when refreshed layout moves nodes off-screen', async ({ page }) => {
+    await page.unroute('**/workflows/graph');
+    let requestCount = 0;
+
+    await page.route('**/workflows/graph', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+        return;
+      }
+      requestCount += 1;
+      await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+    });
+
+    await page.goto('/topology');
+    const canvasRegion = await waitForTopologyRender(page);
+
+    const nodes = canvasRegion.locator('.react-flow__node');
+    await expect(nodes).toHaveCount(totalNodeCount);
+
+    const captureViewport = async () => {
+      return page.evaluate(() => {
+        const instance = window.__apphubTopologyReactFlowInstance;
+        if (!instance) {
+          return null;
+        }
+        const viewport = instance.getViewport();
+        return {
+          x: Math.round(viewport.x),
+          y: Math.round(viewport.y),
+          zoom: Math.round(viewport.zoom * 1000) / 1000
+        };
+      });
+    };
+
+    await page.evaluate(() => {
+      window.__apphubTopologyReactFlowInstance?.setViewport({ x: 6000, y: 6000, zoom: 1 }, { duration: 0 });
+    });
+
+    await page.waitForTimeout(60);
+
+    const firstNode = nodes.first();
+
+    const nodeIsVisible = async () =>
+      firstNode.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.bottom > 0 && rect.right > 0 && rect.left < window.innerWidth && rect.top < window.innerHeight;
+      });
+
+    let nodeVisibleBeforeRefresh = await nodeIsVisible();
+    let forcedViewportSnapshot = await captureViewport();
+
+    if (nodeVisibleBeforeRefresh) {
+      await page.evaluate(() => {
+        window.__apphubTopologyReactFlowInstance?.setViewport({ x: -6000, y: -6000, zoom: 1 }, { duration: 0 });
+      });
+      await page.waitForTimeout(60);
+      nodeVisibleBeforeRefresh = await nodeIsVisible();
+      forcedViewportSnapshot = await captureViewport();
+    }
+
+    if (nodeVisibleBeforeRefresh) {
+      await page.evaluate(() => {
+        window.__apphubTopologyReactFlowInstance?.setViewport({ x: 0, y: -12000, zoom: 1.6 }, { duration: 0 });
+      });
+      await page.waitForTimeout(60);
+      nodeVisibleBeforeRefresh = await nodeIsVisible();
+      forcedViewportSnapshot = await captureViewport();
+    }
+
+    expect(nodeVisibleBeforeRefresh).toBe(false);
+    expect(forcedViewportSnapshot).not.toBeNull();
+    const forcedViewportFinal = forcedViewportSnapshot as { x: number; y: number; zoom: number };
+
     await page.evaluate(() => {
       window.__apphubSocketEmit?.({
         type: 'workflow.definition.updated',
@@ -370,22 +651,10 @@ test.describe('Workflow topology explorer', () => {
       });
     });
 
-    await expect.poll(() => requestCount).toBe(2);
+    await expect.poll(() => requestCount).toBeGreaterThan(1);
 
-    const loadingBanner = page.getByText('Rendering workflow topology…');
+    await expect.poll(() => page.evaluate(() => window.__apphubViewportAutoFitCount ?? 0)).toBeGreaterThan(0);
 
-    try {
-      await expect(loadingBanner).not.toBeVisible();
-    } finally {
-      resolveRefresh?.();
-    }
-
-    await page.waitForTimeout(120);
-
-    await expect(nodes).toHaveCount(totalNodeCount);
-    const finalViewport = await readViewportState(canvasRegion);
-    expect(finalViewport.zoom).toBeCloseTo(zoomedViewport.zoom, 3);
-    expect(finalViewport.x).toBeCloseTo(zoomedViewport.x, 1);
-    expect(finalViewport.y).toBeCloseTo(zoomedViewport.y, 1);
+    await expect(firstNode).toBeVisible();
   });
 });

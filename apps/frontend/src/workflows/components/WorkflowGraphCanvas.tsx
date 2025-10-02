@@ -20,7 +20,8 @@ import ReactFlow, {
   type Node,
   type NodeProps,
   type NodeMouseHandler,
-  type ReactFlowInstance
+  type ReactFlowInstance,
+  type Viewport
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useTheme } from '../../theme';
@@ -38,7 +39,8 @@ import {
   type WorkflowGraphCanvasLayoutConfig,
   type WorkflowGraphCanvasNodeKind,
   type WorkflowGraphCanvasEdgeKind,
-  type WorkflowGraphCanvasModel
+  type WorkflowGraphCanvasModel,
+  type WorkflowGraphCanvasNode
 } from '../graph/canvasModel';
 import type { WorkflowGraphLiveOverlay, WorkflowGraphNormalized } from '../graph';
 
@@ -68,6 +70,73 @@ type WorkflowGraphCanvasTooltip = {
   node: WorkflowGraphCanvasNodeData;
   position: { x: number; y: number };
 };
+
+declare global {
+  interface Window {
+    __apphubExposeTopologyInstance?: boolean;
+    __apphubTopologyReactFlowInstance?: ReactFlowInstance | null;
+    __apphubTopologyReactFlowInstanceViewport?: Viewport;
+    __apphubViewportAutoFitCount?: number;
+  }
+}
+
+type GraphBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+function computeGraphBounds(nodes: WorkflowGraphCanvasNode[]): GraphBounds | null {
+  if (nodes.length === 0) {
+    return null;
+  }
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const node of nodes) {
+    const nodeMinX = node.position.x;
+    const nodeMinY = node.position.y;
+    const nodeMaxX = node.position.x + node.width;
+    const nodeMaxY = node.position.y + node.height;
+    if (nodeMinX < minX) {
+      minX = nodeMinX;
+    }
+    if (nodeMinY < minY) {
+      minY = nodeMinY;
+    }
+    if (nodeMaxX > maxX) {
+      maxX = nodeMaxX;
+    }
+    if (nodeMaxY > maxY) {
+      maxY = nodeMaxY;
+    }
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+function computeViewportBounds(viewport: Viewport, width: number, height: number): GraphBounds {
+  const graphMinX = (-viewport.x) / viewport.zoom;
+  const graphMinY = (-viewport.y) / viewport.zoom;
+  const graphMaxX = graphMinX + width / viewport.zoom;
+  const graphMaxY = graphMinY + height / viewport.zoom;
+  return {
+    minX: graphMinX,
+    minY: graphMinY,
+    maxX: graphMaxX,
+    maxY: graphMaxY
+  };
+}
+
+function boundsIntersect(a: GraphBounds | null, b: GraphBounds | null): boolean {
+  if (!a || !b) {
+    return false;
+  }
+  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+}
 
 const WorkflowGraphCanvasThemeContext = createContext<WorkflowGraphCanvasTheme | null>(null);
 
@@ -502,6 +571,60 @@ export function WorkflowGraphCanvas({
   const showLoadingOverlay = loading && !hasRenderableNodes;
   const showErrorOverlay = Boolean(error && !loading && !hasRenderableNodes);
 
+  const ensureViewportHasContent = useCallback(() => {
+    if (!instance || !resolvedModel || resolvedModel.nodes.length === 0) {
+      return;
+    }
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+    const containerBounds = container.getBoundingClientRect();
+    if (containerBounds.width === 0 || containerBounds.height === 0) {
+      return;
+    }
+    const nodeBounds = computeGraphBounds(resolvedModel.nodes);
+    if (!nodeBounds) {
+      return;
+    }
+    const viewportBounds = computeViewportBounds(
+      instance.getViewport(),
+      containerBounds.width,
+      containerBounds.height
+    );
+    if (!boundsIntersect(nodeBounds, viewportBounds)) {
+      if (typeof window !== 'undefined' && window.__apphubExposeTopologyInstance) {
+        window.__apphubViewportAutoFitCount = (window.__apphubViewportAutoFitCount ?? 0) + 1;
+      }
+      shouldAutoFitRef.current = false;
+      instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true, duration: 140 });
+    }
+  }, [fitViewPadding, instance, resolvedModel]);
+
+  useEffect(() => {
+    if (!instance) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(ensureViewportHasContent);
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [instance, ensureViewportHasContent]);
+
+  useEffect(() => {
+    ensureViewportHasContent();
+  }, [ensureViewportHasContent]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && window.__apphubExposeTopologyInstance) {
+        window.__apphubTopologyReactFlowInstance = null;
+        window.__apphubTopologyReactFlowInstanceViewport = undefined;
+        window.__apphubViewportAutoFitCount = undefined;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!autoFit) {
       return;
@@ -793,7 +916,13 @@ export function WorkflowGraphCanvas({
           edges={reactFlowEdges}
           nodeTypes={NODE_TYPES}
           className="h-full w-full"
-          onInit={setInstance}
+          onInit={(nextInstance) => {
+            setInstance(nextInstance);
+            if (typeof window !== 'undefined' && window.__apphubExposeTopologyInstance) {
+              window.__apphubTopologyReactFlowInstance = nextInstance;
+              window.__apphubTopologyReactFlowInstanceViewport = nextInstance.getViewport();
+            }
+          }}
           onNodeClick={(_, node) => {
             if (!onNodeSelect) {
               return;
@@ -820,6 +949,11 @@ export function WorkflowGraphCanvas({
           onNodeMouseEnter={handleNodeMouseEnter}
           onNodeMouseMove={handleNodeMouseMove}
           onNodeMouseLeave={handleNodeMouseLeave}
+          onMoveEnd={(_, viewport) => {
+            if (typeof window !== 'undefined' && window.__apphubExposeTopologyInstance) {
+              window.__apphubTopologyReactFlowInstanceViewport = viewport;
+            }
+          }}
           onPaneClick={() => {
             setTooltip(null);
             onCanvasClick?.();
