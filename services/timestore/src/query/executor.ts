@@ -179,6 +179,7 @@ async function prepareConnectionForPlan(
   config: ServiceConfig
 ): Promise<void> {
   let hasS3 = false;
+  const s3Targets = new Map<string, StorageTargetRecord>();
   const gcsTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedGcsOptions }>();
   const azureTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedAzureOptions }>();
 
@@ -187,6 +188,9 @@ async function prepareConnectionForPlan(
     switch (target.kind) {
       case 's3':
         hasS3 = true;
+        if (!s3Targets.has(target.id)) {
+          s3Targets.set(target.id, target);
+        }
         break;
       case 'gcs':
         if (!gcsTargets.has(target.id)) {
@@ -210,7 +214,7 @@ async function prepareConnectionForPlan(
   }
 
   if (hasS3) {
-    await configureS3Support(connection, config);
+    await configureS3Support(connection, config, Array.from(s3Targets.values()));
   }
   if (gcsTargets.size > 0) {
     await configureGcsSupport(connection, Array.from(gcsTargets.values()));
@@ -682,19 +686,33 @@ function dedupeWarnings(warnings: string[]): string[] {
   return result;
 }
 
-export async function configureS3Support(connection: any, config: ServiceConfig): Promise<void> {
-  const s3 = config.storage.s3;
-  if (!s3 || !s3.bucket) {
+interface S3RuntimeOptions {
+  bucket?: string;
+  endpoint?: string;
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+  forcePathStyle?: boolean;
+}
+
+export async function configureS3Support(
+  connection: any,
+  config: ServiceConfig,
+  targets: StorageTargetRecord[] = []
+): Promise<void> {
+  const options = resolveS3RuntimeOptions(config, targets);
+  if (!options.bucket) {
     throw new Error('Remote partitions require S3 configuration but none was provided');
   }
 
   await ensureHttpfsLoaded(connection);
 
-  if (s3.region) {
-    await run(connection, `SET s3_region='${escapeSqlLiteral(s3.region)}'`);
+  if (options.region) {
+    await run(connection, `SET s3_region='${escapeSqlLiteral(options.region)}'`);
   }
-  if (s3.endpoint) {
-    const { endpoint: normalizedEndpoint, scheme } = normalizeS3Endpoint(s3.endpoint);
+  if (options.endpoint) {
+    const { endpoint: normalizedEndpoint, scheme } = normalizeS3Endpoint(options.endpoint);
     await run(connection, `SET s3_endpoint='${escapeSqlLiteral(normalizedEndpoint)}'`);
     if (scheme === 'https') {
       await run(connection, 'SET s3_use_ssl=true');
@@ -702,15 +720,15 @@ export async function configureS3Support(connection: any, config: ServiceConfig)
       await run(connection, 'SET s3_use_ssl=false');
     }
   }
-  if (s3.forcePathStyle) {
+  if (options.forcePathStyle) {
     await run(connection, `SET s3_url_style='path'`);
   }
-  if (s3.accessKeyId && s3.secretAccessKey) {
-    await run(connection, `SET s3_access_key_id='${escapeSqlLiteral(s3.accessKeyId)}'`);
-    await run(connection, `SET s3_secret_access_key='${escapeSqlLiteral(s3.secretAccessKey)}'`);
+  if (options.accessKeyId && options.secretAccessKey) {
+    await run(connection, `SET s3_access_key_id='${escapeSqlLiteral(options.accessKeyId)}'`);
+    await run(connection, `SET s3_secret_access_key='${escapeSqlLiteral(options.secretAccessKey)}'`);
   }
-  if (s3.sessionToken) {
-    await run(connection, `SET s3_session_token='${escapeSqlLiteral(s3.sessionToken)}'`);
+  if (options.sessionToken) {
+    await run(connection, `SET s3_session_token='${escapeSqlLiteral(options.sessionToken)}'`);
   }
 
   const cacheConfig = config.query.cache;
@@ -733,6 +751,106 @@ export async function configureS3Support(connection: any, config: ServiceConfig)
   }
 }
 
+function resolveS3RuntimeOptions(
+  config: ServiceConfig,
+  targets: StorageTargetRecord[]
+): S3RuntimeOptions {
+  const base = config.storage.s3;
+
+  let bucket = base?.bucket;
+  let endpoint = base?.endpoint;
+  let region = base?.region;
+  let accessKeyId = base?.accessKeyId;
+  let secretAccessKey = base?.secretAccessKey;
+  let sessionToken = base?.sessionToken;
+  let forcePathStyle = base?.forcePathStyle;
+
+  for (const target of targets) {
+    if (target.kind !== 's3') {
+      continue;
+    }
+    const targetConfig = target.config as Record<string, unknown>;
+
+    if (!bucket) {
+      const candidate = pickString(targetConfig, 'bucket');
+      if (candidate) {
+        bucket = candidate;
+      }
+    }
+    if (!endpoint) {
+      const candidate = pickString(targetConfig, 'endpoint');
+      if (candidate) {
+        endpoint = candidate;
+      }
+    }
+    if (!region) {
+      const candidate = pickString(targetConfig, 'region');
+      if (candidate) {
+        region = candidate;
+      }
+    }
+    if (!accessKeyId) {
+      const candidate = pickString(targetConfig, 'accessKeyId');
+      if (candidate) {
+        accessKeyId = candidate;
+      }
+    }
+    if (!secretAccessKey) {
+      const candidate = pickString(targetConfig, 'secretAccessKey');
+      if (candidate) {
+        secretAccessKey = candidate;
+      }
+    }
+    if (!sessionToken) {
+      const candidate = pickString(targetConfig, 'sessionToken');
+      if (candidate) {
+        sessionToken = candidate;
+      }
+    }
+    if (forcePathStyle === undefined) {
+      const candidate = pickBoolean(targetConfig, 'forcePathStyle');
+      if (candidate !== undefined) {
+        forcePathStyle = candidate;
+      }
+    }
+  }
+
+  return {
+    bucket,
+    endpoint,
+    region,
+    accessKeyId,
+    secretAccessKey,
+    sessionToken,
+    forcePathStyle
+  } satisfies S3RuntimeOptions;
+}
+
+function pickString(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key];
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+  return undefined;
+}
+
+function pickBoolean(source: Record<string, unknown>, key: string): boolean | undefined {
+  const value = source[key];
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'no', 'off'].includes(normalized)) {
+      return false;
+    }
+  }
+  return undefined;
+}
+
 function normalizeS3Endpoint(rawEndpoint: string): { endpoint: string; scheme: 'http' | 'https' | null } {
   const trimmed = rawEndpoint.trim();
   if (!trimmed) {
@@ -740,14 +858,15 @@ function normalizeS3Endpoint(rawEndpoint: string): { endpoint: string; scheme: '
   }
 
   const normalized = trimmed.replace(/\/+$/u, '');
-  const match = /^(https?):\/\//i.exec(normalized);
+  const match = /^(https?):\/\/(.+)$/i.exec(normalized);
   if (!match) {
     return { endpoint: normalized, scheme: null };
   }
 
   const scheme = match[1].toLowerCase() as 'http' | 'https';
+  const host = match[2];
   return {
-    endpoint: normalized,
+    endpoint: host,
     scheme
   };
 }

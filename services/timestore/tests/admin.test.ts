@@ -25,6 +25,7 @@ let metadataModule: typeof import('../src/db/metadata');
 let adminRoutesModule: typeof import('../src/routes/admin');
 let manifestCacheModule: typeof import('../src/cache/manifestCache');
 let openApiModule: typeof import('../src/openapi/plugin');
+let runtimeModule: typeof import('../src/sql/runtime');
 
 let defaultStorageTargetId: string;
 let datasetA: Awaited<ReturnType<typeof import('../src/db/metadata')['createDataset']>>;
@@ -73,6 +74,7 @@ before(async () => {
   adminRoutesModule = await import('../src/routes/admin');
   manifestCacheModule = await import('../src/cache/manifestCache');
   openApiModule = await import('../src/openapi/plugin');
+  runtimeModule = await import('../src/sql/runtime');
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrations();
@@ -786,6 +788,48 @@ test('inspects and invalidates manifest cache via admin API', async () => {
 
   const auditLog = await metadataModule.listDatasetAccessEvents(datasetA.id, { limit: 10 });
   assert.ok(auditLog.events.some((event) => event.action === 'admin.manifest_cache.invalidate'));
+});
+
+test('invalidates SQL runtime cache via admin API', async () => {
+  assert.ok(app && runtimeModule);
+  runtimeModule.resetSqlRuntimeCache();
+
+  const before = runtimeModule.getSqlRuntimeCacheSnapshot();
+  assert.equal(before.pendingInvalidations.length, 0);
+
+  const response = await app!.inject({
+    method: 'POST',
+    url: '/admin/sql/runtime-cache/invalidate',
+    headers: {
+      ...adminHeaders(),
+      'content-type': 'application/json'
+    },
+    body: {
+      datasetId: datasetA.id,
+      datasetSlug: datasetA.slug,
+      reason: 'admin-test'
+    }
+  });
+
+  assert.equal(response.statusCode, 202);
+  const payload = response.json() as {
+    status: string;
+    scope: string;
+    datasetId: string | null;
+    datasetSlug: string | null;
+  };
+  assert.equal(payload.status, 'invalidated');
+  assert.equal(payload.scope, 'dataset');
+  assert.equal(payload.datasetId, datasetA.id);
+  assert.equal(payload.datasetSlug, datasetA.slug);
+
+  const after = runtimeModule.getSqlRuntimeCacheSnapshot();
+  assert.ok(
+    after.pendingInvalidations.some((entry) => entry.datasetId === datasetA.id),
+    'expected dataset to be queued for runtime cache invalidation'
+  );
+
+  runtimeModule.resetSqlRuntimeCache();
 });
 
 test('lists storage targets', async () => {

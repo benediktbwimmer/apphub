@@ -123,7 +123,7 @@ test('configureS3Support applies httpfs and cache settings', async () => {
   assert.ok(executed.includes('INSTALL httpfs'));
   assert.ok(executed.includes('LOAD httpfs'));
   assert.ok(executed.includes("SET s3_region='us-east-1'"));
-  assert.ok(executed.includes("SET s3_endpoint='http://127.0.0.1:9000'"));
+  assert.ok(executed.includes("SET s3_endpoint='127.0.0.1:9000'"));
   assert.ok(executed.includes('SET s3_use_ssl=false'));
   assert.ok(executed.includes("SET s3_access_key_id='AKIA-test'"));
   assert.ok(executed.includes("SET s3_secret_access_key='secret-test'"));

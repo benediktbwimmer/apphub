@@ -946,6 +946,7 @@ async function prepareConnectionForRemotePartitions(
   context: SqlContext
 ): Promise<void> {
   let hasS3 = false;
+  const s3Targets = new Map<string, StorageTargetRecord>();
   const gcsTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedGcsOptions }>();
   const azureTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedAzureOptions }>();
 
@@ -955,6 +956,9 @@ async function prepareConnectionForRemotePartitions(
       switch (target.kind) {
         case 's3':
           hasS3 = true;
+          if (!s3Targets.has(target.id)) {
+            s3Targets.set(target.id, target);
+          }
           break;
         case 'gcs':
           if (!gcsTargets.has(target.id)) {
@@ -979,7 +983,7 @@ async function prepareConnectionForRemotePartitions(
   }
 
   if (hasS3) {
-    await configureS3Support(connection, context.config);
+    await configureS3Support(connection, context.config, Array.from(s3Targets.values()));
   }
   if (gcsTargets.size > 0) {
     await configureGcsSupport(connection, Array.from(gcsTargets.values()));
@@ -1082,6 +1086,7 @@ export function invalidateSqlRuntimeCache(options?: SqlRuntimeInvalidationOption
         requestedAt: Date.now()
       } satisfies DatasetInvalidationRequest;
   pendingDatasetInvalidations.set(datasetId, request);
+  flushConnectionCache('invalidated');
   recordRuntimeCacheEvent('context', 'invalidated');
 }
 

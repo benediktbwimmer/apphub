@@ -50,7 +50,11 @@ import {
   type LifecycleOperation
 } from '../lifecycle/types';
 import { authorizeAdminAccess, resolveRequestActor, getRequestScopes } from '../service/iam';
-import { invalidateSqlRuntimeCache, getSqlRuntimeCacheSnapshot } from '../sql/runtime';
+import {
+  invalidateSqlRuntimeCache,
+  getSqlRuntimeCacheSnapshot,
+  type SqlRuntimeInvalidationOptions
+} from '../sql/runtime';
 
 const runRequestSchema = z.object({
   datasetId: z.string().optional(),
@@ -86,6 +90,24 @@ const manifestQuerySchema = z.object({
 const manifestCacheInvalidateSchema = z.object({
   shards: z.array(z.string().min(1)).max(100).optional()
 });
+
+const sqlRuntimeCacheInvalidateSchema = z
+  .object({
+    datasetId: z.string().min(1).optional(),
+    datasetSlug: z.string().min(1).optional(),
+    scope: z.enum(['all', 'dataset']).optional(),
+    reason: z.string().min(1).optional()
+  })
+  .superRefine((value, ctx) => {
+    const requestedScope = value.scope ?? (value.datasetId || value.datasetSlug ? 'dataset' : 'all');
+    if (requestedScope === 'dataset' && !value.datasetId && !value.datasetSlug) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'datasetId or datasetSlug is required when scope="dataset"',
+        path: ['datasetId']
+      });
+    }
+  });
 
 const datasetAuditQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(200).optional(),
@@ -185,6 +207,46 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     return {
       snapshot: getSqlRuntimeCacheSnapshot()
     };
+  });
+
+  app.post('/admin/sql/runtime-cache/invalidate', async (request, reply) => {
+    await authorizeAdminAccess(request as FastifyRequest);
+    const payload = sqlRuntimeCacheInvalidateSchema.parse(request.body ?? {});
+
+    const scope: 'all' | 'dataset' = payload.scope ?? (payload.datasetId || payload.datasetSlug ? 'dataset' : 'all');
+
+    if (scope === 'dataset' && !payload.datasetId && !payload.datasetSlug) {
+      reply.status(400);
+      return {
+        error: 'datasetId or datasetSlug is required when scope="dataset"'
+      };
+    }
+
+    const options: SqlRuntimeInvalidationOptions = {};
+    if (scope === 'all') {
+      options.scope = 'all';
+    } else {
+      options.scope = 'dataset';
+      if (payload.datasetId) {
+        options.datasetId = payload.datasetId;
+      }
+      if (payload.datasetSlug) {
+        options.datasetSlug = payload.datasetSlug;
+      }
+    }
+    if (payload.reason) {
+      options.reason = payload.reason;
+    }
+
+    invalidateSqlRuntimeCache(options);
+
+    reply.status(202);
+    return {
+      status: 'invalidated',
+      scope,
+      datasetId: options.datasetId ?? null,
+      datasetSlug: options.datasetSlug ?? null
+    } as const;
   });
 
   app.post('/admin/lifecycle/reschedule', async (request, reply) => {
