@@ -4,7 +4,7 @@ import './testEnv';
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, afterEach, before, describe, test } from 'node:test';
@@ -28,6 +28,7 @@ let runtimeModule: typeof import('../src/sql/runtime');
 let openApiModule: typeof import('../src/openapi/plugin');
 
 let datasetSlug: string;
+let partitionFilePath: string | null = null;
 
 before(async () => {
   process.env.TIMESTORE_SQL_READ_SCOPE = 'sql:read';
@@ -180,6 +181,9 @@ async function seedDuckDbDataset(): Promise<void> {
     schema: schemaFields,
     rows
   });
+  if (storageRoot) {
+    partitionFilePath = path.join(storageRoot, writeResult.relativePath);
+  }
 
   await metadataModule.createDatasetManifest({
     id: `dm-${randomUUID()}`,
@@ -299,6 +303,33 @@ describe('sql routes', () => {
     assert.match(response.headers['content-type'] ?? '', /text\/csv/);
     const lines = response.body.trim().split('\n');
     assert.deepEqual(lines, ['site,value', 'alpha,42.5', 'beta,37.1']);
+  });
+
+  test('sql read skips partitions missing from storage', async () => {
+    assert.ok(app);
+    assert.ok(partitionFilePath);
+
+    runtimeModule.resetSqlRuntimeCache();
+
+    const backupPath = `${partitionFilePath}.bak`; 
+    await rename(partitionFilePath!, backupPath);
+    try {
+      const context = await runtimeModule.loadSqlContext();
+
+      const runtimeConn = await runtimeModule.createDuckDbConnection(context);
+      try {
+        const rows = await runtimeModule.all(
+          runtimeConn.connection,
+          `SELECT site, value FROM timestore.${datasetSlug} ORDER BY value DESC`
+        );
+        assert.equal(rows.length, 0, 'expected empty result when partition is missing');
+      } finally {
+        await runtimeConn.cleanup();
+      }
+    } finally {
+      await rename(backupPath, partitionFilePath!);
+      runtimeModule.resetSqlRuntimeCache();
+    }
   });
 
   test('manages saved queries via REST', async () => {

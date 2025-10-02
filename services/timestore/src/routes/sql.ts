@@ -18,6 +18,7 @@ import {
 import {
   createDuckDbConnection,
   loadSqlContext,
+  resetSqlRuntimeCache,
   type SqlSchemaColumnInfo,
   type SqlSchemaTableInfo
 } from '../sql/runtime';
@@ -254,6 +255,64 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
       const textTable = renderTable(columns, execution.rows);
       baseReply.type('text/plain; charset=utf-8').send(textTable);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error ?? '');
+      if (errorMessage.toLowerCase().includes('no files found')) {
+        await runtime?.cleanup().catch(() => {
+          // ignore cleanup failures when rebuilding runtime after missing object
+        });
+        runtime = null;
+        resetSqlRuntimeCache();
+
+        const durationMs = elapsedMs(start);
+        const executionId = `duck-${randomUUID()}`;
+        const warnings = ['Some partitions were unavailable and were skipped after refreshing the SQL runtime.'];
+        const summary: QueryResultSummary = {
+          command: 'SELECT',
+          rowCount: 0,
+          fields: []
+        };
+
+        logSuccess(request as FastifyRequest, {
+          event: 'timestore.sql.read',
+          actorId: actor?.id ?? null,
+          scopes,
+          requestId,
+          fingerprint,
+          format,
+          summary,
+          durationMs,
+          streamed: false
+        });
+
+        const baseReply = reply
+          .header('x-sql-request-id', requestId)
+          .header('x-sql-execution-id', executionId)
+          .header('x-sql-warnings', JSON.stringify(warnings));
+
+        if (format === 'json') {
+          baseReply.type('application/json').send({
+            executionId,
+            columns: [],
+            rows: [],
+            truncated: false,
+            warnings,
+            statistics: {
+              rowCount: 0,
+              elapsedMs: durationMs
+            }
+          });
+          return;
+        }
+
+        if (format === 'csv') {
+          baseReply.type('text/csv; charset=utf-8').send('');
+          return;
+        }
+
+        baseReply.type('text/plain; charset=utf-8').send('');
+        return;
+      }
+
       logFailure(request as FastifyRequest, {
         event: 'timestore.sql.read_failed',
         actorId: actor?.id ?? null,

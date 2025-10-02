@@ -22,6 +22,7 @@ import type {
   StringPartitionKeyPredicate,
   TimestampPartitionKeyPredicate
 } from '../types/partitionFilters';
+import { assessPartitionAccessError } from './partitionDiagnostics';
 
 interface QueryResultRow {
   [key: string]: unknown;
@@ -31,6 +32,7 @@ export interface QueryExecutionResult {
   rows: QueryResultRow[];
   columns: string[];
   mode: 'raw' | 'downsampled';
+  warnings: string[];
 }
 
 export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
@@ -92,12 +94,16 @@ function mergeClusterResults(results: QueryExecutionResult[], plan: QueryPlan): 
     return {
       rows: [],
       columns: deriveColumns(plan, plan.mode),
-      mode: plan.mode
+      mode: plan.mode,
+      warnings: []
     };
   }
 
   if (plan.mode === 'downsampled') {
-    return results[0];
+    return {
+      ...results[0],
+      warnings: dedupeWarnings(results.flatMap((result) => result.warnings ?? []))
+    };
   }
 
   const timestampColumn = plan.timestampColumn;
@@ -116,7 +122,8 @@ function mergeClusterResults(results: QueryExecutionResult[], plan: QueryPlan): 
   return {
     rows: limitedRows,
     columns,
-    mode: 'raw'
+    mode: 'raw',
+    warnings: dedupeWarnings(results.flatMap((result) => result.warnings ?? []))
   } satisfies QueryExecutionResult;
 }
 
@@ -125,6 +132,7 @@ async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult>
   const db = new duckdb.Database(':memory:');
   const connection = db.connect();
   const config = loadServiceConfig();
+  const warnings: string[] = [];
 
   try {
     if (plan.partitions.length === 0) {
@@ -132,13 +140,15 @@ async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult>
       return {
         rows: [],
         columns,
-        mode: plan.mode
+        mode: plan.mode,
+        warnings
       };
     }
 
     await prepareConnectionForPlan(connection, plan, config);
     const canonicalFields = resolveCanonicalFields(plan);
-    await createDatasetView(connection, plan, canonicalFields);
+    const viewWarnings = await createDatasetView(connection, plan, canonicalFields);
+    warnings.push(...viewWarnings);
     const baseViewName = await applyColumnFilters(connection, plan);
 
     const { preparatoryQueries, selectSql, mode } = buildFinalQuery(plan, baseViewName);
@@ -152,7 +162,8 @@ async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult>
     return {
       rows,
       columns,
-      mode
+      mode,
+      warnings: dedupeWarnings(warnings)
     };
   } finally {
     await closeConnection(connection);
@@ -213,14 +224,58 @@ async function createDatasetView(
   connection: any,
   plan: QueryPlan,
   canonicalFields: FieldDefinition[]
-): Promise<void> {
+): Promise<string[]> {
+  const warnings: string[] = [];
   const selects: string[] = [];
+
   for (const partition of plan.partitions) {
-    const availableColumns = await fetchPartitionColumns(connection, partition);
-    selects.push(buildPartitionSelect(partition, plan, canonicalFields, availableColumns));
+    try {
+      const availableColumns = await fetchPartitionColumns(connection, partition);
+      selects.push(buildPartitionSelect(partition, plan, canonicalFields, availableColumns));
+    } catch (error) {
+      const assessment = assessPartitionAccessError(
+        {
+          datasetSlug: plan.datasetSlug,
+          partitionId: partition.id,
+          storageTarget: partition.storageTarget,
+          location: partition.location,
+          startTime: partition.startTime,
+          endTime: partition.endTime
+        },
+        error
+      );
+      if (assessment.recoverable) {
+        if (assessment.warning) {
+          warnings.push(assessment.warning);
+        }
+        continue;
+      }
+      throw assessment.error;
+    }
   }
+
+  if (selects.length === 0) {
+    await createEmptyDatasetView(connection, plan, canonicalFields);
+    warnings.push(`No readable partitions found for dataset ${plan.datasetSlug}; returning empty result.`);
+    return warnings;
+  }
+
   const unionSql = selects.join('\nUNION ALL\n');
   await run(connection, `CREATE TEMP VIEW dataset_view AS ${unionSql}`);
+  return warnings;
+}
+
+async function createEmptyDatasetView(
+  connection: any,
+  plan: QueryPlan,
+  canonicalFields: FieldDefinition[]
+): Promise<void> {
+  const fallbackField: FieldDefinition = { name: plan.timestampColumn, type: 'timestamp' };
+  const effectiveFields = canonicalFields.length > 0 ? canonicalFields : [fallbackField];
+  const projections = effectiveFields
+    .map((field) => `CAST(NULL AS ${mapFieldTypeToDuckDb(field.type)}) AS ${quoteIdentifier(field.name)}`)
+    .join(', ');
+  await run(connection, `CREATE TEMP VIEW dataset_view AS SELECT ${projections} WHERE 1=0`);
 }
 
 async function fetchPartitionColumns(
@@ -608,6 +663,23 @@ function normalizeValue(value: unknown): unknown {
     return null;
   }
   return value;
+}
+
+function dedupeWarnings(warnings: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const warning of warnings) {
+    const normalized = warning.trim();
+    if (!normalized) {
+      continue;
+    }
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
 }
 
 export async function configureS3Support(connection: any, config: ServiceConfig): Promise<void> {

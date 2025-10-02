@@ -29,6 +29,7 @@ import {
   setRuntimeCacheStaleness,
   type RuntimeCacheEvent
 } from '../observability/metrics';
+import { assessPartitionAccessError } from '../query/partitionDiagnostics';
 
 type DuckDbConnection = any;
 
@@ -1236,17 +1237,34 @@ async function attachDataset(
   const selects: string[] = [];
   for (const partition of dataset.partitions) {
     try {
+      await verifyRuntimePartition(connection, partition);
       const partitionSelect = buildParquetSelect(partition, dataset.columns);
       selects.push(partitionSelect);
     } catch (error) {
-      warnings.push(
-        `Failed to attach partition ${partition.id} for dataset ${dataset.dataset.slug}: ${error instanceof Error ? error.message : String(error)}`
+      const assessment = assessPartitionAccessError(
+        {
+          datasetSlug: dataset.dataset.slug,
+          partitionId: partition.id,
+          storageTarget: partition.storageTarget,
+          location: partition.location,
+          startTime: partition.startTime,
+          endTime: partition.endTime
+        },
+        error
       );
+      if (assessment.recoverable) {
+        if (assessment.warning) {
+          warnings.push(assessment.warning);
+        }
+        continue;
+      }
+      throw assessment.error;
     }
   }
 
   if (selects.length === 0) {
     await createEmptyView(connection, dataset);
+    warnings.push(`No readable partitions found for dataset ${dataset.dataset.slug}; returning empty view.`);
     return warnings;
   }
 
@@ -1414,6 +1432,14 @@ function buildParquetSelect(
     .join(', ');
 
   return `SELECT ${projections} FROM ${source}`;
+}
+
+async function verifyRuntimePartition(
+  connection: DuckDbConnection,
+  partition: SqlDatasetPartitionContext
+): Promise<void> {
+  const escapedPath = partition.location.replace(/'/g, "''");
+  await all(connection, `SELECT 1 FROM read_parquet('${escapedPath}') LIMIT 0`);
 }
 
 function sanitizeIdentifierSegment(segment: string): string {

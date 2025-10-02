@@ -664,6 +664,11 @@ const datasetQueryResponseSchema: OpenAPIV3.SchemaObject = {
     mode: {
       type: 'string',
       enum: ['raw', 'downsampled']
+    },
+    warnings: {
+      type: 'array',
+      description: 'Non-fatal issues encountered while executing the query.',
+      items: stringSchema()
     }
   }
 };

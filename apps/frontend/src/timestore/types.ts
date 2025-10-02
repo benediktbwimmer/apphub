@@ -224,7 +224,8 @@ export type LifecycleRunResponse = z.infer<typeof lifecycleRunCompletedSchema> |
 export const queryResponseSchema = z.object({
   rows: z.array(z.record(z.string(), z.unknown())),
   columns: z.array(z.string()),
-  mode: z.enum(['raw', 'downsampled'])
+  mode: z.enum(['raw', 'downsampled']),
+  warnings: z.array(z.string()).optional()
 });
 
 export type QueryResponse = z.infer<typeof queryResponseSchema>;
