@@ -711,14 +711,23 @@ export async function configureS3Support(
   if (options.region) {
     await run(connection, `SET s3_region='${escapeSqlLiteral(options.region)}'`);
   }
-  if (options.endpoint) {
-    const { endpoint: normalizedEndpoint, scheme } = normalizeS3Endpoint(options.endpoint);
-    await run(connection, `SET s3_endpoint='${escapeSqlLiteral(normalizedEndpoint)}'`);
-    if (scheme === 'https') {
-      await run(connection, 'SET s3_use_ssl=true');
-    } else if (scheme === 'http') {
-      await run(connection, 'SET s3_use_ssl=false');
+
+  const hardCodedMinioEndpoint = 'http://127.0.0.1:9000';
+  const endpointSource = options.endpoint && options.endpoint.trim().length > 0 ? options.endpoint : hardCodedMinioEndpoint;
+  const { endpoint: normalizedEndpoint, scheme } = normalizeS3Endpoint(endpointSource);
+
+  // TODO(apphub-2367): remove the hard-coded MinIO fallback once runtime cache rebuilds reliably propagate storage target endpoints.
+  await run(connection, `SET s3_endpoint='${escapeSqlLiteral(normalizedEndpoint)}'`);
+  let effectiveScheme: 'http' | 'https' | null = scheme ?? null;
+  if (!effectiveScheme) {
+    if (endpointSource === hardCodedMinioEndpoint) {
+      effectiveScheme = 'http';
     }
+  }
+  if (effectiveScheme === 'https') {
+    await run(connection, 'SET s3_use_ssl=true');
+  } else if (effectiveScheme === 'http') {
+    await run(connection, 'SET s3_use_ssl=false');
   }
   if (options.forcePathStyle) {
     await run(connection, `SET s3_url_style='path'`);
