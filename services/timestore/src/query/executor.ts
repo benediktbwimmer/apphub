@@ -739,15 +739,15 @@ function normalizeS3Endpoint(rawEndpoint: string): { endpoint: string; scheme: '
     return { endpoint: trimmed, scheme: null };
   }
 
-  const match = /^(https?):\/\//i.exec(trimmed);
+  const normalized = trimmed.replace(/\/+$/u, '');
+  const match = /^(https?):\/\//i.exec(normalized);
   if (!match) {
-    return { endpoint: trimmed.replace(/\/+$/u, ''), scheme: null };
+    return { endpoint: normalized, scheme: null };
   }
 
   const scheme = match[1].toLowerCase() as 'http' | 'https';
-  const withoutScheme = trimmed.slice(match[0].length).replace(/\/+$/u, '');
   return {
-    endpoint: withoutScheme || trimmed,
+    endpoint: normalized,
     scheme
   };
 }
