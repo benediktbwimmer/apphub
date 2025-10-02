@@ -268,10 +268,21 @@ async function ensureDevModulesPublished(baseEnv) {
     }
 
     console.log(`[dev-runner] Publishing module ${relative} via module:publish.`);
+
+    const resolvedModuleDir = path.resolve(spec.moduleDir);
+    const defaultScratch = [resolvedModuleDir, path.join(resolvedModuleDir, 'dist')];
+    const existingScratch = baseEnv.APPHUB_SCRATCH_PREFIXES?.trim();
+    const scratchPrefixes = existingScratch
+      ? `${existingScratch}:${defaultScratch.join(':')}`
+      : defaultScratch.join(':');
+
     const result = spawnSync('npm', args, {
       cwd: ROOT_DIR,
       stdio: 'inherit',
-      env: { ...baseEnv }
+      env: {
+        ...baseEnv,
+        APPHUB_SCRATCH_PREFIXES: scratchPrefixes
+      }
     });
 
     if (result.error) {
