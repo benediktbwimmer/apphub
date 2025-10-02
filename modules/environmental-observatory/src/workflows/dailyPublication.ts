@@ -15,6 +15,7 @@ const definition: WorkflowDefinition = {
       timestoreDatasetSlug: { type: 'string', minLength: 1 },
       timestoreAuthToken: { type: 'string' },
       partitionKey: { type: 'string', minLength: 1 },
+      partitionWindow: { type: 'string', minLength: 1 },
       instrumentId: { type: 'string' },
       lookbackMinutes: { type: 'number', minimum: 1, maximum: 10_080 },
       siteFilter: { type: 'string' },
@@ -69,6 +70,7 @@ const definition: WorkflowDefinition = {
         timestoreDatasetSlug: '{{ parameters.timestoreDatasetSlug }}',
         timestoreAuthToken: '{{ parameters.timestoreAuthToken }}',
         partitionKey: '{{ parameters.partitionKey }}',
+        partitionWindow: '{{ parameters.partitionWindow | default: parameters.partitionKey | slice: 0, 16 }}',
         instrumentId: '{{ parameters.instrumentId }}',
         lookbackMinutes: '{{ parameters.lookbackMinutes }}',
         siteFilter: '{{ parameters.siteFilter }}',
@@ -176,6 +178,8 @@ const triggers = [
     parameterTemplate: {
       partitionKey:
         "{{ event.payload.partitionKeyFields.window | default: event.payload.minute | default: event.payload.partitionKey }}",
+      partitionWindow:
+        "{{ event.payload.partitionKeyFields.window | default: event.payload.minute | default: event.payload.partitionKey | slice: 0, 16 }}",
       instrumentId: "{{ event.payload.instrumentId | default: 'unknown' }}",
       minute: '{{ event.payload.minute }}',
       rowsIngested: '{{ event.payload.rowsIngested }}',
