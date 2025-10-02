@@ -282,7 +282,6 @@
           "prefix",
           "createdAt",
           "updatedAt",
-          "config",
           "displayName",
           "description",
           "contact",
@@ -420,7 +419,6 @@
               "prefix",
               "createdAt",
               "updatedAt",
-              "config",
               "displayName",
               "description",
               "contact",
@@ -614,7 +612,6 @@
                 "prefix",
                 "createdAt",
                 "updatedAt",
-                "config",
                 "displayName",
                 "description",
                 "contact",
@@ -843,7 +840,6 @@
                     "prefix",
                     "createdAt",
                     "updatedAt",
-                    "config",
                     "displayName",
                     "description",
                     "contact",
@@ -6434,7 +6430,6 @@
           "prefix",
           "createdAt",
           "updatedAt",
-          "config",
           "displayName",
           "description",
           "contact",
@@ -6593,7 +6588,6 @@
               "prefix",
               "createdAt",
               "updatedAt",
-              "config",
               "displayName",
               "description",
               "contact",
@@ -6811,7 +6805,6 @@
                 "prefix",
                 "createdAt",
                 "updatedAt",
-                "config",
                 "displayName",
                 "description",
                 "contact",
@@ -7065,7 +7058,6 @@
                     "prefix",
                     "createdAt",
                     "updatedAt",
-                    "config",
                     "displayName",
                     "description",
                     "contact",
@@ -13019,7 +13011,7 @@
           },
           {
             "schema": {
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "array",
                   "items": {
@@ -13043,7 +13035,7 @@
           },
           {
             "schema": {
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "array",
                   "items": {
@@ -13071,7 +13063,7 @@
           },
           {
             "schema": {
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "array",
                   "items": {
@@ -13860,7 +13852,7 @@
           },
           {
             "schema": {
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "array",
                   "items": {
@@ -13886,7 +13878,7 @@
           },
           {
             "schema": {
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "array",
                   "items": {
@@ -14193,7 +14185,7 @@
           },
           {
             "schema": {
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "array",
                   "items": {
@@ -14219,7 +14211,7 @@
           },
           {
             "schema": {
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "array",
                   "items": {
@@ -14529,7 +14521,7 @@
           },
           {
             "schema": {
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "array",
                   "items": {
@@ -14723,7 +14715,7 @@
           },
           {
             "schema": {
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "array",
                   "items": {

@@ -162,7 +162,6 @@ const backendMountSchema: OpenAPIV3.SchemaObject = {
     'prefix',
     'createdAt',
     'updatedAt',
-    'config',
     'displayName',
     'description',
     'contact',

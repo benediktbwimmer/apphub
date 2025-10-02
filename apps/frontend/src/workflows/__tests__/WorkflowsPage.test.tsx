@@ -448,7 +448,7 @@ describe('WorkflowsPage manual run flow', () => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/workflows\/demo-workflow\/run$/), expect.anything());
     });
 
-    const stepRow = await screen.findByText('step-one');
+    const stepRow = await screen.findByText('First Step');
     expect(stepRow).toBeVisible();
     const logLinks = screen.getAllByRole('link', { name: /view/i });
     expect(logLinks.some((link) => link.getAttribute('href') === 'https://example.com/logs/1')).toBe(true);

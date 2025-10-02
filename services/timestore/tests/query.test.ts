@@ -22,6 +22,7 @@ let queryPlannerModule: typeof import('../src/query/planner');
 let queryExecutorModule: typeof import('../src/query/executor');
 let manifestCacheModule: typeof import('../src/cache/manifestCache');
 let queryRoutesModule: typeof import('../src/routes/query');
+let openApiModule: typeof import('../src/openapi/plugin');
 let metadataModule: typeof import('../src/db/metadata');
 
 let postgres: EmbeddedPostgres | null = null;
@@ -87,6 +88,7 @@ before(async () => {
   queryExecutorModule = await import('../src/query/executor');
   manifestCacheModule = await import('../src/cache/manifestCache');
   queryRoutesModule = await import('../src/routes/query');
+  openApiModule = await import('../src/openapi/plugin');
   metadataModule = await import('../src/db/metadata');
   manifestCacheModule.__resetManifestCacheForTests();
 
@@ -437,6 +439,7 @@ test('query route returns cumulative rows after multi-batch ingestion', async ()
   await ingestBatch(20);
 
   const app = fastify();
+  await openApiModule.registerOpenApi(app);
   await queryRoutesModule.registerQueryRoutes(app);
 
   try {

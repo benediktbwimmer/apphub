@@ -24,6 +24,7 @@ let bootstrapModule: typeof import('../src/service/bootstrap');
 let metadataModule: typeof import('../src/db/metadata');
 let adminRoutesModule: typeof import('../src/routes/admin');
 let manifestCacheModule: typeof import('../src/cache/manifestCache');
+let openApiModule: typeof import('../src/openapi/plugin');
 
 let defaultStorageTargetId: string;
 let datasetA: Awaited<ReturnType<typeof import('../src/db/metadata')['createDataset']>>;
@@ -71,6 +72,7 @@ before(async () => {
   metadataModule = await import('../src/db/metadata');
   adminRoutesModule = await import('../src/routes/admin');
   manifestCacheModule = await import('../src/cache/manifestCache');
+  openApiModule = await import('../src/openapi/plugin');
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrations();
@@ -92,6 +94,7 @@ before(async () => {
   datasetB = await seedDataset('observatory-admin-b');
 
   app = fastify();
+  await openApiModule.registerOpenApi(app);
   await adminRoutesModule.registerAdminRoutes(app);
 });
 

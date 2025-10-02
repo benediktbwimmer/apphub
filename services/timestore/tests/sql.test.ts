@@ -25,6 +25,7 @@ let metadataModule: typeof import('../src/db/metadata');
 let storageModule: typeof import('../src/storage');
 let sqlRoutesModule: typeof import('../src/routes/sql');
 let runtimeModule: typeof import('../src/sql/runtime');
+let openApiModule: typeof import('../src/openapi/plugin');
 
 let datasetSlug: string;
 
@@ -71,6 +72,7 @@ before(async () => {
   storageModule = await import('../src/storage');
   sqlRoutesModule = await import('../src/routes/sql');
   runtimeModule = await import('../src/sql/runtime');
+  openApiModule = await import('../src/openapi/plugin');
   runtimeModule.resetSqlRuntimeCache();
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
@@ -79,6 +81,7 @@ before(async () => {
   await seedDuckDbDataset();
 
   app = fastify();
+  await openApiModule.registerOpenApi(app);
   await sqlRoutesModule.registerSqlRoutes(app);
 });
 
