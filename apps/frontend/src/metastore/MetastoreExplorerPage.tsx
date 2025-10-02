@@ -1,5 +1,5 @@
 import classNames from 'classnames';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
@@ -423,8 +423,11 @@ export default function MetastoreExplorerPage() {
     }
   }, [records, selectedRecordId]);
 
+  const lastFetchedDetailRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!selectedRecordId) {
+      lastFetchedDetailRef.current = null;
       setRecordDetail(null);
       setDetailError(null);
       return;
@@ -432,7 +435,20 @@ export default function MetastoreExplorerPage() {
 
     const recordSummary = records.find((item) => item.id === selectedRecordId) ?? null;
     if (!recordSummary) {
+      lastFetchedDetailRef.current = null;
       setRecordDetail(null);
+      return;
+    }
+
+    const signature = [
+      recordSummary.namespace,
+      recordSummary.recordKey,
+      recordSummary.version,
+      includeDeleted ? 'with-deleted' : 'active'
+    ].join('|');
+
+    if (lastFetchedDetailRef.current === signature) {
+      // Skip refetching when polling yields an unchanged summary.
       return;
     }
 
@@ -444,10 +460,14 @@ export default function MetastoreExplorerPage() {
       signal: controller.signal
     })
       .then((detail) => {
-        resetEditors(detail);
+        if (!controller.signal.aborted) {
+          lastFetchedDetailRef.current = signature;
+          resetEditors(detail);
+        }
       })
       .catch((err) => {
         if (!controller.signal.aborted) {
+          lastFetchedDetailRef.current = null;
           const message = err instanceof Error ? err.message : 'Failed to load record';
           setDetailError(message);
           showError('Failed to load record', err);
