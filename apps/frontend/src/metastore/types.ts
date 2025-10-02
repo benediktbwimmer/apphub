@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z, type ZodTypeAny } from 'zod';
 
 export const recordStreamActionSchema = z.enum(['created', 'updated', 'deleted']);
 
@@ -54,10 +54,42 @@ export type MetastoreSchemaFetchResult =
   | { status: 'found'; schema: MetastoreSchemaDefinition }
   | { status: 'missing'; message: string };
 
+type WithRecordIdentity<T> = Omit<T, 'id' | 'recordKey'> & {
+  id: string;
+  key: string;
+  recordKey: string;
+};
+
+function normalizeRecordSchema<T extends ZodTypeAny>(
+  schema: T
+): z.ZodEffects<T, WithRecordIdentity<z.infer<T>>, z.infer<T>> {
+  return schema.transform((value) => {
+    const record = value as z.infer<T> & {
+      id?: string | number | null;
+      namespace: string;
+      key: string;
+      recordKey?: string | null;
+    };
+
+    const recordKey = record.recordKey && record.recordKey.length > 0 ? record.recordKey : record.key;
+    const idSource = record.id;
+    const normalizedId =
+      idSource === undefined || idSource === null ? `${record.namespace}:${recordKey}` : String(idSource);
+
+    return {
+      ...record,
+      id: normalizedId,
+      key: record.key,
+      recordKey
+    } satisfies WithRecordIdentity<z.infer<T>>;
+  });
+}
+
 const recordBaseSchema = z.object({
-  id: z.string(),
+  id: z.union([z.string(), z.number()]).optional(),
   namespace: z.string(),
-  recordKey: z.string(),
+  key: z.string(),
+  recordKey: z.string().optional(),
   displayName: z.string().nullable().optional(),
   owner: z.string().nullable().optional(),
   schemaHash: z.string().nullable().optional(),
@@ -67,17 +99,21 @@ const recordBaseSchema = z.object({
   deletedAt: z.string().nullable()
 });
 
-export const recordSummarySchema = recordBaseSchema.extend({
-  metadata: recordMetadataSchema.optional(),
-  tags: z.array(z.string()).optional()
-});
+export const recordSummarySchema = normalizeRecordSchema(
+  recordBaseSchema.extend({
+    metadata: recordMetadataSchema.optional(),
+    tags: z.array(z.string()).optional()
+  })
+);
 
 export type MetastoreRecordSummary = z.infer<typeof recordSummarySchema>;
 
-export const recordDetailSchema = recordBaseSchema.extend({
-  metadata: recordMetadataSchema,
-  tags: z.array(z.string())
-});
+export const recordDetailSchema = normalizeRecordSchema(
+  recordBaseSchema.extend({
+    metadata: recordMetadataSchema,
+    tags: z.array(z.string())
+  })
+);
 
 export type MetastoreRecordDetail = z.infer<typeof recordDetailSchema>;
 

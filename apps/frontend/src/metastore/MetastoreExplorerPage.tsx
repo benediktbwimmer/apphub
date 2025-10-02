@@ -56,6 +56,7 @@ const PAGE_SIZE = 25;
 const LIST_PROJECTION = [
   'namespace',
   'key',
+  'createdAt',
   'owner',
   'schemaHash',
   'tags',
