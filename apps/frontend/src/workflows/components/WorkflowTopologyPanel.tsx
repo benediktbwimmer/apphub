@@ -85,6 +85,8 @@ const REFRESH_BUTTON_CLASSES =
 
 const FULLSCREEN_BUTTON_CLASSES =
   'inline-flex items-center gap-2 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.18em] text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft/50 hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50';
+const FULLSCREEN_FLOATING_BUTTON_CLASSES =
+  'absolute right-4 top-4 z-10 inline-flex items-center gap-1 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.18em] text-secondary shadow-elevation-lg hover:border-accent-soft hover:bg-accent-soft/50 hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 const STAT_BADGE_CONTAINER_CLASSES =
   'inline-flex min-w-[96px] flex-col items-center rounded-xl border border-subtle bg-surface-glass-soft px-3 py-2 text-[11px] font-weight-semibold leading-4 text-secondary';
@@ -173,7 +175,7 @@ export function WorkflowTopologyPanel({
   onRefresh,
   selection
 }: WorkflowTopologyPanelProps) {
-  const containerRef = useRef<HTMLElement | null>(null);
+  const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const isDarkMode = useIsDarkMode();
   const panelTheme = isDarkMode ? PANEL_THEME_DARK : PANEL_THEME_LIGHT;
   const stats = graph?.stats ?? null;
@@ -357,11 +359,12 @@ export function WorkflowTopologyPanel({
     setFullscreenSupported(document.fullscreenEnabled ?? true);
 
     const handleFullscreenChange = () => {
-      if (!containerRef.current) {
+      const element = graphContainerRef.current;
+      if (!element) {
         setIsFullscreen(Boolean(document.fullscreenElement));
         return;
       }
-      setIsFullscreen(document.fullscreenElement === containerRef.current);
+      setIsFullscreen(document.fullscreenElement === element);
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -378,7 +381,7 @@ export function WorkflowTopologyPanel({
       document.exitFullscreen?.().catch(() => {});
       return;
     }
-    const element = containerRef.current;
+    const element = graphContainerRef.current;
     if (!element) {
       return;
     }
@@ -386,7 +389,7 @@ export function WorkflowTopologyPanel({
   }, [isFullscreen]);
 
   return (
-    <section ref={containerRef} className={PANEL_CONTAINER_CLASSES}>
+    <section className={PANEL_CONTAINER_CLASSES}>
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h2 className={HEADER_TITLE_CLASSES}>Workflow Topology Explorer</h2>
@@ -570,13 +573,30 @@ export function WorkflowTopologyPanel({
         </div>
 
         <ReactFlowProvider>
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div
+            ref={graphContainerRef}
+            className={classNames(
+              'relative grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]',
+              isFullscreen && 'h-full w-full lg:grid-cols-[minmax(0,1fr)]'
+            )}
+          >
+            {isFullscreen && (
+              <button
+                type="button"
+                onClick={handleToggleFullscreen}
+                className={FULLSCREEN_FLOATING_BUTTON_CLASSES}
+                aria-label="Exit fullscreen"
+              >
+                <span aria-hidden="true">⤫</span>
+                Exit Fullscreen
+              </button>
+            )}
             <WorkflowGraphCanvas
               graph={graph}
               loading={graphLoading || graphRefreshing}
               error={graphError}
               theme={panelTheme}
-              height={640}
+              height={isFullscreen ? '100vh' : 640}
               filters={canvasFilters}
               searchTerm={canvasSearchTerm}
               onNodeSelect={handleCanvasNodeSelect}
@@ -584,7 +604,9 @@ export function WorkflowTopologyPanel({
               overlay={overlay ?? null}
               {...selectionProps}
             />
-            <WorkflowTopologyNodeDetails graph={graph} node={selectedNode} onClear={handleCanvasClick} />
+            {!isFullscreen && (
+              <WorkflowTopologyNodeDetails graph={graph} node={selectedNode} onClear={handleCanvasClick} />
+            )}
           </div>
         </ReactFlowProvider>
       </div>
