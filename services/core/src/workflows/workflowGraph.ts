@@ -22,6 +22,7 @@ import {
   canonicalAssetId as canonicalizeAssetId,
   normalizeAssetId as normalizeAssetIdentifier
 } from '../assets/identifiers';
+import { deriveDagMetadata } from './dependencyInference';
 import type {
   WorkflowTopologyGraph,
   WorkflowTopologyAnnotations,
@@ -104,11 +105,18 @@ export function assembleWorkflowTopologyGraph(
   for (const { definition, assetDeclarations } of bundles) {
     workflows.push(buildWorkflowNode(definition));
 
-    steps.push(
-      ...buildStepNodes(definition.id, applyDagMetadataToSteps(definition.steps ?? [], definition.dag))
-    );
+    const dagSource = definition.dag;
+    const requiresRebuild =
+      !dagSource || dagSource.edges === 0 || dagSource.topologicalOrder.length === 0;
+    const { steps: enrichedSteps, dag: effectiveDag } = requiresRebuild
+      ? deriveDagMetadata(definition.steps ?? [])
+      : { steps: definition.steps ?? [], dag: dagSource };
 
-    workflowToStep.push(...buildWorkflowStepEdges(definition.id, definition.dag));
+    const stepsWithDag = applyDagMetadataToSteps(enrichedSteps, effectiveDag) as WorkflowStepDefinition[];
+
+    steps.push(...buildStepNodes(definition.id, stepsWithDag));
+
+    workflowToStep.push(...buildWorkflowStepEdges(definition.id, effectiveDag));
 
     triggers.push(...buildDefinitionTriggerNodes(definition));
     triggerToWorkflow.push(...buildDefinitionTriggerEdges(definition));

@@ -41,6 +41,7 @@ import type {
   ServiceRecord
 } from '../db/types';
 import { mergeServiceMetadata, type ServiceMetadataUpdate } from '../serviceMetadata';
+import { deriveDagMetadata } from '../workflows/dependencyInference';
 
 interface CliOptions {
   moduleDir: string | null;
@@ -1448,8 +1449,8 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
     const stepsValue = Array.isArray(definitionData.steps)
       ? (definitionData.steps as WorkflowStepDefinition[])
       : ([] as WorkflowStepDefinition[]);
-    const steps = stepsValue;
-    if (steps.length === 0) {
+    const { steps: inferredSteps, dag: dagMetadata } = deriveDagMetadata(stepsValue);
+    if (inferredSteps.length === 0) {
       console.warn('[module:publish] Workflow target has no steps; skipping', {
         moduleId: result.module.id,
         targetName: target.name,
@@ -1490,12 +1491,13 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
       name,
       version,
       description,
-      steps,
+      steps: inferredSteps,
       triggers: definitionTriggers,
       parametersSchema: parametersSchemaValue,
       defaultParameters: defaultParametersValue,
       outputSchema: outputSchemaValue,
-      metadata
+      metadata,
+      dag: dagMetadata
     } satisfies Parameters<typeof createWorkflowDefinition>[0];
 
     let definitionRecord: WorkflowDefinitionRecord | null = null;
@@ -1513,12 +1515,13 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
         name,
         version,
         description,
-        steps,
+        steps: inferredSteps,
         triggers: definitionInput.triggers,
         parametersSchema: definitionInput.parametersSchema,
         defaultParameters: definitionInput.defaultParameters,
         outputSchema: definitionInput.outputSchema,
-        metadata: definitionInput.metadata
+        metadata: definitionInput.metadata,
+        dag: dagMetadata
       });
 
       definitionRecord = updated ?? existing;
