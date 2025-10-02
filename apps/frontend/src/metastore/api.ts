@@ -27,6 +27,12 @@ import type {
   MetastoreSchemaFetchResult
 } from './types';
 
+function buildMetastoreUrl(path: string): URL {
+  const base = METASTORE_BASE_URL.endsWith('/') ? METASTORE_BASE_URL : `${METASTORE_BASE_URL}/`;
+  const normalized = path.startsWith('/') ? path.slice(1) : path;
+  return new URL(normalized, base);
+}
+
 async function parseJsonOrError<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
   const text = await response.text();
   if (!response.ok) {
@@ -79,7 +85,7 @@ export async function fetchRecord(
   key: string,
   options: { includeDeleted?: boolean; signal?: AbortSignal } = {}
 ): Promise<MetastoreRecordDetail> {
-  const url = new URL(`/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, METASTORE_BASE_URL);
+  const url = buildMetastoreUrl(`/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`);
   if (options.includeDeleted) {
     url.searchParams.set('includeDeleted', 'true');
   }
@@ -94,7 +100,7 @@ export async function fetchRecordAudits(
   key: string,
   options: { limit?: number; offset?: number; signal?: AbortSignal } = {}
 ): Promise<MetastoreAuditResponse> {
-  const url = new URL(`/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}/audit`, METASTORE_BASE_URL);
+  const url = buildMetastoreUrl(`/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}/audit`);
   if (options.limit) {
     url.searchParams.set('limit', String(options.limit));
   }
@@ -112,9 +118,8 @@ export async function fetchRecordAuditDiff(
   auditId: number,
   options: { signal?: AbortSignal } = {}
 ): Promise<MetastoreAuditDiff> {
-  const url = new URL(
-    `/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}/audit/${auditId}/diff`,
-    METASTORE_BASE_URL
+  const url = buildMetastoreUrl(
+    `/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}/audit/${auditId}/diff`
   );
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   return parseJsonOrError(response, auditDiffSchema);
@@ -212,7 +217,7 @@ export async function listNamespaces(
   authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
   options: { prefix?: string; limit?: number; offset?: number; signal?: AbortSignal } = {}
 ): Promise<MetastoreNamespaceListResponse> {
-  const url = new URL('/namespaces', METASTORE_BASE_URL);
+  const url = buildMetastoreUrl('/namespaces');
   const trimmedPrefix = options.prefix?.trim();
   if (trimmedPrefix) {
     url.searchParams.set('prefix', trimmedPrefix);
@@ -232,7 +237,7 @@ export async function fetchSchemaDefinition(
   schemaHash: string,
   options: { signal?: AbortSignal } = {}
 ): Promise<MetastoreSchemaFetchResult> {
-  const url = new URL(`/schemas/${encodeURIComponent(schemaHash)}`, METASTORE_BASE_URL);
+  const url = buildMetastoreUrl(`/schemas/${encodeURIComponent(schemaHash)}`);
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   const text = await response.text();
 
