@@ -565,14 +565,49 @@ function normalizeRows(rows: QueryResultRow[]): QueryResultRow[] {
   return rows.map((row) => {
     const normalized: QueryResultRow = {};
     for (const [key, value] of Object.entries(row)) {
-      if (value instanceof Date) {
-        normalized[key] = value.toISOString();
-      } else {
-        normalized[key] = value;
-      }
+      normalized[key] = normalizeValue(value);
     }
     return normalized;
   });
+}
+
+function normalizeValue(value: unknown): unknown {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === 'bigint') {
+    if (value <= Number.MAX_SAFE_INTEGER && value >= Number.MIN_SAFE_INTEGER) {
+      return Number(value);
+    }
+    return value.toString();
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+    return value;
+  }
+  if (typeof value === 'undefined') {
+    return null;
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) {
+    return (value as Buffer).toString('base64');
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeValue(entry));
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    const normalized: Record<string, unknown> = {};
+    for (const [key, nested] of entries) {
+      normalized[key] = normalizeValue(nested);
+    }
+    return normalized;
+  }
+  if (Number.isNaN(value)) {
+    return null;
+  }
+  return value;
 }
 
 export async function configureS3Support(connection: any, config: ServiceConfig): Promise<void> {
@@ -587,12 +622,11 @@ export async function configureS3Support(connection: any, config: ServiceConfig)
     await run(connection, `SET s3_region='${escapeSqlLiteral(s3.region)}'`);
   }
   if (s3.endpoint) {
-    await run(connection, `SET s3_endpoint='${escapeSqlLiteral(s3.endpoint)}'`);
-    const isSecure = /^https:/i.test(s3.endpoint);
-    const isInsecure = /^http:/i.test(s3.endpoint);
-    if (isSecure) {
+    const { endpoint: normalizedEndpoint, scheme } = normalizeS3Endpoint(s3.endpoint);
+    await run(connection, `SET s3_endpoint='${escapeSqlLiteral(normalizedEndpoint)}'`);
+    if (scheme === 'https') {
       await run(connection, 'SET s3_use_ssl=true');
-    } else if (isInsecure) {
+    } else if (scheme === 'http') {
       await run(connection, 'SET s3_use_ssl=false');
     }
   }
@@ -625,6 +659,25 @@ export async function configureS3Support(connection: any, config: ServiceConfig)
       }
     }
   }
+}
+
+function normalizeS3Endpoint(rawEndpoint: string): { endpoint: string; scheme: 'http' | 'https' | null } {
+  const trimmed = rawEndpoint.trim();
+  if (!trimmed) {
+    return { endpoint: trimmed, scheme: null };
+  }
+
+  const match = /^(https?):\/\//i.exec(trimmed);
+  if (!match) {
+    return { endpoint: trimmed.replace(/\/+$/u, ''), scheme: null };
+  }
+
+  const scheme = match[1].toLowerCase() as 'http' | 'https';
+  const withoutScheme = trimmed.slice(match[0].length).replace(/\/+$/u, '');
+  return {
+    endpoint: withoutScheme || trimmed,
+    scheme
+  };
 }
 
 async function ensureHttpfsLoaded(connection: any): Promise<void> {

@@ -47,10 +47,28 @@ const visualizationAssetSchema = z
 
 const parametersSchema = z
   .object({
-    reportsPrefix: z.string().min(1).optional(),
+    reportsPrefix: z
+      .union([z.string(), z.null()])
+      .optional()
+      .transform((value) => {
+        if (value == null) {
+          return undefined;
+        }
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+      }),
     partitionKey: z.string().min(1),
     instrumentId: z.string().min(1).optional(),
-    reportTemplate: z.string().min(1).optional(),
+    reportTemplate: z
+      .union([z.string(), z.null()])
+      .optional()
+      .transform((value) => {
+        if (value == null) {
+          return undefined;
+        }
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+      }),
     visualizationAsset: visualizationAssetSchema
   })
   .strip();

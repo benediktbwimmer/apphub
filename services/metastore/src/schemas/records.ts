@@ -7,7 +7,10 @@ const namespaceSchema = z
   .string()
   .min(1, 'Namespace is required')
   .max(128, 'Namespace exceeds 128 characters')
-  .regex(/^[A-Za-z0-9][A-Za-z0-9:_-]*$/, 'Namespace may include alphanumeric, colon, underscore, and dash characters');
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9:._-]*$/,
+    'Namespace may include alphanumeric, dot, colon, underscore, and dash characters'
+  );
 
 const keySchema = z
   .string()

@@ -123,6 +123,10 @@ const BASE_COMMANDS = [
     command: 'npm run event-triggers --workspace @apphub/core'
   },
   {
+    name: 'module-services',
+    command: 'npm run module:services --workspace @apphub/core'
+  },
+  {
     name: 'materializer',
     command: 'npm run materializer --workspace @apphub/core'
   },

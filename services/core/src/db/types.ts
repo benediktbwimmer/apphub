@@ -818,11 +818,16 @@ export type ModuleTargetWorkflowMetadata = {
   schedules: JsonValue;
 };
 
+export type ModuleTargetServiceMetadata = {
+  registration?: JsonValue;
+};
+
 export type ModuleTargetMetadata = {
   settings?: ModuleTargetValueDescriptorMetadata;
   secrets?: ModuleTargetValueDescriptorMetadata;
   parameters?: ModuleTargetValueDescriptorMetadata;
   workflow?: ModuleTargetWorkflowMetadata;
+  service?: ModuleTargetServiceMetadata;
 };
 
 export type ModuleTargetKind = 'job' | 'service' | 'workflow';

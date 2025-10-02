@@ -32,6 +32,8 @@ export {
   type ServiceLifecycle,
   type ServiceHandler,
   type ServiceTargetDefinition,
+  type ServiceRegistration,
+  type ServiceRegistrationUiHints,
   type WorkflowDefinition,
   type WorkflowScheduleDefinition,
   type WorkflowTriggerDefinition,

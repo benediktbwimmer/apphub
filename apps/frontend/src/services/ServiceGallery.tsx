@@ -5,7 +5,11 @@ import { normalizePreviewUrl } from '../utils/url';
 import { formatFetchError } from '../core/utils';
 import { usePreviewLayout } from '../settings/previewLayoutContext';
 import { Spinner } from '../components';
-import type { ServiceSummary, ServicesResponse } from './types';
+import type {
+  ModuleServiceRuntimeConfig,
+  ServiceSummary,
+  ServicesResponse
+} from './types';
 import { usePollingResource } from '../hooks/usePollingResource';
 import {
   SERVICE_ALERT_CLASSES,
@@ -38,9 +42,41 @@ function hasServiceData(payload: ServicesResponse): payload is { data: ServiceSu
   return Array.isArray((payload as { data?: unknown }).data);
 }
 
+function toModuleServiceConfig(config: unknown): ModuleServiceRuntimeConfig | null {
+  if (!config || typeof config !== 'object') {
+    return null;
+  }
+  return config as ModuleServiceRuntimeConfig;
+}
+
+function buildPreviewUrl(baseUrl: string | null | undefined, previewPath: string | null | undefined) {
+  if (!baseUrl) {
+    return null;
+  }
+  if (!previewPath) {
+    return baseUrl;
+  }
+  try {
+    const url = new URL(baseUrl);
+    if (previewPath.startsWith('/')) {
+      url.pathname = previewPath;
+    } else {
+      const existing = url.pathname.endsWith('/') ? url.pathname : `${url.pathname}/`;
+      url.pathname = `${existing}${previewPath}`;
+    }
+    return url.toString();
+  } catch {
+    return baseUrl;
+  }
+}
+
 function extractRuntimeUrl(service: ServiceSummary): string | null {
   const runtime = service.metadata?.runtime ?? null;
-  const candidates = [runtime?.previewUrl, runtime?.instanceUrl, runtime?.baseUrl, service.baseUrl];
+  const moduleConfig = toModuleServiceConfig(service.metadata?.config);
+  const registrationPreviewPath = moduleConfig?.registration?.ui?.previewPath ?? moduleConfig?.registration?.basePath;
+  const preferredBaseUrl = moduleConfig?.runtime?.baseUrl ?? runtime?.previewUrl ?? runtime?.baseUrl ?? service.baseUrl;
+  const preferred = buildPreviewUrl(preferredBaseUrl, registrationPreviewPath ?? undefined);
+  const candidates = [preferred, runtime?.previewUrl, runtime?.instanceUrl, runtime?.baseUrl, service.baseUrl];
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && candidate.trim().length > 0) {
       return candidate.trim();
@@ -61,9 +97,13 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
   const displayName = service.displayName ?? service.slug;
   const manifest = service.metadata?.manifest ?? null;
   const runtime = service.metadata?.runtime ?? null;
+  const moduleConfig = toModuleServiceConfig(service.metadata?.config);
   const linkedApps = service.metadata?.linkedApps ?? manifest?.apps ?? null;
   const manifestSourceLabel = manifest?.source ?? (manifest?.sources?.[0] ?? 'manifest import');
-  const runtimeLabel = runtime?.repositoryId ?? runtime?.baseUrl ?? 'not linked';
+  const runtimeLabel =
+    runtime?.repositoryId ?? moduleConfig?.module?.id ?? runtime?.baseUrl ?? 'not linked';
+  const moduleTags = moduleConfig?.registration?.tags ?? [];
+  const previewPath = moduleConfig?.registration?.ui?.previewPath ?? moduleConfig?.registration?.basePath;
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -131,15 +171,27 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
                 {manifestSourceLabel}
               </dd>
             </div>
+          <div className="flex flex-col gap-1">
+            <dt>Runtime App</dt>
+            <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{runtimeLabel}</dd>
+          </div>
+          {previewPath ? (
             <div className="flex flex-col gap-1">
-              <dt>Runtime App</dt>
-              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{runtimeLabel}</dd>
+              <dt>Preview Path</dt>
+              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{previewPath}</dd>
             </div>
+          ) : null}
+          {moduleTags && moduleTags.length > 0 ? (
             <div className="flex flex-col gap-1">
-              <dt>Linked Apps</dt>
-              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>
-                {linkedApps && linkedApps.length > 0 ? linkedApps.join(', ') : 'none'}
-              </dd>
+              <dt>Tags</dt>
+              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{moduleTags.join(', ')}</dd>
+            </div>
+          ) : null}
+          <div className="flex flex-col gap-1">
+            <dt>Linked Apps</dt>
+            <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>
+              {linkedApps && linkedApps.length > 0 ? linkedApps.join(', ') : 'none'}
+            </dd>
             </div>
           </dl>
           {service.metadata?.notes && <p className={SERVICE_PREVIEW_NOTES_CLASSES}>{service.metadata.notes}</p>}

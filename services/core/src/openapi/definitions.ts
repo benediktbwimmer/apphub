@@ -28,15 +28,15 @@ const nullableRef = (name: string): OpenAPIV3.SchemaObject => ({
 const jsonValueSchema: OpenAPIV3.SchemaObject = {
   description: 'Arbitrary JSON value.',
   nullable: true,
-  oneOf: [
+  anyOf: [
     { type: 'string' },
     { type: 'number' },
     { type: 'integer' },
     { type: 'boolean' },
-    { type: 'array', items: schemaRef('JsonValue') },
+    { type: 'array', items: {} },
     {
       type: 'object',
-      additionalProperties: schemaRef('JsonValue')
+      additionalProperties: true
     }
   ]
 };

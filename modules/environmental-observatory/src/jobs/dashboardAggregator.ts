@@ -10,7 +10,7 @@ import {
 import { createObservatoryEventPublisher } from '../runtime/events';
 import { defaultObservatorySettings, type ObservatoryModuleSecrets, type ObservatoryModuleSettings } from '../runtime/settings';
 
-const MAX_ROWS = 50_000;
+const MAX_ROWS = 10_000;
 const DATASET_READY_MAX_ATTEMPTS = 24;
 const DATASET_READY_DELAY_MS = 1_000;
 

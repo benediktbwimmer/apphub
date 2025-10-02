@@ -17,7 +17,8 @@ import {
   type ModuleTargetRecord,
   type ModuleTargetValueDescriptorMetadata,
   type ModuleTargetWorkflowMetadata,
-  type ModuleTargetKind
+  type ModuleTargetKind,
+  type JsonValue
 } from './types';
 import type { ModuleArtifactRow, ModuleRow, ModuleTargetRow } from './rowTypes';
 import { useConnection, useTransaction } from './utils';
@@ -172,6 +173,12 @@ function buildTargetMetadata(target: ModuleManifestTarget): ModuleTargetMetadata
       triggers: cloneJsonValue(target.workflow.triggers) as unknown as ModuleTargetWorkflowMetadata['triggers'],
       schedules: cloneJsonValue(target.workflow.schedules) as unknown as ModuleTargetWorkflowMetadata['schedules']
     };
+  }
+
+  if (target.service) {
+    metadata.service = {
+      registration: cloneJsonValue(target.service.registration ?? null) as JsonValue
+    } satisfies ModuleTargetMetadata['service'];
   }
 
   return metadata;

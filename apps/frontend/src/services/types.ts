@@ -30,10 +30,42 @@ export type ServiceRuntimeMetadata = {
 export type ServiceMetadata = {
   resourceType?: 'service';
   manifest?: ServiceManifestMetadata | null;
-  config?: unknown;
+  config?: ModuleServiceRuntimeConfig | unknown;
   runtime?: ServiceRuntimeMetadata | null;
   linkedApps?: string[] | null;
   notes?: string | null;
+};
+
+export type ModuleServiceRuntimeConfig = {
+  module?: {
+    id?: string;
+    version?: string;
+    target?: {
+      name?: string;
+      version?: string | null;
+      fingerprint?: string | null;
+    };
+  };
+  registration?: {
+    basePath?: string;
+    defaultPort?: number | null;
+    tags?: string[];
+    metadata?: unknown;
+    ui?: {
+      previewPath?: string;
+      spa?: boolean;
+      icon?: string;
+      description?: string;
+    };
+    envTemplate?: Record<string, string>;
+  };
+  runtime?: {
+    baseUrl?: string;
+    host?: string;
+    port?: number;
+    healthEndpoint?: string;
+    env?: Record<string, string>;
+  };
 };
 
 export type ServiceSummary = {

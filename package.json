@@ -38,6 +38,7 @@
     "backfill:service-registry": "npm run backfill:service-registry --workspace @apphub/core",
     "migrate:example-bundles": "npm run migrate:example-bundles --workspace @apphub/core",
     "module:publish": "npm run module:publish --workspace @apphub/core --",
+    "module:services": "npm run module:services --workspace @apphub/core",
     "docker:build:services": "bash scripts/docker-build-services.sh",
     "test:ui": "npm run test:ui --workspace @apphub/frontend",
     "minikube:up": "node scripts/minikube-up.mjs",

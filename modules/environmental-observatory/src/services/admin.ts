@@ -10,6 +10,24 @@ export const adminService = createService<
   ServiceLifecycle
 >({
   name: 'observatory-admin-service',
+  registration: {
+    slug: 'observatory-admin',
+    kind: 'admin-ui',
+    healthEndpoint: '/healthz',
+    defaultPort: 4322,
+    basePath: '/',
+    tags: ['observatory', 'admin'],
+    env: {
+      HOST: '0.0.0.0',
+      PORT: '{{port}}',
+      VITE_API_BASE_URL: '${VITE_API_BASE_URL}',
+      VITE_API_TOKEN: '${VITE_API_TOKEN}'
+    },
+    ui: {
+      previewPath: '/',
+      spa: true
+    }
+  },
   settings: {
     defaults: defaultObservatorySettings
   },

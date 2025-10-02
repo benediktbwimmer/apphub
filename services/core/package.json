@@ -24,6 +24,7 @@
     "migrate:example-bundles": "tsx src/scripts/migrateExampleBundles.ts",
     "module:publish": "tsx src/scripts/publishModule.ts",
     "module:admin": "tsx src/scripts/moduleAdmin.ts",
+    "module:services": "tsx src/moduleServices/runner.ts",
     "test:e2e": "tsx tests/liquidTemplateValidation.test.ts && tsx tests/exampleConfigDescriptor.test.ts && APPHUB_EVENTS_MODE=inline tsx tests/ingestion.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobs.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobRegistry.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/workflows.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobSandbox.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/adminNuke.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/eventTriggers.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/dockerImageImport.test.ts && APPHUB_EVENTS_MODE=inline tsx ../../examples/tests/core/loadAllExamples.e2e.ts && APPHUB_EVENTS_MODE=inline tsx ../../examples/tests/core/environmentalObservatoryIngest.e2e.ts",
     "publish:ai-bundle": "tsx src/scripts/publishAiBundle.ts",
     "materializer": "tsx src/assetMaterializerWorker.ts"

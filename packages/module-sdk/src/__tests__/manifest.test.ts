@@ -36,6 +36,22 @@ test('serializeModuleDefinition captures targets and descriptors', () => {
   const service = createService<ModuleSettings, ModuleSecrets>({
     name: 'dashboard',
     version: '1.0.1',
+    registration: {
+      slug: 'observatory-dashboard',
+      kind: 'dashboard',
+      healthEndpoint: '/healthz',
+      defaultPort: 4311,
+      basePath: '/',
+      tags: ['observatory', 'dashboard'],
+      env: {
+        HOST: '0.0.0.0',
+        PORT: '{{port}}'
+      },
+      ui: {
+        previewPath: '/',
+        spa: true
+      }
+    },
     handler: async () => ({
       async start() {
         return undefined;
@@ -110,4 +126,12 @@ test('serializeModuleDefinition captures targets and descriptors', () => {
   assert.ok(serviceTarget);
   assert.equal(serviceTarget?.version, '1.0.1');
   assert.equal(serviceTarget?.fingerprint, '3.0.0:1.0.1:dashboard');
+  assert.equal(
+    (serviceTarget?.service?.registration as { slug?: string } | undefined)?.slug,
+    'observatory-dashboard'
+  );
+  assert.deepEqual(
+    (serviceTarget?.service?.registration as { tags?: string[] } | undefined)?.tags,
+    ['observatory', 'dashboard']
+  );
 });

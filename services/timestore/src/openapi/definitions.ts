@@ -25,15 +25,15 @@ const nullable = (schema: OpenAPIV3.SchemaObject): OpenAPIV3.SchemaObject => ({
 const jsonValueSchema: OpenAPIV3.SchemaObject = {
   description: 'Arbitrary JSON value.',
   nullable: true,
-  oneOf: [
+  anyOf: [
     { type: 'string' },
     { type: 'number' },
     { type: 'integer' },
     { type: 'boolean' },
-    { type: 'array', items: schemaRef('JsonValue') },
+    { type: 'array', items: {} },
     {
       type: 'object',
-      additionalProperties: schemaRef('JsonValue')
+      additionalProperties: true
     }
   ]
 };
@@ -654,7 +654,7 @@ const datasetQueryResponseSchema: OpenAPIV3.SchemaObject = {
       type: 'array',
       items: {
         type: 'object',
-        additionalProperties: jsonValueSchema
+        additionalProperties: true
       }
     },
     columns: {

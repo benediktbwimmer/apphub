@@ -32,6 +32,7 @@ export interface ModuleManifestTarget {
   secrets?: ModuleManifestValueDescriptor;
   parameters?: ModuleManifestValueDescriptor;
   workflow?: ModuleManifestWorkflowDetails;
+  service?: ModuleManifestServiceDetails;
 }
 
 export interface ModuleManifest {
@@ -40,6 +41,10 @@ export interface ModuleManifest {
   secrets?: ModuleManifestValueDescriptor;
   configuredCapabilities: string[];
   targets: ModuleManifestTarget[];
+}
+
+export interface ModuleManifestServiceDetails {
+  registration?: unknown;
 }
 
 function cloneJsonValue<T>(value: T, context: string): T {
@@ -139,6 +144,15 @@ function buildTargetManifest<TSettings, TSecrets>(
         ? cloneJsonValue(genericTarget.schedules, `${genericTarget.kind}:${genericTarget.name} schedules`)
         : []
     } satisfies ModuleManifestWorkflowDetails;
+  }
+
+  if (genericTarget.kind === 'service' && (genericTarget as { registration?: unknown }).registration) {
+    base.service = {
+      registration: cloneJsonValue(
+        (genericTarget as { registration?: unknown }).registration,
+        `${genericTarget.kind}:${genericTarget.name} registration`
+      )
+    } satisfies ModuleManifestServiceDetails;
   }
 
   return base;

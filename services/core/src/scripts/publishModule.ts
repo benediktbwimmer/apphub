@@ -21,19 +21,26 @@ import {
   listWorkflowSchedulesForDefinition,
   createWorkflowSchedule,
   updateWorkflowSchedule,
-  deleteWorkflowSchedule
+  deleteWorkflowSchedule,
+  upsertService,
+  listServices,
+  getServiceBySlug,
+  replaceModuleManifests
 } from '../db';
 import { shutdownApphubEvents } from '../events';
 import type { ModuleArtifactPublishResult } from '../db/modules';
-import type { ModuleDefinition } from '@apphub/module-sdk';
+import type { ModuleDefinition, ModuleManifest } from '@apphub/module-sdk';
 import type {
   ModuleTargetBinding,
   WorkflowDefinitionRecord,
   WorkflowEventTriggerPredicate,
   WorkflowStepDefinition,
   WorkflowTriggerDefinition,
-  JsonValue
+  JsonValue,
+  ServiceManifestStoreInput,
+  ServiceRecord
 } from '../db/types';
+import { mergeServiceMetadata, type ServiceMetadataUpdate } from '../serviceMetadata';
 
 interface CliOptions {
   moduleDir: string | null;
@@ -211,6 +218,201 @@ async function loadModuleJobDefinition(
   return null;
 }
 
+const DEFAULT_SERVICE_HOST = process.env.MODULE_SERVICE_HOST?.trim() || '127.0.0.1';
+const DEFAULT_SERVICE_PORT_RANGE = process.env.MODULE_SERVICE_PORT_RANGE;
+
+function parsePortRange(raw: string | undefined | null): { start: number; end: number } {
+  const fallback = { start: 4310, end: 4399 };
+  if (!raw) {
+    return fallback;
+  }
+  const normalized = raw.trim();
+  if (!normalized) {
+    return fallback;
+  }
+  const rangeMatch = normalized.match(/^(\d+)-(\d+)$/);
+  if (rangeMatch) {
+    const start = Number.parseInt(rangeMatch[1], 10);
+    const end = Number.parseInt(rangeMatch[2], 10);
+    if (Number.isFinite(start) && Number.isFinite(end) && start > 0 && end >= start) {
+      return { start, end };
+    }
+  }
+  const single = Number.parseInt(normalized, 10);
+  if (Number.isFinite(single) && single > 0) {
+    return { start: single, end: single + 89 };
+  }
+  return fallback;
+}
+
+function allocateServicePort(
+  preferred: number | null,
+  portsInUse: Set<number>,
+  range: { start: number; end: number }
+): number {
+  if (preferred && preferred >= range.start && preferred <= range.end && !portsInUse.has(preferred)) {
+    return preferred;
+  }
+  for (let candidate = range.start; candidate <= range.end; candidate += 1) {
+    if (!portsInUse.has(candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error(
+    `Unable to allocate module service port in range ${range.start}-${range.end}; consider expanding MODULE_SERVICE_PORT_RANGE`
+  );
+}
+
+function parsePortFromUrl(baseUrl: string | null | undefined): number | null {
+  if (!baseUrl) {
+    return null;
+  }
+  try {
+    const url = new URL(baseUrl);
+    if (url.port) {
+      const parsed = Number.parseInt(url.port, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    if (url.protocol === 'http:') {
+      return 80;
+    }
+    if (url.protocol === 'https:') {
+      return 443;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function normalizeBasePath(pathname: string | undefined | null): string {
+  if (!pathname) {
+    return '/';
+  }
+  let normalized = pathname.trim();
+  if (!normalized) {
+    return '/';
+  }
+  if (!normalized.startsWith('/')) {
+    normalized = `/${normalized}`;
+  }
+  if (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.replace(/\/+$/g, '');
+    if (!normalized.startsWith('/')) {
+      normalized = `/${normalized}`;
+    }
+  }
+  return normalized || '/';
+}
+
+function normalizePathSegment(value: string | undefined | null, label: string): string {
+  if (!value) {
+    throw new Error(`${label} is required for service registration`);
+  }
+  let normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`${label} is required for service registration`);
+  }
+  if (!normalized.startsWith('/')) {
+    normalized = `/${normalized}`;
+  }
+  return normalized;
+}
+
+function asStringMap(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (typeof entry === 'string') {
+      result[key] = entry;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function substituteEnvPlaceholders(
+  value: string,
+  context: { port: number; host: string; baseUrl: string; origin: string }
+): string {
+  let output = value;
+  const replacements: Record<string, string> = {
+    port: String(context.port),
+    host: context.host,
+    baseurl: context.baseUrl,
+    'base-url': context.baseUrl,
+    origin: context.origin
+  };
+  for (const [token, replacement] of Object.entries(replacements)) {
+    const pattern = new RegExp(`\{\{\s*${token}\s*\}\}`, 'gi');
+    output = output.replace(pattern, replacement);
+  }
+  output = output.replace(/\$\{([A-Z0-9_:-]+)}/g, (_, name: string) => process.env[name] ?? '');
+  return output;
+}
+
+function resolveServiceEnv(
+  envTemplate: Record<string, string> | undefined,
+  context: { port: number; host: string; baseUrl: string }
+): Record<string, string> {
+  const resolved: Record<string, string> = {};
+  const origin = (() => {
+    try {
+      return new URL(context.baseUrl).origin;
+    } catch {
+      return context.baseUrl;
+    }
+  })();
+  const replacements = { ...context, origin };
+  if (envTemplate) {
+    for (const [key, value] of Object.entries(envTemplate)) {
+      resolved[key] = substituteEnvPlaceholders(value, replacements);
+    }
+  }
+  return resolved;
+}
+
+function toManifestEnvList(envTemplate: Record<string, string> | undefined) {
+  if (!envTemplate) {
+    return undefined;
+  }
+  const entries = Object.entries(envTemplate).filter(([key]) => key && key.trim().length > 0);
+  if (entries.length === 0) {
+    return undefined;
+  }
+  return entries.map(([key, value]) => ({ key, value }));
+}
+
+function pruneUndefined<T>(value: T): T {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => pruneUndefined(entry))
+      .filter((entry) => entry !== undefined) as unknown as T;
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(record)) {
+      if (entry === undefined) {
+        continue;
+      }
+      result[key] = pruneUndefined(entry);
+    }
+    return result as T;
+  }
+  return value;
+}
+
+function buildBaseUrl(host: string, port: number, basePath: string): string {
+  const normalizedPath = basePath === '/' ? '' : basePath;
+  return `http://${host}:${port}${normalizedPath}`;
+}
+
 async function registerModuleJobs(
   result: ModuleArtifactPublishResult,
   options: { moduleDir?: string } = {}
@@ -317,6 +519,233 @@ async function registerModuleJobs(
       targetVersion: binding.targetVersion
     });
   }
+}
+
+async function registerModuleServices(
+  result: ModuleArtifactPublishResult,
+  manifest: ModuleManifest
+): Promise<void> {
+  const serviceTargets = manifest.targets.filter((target) => target.kind === 'service');
+  const moduleId = manifest.metadata.name;
+
+  if (serviceTargets.length === 0) {
+    await replaceModuleManifests(moduleId, []);
+    console.log('[module:publish] No service targets found; skipping service registration');
+    return;
+  }
+
+  const artifactRecord = result.artifact;
+  if (!artifactRecord.artifactPath || artifactRecord.artifactStorage !== 'filesystem') {
+    console.warn('[module:publish] Module artifact is not stored on the local filesystem; skipping service deployment', {
+      artifactStorage: artifactRecord.artifactStorage
+    });
+    await replaceModuleManifests(moduleId, []);
+    return;
+  }
+
+  const moduleVersion = manifest.metadata.version;
+  const existingServices = await listServices();
+  const portsInUse = new Set<number>();
+  const existingBySlug = new Map<string, ServiceRecord>();
+  for (const service of existingServices) {
+    existingBySlug.set(service.slug, service);
+    const existingPort = parsePortFromUrl(service.baseUrl ?? null);
+    if (existingPort) {
+      portsInUse.add(existingPort);
+    }
+  }
+
+  const portRange = parsePortRange(DEFAULT_SERVICE_PORT_RANGE);
+  const host = DEFAULT_SERVICE_HOST || '127.0.0.1';
+
+  const manifestEntries: ServiceManifestStoreInput[] = [];
+
+  for (const target of serviceTargets) {
+    const registrationValue = target.service?.registration as Record<string, unknown> | undefined;
+    if (!registrationValue) {
+      console.warn('[module:publish] Service target missing registration metadata; skipping', {
+        moduleId,
+        targetName: target.name
+      });
+      continue;
+    }
+
+    const slugRaw = typeof registrationValue.slug === 'string' ? registrationValue.slug.trim() : '';
+    const slug = slugRaw.toLowerCase();
+    if (!slug) {
+      console.warn('[module:publish] Service registration missing slug; skipping', {
+        moduleId,
+        targetName: target.name
+      });
+      continue;
+    }
+
+    const declaredDefaultPort =
+      typeof registrationValue.defaultPort === 'number' && Number.isFinite(registrationValue.defaultPort)
+        ? Math.trunc(registrationValue.defaultPort)
+        : null;
+
+    let preferredPort: number | null = declaredDefaultPort;
+
+    const existing = existingBySlug.get(slug) ?? (await getServiceBySlug(slug));
+    if (existing && !preferredPort) {
+      const existingPort = parsePortFromUrl(existing.baseUrl ?? null);
+      if (existingPort) {
+        preferredPort = existingPort;
+      }
+    }
+
+    const port = allocateServicePort(preferredPort, portsInUse, portRange);
+    portsInUse.add(port);
+
+    const basePath = normalizeBasePath(typeof registrationValue.basePath === 'string' ? registrationValue.basePath : undefined);
+    const baseUrl = buildBaseUrl(host, port, basePath);
+    const healthEndpoint = normalizePathSegment(
+      typeof registrationValue.healthEndpoint === 'string' ? registrationValue.healthEndpoint : undefined,
+      'service registration healthEndpoint'
+    );
+
+    const envTemplate = asStringMap(registrationValue.env);
+    const resolvedEnv = resolveServiceEnv(envTemplate, { port, host, baseUrl });
+    if (!resolvedEnv.PORT) {
+      resolvedEnv.PORT = String(port);
+    }
+    if (!resolvedEnv.HOST) {
+      resolvedEnv.HOST = host;
+    }
+    if (!resolvedEnv.BASE_URL) {
+      resolvedEnv.BASE_URL = baseUrl;
+    }
+
+    const manifestEnvList = toManifestEnvList(envTemplate);
+    const tags = Array.isArray(registrationValue.tags)
+      ? Array.from(
+          new Set(
+            registrationValue.tags
+              .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+              .filter((tag) => !!tag)
+          )
+        )
+      : [];
+
+    const kind =
+      typeof registrationValue.kind === 'string' && registrationValue.kind.trim().length > 0
+        ? registrationValue.kind.trim()
+        : 'module-service';
+
+    const registrationMetadata =
+      typeof registrationValue.metadata === 'object' && registrationValue.metadata
+        ? pruneUndefined(registrationValue.metadata)
+        : undefined;
+
+    const uiMetadata =
+      typeof registrationValue.ui === 'object' && registrationValue.ui
+        ? pruneUndefined(registrationValue.ui)
+        : undefined;
+
+    const displayName = target.displayName ?? target.name;
+    const description = target.description ?? null;
+
+    const metadataUpdate = pruneUndefined({
+      resourceType: 'service' as const,
+      manifest: pruneUndefined({
+        source: `module:${moduleId}`,
+        baseUrlSource: 'runtime' as const,
+        healthEndpoint,
+        env: manifestEnvList
+      }),
+      config: pruneUndefined({
+        module: {
+          id: moduleId,
+          version: moduleVersion,
+          target: {
+            name: target.name,
+          version: target.version,
+            fingerprint: target.fingerprint ?? null
+          }
+        },
+        registration: pruneUndefined({
+          kind,
+          basePath,
+          defaultPort: declaredDefaultPort ?? undefined,
+          tags: tags.length > 0 ? tags : undefined,
+          metadata: registrationMetadata,
+          ui: uiMetadata,
+          envTemplate
+        }),
+        runtime: {
+          baseUrl,
+          host,
+          port,
+          env: resolvedEnv
+        }
+      })
+    }) as ServiceMetadataUpdate;
+
+    const mergedMetadata = mergeServiceMetadata(existing?.metadata ?? null, metadataUpdate);
+
+    await upsertService({
+      slug,
+      displayName,
+      kind,
+      baseUrl,
+      metadata: mergedMetadata,
+      capabilities: existing?.capabilities ?? null,
+      status: existing?.status ?? 'unknown',
+      statusMessage: existing?.statusMessage ?? null
+    });
+
+    const serviceDefinition = pruneUndefined({
+      slug,
+      displayName,
+      description,
+      kind,
+      moduleId,
+      moduleVersion,
+      target: {
+        name: target.name,
+        version: target.version,
+        fingerprint: target.fingerprint ?? null
+      },
+      artifact: {
+        path: artifactRecord.artifactPath,
+        storage: artifactRecord.artifactStorage,
+        checksum: artifactRecord.artifactChecksum
+      },
+      runtime: {
+        host,
+        port,
+        baseUrl,
+        healthEndpoint,
+        env: resolvedEnv
+      },
+      registration: pruneUndefined({
+        basePath,
+        tags: tags.length > 0 ? tags : undefined,
+        defaultPort: declaredDefaultPort ?? undefined,
+        metadata: registrationMetadata,
+        ui: uiMetadata,
+        envTemplate
+      })
+    });
+
+    const checksum = createHash('sha256').update(JSON.stringify(serviceDefinition)).digest('hex');
+    manifestEntries.push({
+      serviceSlug: slug,
+      definition: serviceDefinition as JsonValue,
+      checksum
+    });
+
+    console.log('[module:publish] Registered service target', {
+      slug,
+      baseUrl,
+      port,
+      moduleId,
+      targetName: target.name
+    });
+  }
+
+  await replaceModuleManifests(moduleId, manifestEntries);
 }
 
 interface WorkflowTargetContext {
@@ -1191,6 +1620,7 @@ async function main(): Promise<void> {
 
   if (options.registerJobs) {
     await registerModuleJobs(artifactRecord, { moduleDir });
+    await registerModuleServices(artifactRecord, manifest);
     await registerModuleWorkflows(artifactRecord);
   }
 }

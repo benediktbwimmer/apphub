@@ -74,6 +74,7 @@ import {
   type ModuleTargetMetadata,
   type ModuleTargetValueDescriptorMetadata,
   type ModuleTargetWorkflowMetadata,
+  type ModuleTargetServiceMetadata,
   type ModuleTargetKind,
   type ModuleArtifactRecord,
   type ModuleRecord,
@@ -552,6 +553,18 @@ function toWorkflowMetadata(value: unknown): ModuleTargetWorkflowMetadata | unde
   } satisfies ModuleTargetWorkflowMetadata;
 }
 
+function toServiceMetadata(value: unknown): ModuleTargetServiceMetadata | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const metadata: ModuleTargetServiceMetadata = {};
+  if (Object.prototype.hasOwnProperty.call(source, 'registration')) {
+    metadata.registration = ensureJsonValue(source.registration, null);
+  }
+  return metadata;
+}
+
 function toModuleTargetMetadata(value: unknown): ModuleTargetMetadata {
   if (!value || typeof value !== 'object') {
     return {};
@@ -573,6 +586,10 @@ function toModuleTargetMetadata(value: unknown): ModuleTargetMetadata {
   const workflow = toWorkflowMetadata(source.workflow);
   if (workflow) {
     metadata.workflow = workflow;
+  }
+  const service = toServiceMetadata(source.service);
+  if (service) {
+    metadata.service = service;
   }
   return metadata;
 }

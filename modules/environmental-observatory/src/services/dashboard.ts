@@ -69,6 +69,25 @@ export const dashboardService = createService<
   ServiceLifecycle
 >({
   name: 'observatory-dashboard-service',
+  registration: {
+    slug: 'observatory-dashboard',
+    kind: 'dashboard',
+    healthEndpoint: '/healthz',
+    defaultPort: 4311,
+    basePath: '/',
+    tags: ['observatory', 'dashboard'],
+    env: {
+      HOST: '0.0.0.0',
+      PORT: '{{port}}',
+      OBSERVATORY_CONFIG_PATH: '${OBSERVATORY_CONFIG_PATH}',
+      OBSERVATORY_DATA_ROOT: '${OBSERVATORY_DATA_ROOT}',
+      DASHBOARD_REFRESH_MS: '${DASHBOARD_REFRESH_MS}'
+    },
+    ui: {
+      previewPath: '/',
+      spa: true
+    }
+  },
   settings: {
     defaults: defaultObservatorySettings
   },

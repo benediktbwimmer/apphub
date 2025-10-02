@@ -63,8 +63,18 @@ const generatorJob = createJobHandler<GeneratorSettings, GeneratorSecrets, void,
 const dashboardService = createService<GeneratorSettings, GeneratorSecrets, { start: () => Promise<void> }>(
   {
     name: 'dashboard',
+    registration: {
+      slug: 'observatory-dashboard',
+      healthEndpoint: '/healthz',
+      env: {
+        HOST: '0.0.0.0',
+        PORT: '{{port}}'
+      }
+    },
     handler: async (context: ServiceContext<GeneratorSettings, GeneratorSecrets>) => {
       await context.capabilities.filestore?.ensureDirectory({ path: 'services' });
+      context.service.name.toUpperCase();
+      context.service.version.toUpperCase();
       return {
         async start() {
           context.logger.info('starting service');

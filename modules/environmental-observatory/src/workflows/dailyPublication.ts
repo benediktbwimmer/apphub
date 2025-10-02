@@ -92,7 +92,7 @@ const definition: WorkflowDefinition = {
         lookbackMinutes: '{{ parameters.lookbackMinutes }}',
         reportTemplate: '{{ parameters.reportTemplate }}',
         summarySource: '{{ steps.generate-plots.result.summary }}',
-        visualizationAsset: '{{ steps.generate-plots.result }}',
+        visualizationAsset: '{{ steps.generate-plots.result.visualization }}',
         metastoreBaseUrl: '{{ parameters.metastoreBaseUrl }}',
         metastoreNamespace: '{{ parameters.metastoreNamespace }}',
         metastoreAuthToken: '{{ parameters.metastoreAuthToken }}',

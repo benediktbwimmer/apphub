@@ -42,6 +42,25 @@ export interface ServiceLifecycle {
   stop?(): Promise<void> | void;
 }
 
+export interface ServiceRegistrationUiHints {
+  previewPath?: string;
+  spa?: boolean;
+  icon?: string;
+  description?: string;
+}
+
+export interface ServiceRegistration {
+  slug: string;
+  kind?: string;
+  healthEndpoint: string;
+  defaultPort?: number;
+  basePath?: string;
+  tags?: string[];
+  env?: Record<string, string>;
+  metadata?: Record<string, unknown>;
+  ui?: ServiceRegistrationUiHints;
+}
+
 export type ServiceHandler<TSettings, TSecrets, TService extends ServiceLifecycle> = (
   context: ServiceContext<TSettings, TSecrets>
 ) => Promise<TService> | TService;
@@ -121,6 +140,7 @@ export interface ServiceTargetDefinition<
 > extends ModuleTargetBase<TSettings, TSecrets> {
   kind: 'service';
   handler: ServiceHandler<TSettings, TSecrets, TService>;
+  registration?: ServiceRegistration;
 }
 
 export interface WorkflowTargetDefinition<TSettings, TSecrets>
@@ -149,6 +169,7 @@ export interface CreateJobHandlerOptions<
 export interface CreateServiceOptions<TSettings, TSecrets, TService extends ServiceLifecycle>
   extends ModuleTargetBase<TSettings, TSecrets> {
   handler: ServiceHandler<TSettings, TSecrets, TService>;
+  registration?: ServiceRegistration;
 }
 
 export interface CreateWorkflowOptions<TSettings, TSecrets> extends ModuleTargetBase<TSettings, TSecrets> {
@@ -200,7 +221,8 @@ export function createService<
     capabilityOverrides: options.capabilityOverrides,
     settings: options.settings,
     secrets: options.secrets,
-    handler: options.handler
+    handler: options.handler,
+    registration: options.registration
   };
   return definition;
 }
