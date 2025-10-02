@@ -310,6 +310,13 @@ describe('assembleWorkflowTopologyGraph', () => {
     assert.equal(sourceEdges.length, 2);
     const triggerIds = sourceEdges.map((edge) => edge.triggerId).sort();
     assert.deepEqual(triggerIds, ['trigger-a', 'trigger-b']);
+
+    const stepSourceEdges = graph.edges.stepToEventSource.filter(
+      (edge) => edge.workflowId === 'wf-events'
+    );
+    assert.equal(stepSourceEdges.length, 1);
+    assert.equal(stepSourceEdges[0]?.stepId, 'ingest');
+    assert.equal(stepSourceEdges[0]?.sourceId, 'event-source:records.created:core');
   });
 
   it('adds inferred event source edges with confidence metadata', () => {

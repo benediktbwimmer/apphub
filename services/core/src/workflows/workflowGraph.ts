@@ -132,6 +132,19 @@ export function assembleWorkflowTopologyGraph(
       ...buildEventSourceEdges(eventTriggerNodes, eventSources)
     );
 
+    const entryStepIds = stepsWithDag
+      .filter((step) => (step.dependsOn?.length ?? 0) === 0)
+      .map((step) => step.id);
+    stepToEventSource.push(
+      ...buildFallbackStepEventSourceEdges(
+        definition.id,
+        entryStepIds,
+        eventTriggerNodes,
+        eventSources,
+        definition.updatedAt
+      )
+    );
+
     stepToAsset.push(
       ...buildStepAssetEdges(definition.id, assetDeclarations, assets)
     );
@@ -468,6 +481,47 @@ function buildEventSourceEdges(
   return edges;
 }
 
+function buildFallbackStepEventSourceEdges(
+  workflowId: string,
+  entryStepIds: string[],
+  eventTriggers: WorkflowTopologyTriggerNode[],
+  eventSources: EventSourceAccumulator,
+  fallbackTimestamp: string
+): WorkflowTopologyStepEventSourceEdge[] {
+  if (entryStepIds.length === 0) {
+    return [];
+  }
+
+  const edges: WorkflowTopologyStepEventSourceEdge[] = [];
+  const seen = new Set<string>();
+
+  for (const trigger of eventTriggers) {
+    if (trigger.kind !== 'event') {
+      continue;
+    }
+    const source = ensureEventSourceNode(eventSources, trigger.eventType, trigger.eventSource);
+    for (const stepId of entryStepIds) {
+      const dedupeKey = `${stepId}:${source.id}`;
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+      edges.push({
+        workflowId,
+        stepId,
+        sourceId: source.id,
+        kind: 'inferred',
+        confidence: {
+          sampleCount: 1,
+          lastSeenAt: fallbackTimestamp
+        }
+      });
+    }
+  }
+
+  return edges;
+}
+
 function ensureEventSourceNode(
   eventSources: EventSourceAccumulator,
   eventType: string,
@@ -498,6 +552,9 @@ function extendWithInferredEventEdges(
   }
 
   const seen = new Set<string>();
+  for (const edge of edges) {
+    seen.add(`${edge.stepId}:${edge.sourceId}`);
+  }
 
   for (const edge of inferredEdges) {
     const step = stepById.get(edge.stepId);

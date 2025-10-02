@@ -1020,6 +1020,7 @@ async function fetchWorkflowDefinitionById(
   }
   const definition = mapWorkflowDefinitionRow(rows[0]);
   await attachSchedulesToDefinitions(client, [definition]);
+  await attachEventTriggersToDefinitions(client, [definition]);
   return definition;
 }
 
@@ -1084,6 +1085,51 @@ async function attachSchedulesToDefinitions(
   }
 }
 
+async function fetchWorkflowEventTriggersByDefinitionIds(
+  client: PoolClient,
+  definitionIds: readonly string[]
+): Promise<Map<string, WorkflowEventTriggerRecord[]>> {
+  if (definitionIds.length === 0) {
+    return new Map();
+  }
+
+  const { rows } = await client.query<WorkflowEventTriggerRow>(
+    `SELECT *
+       FROM workflow_event_triggers
+      WHERE workflow_definition_id = ANY($1::text[])
+      ORDER BY workflow_definition_id ASC, created_at ASC, id ASC`,
+    [definitionIds]
+  );
+
+  const triggersByDefinition = new Map<string, WorkflowEventTriggerRecord[]>();
+  for (const row of rows) {
+    const trigger = mapWorkflowEventTriggerRow(row);
+    const list = triggersByDefinition.get(trigger.workflowDefinitionId);
+    if (list) {
+      list.push(trigger);
+    } else {
+      triggersByDefinition.set(trigger.workflowDefinitionId, [trigger]);
+    }
+  }
+
+  return triggersByDefinition;
+}
+
+async function attachEventTriggersToDefinitions(
+  client: PoolClient,
+  definitions: WorkflowDefinitionRecord[]
+): Promise<void> {
+  if (definitions.length === 0) {
+    return;
+  }
+
+  const ids = definitions.map((definition) => definition.id);
+  const triggers = await fetchWorkflowEventTriggersByDefinitionIds(client, ids);
+  for (const definition of definitions) {
+    definition.eventTriggers = triggers.get(definition.id) ?? [];
+  }
+}
+
 async function fetchWorkflowDefinitionsByIds(
   client: PoolClient,
   ids: readonly string[]
@@ -1101,6 +1147,7 @@ async function fetchWorkflowDefinitionsByIds(
 
   const definitions = rows.map(mapWorkflowDefinitionRow);
   await attachSchedulesToDefinitions(client, definitions);
+  await attachEventTriggersToDefinitions(client, definitions);
 
   const map = new Map<string, WorkflowDefinitionRecord>();
   for (const definition of definitions) {
@@ -1141,6 +1188,7 @@ export async function listWorkflowDefinitions(): Promise<WorkflowDefinitionRecor
     );
     const definitions = rows.map(mapWorkflowDefinitionRow);
     await attachSchedulesToDefinitions(client, definitions);
+    await attachEventTriggersToDefinitions(client, definitions);
     return definitions;
   });
 }

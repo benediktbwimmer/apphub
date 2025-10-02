@@ -1,5 +1,5 @@
 import classNames from 'classnames';
-import { useMemo, useState, useCallback, useEffect, type ChangeEvent } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ReactFlowProvider } from 'reactflow';
 import WorkflowGraphCanvas, {
@@ -82,6 +82,9 @@ const STATUS_BADGE_BASE_CLASSES =
 
 const REFRESH_BUTTON_CLASSES =
   'inline-flex items-center gap-2 rounded-full border border-accent bg-accent px-4 py-2 text-scale-xs font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const FULLSCREEN_BUTTON_CLASSES =
+  'inline-flex items-center gap-2 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.18em] text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft/50 hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50';
 
 const STAT_BADGE_CONTAINER_CLASSES =
   'inline-flex min-w-[96px] flex-col items-center rounded-xl border border-subtle bg-surface-glass-soft px-3 py-2 text-[11px] font-weight-semibold leading-4 text-secondary';
@@ -170,6 +173,7 @@ export function WorkflowTopologyPanel({
   onRefresh,
   selection
 }: WorkflowTopologyPanelProps) {
+  const containerRef = useRef<HTMLElement | null>(null);
   const isDarkMode = useIsDarkMode();
   const panelTheme = isDarkMode ? PANEL_THEME_DARK : PANEL_THEME_LIGHT;
   const stats = graph?.stats ?? null;
@@ -341,8 +345,48 @@ export function WorkflowTopologyPanel({
 
   const multiSelectSize = (length: number) => Math.min(4, Math.max(3, length || 3));
 
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenSupported, setFullscreenSupported] = useState(true);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      setFullscreenSupported(false);
+      return;
+    }
+
+    setFullscreenSupported(document.fullscreenEnabled ?? true);
+
+    const handleFullscreenChange = () => {
+      if (!containerRef.current) {
+        setIsFullscreen(Boolean(document.fullscreenElement));
+        return;
+      }
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const handleToggleFullscreen = useCallback(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    if (isFullscreen) {
+      document.exitFullscreen?.().catch(() => {});
+      return;
+    }
+    const element = containerRef.current;
+    if (!element) {
+      return;
+    }
+    element.requestFullscreen?.().catch(() => {});
+  }, [isFullscreen]);
+
   return (
-    <section className={PANEL_CONTAINER_CLASSES}>
+    <section ref={containerRef} className={PANEL_CONTAINER_CLASSES}>
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h2 className={HEADER_TITLE_CLASSES}>Workflow Topology Explorer</h2>
@@ -394,6 +438,16 @@ export function WorkflowTopologyPanel({
             )}
             Refresh
           </button>
+          {fullscreenSupported && (
+            <button
+              type="button"
+              onClick={handleToggleFullscreen}
+              className={FULLSCREEN_BUTTON_CLASSES}
+            >
+              <span aria-hidden="true">{isFullscreen ? '⤫' : '⤢'}</span>
+              {isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            </button>
+          )}
         </div>
       </header>
 
