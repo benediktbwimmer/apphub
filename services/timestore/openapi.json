@@ -10,7 +10,7 @@
       "JsonValue": {
         "description": "Arbitrary JSON value.",
         "nullable": true,
-        "oneOf": [
+        "anyOf": [
           {
             "type": "string"
           },
@@ -25,15 +25,11 @@
           },
           {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/def-0"
-            }
+            "items": {}
           },
           {
             "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/def-0"
-            }
+            "additionalProperties": true
           }
         ]
       },
@@ -56,7 +52,7 @@
           "details": {
             "description": "Arbitrary JSON value.",
             "nullable": true,
-            "oneOf": [
+            "anyOf": [
               {
                 "type": "string"
               },
@@ -71,15 +67,11 @@
               },
               {
                 "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
+                "items": {}
               },
               {
                 "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
+                "additionalProperties": true
               }
             ]
           }
@@ -490,7 +482,7 @@
               "additionalProperties": {
                 "description": "Arbitrary JSON value.",
                 "nullable": true,
-                "oneOf": [
+                "anyOf": [
                   {
                     "type": "string"
                   },
@@ -505,15 +497,11 @@
                   },
                   {
                     "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "items": {}
                   },
                   {
                     "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "additionalProperties": true
                   }
                 ]
               }
@@ -2469,36 +2457,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "additionalProperties": {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
-                  }
-                ]
-              }
+              "additionalProperties": true
             }
           },
           "columns": {
@@ -2533,7 +2492,7 @@
             "items": {
               "description": "Arbitrary JSON value.",
               "nullable": true,
-              "oneOf": [
+              "anyOf": [
                 {
                   "type": "string"
                 },
@@ -2548,15 +2507,11 @@
                 },
                 {
                   "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
+                  "items": {}
                 },
                 {
                   "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/def-0"
-                  }
+                  "additionalProperties": true
                 }
               ]
             }
@@ -2769,7 +2724,7 @@
               "additionalProperties": {
                 "description": "Arbitrary JSON value.",
                 "nullable": true,
-                "oneOf": [
+                "anyOf": [
                   {
                     "type": "string"
                   },
@@ -2784,15 +2739,11 @@
                   },
                   {
                     "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "items": {}
                   },
                   {
                     "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "additionalProperties": true
                   }
                 ]
               }
@@ -3068,7 +3019,7 @@
         "anyOf": [
           {
             "description": "Arbitrary JSON value.",
-            "oneOf": [
+            "anyOf": [
               {
                 "type": "string"
               },
@@ -3083,15 +3034,11 @@
               },
               {
                 "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/def-0"
-                }
+                "items": {}
               },
               {
                 "type": "object",
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/def-0"
-                }
+                "additionalProperties": true
               }
             ]
           },
@@ -3122,7 +3069,7 @@
             "anyOf": [
               {
                 "description": "Arbitrary JSON value.",
-                "oneOf": [
+                "anyOf": [
                   {
                     "type": "string"
                   },
@@ -3137,15 +3084,11 @@
                   },
                   {
                     "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "items": {}
                   },
                   {
                     "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/def-0"
-                    }
+                    "additionalProperties": true
                   }
                 ]
               },
@@ -3596,7 +3539,7 @@
                 "anyOf": [
                   {
                     "description": "Arbitrary JSON value.",
-                    "oneOf": [
+                    "anyOf": [
                       {
                         "type": "string"
                       },
@@ -3611,15 +3554,11 @@
                       },
                       {
                         "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
+                        "items": {}
                       },
                       {
                         "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
+                        "additionalProperties": true
                       }
                     ]
                   },
@@ -5850,42 +5789,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "additionalProperties": {
-                "anyOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
+              "additionalProperties": true
             }
           },
           "columns": {
@@ -5922,7 +5826,7 @@
               "anyOf": [
                 {
                   "description": "Arbitrary JSON value.",
-                  "oneOf": [
+                  "anyOf": [
                     {
                       "type": "string"
                     },
@@ -5937,15 +5841,11 @@
                     },
                     {
                       "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
+                      "items": {}
                     },
                     {
                       "type": "object",
-                      "additionalProperties": {
-                        "$ref": "#/components/schemas/def-0"
-                      }
+                      "additionalProperties": true
                     }
                   ]
                 },
@@ -6193,7 +6093,7 @@
                 "anyOf": [
                   {
                     "description": "Arbitrary JSON value.",
-                    "oneOf": [
+                    "anyOf": [
                       {
                         "type": "string"
                       },
@@ -6208,15 +6108,11 @@
                       },
                       {
                         "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
+                        "items": {}
                       },
                       {
                         "type": "object",
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/def-0"
-                        }
+                        "additionalProperties": true
                       }
                     ]
                   },

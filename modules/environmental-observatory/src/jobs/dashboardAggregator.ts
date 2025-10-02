@@ -594,6 +594,8 @@ export const dashboardAggregatorJob = createJobHandler<
     const dashboardJsonPath = `${normalizedOverviewPrefix}/dashboard.json`;
     const dashboardHtmlPath = `${normalizedOverviewPrefix}/index.html`;
 
+    const idempotencySuffix = partitionKey.replace(/[^a-zA-Z0-9_-]/g, '-');
+
     const [dataNode, htmlNode] = await Promise.all([
       uploadTextFile({
         filestore,
@@ -603,6 +605,7 @@ export const dashboardAggregatorJob = createJobHandler<
         content: JSON.stringify(dashboardData, null, 2),
         contentType: 'application/json',
         principal,
+        idempotencyKey: `dashboard-json-${idempotencySuffix}`,
         metadata: {
           partitionKey,
           lookbackMinutes,
@@ -617,6 +620,7 @@ export const dashboardAggregatorJob = createJobHandler<
         content: buildDashboardHtml(dashboardData),
         contentType: 'text/html; charset=utf-8',
         principal,
+        idempotencyKey: `dashboard-html-${idempotencySuffix}`,
         metadata: {
           partitionKey,
           lookbackMinutes,

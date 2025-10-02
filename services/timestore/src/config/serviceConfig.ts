@@ -309,7 +309,20 @@ const configSchema = z.object({
     s3: z
       .object({
         bucket: z.string().min(1),
-        endpoint: z.string().min(1).optional(),
+        endpoint: z
+          .string()
+          .min(1)
+          .transform((value) => {
+            const trimmed = value.trim();
+            if (!trimmed) {
+              return trimmed;
+            }
+            if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+              return trimmed;
+            }
+            return `http://${trimmed}`;
+          })
+          .optional(),
         region: z.string().min(1).optional(),
         accessKeyId: z.string().min(1).optional(),
         secretAccessKey: z.string().min(1).optional(),

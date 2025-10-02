@@ -65,14 +65,6 @@ async function start(): Promise<void> {
     await registerDatasetRoutes(instance, { includeSql: false });
   }, { prefix: API_PREFIX });
 
-  await app.register(
-    async (scoped) => {
-      await registerIngestionRoutes(scoped);
-      await registerQueryRoutes(scoped);
-    },
-    { prefix: '/v1' }
-  );
-
   app.addHook('onClose', async () => {
     await closePool();
     await closeLifecycleQueue();
