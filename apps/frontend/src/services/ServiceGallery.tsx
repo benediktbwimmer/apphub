@@ -37,6 +37,7 @@ const STATUS_PRIORITY = STATUS_ORDER.reduce<Record<string, number>>((acc, status
 }, {});
 const UNKNOWN_STATUS_PRIORITY = STATUS_ORDER.length;
 const EMPTY_SERVICES: ServiceSummary[] = [];
+const HIDDEN_OVERVIEW_SERVICE_IDENTIFIERS = new Set(['timestore', 'filestore', 'metastore']);
 
 function hasServiceData(payload: ServicesResponse): payload is { data: ServiceSummary[] } {
   return Array.isArray((payload as { data?: unknown }).data);
@@ -68,6 +69,18 @@ function buildPreviewUrl(baseUrl: string | null | undefined, previewPath: string
   } catch {
     return baseUrl;
   }
+}
+
+function isServiceHiddenFromOverview(service: ServiceSummary) {
+  const slug = service.slug.toLowerCase();
+  if (HIDDEN_OVERVIEW_SERVICE_IDENTIFIERS.has(slug)) {
+    return true;
+  }
+  const kind = service.kind ? service.kind.toLowerCase() : null;
+  if (kind && HIDDEN_OVERVIEW_SERVICE_IDENTIFIERS.has(kind)) {
+    return true;
+  }
+  return false;
 }
 
 function extractRuntimeUrl(service: ServiceSummary): string | null {
@@ -238,6 +251,7 @@ export default function ServiceGallery() {
 
   const previewableServices = useMemo(() => {
     const entries = services
+      .filter((service) => !isServiceHiddenFromOverview(service))
       .map((service) => {
         const embedUrl = normalizePreviewUrl(extractRuntimeUrl(service));
         if (!embedUrl) {
