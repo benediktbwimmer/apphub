@@ -246,6 +246,10 @@ const triggers = [
         path: '$.payload.backendMountId',
         operator: 'equals',
         value: '{{ defaultParameters.filestoreBackendId }}'
+      },
+      {
+        path: '$.payload.node.metadata.minute',
+        operator: 'exists'
       }
     ],
     parameterTemplate: {

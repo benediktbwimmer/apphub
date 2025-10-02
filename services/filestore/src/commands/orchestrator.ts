@@ -260,10 +260,35 @@ async function applyUploadFile(
 
   const existing = await getNodeByPath(client, backend.id, normalizedPath, { forUpdate: true });
   if (existing && existing.state !== 'deleted') {
-    throw new FilestoreError('Node already exists at target path', 'NODE_EXISTS', {
+    if (existing.kind !== 'file') {
+      throw new FilestoreError('Node already exists at target path', 'NODE_EXISTS', {
+        backendMountId: backend.id,
+        path: normalizedPath
+      });
+    }
+
+    if (!command.overwrite) {
+      throw new FilestoreError('Node already exists at target path', 'NODE_EXISTS', {
+        backendMountId: backend.id,
+        path: normalizedPath
+      });
+    }
+
+    const writeCommand = {
+      type: 'writeFile' as const,
       backendMountId: backend.id,
-      path: normalizedPath
-    });
+      nodeId: existing.id,
+      path: normalizedPath,
+      stagingPath: command.stagingPath,
+      sizeBytes: command.sizeBytes,
+      checksum: command.checksum,
+      contentHash: command.contentHash,
+      metadata: command.metadata,
+      mimeType: command.mimeType,
+      originalName: command.originalName
+    } satisfies FilestoreCommand & { type: 'writeFile' };
+
+    return applyWriteFile(client, backend, writeCommand, executor);
   }
 
   const parentPath = getParentPath(normalizedPath);

@@ -53,7 +53,8 @@ export const uploadFileCommandSchema = z.object({
   contentHash: z.string().min(1).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   mimeType: z.string().min(1).nullable().optional(),
-  originalName: z.string().min(1).nullable().optional()
+  originalName: z.string().min(1).nullable().optional(),
+  overwrite: z.boolean().optional()
 });
 
 export const writeFileCommandSchema = z.object({

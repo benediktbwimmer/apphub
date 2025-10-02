@@ -1591,23 +1591,14 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    if (existing && existing.state !== 'deleted' && existing.kind === 'file' && !overwrite) {
-      await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
-      return reply.status(409).send({
-        error: {
-          code: 'NODE_EXISTS',
-          message: 'File already exists at path; set overwrite to true to replace it'
-        }
-      });
-    }
-
     const commandBase: Record<string, unknown> = {
       backendMountId,
       path: normalizedPath,
       stagingPath,
       sizeBytes: totalBytes,
       checksum: checksumDigest ?? checksumHeader?.value ?? null,
-      contentHash: contentHashDigest ?? sha256Digest
+      contentHash: contentHashDigest ?? sha256Digest,
+      overwrite
     };
 
     const mimeType = filePart.mimetype && filePart.mimetype.trim().length > 0 ? filePart.mimetype : null;
@@ -1624,16 +1615,20 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       commandBase.metadata = metadata;
     }
 
-    const command = existing && existing.state !== 'deleted'
-      ? {
-          type: 'writeFile' as const,
-          nodeId: existing.id,
-          ...commandBase
+    if (existing && existing.state !== 'deleted' && existing.kind === 'file' && !overwrite) {
+      await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+      return reply.status(409).send({
+        error: {
+          code: 'NODE_EXISTS',
+          message: 'File already exists at path; set overwrite to true to replace it'
         }
-      : {
-          type: 'uploadFile' as const,
-          ...commandBase
-        };
+      });
+    }
+
+    const command = {
+      type: 'uploadFile' as const,
+      ...commandBase
+    };
 
     try {
       const result = await runCommand({
@@ -1643,7 +1638,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       });
 
       const nodePayload = result.node ? await serializeNode(result.node) : null;
-      const created = command.type === 'uploadFile' && (!existing || existing.state === 'deleted');
+      const created = !existing || existing.state === 'deleted';
       const status = result.idempotent ? 200 : created ? 201 : 200;
 
       return reply.status(status).send({

@@ -128,31 +128,15 @@ export async function uploadTextFile(options: UploadTextFileOptions): Promise<Up
     normalizedPath.split('/').slice(0, -1).join('/'),
     options.principal
   );
-  try {
-    return await options.filestore.uploadFile({
-      backendMountId,
-      path: normalizedPath,
-      content: options.content,
-      contentType: options.contentType ?? 'text/plain; charset=utf-8',
-      principal: options.principal,
-      overwrite: true,
-      metadata: options.metadata,
-      idempotencyKey: options.idempotencyKey
-    });
-  } catch (error) {
-    if (error instanceof CapabilityRequestError && error.status === 409) {
-      const existing = await options.filestore
-        .getNodeByPath({ backendMountId, path: normalizedPath, principal: options.principal })
-        .catch(() => null);
-      if (existing) {
-        return {
-          nodeId: existing.id,
-          path: existing.path,
-          node: existing,
-          idempotent: true
-        };
-      }
-    }
-    throw error;
-  }
+
+  return options.filestore.uploadFile({
+    backendMountId,
+    path: normalizedPath,
+    content: options.content,
+    contentType: options.contentType ?? 'text/plain; charset=utf-8',
+    principal: options.principal,
+    overwrite: true,
+    metadata: options.metadata,
+    idempotencyKey: options.idempotencyKey
+  });
 }
