@@ -87,8 +87,25 @@ type GraphBounds = {
   maxY: number;
 };
 
-function computeGraphBounds(nodes: WorkflowGraphCanvasNode[]): GraphBounds | null {
-  if (nodes.length === 0) {
+function computeViewportBounds(viewport: Viewport, width: number, height: number): GraphBounds {
+  const graphMinX = (-viewport.x) / viewport.zoom;
+  const graphMinY = (-viewport.y) / viewport.zoom;
+  const graphMaxX = graphMinX + width / viewport.zoom;
+  const graphMaxY = graphMinY + height / viewport.zoom;
+  return {
+    minX: graphMinX,
+    minY: graphMinY,
+    maxX: graphMaxX,
+    maxY: graphMaxY
+  };
+}
+
+function computeInstanceBounds(instance: ReactFlowInstance | null): GraphBounds | null {
+  if (!instance) {
+    return null;
+  }
+  const nodes = instance.getNodes();
+  if (!nodes || nodes.length === 0) {
     return null;
   }
   let minX = Number.POSITIVE_INFINITY;
@@ -97,10 +114,16 @@ function computeGraphBounds(nodes: WorkflowGraphCanvasNode[]): GraphBounds | nul
   let maxY = Number.NEGATIVE_INFINITY;
 
   for (const node of nodes) {
-    const nodeMinX = node.position.x;
-    const nodeMinY = node.position.y;
-    const nodeMaxX = node.position.x + node.width;
-    const nodeMaxY = node.position.y + node.height;
+    const width = node.measured?.width ?? node.width ?? 0;
+    const height = node.measured?.height ?? node.height ?? 0;
+    const base = node.positionAbsolute ?? node.position ?? { x: 0, y: 0 };
+    const nodeMinX = base.x;
+    const nodeMinY = base.y;
+    const nodeMaxX = base.x + width;
+    const nodeMaxY = base.y + height;
+    if (!Number.isFinite(nodeMinX) || !Number.isFinite(nodeMinY) || !Number.isFinite(nodeMaxX) || !Number.isFinite(nodeMaxY)) {
+      continue;
+    }
     if (nodeMinX < minX) {
       minX = nodeMinX;
     }
@@ -115,20 +138,11 @@ function computeGraphBounds(nodes: WorkflowGraphCanvasNode[]): GraphBounds | nul
     }
   }
 
-  return { minX, minY, maxX, maxY };
-}
+  if (minX === Number.POSITIVE_INFINITY || minY === Number.POSITIVE_INFINITY) {
+    return null;
+  }
 
-function computeViewportBounds(viewport: Viewport, width: number, height: number): GraphBounds {
-  const graphMinX = (-viewport.x) / viewport.zoom;
-  const graphMinY = (-viewport.y) / viewport.zoom;
-  const graphMaxX = graphMinX + width / viewport.zoom;
-  const graphMaxY = graphMinY + height / viewport.zoom;
-  return {
-    minX: graphMinX,
-    minY: graphMinY,
-    maxX: graphMaxX,
-    maxY: graphMaxY
-  };
+  return { minX, minY, maxX, maxY };
 }
 
 function boundsIntersect(a: GraphBounds | null, b: GraphBounds | null): boolean {
@@ -572,7 +586,9 @@ export function WorkflowGraphCanvas({
   const showErrorOverlay = Boolean(error && !loading && !hasRenderableNodes);
 
   const ensureViewportHasContent = useCallback(() => {
-    if (!instance || !resolvedModel || resolvedModel.nodes.length === 0) {
+    const modelVersion = resolvedModel?.nodes.length ?? 0;
+    void modelVersion;
+    if (!instance) {
       return;
     }
     const container = containerRef.current;
@@ -583,7 +599,7 @@ export function WorkflowGraphCanvas({
     if (containerBounds.width === 0 || containerBounds.height === 0) {
       return;
     }
-    const nodeBounds = computeGraphBounds(resolvedModel.nodes);
+    const nodeBounds = computeInstanceBounds(instance);
     if (!nodeBounds) {
       return;
     }
@@ -599,7 +615,7 @@ export function WorkflowGraphCanvas({
       shouldAutoFitRef.current = false;
       instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true, duration: 140 });
     }
-  }, [fitViewPadding, instance, resolvedModel]);
+  }, [fitViewPadding, instance, resolvedModel?.nodes]);
 
   useEffect(() => {
     if (!instance) {
