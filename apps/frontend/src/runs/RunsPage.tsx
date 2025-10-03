@@ -1743,6 +1743,9 @@ export default function RunsPage() {
               }
               navigate(`${ROUTE_PATHS.workflows}?${params.toString()}`);
             }}
+            onReplay={handleWorkflowReplay}
+            replayState={replayState}
+            onCompare={handleOpenCompareDialog}
           />
         </div>
       ) : (
@@ -1808,6 +1811,9 @@ type WorkflowRunsTableProps = {
   detailError: string | null;
   onCloseDetail: () => void;
   onViewWorkflow: () => void;
+  onReplay: (entry: WorkflowActivityRunEntry, options?: { allowStaleAssets?: boolean }) => void;
+  replayState: ReplayState;
+  onCompare: (entry: WorkflowActivityRunEntry) => void;
 };
 
 type JobRunsTableProps = {
@@ -1834,7 +1840,10 @@ function WorkflowRunsTable({
   detailLoading,
   detailError,
   onCloseDetail,
-  onViewWorkflow
+  onViewWorkflow,
+  onReplay,
+  replayState,
+  onCompare
 }: WorkflowRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
@@ -2086,10 +2095,10 @@ function WorkflowRunsTable({
                             error={detailErrorForEntry}
                             onClose={onCloseDetail}
                             onViewWorkflow={onViewWorkflow}
-                            onReplay={handleWorkflowReplay}
+                            onReplay={onReplay}
                             replayLoading={replayIsLoading}
                             replayWarnings={replayWarningsForEntry}
-                            onCompare={handleOpenCompareDialog}
+                            onCompare={onCompare}
                           />
                         </td>
                       </tr>
