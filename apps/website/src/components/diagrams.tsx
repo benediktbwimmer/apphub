@@ -33,9 +33,9 @@ const frameWidth = 360
 const frameHeight = 220
 const nodeDefaultWidth = 104
 const nodeDefaultHeight = 52
-const connectionPadding = 10
-const connectionStartInset = 4
-const connectionArrowInset = 10
+const connectionPadding = 12
+const connectionStartInset = 5
+const connectionArrowInset = 12
 
 type NodeRect = {
   x: number
@@ -351,12 +351,12 @@ export const ObservatoryFlowDiagram = createDiagram({
 export const SystemArchitectureDiagram = createDiagram({
   title: 'System architecture overview',
   nodes: [
-    { id: 'ui', label: 'Unified\nUI', x: 28, y: 30, width: 104, height: 56 },
-    { id: 'api', label: 'API\nGateway', x: 132, y: 30, width: 104, height: 56 },
-    { id: 'workers', label: 'Workers', x: 236, y: 30, width: 104, height: 56 },
-    { id: 'db', label: 'DB', x: 28, y: 152, width: 104, height: 56 },
-    { id: 'eventBus', label: 'Event\nBus', x: 132, y: 152, width: 104, height: 56 },
-    { id: 'storage', label: 'Object\nStorage', x: 236, y: 152, width: 104, height: 56 }
+    { id: 'ui', label: 'Unified\nUI', x: 30, y: 36, width: 96, height: 52 },
+    { id: 'api', label: 'API\nGateway', x: 132, y: 36, width: 96, height: 52 },
+    { id: 'workers', label: 'Workers', x: 234, y: 36, width: 96, height: 52 },
+    { id: 'db', label: 'DB', x: 30, y: 156, width: 96, height: 52 },
+    { id: 'eventBus', label: 'Event\nBus', x: 132, y: 150, width: 96, height: 64 },
+    { id: 'storage', label: 'Object\nStorage', x: 234, y: 156, width: 96, height: 52 }
   ],
   connections: [
     { from: 'ui', to: 'api' },
@@ -367,6 +367,14 @@ export const SystemArchitectureDiagram = createDiagram({
     { from: 'workers', to: 'storage' },
     { from: 'eventBus', to: 'workers', dashed: true },
     { from: 'db', to: 'api', dashed: true }
+  ],
+  annotations: [
+    {
+      x: 180,
+      y: 222,
+      text: 'Event bus centered keeps services decoupled without bespoke glue',
+      align: 'middle'
+    }
   ]
 })
 
