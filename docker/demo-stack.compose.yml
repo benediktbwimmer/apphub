@@ -1,0 +1,410 @@
+name: apphub-demo
+
+x-build-config: &build-config
+  context: ..
+  dockerfile: docker/Dockerfile.services
+  args:
+    VITE_API_BASE_URL: ${APPHUB_FRONTEND_API_BASE_URL:-http://localhost:4000}
+    VITE_DEMO_OPERATOR_TOKEN: ${APPHUB_DEMO_VIEWER_TOKEN:-demo-viewer-token}
+
+x-shared-env: &shared-env
+  NODE_ENV: production
+  HOST: 0.0.0.0
+  APPHUB_SESSION_SECRET: ${APPHUB_SESSION_SECRET:-change-me}
+  APPHUB_ALLOW_INLINE_MODE: "false"
+  APPHUB_EVENTS_MODE: redis
+  APPHUB_BUILD_EXECUTION_MODE: stub
+  APPHUB_LAUNCH_EXECUTION_MODE: stub
+  APPHUB_METRICS_ENABLED: "true"
+  APPHUB_SCRATCH_ROOT: /var/lib/apphub/scratch
+  APPHUB_FILESTORE_BASE_URL: http://filestore:4300
+  APPHUB_METASTORE_BASE_URL: http://metastore:4100
+  APPHUB_TIMESTORE_BASE_URL: http://timestore:4200
+  APPHUB_BUNDLE_STORAGE_BACKEND: s3
+  APPHUB_BUNDLE_STORAGE_BUCKET: apphub-example-bundles
+  APPHUB_BUNDLE_STORAGE_ENDPOINT: http://minio:9000
+  APPHUB_BUNDLE_STORAGE_REGION: us-east-1
+  APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE: "true"
+  APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-apphub}
+  APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-apphub123}
+  APPHUB_JOB_BUNDLE_STORAGE_BACKEND: s3
+  APPHUB_JOB_BUNDLE_S3_BUCKET: apphub-example-bundles
+  APPHUB_JOB_BUNDLE_S3_ENDPOINT: http://minio:9000
+  APPHUB_JOB_BUNDLE_S3_REGION: us-east-1
+  APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE: "true"
+  APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-apphub}
+  APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-apphub123}
+  TIMESTORE_STORAGE_DRIVER: s3
+  TIMESTORE_S3_BUCKET: apphub-timestore
+  TIMESTORE_S3_ENDPOINT: http://minio:9000
+  TIMESTORE_S3_REGION: us-east-1
+  TIMESTORE_S3_FORCE_PATH_STYLE: "true"
+  TIMESTORE_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-apphub}
+  TIMESTORE_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-apphub123}
+  AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-apphub}
+  AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-apphub123}
+  AWS_REGION: us-east-1
+  SERVICE_REGISTRY_TOKEN: ${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}
+  PGHOST: postgres
+  PGPORT: "5432"
+  PGUSER: apphub
+  PGPASSWORD: apphub
+  DATABASE_URL: postgres://apphub:apphub@postgres:5432/apphub
+  FILESTORE_DATABASE_URL: postgres://apphub:apphub@postgres:5432/apphub
+  TIMESTORE_DATABASE_URL: postgres://apphub:apphub@postgres:5432/apphub
+  REDIS_URL: redis://redis:6379
+  APPHUB_DEV_REDIS_URL: redis://redis:6379
+  FILESTORE_REDIS_URL: redis://redis:6379
+  METASTORE_REDIS_URL: redis://redis:6379
+  TIMESTORE_REDIS_URL: redis://redis:6379
+  OBSERVATORY_FILESTORE_BASE_URL: http://filestore:4300
+  OBSERVATORY_FILESTORE_TOKEN: ${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}
+  OBSERVATORY_CORE_BASE_URL: http://core-api:4000
+  OBSERVATORY_CORE_TOKEN: ${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}
+  OBSERVATORY_TIMESTORE_BASE_URL: http://timestore:4200
+  OBSERVATORY_TIMESTORE_TOKEN: ${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}
+  OBSERVATORY_METASTORE_BASE_URL: http://metastore:4100
+  OBSERVATORY_METASTORE_TOKEN: ${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}
+  OBSERVATORY_DATA_ROOT: /var/lib/apphub/scratch/observatory
+  OBSERVATORY_CONFIG_OUTPUT: /var/lib/apphub/scratch/observatory/config/observatory-config.json
+  OBSERVATORY_FILESTORE_BACKEND_KEY: observatory-event-driven-s3
+  OBSERVATORY_FILESTORE_S3_BUCKET: apphub-filestore
+  OBSERVATORY_FILESTORE_S3_ENDPOINT: http://minio:9000
+  OBSERVATORY_FILESTORE_S3_REGION: us-east-1
+  OBSERVATORY_FILESTORE_S3_FORCE_PATH_STYLE: "true"
+  OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-apphub}
+  OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-apphub123}
+  OBSERVATORY_TIMESTORE_DATASET_SLUG: observatory-timeseries
+  OBSERVATORY_TIMESTORE_DATASET_NAME: "Observatory Time Series"
+  OBSERVATORY_TIMESTORE_TABLE_NAME: observations
+  OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES: "720"
+  OBSERVATORY_INSTRUMENT_COUNT: "3"
+  AWS_SDK_LOAD_CONFIG: "1"
+  APPHUB_OPERATOR_TOKENS: >-
+    [{"subject":"demo-admin","token":"${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}","scopes":"*","kind":"user"},{"subject":"demo-service","token":"${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}","scopes":["jobs:write","jobs:run","jobs:read","job-bundles:write","job-bundles:read","workflows:write","workflows:run","workflows:read","filestore:read","filestore:write","filestore:admin","metastore:read","metastore:write","metastore:delete","metastore:admin","timestore:sql:read","timestore:sql:exec","runtime:write"],"kind":"service"},{"subject":"demo-viewer","token":"${APPHUB_DEMO_VIEWER_TOKEN:-demo-viewer-token}","scopes":["jobs:read","job-bundles:read","workflows:read","filestore:read","metastore:read","timestore:sql:read"],"kind":"user"}]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: apphub
+      POSTGRES_PASSWORD: apphub
+      POSTGRES_DB: apphub
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apphub"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/postgres
+        target: /var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - "--save"
+      - ""
+      - "--appendonly"
+      - "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/redis
+        target: /data
+
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-apphub}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-apphub123}
+    command:
+      - server
+      - /data
+      - "--console-address"
+      - ":9001"
+    ports:
+      - ${APPHUB_MINIO_PORT:-9000}:9000
+      - ${APPHUB_MINIO_CONSOLE_PORT:-9001}:9001
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/minio
+        target: /data
+
+  core-api:
+    build:
+      <<: *build-config
+      target: core-runtime
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+      PORT: 4000
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4000/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    ports:
+      - ${APPHUB_CORE_PORT:-4000}:4000
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  core-ingest:
+    build:
+      <<: *build-config
+      target: core-runtime
+    restart: unless-stopped
+    depends_on:
+      core-api:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    command: ["node", "services/core/dist/ingestionWorker.js"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  core-workflows:
+    build:
+      <<: *build-config
+      target: core-runtime
+    restart: unless-stopped
+    depends_on:
+      core-api:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    command: ["node", "services/core/dist/workflowWorker.js"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  core-events:
+    build:
+      <<: *build-config
+      target: core-runtime
+    restart: unless-stopped
+    depends_on:
+      core-api:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    command: ["node", "services/core/dist/eventIngressWorker.js"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  core-event-triggers:
+    build:
+      <<: *build-config
+      target: core-runtime
+    restart: unless-stopped
+    depends_on:
+      core-api:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    command: ["node", "services/core/dist/eventTriggerWorker.js"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  core-materializer:
+    build:
+      <<: *build-config
+      target: core-runtime
+    restart: unless-stopped
+    depends_on:
+      core-api:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    command: ["node", "services/core/dist/assetMaterializerWorker.js"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  core-examples:
+    build:
+      <<: *build-config
+      target: core-runtime
+    restart: unless-stopped
+    depends_on:
+      core-api:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    command: ["node", "services/core/dist/exampleBundleWorker.js"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  metastore:
+    build:
+      <<: *build-config
+      target: metastore-runtime
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+      PORT: 4100
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4100/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  filestore:
+    build:
+      <<: *build-config
+      target: filestore-runtime
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+      PORT: 4300
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4300/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  timestore:
+    build:
+      <<: *build-config
+      target: timestore-runtime
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+      PORT: 4200
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4200/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  timestore-ingest:
+    build:
+      <<: *build-config
+      target: timestore-runtime
+    restart: unless-stopped
+    depends_on:
+      timestore:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    command: ["node", "services/timestore/dist/workers/ingestionWorker.js"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  timestore-partition:
+    build:
+      <<: *build-config
+      target: timestore-runtime
+    restart: unless-stopped
+    depends_on:
+      timestore:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    command: ["node", "services/timestore/dist/workers/partitionBuildWorker.js"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  demo-bootstrap:
+    build:
+      <<: *build-config
+      target: core-runtime
+    depends_on:
+      core-api:
+        condition: service_healthy
+      filestore:
+        condition: service_healthy
+      metastore:
+        condition: service_healthy
+      timestore:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      <<: *shared-env
+      LOG_LEVEL: info
+    command: ["tsx", "examples/environmental-observatory-event-driven/scripts/deploy.ts"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
+  frontend:
+    build:
+      <<: *build-config
+      target: frontend-runtime
+    restart: unless-stopped
+    depends_on:
+      core-api:
+        condition: service_healthy
+    ports:
+      - ${APPHUB_FRONTEND_PORT:-4173}:80
+    command: ["nginx", "-g", "daemon off;"]
+
+volumes: {}

@@ -68,7 +68,7 @@ describe('RequireOperatorToken', () => {
       identity: {
         subject: 'user@example.com',
         kind: 'user',
-        scopes: ['workflows:run'],
+        scopes: ['workflows:read', 'workflows:run'],
         authDisabled: false,
         userId: 'usr_1',
         sessionId: 'sess_1',

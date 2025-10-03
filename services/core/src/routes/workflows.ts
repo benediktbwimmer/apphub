@@ -101,7 +101,7 @@ import {
   serializeStaleAssetWarning
 } from './shared/serializers';
 import { requireOperatorScopes } from './shared/operatorAuth';
-import { WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
+import { WORKFLOW_READ_SCOPES, WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
 import { registerWorkflowTriggerRoutes } from './workflows/triggers';
 import { registerWorkflowGraphRoute } from './workflows/graph';
 import { getWorkflowDefaultParameters } from '../bootstrap';
@@ -1068,7 +1068,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     const authResult = await requireOperatorScopes(request, reply, {
       action: 'workflow-runs.list',
       resource: 'workflows',
-      requiredScopes: WORKFLOW_RUN_SCOPES
+      requiredScopes: WORKFLOW_READ_SCOPES
     });
     if (!authResult.ok) {
       return { error: authResult.error };
@@ -1121,7 +1121,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     const authResult = await requireOperatorScopes(request, reply, {
       action: 'workflow-activity.list',
       resource: 'workflows',
-      requiredScopes: WORKFLOW_RUN_SCOPES
+      requiredScopes: WORKFLOW_READ_SCOPES
     });
     if (!authResult.ok) {
       return { error: authResult.error };

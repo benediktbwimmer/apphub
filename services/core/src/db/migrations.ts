@@ -1449,6 +1449,20 @@ const migrations: Migration[] = [
          ON workflow_asset_recovery_requests(asset_key, partition_key_normalized)
          WHERE status IN ('pending', 'running');`
     ]
+  },
+  {
+    id: '051_read_scope_roles',
+    statements: [
+      `INSERT INTO role_scopes (role_id, scope)
+         VALUES
+           ('role-viewer', 'jobs:read'),
+           ('role-viewer', 'workflows:read'),
+           ('role-editor', 'jobs:read'),
+           ('role-editor', 'workflows:read'),
+           ('role-admin', 'jobs:read'),
+           ('role-admin', 'workflows:read')
+       ON CONFLICT DO NOTHING;`
+    ]
   }
 ];
 

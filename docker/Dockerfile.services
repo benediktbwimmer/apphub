@@ -58,7 +58,9 @@ RUN set -eux; \
 
 FROM workspace-deps AS builder
 ARG VITE_API_BASE_URL=http://localhost:4000
+ARG VITE_DEMO_OPERATOR_TOKEN=
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_DEMO_OPERATOR_TOKEN=${VITE_DEMO_OPERATOR_TOKEN}
 COPY . .
 
 RUN npm run build --workspace @apphub/core \
@@ -66,14 +68,16 @@ RUN npm run build --workspace @apphub/core \
  && npm run build:bundle --workspace @apphub/frontend \
  && npm run build --workspace @apphub/timestore \
  && npm run build --workspace @apphub/filestore \
- && npm run build --workspace @apphub/filestore-client
+ && npm run build --workspace @apphub/filestore-client \
+ && npm run build --workspace @apphub/environmental-observatory-module
 
 RUN npm prune --omit=dev
 
 # Remove nested node_modules copies to keep runtime layers small
 RUN find services -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} + \
  && find apps -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} + \
- && find packages -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} +
+ && find packages -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} + \
+ && find modules -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} +
 
 # Common runtime base with shared node_modules and packages
 FROM node:24-slim AS runtime-base
@@ -105,7 +109,8 @@ RUN set -eux; \
     (cd "${tmpdir}" && sha256sum -c ${helm_archive}.sha256sum); \
     tar -xzf "${tmpdir}/${helm_archive}" -C "${tmpdir}"; \
     install -m 0555 "${tmpdir}/linux-${kubearch}/helm" /usr/local/bin/helm; \
-    rm -rf "${tmpdir}";
+    rm -rf "${tmpdir}"; \
+    npm install -g tsx
 
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
@@ -116,6 +121,7 @@ FROM runtime-base AS core-runtime
 COPY --from=builder /app/services/core ./services/core
 COPY --from=builder /app/apps/cli ./apps/cli
 COPY --from=builder /app/examples ./examples
+COPY --from=builder /app/modules ./modules
 
 RUN chmod +x /app/services/core/scripts/core-runtime-entrypoint.sh
 

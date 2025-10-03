@@ -126,19 +126,22 @@ describe('Semantic theming primitives', () => {
       </MemoryRouter>
     );
     const activeLinkLight = await screen.findByRole('link', { name: navLabel });
-    expect(activeLinkLight.className).toContain('bg-accent');
-    expect(activeLinkLight.className).toContain('text-on-accent');
+    expect(activeLinkLight).toHaveClass('bg-accent');
+    expect(activeLinkLight).toHaveClass('text-on-accent');
     unmount();
 
     renderWithTheme(
-      <MemoryRouter initialEntries={[initialPath]}>
-        <Navbar />
-      </MemoryRouter>
+      <>
+        <PreferenceSetter themeId={highContrastTheme.id} />
+        <MemoryRouter initialEntries={[initialPath]}>
+          <Navbar />
+        </MemoryRouter>
+      </>
     );
 
     const activeLinkContrast = await screen.findByRole('link', { name: navLabel });
-    expect(activeLinkContrast.className).toContain('bg-accent');
-    expect(activeLinkContrast.className).toContain('text-on-accent');
+    expect(activeLinkContrast).toHaveClass('bg-accent');
+    expect(activeLinkContrast).toHaveClass('text-on-accent');
   });
 
   it('renders FormButton variants with semantic token classes', () => {
