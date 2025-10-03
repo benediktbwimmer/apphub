@@ -29,6 +29,9 @@ services/core/.env
 # Local development storage
 .dev/minio/
 dump.rdb
+docker/demo-data/
+docker/demo.env
+.docker-cache/
 
 # Generated bundle artifacts
 apps/frontend/public/examples/job-bundles/*.tgz
