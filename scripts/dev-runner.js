@@ -156,13 +156,7 @@ const BASE_COMMANDS = [
   }
 ];
 
-const DEFAULT_DEV_MODULES = [
-  {
-    moduleDir: path.join(ROOT_DIR, 'modules', 'environmental-observatory'),
-    workspace: null,
-    registerJobs: true
-  }
-];
+const DEFAULT_DEV_MODULES = [];
 
 const DISABLE_VALUES = new Set(['0', 'false', 'off', 'none']);
 const ENABLE_VALUES = new Set(['1', 'true', 'on', 'yes']);

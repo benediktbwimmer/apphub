@@ -25,6 +25,26 @@ apphub/
 
 ## Getting Started
 
+### Quick Start
+
+```bash
+npm install
+npm run dev
+```
+
+The dev runner provisions PostgreSQL and MinIO containers, launches Redis, and starts the core services plus the frontend. Modules are no longer published automatically; load the Environmental Observatory bundle after the stack settles:
+
+```bash
+npm run dev:observatory
+```
+
+Maintenance helpers:
+
+- `npm run dev:clear:postgres` — stop and remove the dev PostgreSQL container plus its volume so the next run reinitializes a clean database.
+- `npm run dev:clear:redis` — flush every key from the local Redis instance used by workers.
+- `npm run dev:clear:minio` — stop the MinIO container and drop its volume to wipe all buckets.
+- `npm run dev:clear:all` — run the Redis flush and reset both storage containers in one step.
+
 ### Install Dependencies
 
 ```bash
