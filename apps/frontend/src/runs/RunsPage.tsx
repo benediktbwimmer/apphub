@@ -1747,16 +1747,7 @@ export default function RunsPage() {
               }
               navigate(`${ROUTE_PATHS.workflows}?${params.toString()}`);
             }}
-<<<<<<< HEAD
             onReplay={handleWorkflowReplay}
-<<<<<<< HEAD
-=======
-            replayState={replayState}
-=======
-            replayState={replayState}
-            onReplay={handleWorkflowReplay}
->>>>>>> ad7374e (fix: restore frontend build after module catalog switch)
->>>>>>> 80f5c41 (fix: restore frontend build after module catalog switch)
             onCompare={handleOpenCompareDialog}
             replayRunId={replayRunId}
             replayLoading={replayLoading}
@@ -1826,10 +1817,6 @@ type WorkflowRunsTableProps = {
   detailError: string | null;
   onCloseDetail: () => void;
   onViewWorkflow: () => void;
-<<<<<<< HEAD
-=======
-  replayState: ReplayState;
->>>>>>> 80f5c41 (fix: restore frontend build after module catalog switch)
   onReplay: (entry: WorkflowActivityRunEntry, options?: { allowStaleAssets?: boolean }) => void;
   onCompare: (entry: WorkflowActivityRunEntry) => void;
   replayRunId: string | null;
@@ -1862,17 +1849,11 @@ function WorkflowRunsTable({
   detailError,
   onCloseDetail,
   onViewWorkflow,
-<<<<<<< HEAD
   onReplay,
   onCompare,
   replayRunId,
   replayLoading,
   replayWarnings
-=======
-  replayState,
-  onReplay,
-  onCompare
->>>>>>> 80f5c41 (fix: restore frontend build after module catalog switch)
 }: WorkflowRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
