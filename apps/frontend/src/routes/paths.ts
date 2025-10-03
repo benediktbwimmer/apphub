@@ -1,5 +1,6 @@
 export const ROUTE_SEGMENTS = {
   overview: 'overview',
+  observability: 'observability',
   core: 'core',
   events: 'events',
   assets: 'assets',
@@ -28,6 +29,7 @@ export const ROUTE_SEGMENTS = {
 
 export const ROUTE_PATHS = {
   overview: `/${ROUTE_SEGMENTS.overview}`,
+  observability: `/${ROUTE_SEGMENTS.observability}`,
   core: `/${ROUTE_SEGMENTS.core}`,
   events: `/${ROUTE_SEGMENTS.events}`,
   assets: `/${ROUTE_SEGMENTS.assets}`,
@@ -56,6 +58,7 @@ export const ROUTE_PATHS = {
 
 export type PrimaryNavKey =
   | 'overview'
+  | 'observability'
   | 'core'
   | 'events'
   | 'assets'
@@ -75,6 +78,7 @@ export type PrimaryNavigationItem = {
 
 export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   { key: 'overview', label: 'Overview', path: ROUTE_PATHS.overview },
+  { key: 'observability', label: 'Observability', path: ROUTE_PATHS.observability },
   { key: 'core', label: 'Apps', path: ROUTE_PATHS.core },
   { key: 'events', label: 'Events', path: ROUTE_PATHS.events },
   { key: 'assets', label: 'Assets', path: ROUTE_PATHS.assets },

@@ -28,6 +28,7 @@ import ThemeSettingsPage from '../settings/ThemeSettingsPage';
 import TopologyRoute from './TopologyRoute';
 import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
 import AssetsPage from '../dataAssets/AssetsPage';
+import ObservabilityPage from '../observability/ObservabilityPage';
 
 export const appRouteConfig: RouteObject[] = [
   {
@@ -41,6 +42,14 @@ export const appRouteConfig: RouteObject[] = [
       {
         path: ROUTE_SEGMENTS.overview,
         element: <OverviewRoute />
+      },
+      {
+        path: ROUTE_SEGMENTS.observability,
+        element: (
+          <RequireOperatorToken>
+            <ObservabilityPage />
+          </RequireOperatorToken>
+        )
       },
       {
         path: ROUTE_SEGMENTS.core,

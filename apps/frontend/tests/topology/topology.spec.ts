@@ -74,7 +74,7 @@ type TopologyVisibilityState = {
 };
 
 function extractAlphaChannel(color: string): number | null {
-  const match = /rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d\.]+)\s*\)/.exec(color);
+  const match = /rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)/.exec(color);
   if (!match) {
     return null;
   }
@@ -642,8 +642,6 @@ test.describe('Workflow topology explorer', () => {
 
     expect(nodeVisibleBeforeRefresh).toBe(false);
     expect(forcedViewportSnapshot).not.toBeNull();
-    const forcedViewportFinal = forcedViewportSnapshot as { x: number; y: number; zoom: number };
-
     await page.evaluate(() => {
       window.__apphubSocketEmit?.({
         type: 'workflow.definition.updated',
