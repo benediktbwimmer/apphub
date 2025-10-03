@@ -12,7 +12,7 @@
   "scripts": {
     "build": "npm run generate:schema && tsc -b",
     "generate:schema": "tsx scripts/generateSchemas.ts",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "npm run build && tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
