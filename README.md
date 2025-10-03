@@ -9,9 +9,12 @@ apphub/
 ├── docs/
 │   ├── architecture.md       # High-level system design + roadmap ideas
 │   └── assets-overview.md    # Auto-materialization events, policies, and worker setup
+├── modules/
+│   └── environmental-observatory/   # Reference module that ships the observatory jobs, services, and workflows
 ├── packages/
 │   ├── shared/               # Shared types + registries consumed by multiple services
-│   └── examples/             # Placeholder workspace for the consolidated example registry
+│   ├── module-registry/      # Catalog + loader utilities for module metadata
+│   └── examples/             # Legacy example descriptors (kept for migration tooling)
 ├── services/
 │   ├── core/              # Fastify API + background workers
 │   └── metastore/            # Flexible metadata storage + search service
@@ -146,9 +149,11 @@ Key environment variables:
 
 See `docs/assets-overview.md` for auto-materialization policies and event flow details.
 
-### Environmental Observatory Example
+### Environmental Observatory Module
 
-The curated example content now focuses on the event-driven environmental observatory scenario (`examples/environmental-observatory-event-driven`). It provisions a file watcher service that streams inbox uploads through Filestore, normalisation and Timestore ingestion jobs, a reporting workflow, and a dashboard surface. Load the "Environmental observatory (event-driven)" scenario from the importer to recreate the full pipeline—including event triggers and workflow defaults—inside a fresh environment.
+The bundled observatory scenario now lives under `modules/environmental-observatory/`. Building the module publishes job bundles, workflows, and service registrations to the local catalog so the importer can hydrate everything through `/modules/catalog`.
+
+Use the "Environmental observatory" entry in the Import wizard to pull the curated service manifest, jobs, and workflows. The wizard now sources data directly from the module catalog and resolves dependencies (jobs, workflows, and provisioning triggers) using the module loader introduced in Ticket 006.
 
 The end-to-end walkthrough lives in `docs/environmental-observatory-workflows.md` and covers bootstrap scripts, trigger wiring, and validation steps once synthetic minute-level data begins to flow.
 

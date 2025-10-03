@@ -45,6 +45,12 @@
       "@apphub/shared/*": [
         "packages/shared/src/*"
       ],
+      "@apphub/module-registry": [
+        "packages/module-registry/dist/index.d.ts"
+      ],
+      "@apphub/module-registry/*": [
+        "packages/module-registry/dist/*"
+      ],
       "@apphub/examples": [
         "packages/examples/src/index.ts"
       ],

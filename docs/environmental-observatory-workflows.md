@@ -4,6 +4,12 @@ The environmental observatory scenario models a network of field instruments tha
 
 The event-driven flavour now partitions Timestore manifests per instrument and propagates the instrument id through trigger parameters, enabling publication workflows to run for each sensor independently while sharing the same DAG.
 
+> **Module-first tooling**
+>
+> The observatory jobs, workflows, and services now ship through the `modules/environmental-observatory` workspace. The Import
+> wizard pulls catalog data from `/modules/catalog`, while the legacy assets under `examples/environmental-observatory-event-driven/`
+> remain available for bootstrap scripts, sample data, and troubleshooting utilities.
+
 > **Event-driven variant**
 >
 > In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `examples/environmental-observatory-event-driven/`. CSV uploads flow through Filestore, the inbox normalizer emits `observatory.minute.raw-uploaded`, downstream publication reacts to `observatory.minute.partition-ready`, and a dashboard aggregation workflow listens for `timestore.partition.created` (with a guarded fallback on the ingest signal) before publishing `observatory.dashboard.updated` after querying Timestore for fleet-wide stats. See the [README](../examples/environmental-observatory-event-driven/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the upgraded services).
@@ -75,14 +81,14 @@ CSV columns:
 
 ## Jobs
 
-Four Node jobs orchestrate the pipeline. Bundle them with `npx tsx apps/cli/src/index.ts jobs package <bundle>` before registering definitions.
+Four Node jobs orchestrate the pipeline. Their sources live under `modules/environmental-observatory/src/jobs`, and publishing the module (`npm run build --workspace @apphub/environmental-observatory-module`) produces the tarballs consumed by the importer.
 
 | Bundle | Slug | Purpose |
 | ------ | ---- | ------- |
-| `examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, archives the originals under instrument/hour folders, extracts metadata, and emits the partitioned raw asset. |
-| `examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, producing per-instrument minute partitions and tagging each manifest entry with instrument metadata. |
-| `examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `plots`, and emits a visualization asset curating the artifacts. |
-| `examples/environmental-observatory-event-driven/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
+| `modules/environmental-observatory/src/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, archives the originals under instrument/hour folders, extracts metadata, and emits the partitioned raw asset. |
+| `modules/environmental-observatory/src/jobs/observatory-timestore-loader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, producing per-instrument minute partitions and tagging each manifest entry with instrument metadata. |
+| `modules/environmental-observatory/src/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `plots`, and emits a visualization asset curating the artifacts. |
+| `modules/environmental-observatory/src/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
 
 Each bundle ships with an `apphub.bundle.json` and Node entry point so you can register them via the core API once built.
 
@@ -100,7 +106,7 @@ The lineage graph forms a linear chain: inbox → Timestore → plots → report
 
 ## Workflows
 
-Two workflows manage the example. Their JSON definitions live in `examples/environmental-observatory-event-driven/workflows/`.
+Two workflows manage the module. Their TypeScript definitions live in `modules/environmental-observatory/src/workflows/`.
 
 - **Trigger:** Manual or filesystem gateway (optional) when the minute inbox directory receives new CSVs.
 - **Steps:**
@@ -151,16 +157,14 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 
 ## Running the demo locally
 
-1. Install dependencies for the gateway, visualization, and publisher bundles:
+1. Build the module so the latest bundles land in `modules/environmental-observatory/dist`:
 ```bash
-npm install --prefix examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader
-npm install --prefix examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner
-npm install --prefix examples/environmental-observatory-event-driven/jobs/observatory-report-publisher
+npm run build --workspace @apphub/environmental-observatory-module
 ```
 
-   The core rebuilds each observatory bundle automatically when you import the example jobs. Every `/job-imports` request now copies the bundle into an isolated workspace, runs `npm ci`, executes the build, and force-publishes the tarball so the core overwrites any previous artifact. Pre-installing dependencies locally keeps the first rebuild snappy; otherwise the API performs the install step inside the container on every import.
-2. Publish bundles and register the job definitions exported from the example module.
-3. Import the bundled service manifest (`examples/environmental-observatory-event-driven/service-manifests/service-manifest.json`) through the core UI or copy it into your manifest directory so the gateway and dashboard show up as managed services. When importing through the UI the core now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
+   The core rebuilds each observatory bundle automatically when you publish an updated module. Every `/modules/catalog` refresh reads the manifest emitted during the build step so the importer has consistent metadata.
+2. Publish the module artifact via `npm run module:publish --workspace @apphub/core -- --module modules/environmental-observatory` when you want to upgrade a running cluster.
+3. Use the Import wizard's "Environmental observatory" scenario. The loader pulls the service registrations, jobs, and workflows directly from the module manifest; provide inbox/Timestore overrides when prompted and the bootstrap will hydrate defaults for you.
 
    > ⚠️ **Event proxy configuration**
    >

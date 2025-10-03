@@ -17,7 +17,7 @@ import {
   type JsonValue,
   type WorkflowProvisioningEventTrigger,
   type WorkflowProvisioningSchedule
-} from '@apphub/examples';
+} from '@apphub/module-registry';
 
 import type { ManifestPlaceholder } from './useImportServiceManifest';
 import type { JobImportPreviewResult } from './useJobImportWorkflow';
@@ -69,7 +69,7 @@ type ExampleImportQueue = {
 };
 
 const SUBTAB_STORAGE_KEY = 'apphub-import-active-subtab';
-const SCENARIO_STORAGE_KEY = 'apphub-import-example-scenarios';
+const SCENARIO_STORAGE_KEY = 'apphub-import-module-scenarios';
 
 const SUBTAB_FOR_SCENARIO: Partial<Record<ExampleScenarioType, ImportWizardStep>> = {
   'service-manifest': 'service-manifests',
@@ -401,28 +401,28 @@ export function useImportWizardController() {
     async function loadCore() {
       setCoreLoading(true);
       try {
-        const response = await authorizedFetch(`${API_BASE_URL}/examples/core`);
+        const response = await authorizedFetch(`${API_BASE_URL}/modules/catalog`);
         if (!response.ok) {
-          throw new Error(`Failed to load example core (status ${response.status})`);
+          throw new Error(`Failed to load module catalog (status ${response.status})`);
         }
         const payload = (await response.json()) as {
-          data?: { core?: { scenarios?: ExampleScenario[] } };
+          data?: { catalog?: { scenarios?: ExampleScenario[] } };
         };
         if (cancelled) {
           return;
         }
-        const fetched = payload.data?.core?.scenarios ?? [];
+        const fetched = payload.data?.catalog?.scenarios ?? [];
         setScenarios(fetched);
         setCoreError(null);
       } catch (error) {
         if (cancelled) {
           return;
         }
-        const message = error instanceof Error ? error.message : 'Failed to load example core';
+        const message = error instanceof Error ? error.message : 'Failed to load module catalog';
         setCoreError(message);
         pushToast({
           tone: 'error',
-          title: 'Failed to load examples',
+          title: 'Failed to load modules',
           description: message
         });
       } finally {

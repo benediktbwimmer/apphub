@@ -1,21 +1,21 @@
 import path from 'node:path';
 import {
-  clearExampleCoreCache,
-  loadExampleCore,
-  type ExampleCoreData,
-  type LoadCoreOptions
-} from '@apphub/examples';
+  clearModuleCatalogCache,
+  loadModuleCatalog,
+  type LoadCoreOptions,
+  type ModuleCatalogData
+} from '@apphub/module-registry';
 
-const DEFAULT_CACHE_TTL_MS = Number(process.env.APPHUB_EXAMPLES_CACHE_TTL_MS ?? 30_000);
+const DEFAULT_CACHE_TTL_MS = Number(process.env.APPHUB_MODULES_CACHE_TTL_MS ?? 30_000);
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
 
-type CoreCacheState = {
+type CatalogCacheState = {
   repoRoot: string;
   expiresAt: number;
-  data: ExampleCoreData;
+  data: ModuleCatalogData;
 };
 
-let state: CoreCacheState | null = null;
+let state: CatalogCacheState | null = null;
 
 function resolveRepoRoot(repoRoot?: string): string {
   const override = repoRoot ?? process.env.APPHUB_REPO_ROOT;
@@ -26,20 +26,20 @@ function resolveRepoRoot(repoRoot?: string): string {
 }
 
 function resolveTtlMillis(): number {
-  const ttl = Number(process.env.APPHUB_EXAMPLES_CACHE_TTL_MS ?? DEFAULT_CACHE_TTL_MS);
+  const ttl = Number(process.env.APPHUB_MODULES_CACHE_TTL_MS ?? DEFAULT_CACHE_TTL_MS);
   return Number.isFinite(ttl) && ttl > 0 ? ttl : DEFAULT_CACHE_TTL_MS;
 }
 
-async function refreshCore(options: LoadCoreOptions): Promise<ExampleCoreData> {
-  const data = await loadExampleCore(options);
+async function refreshCatalog(options: LoadCoreOptions): Promise<ModuleCatalogData> {
+  const data = await loadModuleCatalog(options);
   return {
     jobs: Object.freeze([...data.jobs]),
     workflows: Object.freeze([...data.workflows]),
     scenarios: Object.freeze([...data.scenarios])
-  } satisfies ExampleCoreData;
+  } satisfies ModuleCatalogData;
 }
 
-export async function getExampleCore(options: { repoRoot?: string; reload?: boolean } = {}): Promise<ExampleCoreData> {
+export async function getModuleCatalog(options: { repoRoot?: string; reload?: boolean } = {}): Promise<ModuleCatalogData> {
   const repoRoot = resolveRepoRoot(options.repoRoot);
   const now = Date.now();
   const ttlMs = resolveTtlMillis();
@@ -48,21 +48,21 @@ export async function getExampleCore(options: { repoRoot?: string; reload?: bool
     return state.data;
   }
 
-  const data = await refreshCore({ repoRoot, reload: options.reload });
+  const data = await refreshCatalog({ repoRoot, reload: options.reload });
   state = {
     repoRoot,
     data,
     expiresAt: now + ttlMs
-  };
+  } satisfies CatalogCacheState;
   return data;
 }
 
-export async function invalidateExampleCore(): Promise<void> {
+export async function invalidateModuleCatalog(): Promise<void> {
   state = null;
-  await clearExampleCoreCache();
+  await clearModuleCatalogCache();
 }
 
-export function getCachedExampleCore(): ExampleCoreData | null {
+export function getCachedModuleCatalog(): ModuleCatalogData | null {
   if (state && state.expiresAt > Date.now()) {
     return state.data;
   }

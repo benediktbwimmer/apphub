@@ -26,7 +26,7 @@ async function generateOpenApiSpec() {
     { registerJobRoutes },
     { registerJobBundleRoutes },
     { registerJobImportRoutes },
-    { registerExampleRoutes },
+    { registerModuleRoutes },
     { registerAiRoutes },
     { registerWorkflowRoutes },
     { registerAssetRoutes },
@@ -44,7 +44,7 @@ async function generateOpenApiSpec() {
     import('../src/routes/jobs'),
     import('../src/routes/jobBundles'),
     import('../src/routes/jobImports'),
-    import('../src/routes/examples'),
+    import('../src/routes/modules'),
     import('../src/routes/ai'),
     import('../src/routes/workflows'),
     import('../src/routes/assets'),
@@ -76,7 +76,7 @@ async function generateOpenApiSpec() {
   await app.register(async (instance) => registerJobRoutes(instance));
   await app.register(async (instance) => registerJobBundleRoutes(instance));
   await app.register(async (instance) => registerJobImportRoutes(instance));
-  await app.register(async (instance) => registerExampleRoutes(instance));
+  await app.register(async (instance) => registerModuleRoutes(instance));
   await app.register(async (instance) => registerAiRoutes(instance));
   await app.register(async (instance) => registerWorkflowRoutes(instance));
   await app.register(async (instance) => registerAssetRoutes(instance));

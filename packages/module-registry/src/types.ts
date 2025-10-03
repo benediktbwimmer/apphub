@@ -1,3 +1,8 @@
+import type {
+  ModuleManifestTarget,
+  ModuleManifestWorkflowDetails
+} from '@apphub/module-sdk';
+
 export type JsonValue =
   | string
   | number
@@ -48,20 +53,20 @@ export type ModuleJobSlug =
   | 'observatory-inbox-normalizer'
   | 'observatory-timestore-loader'
   | 'observatory-visualization-runner'
-  | 'observatory-report-publisher';
+  | 'observatory-dashboard-aggregator'
+  | 'observatory-report-publisher'
+  | 'observatory-calibration-importer'
+  | 'observatory-calibration-planner'
+  | 'observatory-calibration-reprocessor';
 
 export type ModuleJobBundle = {
   slug: ModuleJobSlug;
   version: string;
-  directory: ModuleFileReference;
+  moduleId: string;
+  moduleVersion: string;
+  modulePath: ModuleFileReference;
   manifestPath: ModuleFileReference;
-  jobDefinitionPath: ModuleFileReference;
-  manifest: JobManifestTemplate;
-  definition: JobDefinitionTemplate;
-  descriptor?: {
-    module: string;
-    configPath: ModuleFileReference;
-  };
+  target: ModuleManifestTarget & { kind: 'job' };
 };
 
 export type WorkflowTriggerTemplate = {
@@ -258,8 +263,14 @@ export type ModuleWorkflowSlug =
 
 export type ModuleWorkflow = {
   slug: ModuleWorkflowSlug;
-  path: ModuleFileReference;
+  moduleId: string;
+  moduleVersion: string;
+  manifestPath: ModuleFileReference;
   definition: WorkflowDefinitionTemplate;
+  target: ModuleManifestTarget & {
+    kind: 'workflow';
+    workflow: ModuleManifestWorkflowDetails;
+  };
 };
 
 export type ModuleScenarioType = 'service-manifest' | 'app' | 'job' | 'workflow' | 'scenario';
@@ -325,6 +336,10 @@ export type JobScenario = ModuleScenarioBase<'job'> & {
     publicPath: string;
     contentType?: string;
   };
+  /**
+   * @deprecated Legacy example slug kept for backwards compatibility while the importer migrates to module-first flows.
+   */
+  exampleSlug?: string;
   moduleId?: ModuleJobSlug;
 };
 

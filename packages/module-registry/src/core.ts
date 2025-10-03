@@ -1,17 +1,18 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import {
-  discoverLocalDescriptorConfigs,
-  readBundleSlugFromConfig,
-  readModuleDescriptor,
-  resolveBundleManifests
-} from './descriptors/loader';
+import type {
+  ModuleManifest,
+  ModuleManifestTarget,
+  ModuleManifestWorkflowDetails
+} from '@apphub/module-sdk';
+import { listModules } from './catalog';
 import type {
   ModuleJobBundle,
   ModuleJobSlug,
   ModuleScenario,
   ModuleWorkflow,
-  ModuleWorkflowSlug
+  ModuleWorkflowSlug,
+  WorkflowDefinitionTemplate
 } from './types';
 
 export type ModuleCatalogData = {
@@ -35,23 +36,26 @@ export type LoadCoreOptions = {
 };
 
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
-const JOBS_FILENAME = path.join('examples', 'core', 'jobs.json');
-const WORKFLOWS_FILENAME = path.join('examples', 'core', 'workflows.json');
+const MODULE_MANIFEST_FILENAME = path.join('dist', 'module.json');
 const SCENARIOS_FILENAME = path.join('examples', 'core', 'scenarios.json');
 
 let cache: CoreCache | null = null;
-
-async function readJsonFile<T>(repoRoot: string, relativePath: string): Promise<T> {
-  const absolutePath = path.resolve(repoRoot, relativePath);
-  const payload = await fs.readFile(absolutePath, 'utf8');
-  return JSON.parse(payload) as T;
-}
 
 function normalizeRepoRoot(repoRoot?: string): string {
   if (!repoRoot) {
     return DEFAULT_REPO_ROOT;
   }
   return path.resolve(repoRoot);
+}
+
+async function readJsonFile<T>(repoRoot: string, relativePath: string): Promise<T | null> {
+  try {
+    const absolutePath = path.resolve(repoRoot, relativePath);
+    const payload = await fs.readFile(absolutePath, 'utf8');
+    return JSON.parse(payload) as T;
+  } catch {
+    return null;
+  }
 }
 
 async function loadCore(options: LoadCoreOptions = {}): Promise<CoreCache> {
@@ -61,29 +65,69 @@ async function loadCore(options: LoadCoreOptions = {}): Promise<CoreCache> {
     return cache;
   }
 
-  type JobFile = { bundles: ModuleJobBundle[] };
-  type WorkflowFile = { workflows: ModuleWorkflow[] };
-  type ScenarioFile = { scenarios: ModuleScenario[] };
+  const modules = listModules();
+  const jobs: ModuleJobBundle[] = [];
+  const workflows: ModuleWorkflow[] = [];
 
-  const [jobsFile, workflowsFile, scenariosFile] = await Promise.all([
-    readJsonFile<JobFile>(repoRoot, JOBS_FILENAME),
-    readJsonFile<WorkflowFile>(repoRoot, WORKFLOWS_FILENAME),
-    readJsonFile<ScenarioFile>(repoRoot, SCENARIOS_FILENAME)
-  ]);
+  const scenarios = await loadScenarios(repoRoot);
 
-  const descriptorIndex = await buildDescriptorIndex(repoRoot);
+  for (const entry of modules) {
+    const moduleDir = path.resolve(repoRoot, entry.workspacePath);
+    const manifestPath = path.join(moduleDir, MODULE_MANIFEST_FILENAME);
+    const manifest = await readManifest(manifestPath);
+    if (!manifest) {
+      continue;
+    }
 
-  const jobs = (jobsFile.bundles ?? []).map((bundle) => {
-    const descriptor = descriptorIndex.get(bundle.slug.toLowerCase());
-    return descriptor
-      ? {
-          ...bundle,
-          descriptor
+    const moduleId = manifest.metadata?.name?.trim() ?? entry.id;
+    const moduleVersion = manifest.metadata?.version?.trim() ?? '0.0.0';
+    const relativeManifestPath = path.relative(repoRoot, manifestPath) || manifestPath;
+    const relativeModulePath = path.relative(repoRoot, moduleDir) || moduleDir;
+
+    for (const target of manifest.targets ?? []) {
+      if (!target?.name || !target?.kind) {
+        continue;
+      }
+      if (target.kind === 'job') {
+        const slugValue = target.name.trim().toLowerCase();
+        if (!isModuleJobSlugValue(slugValue)) {
+          continue;
         }
-      : bundle;
-  });
-  const workflows = workflowsFile.workflows ?? [];
-  const scenarios = scenariosFile.scenarios ?? [];
+        const version = target.version?.trim() ?? moduleVersion;
+        jobs.push({
+          slug: slugValue,
+          version,
+          moduleId,
+          moduleVersion,
+          modulePath: relativeModulePath,
+          manifestPath: relativeManifestPath,
+          target: target as ModuleManifestTarget & { kind: 'job' }
+        });
+        continue;
+      }
+      if (target.kind === 'workflow') {
+        const slugValue = target.name.trim().toLowerCase();
+        if (!isModuleWorkflowSlugValue(slugValue)) {
+          continue;
+        }
+        const definition = resolveWorkflowDefinition(target);
+        if (!definition) {
+          continue;
+        }
+        workflows.push({
+          slug: slugValue,
+          moduleId,
+          moduleVersion,
+          manifestPath: relativeManifestPath,
+          definition,
+          target: target as ModuleManifestTarget & {
+            kind: 'workflow';
+            workflow: ModuleManifestWorkflowDetails;
+          }
+        });
+      }
+    }
+  }
 
   const jobMap = new Map<ModuleJobSlug, ModuleJobBundle>();
   const jobSlugSet = new Set<ModuleJobSlug>();
@@ -186,39 +230,102 @@ export async function clearModuleCatalogCache(): Promise<void> {
   cache = null;
 }
 
-async function buildDescriptorIndex(
-  repoRoot: string
-): Promise<Map<string, { module: string; configPath: string }>> {
-  const configPaths = await discoverLocalDescriptorConfigs(repoRoot);
-  const index = new Map<string, { module: string; configPath: string }>();
-
-  for (const configPath of configPaths) {
-    try {
-      const descriptorFile = await readModuleDescriptor(configPath);
-      const bundleManifests = resolveBundleManifests(descriptorFile);
-      for (const manifest of bundleManifests) {
-        const normalizedPath = manifest.path.trim().toLowerCase();
-        if (!normalizedPath.endsWith('apphub.bundle.json')) {
-          continue;
-        }
-        const slug = await readBundleSlugFromConfig(manifest.absolutePath);
-        if (!slug) {
-          continue;
-        }
-        const normalizedSlug = slug.trim().toLowerCase();
-        if (normalizedSlug.length === 0 || index.has(normalizedSlug)) {
-          continue;
-        }
-        const relativeConfig = path.relative(repoRoot, descriptorFile.configPath) || descriptorFile.configPath;
-        index.set(normalizedSlug, {
-          module: descriptorFile.descriptor.module,
-          configPath: relativeConfig
-        });
-      }
-    } catch {
-      // Ignore descriptors that fail to parse; they may represent remote-only sources.
-    }
+async function readManifest(manifestPath: string): Promise<ModuleManifest | null> {
+  try {
+    const payload = await fs.readFile(manifestPath, 'utf8');
+    return JSON.parse(payload) as ModuleManifest;
+  } catch {
+    return null;
   }
+}
 
-  return index;
+function resolveWorkflowDefinition(
+  target: ModuleManifestTarget | undefined
+): WorkflowDefinitionTemplate | null {
+  if (!target || target.kind !== 'workflow') {
+    return null;
+  }
+  const definition = target.workflow?.definition;
+  if (!definition || typeof definition !== 'object') {
+    return null;
+  }
+  return definition as WorkflowDefinitionTemplate;
+}
+
+async function loadScenarios(repoRoot: string): Promise<ModuleScenario[]> {
+  const payload = await readJsonFile<{ scenarios?: ModuleScenario[] }>(repoRoot, SCENARIOS_FILENAME);
+  if (!payload?.scenarios) {
+    return [];
+  }
+  return payload.scenarios.map((scenario) => rewriteScenarioPaths(scenario));
+}
+
+function rewriteScenarioPaths<T>(value: T): T {
+  const replacements: Array<[string | RegExp, string]> = [
+    ['examples/environmental-observatory-event-driven', 'modules/environmental-observatory'],
+    ['examples/environmental-observatory', 'modules/environmental-observatory'],
+    ['github.com/apphub/examples/environmental-observatory-event-driven', 'environmental-observatory']
+  ];
+
+  const applyReplacements = (input: string): string => {
+    let result = input;
+    for (const [pattern, replacement] of replacements) {
+      if (typeof pattern === 'string') {
+        result = result.split(pattern).join(replacement);
+      } else {
+        result = result.replace(pattern, replacement);
+      }
+    }
+    return result;
+  };
+
+  const transform = (input: unknown): unknown => {
+    if (typeof input === 'string') {
+      return applyReplacements(input);
+    }
+    if (Array.isArray(input)) {
+      return input.map((entry) => transform(entry));
+    }
+    if (input && typeof input === 'object') {
+      const entries = Object.entries(input as Record<string, unknown>).map(([key, val]) => [
+        key,
+        transform(val)
+      ]);
+      return Object.fromEntries(entries);
+    }
+    return input;
+  };
+
+  return transform(value) as T;
+}
+
+function isModuleJobSlugValue(value: string): value is ModuleJobSlug {
+  switch (value) {
+    case 'observatory-data-generator':
+    case 'observatory-inbox-normalizer':
+    case 'observatory-timestore-loader':
+    case 'observatory-visualization-runner':
+    case 'observatory-dashboard-aggregator':
+    case 'observatory-report-publisher':
+    case 'observatory-calibration-importer':
+    case 'observatory-calibration-planner':
+    case 'observatory-calibration-reprocessor':
+      return true;
+    default:
+      return false;
+  }
+}
+
+function isModuleWorkflowSlugValue(value: string): value is ModuleWorkflowSlug {
+  switch (value) {
+    case 'observatory-minute-data-generator':
+    case 'observatory-minute-ingest':
+    case 'observatory-daily-publication':
+    case 'observatory-dashboard-aggregate':
+    case 'observatory-calibration-import':
+    case 'observatory-calibration-reprocess':
+      return true;
+    default:
+      return false;
+  }
 }

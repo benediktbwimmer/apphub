@@ -2,19 +2,21 @@ import './setupTestEnv';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { WorkflowDefinitionTemplate } from '@apphub/examples';
+import { loadModuleCatalog, type ModuleWorkflow, type WorkflowDefinitionTemplate } from '@apphub/module-registry';
 import { bootstrapPlanSchema, executeBootstrapPlan } from '../src/bootstrap';
 
+let moduleWorkflows: Map<string, ModuleWorkflow> | null = null;
+
 async function loadWorkflow(slug: string): Promise<WorkflowDefinitionTemplate> {
-  const workflowPath = path.resolve(
-    process.cwd(),
-    'examples',
-    'environmental-observatory-event-driven',
-    'workflows',
-    `${slug}.json`
-  );
-  const contents = await readFile(workflowPath, 'utf8');
-  return JSON.parse(contents) as WorkflowDefinitionCreateInput;
+  if (!moduleWorkflows) {
+    const catalog = await loadModuleCatalog({ repoRoot: path.resolve(__dirname, '..', '..', '..') });
+    moduleWorkflows = new Map(catalog.workflows.map((workflow) => [workflow.slug, workflow]));
+  }
+  const entry = moduleWorkflows.get(slug);
+  if (!entry) {
+    throw new Error(`Unknown observatory workflow: ${slug}`);
+  }
+  return JSON.parse(JSON.stringify(entry.definition)) as WorkflowDefinitionTemplate;
 }
 
 async function run(): Promise<void> {

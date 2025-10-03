@@ -1,22 +1,18 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, beforeAll, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import core from '../../../../../examples/core/scenarios.json';
 import ImportWorkspace from '../ImportWorkspace';
 import type { ExampleScenario } from '../examples';
 import type { ExampleBundleStatus } from '../exampleBundles';
-
-const coreData = core as { scenarios?: ExampleScenario[] };
-const coreScenarios: ExampleScenario[] = coreData.scenarios ?? [];
+import { loadModuleCatalog } from '@apphub/module-registry';
+import { resolve } from 'node:path';
 
 const SCENARIO_FIXTURE_IDS = new Set([
   'observatory-inbox-normalizer-job',
   'observatory-timestore-loader-job',
   'observatory-minute-ingest-workflow'
 ]);
-const exampleScenarios: ExampleScenario[] = coreScenarios.filter((scenario) =>
-  SCENARIO_FIXTURE_IDS.has(scenario.id)
-);
+let exampleScenarios: ExampleScenario[] = [];
 
 const authorizedFetchMock = vi.fn<(url: string, options?: RequestInit) => Promise<Response>>();
 const pushToastMock = vi.fn();
@@ -47,12 +43,22 @@ vi.mock('../../utils/fileEncoding', () => ({
 
 let bundleStatuses: ExampleBundleStatus[] = [];
 
+const WORKSPACE_ROOT = resolve(__dirname, '../../../../..');
+
+beforeAll(async () => {
+  const { scenarios } = await loadModuleCatalog({ repoRoot: WORKSPACE_ROOT });
+  exampleScenarios = scenarios.filter((scenario) => SCENARIO_FIXTURE_IDS.has(scenario.id));
+  if (exampleScenarios.length === 0) {
+    throw new Error('No module scenarios found for ImportWorkspace tests');
+  }
+});
+
 beforeEach(() => {
   bundleStatuses = [];
   authorizedFetchMock.mockImplementation(async (url: string) => {
-    if (url.includes('/examples/core')) {
+    if (url.includes('/modules/catalog')) {
       return new Response(
-        JSON.stringify({ data: { core: { scenarios: exampleScenarios } } }),
+        JSON.stringify({ data: { catalog: { scenarios: exampleScenarios } } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -98,6 +104,11 @@ describe('ImportWorkspace wizard', () => {
     render(<ImportWorkspace />);
 
     const loadExampleButton = await screen.findByRole('button', { name: /load example/i });
+    await waitFor(() =>
+      expect(authorizedFetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/modules/catalog')
+      )
+    );
     await waitFor(() => expect(loadExampleButton).toBeEnabled());
     await user.click(loadExampleButton);
     const picker = await screen.findByRole('dialog');
@@ -138,6 +149,11 @@ describe('ImportWorkspace wizard', () => {
     render(<ImportWorkspace />);
 
     const loadExampleButton = await screen.findByRole('button', { name: /load example/i });
+    await waitFor(() =>
+      expect(authorizedFetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/modules/catalog')
+      )
+    );
     await waitFor(() => expect(loadExampleButton).toBeEnabled());
     await user.click(loadExampleButton);
     const picker = await screen.findByRole('dialog');

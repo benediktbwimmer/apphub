@@ -1,41 +1,21 @@
 import assert from 'node:assert/strict';
 import '@apphub/core-tests/setupTestEnv';
 import { enumeratePartitionKeys } from '@apphub/core/workflows/partitioning';
-import {
-  jobDefinitionCreateSchema,
-  workflowDefinitionCreateSchema
-} from '@apphub/core/workflows/zodSchemas';
-import {
-  loadExampleJobDefinition,
-  loadExampleWorkflowDefinition
-} from '../helpers/examples';
-import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples';
+import { workflowDefinitionCreateSchema } from '@apphub/core/workflows/zodSchemas';
+import { loadModuleWorkflowDefinition } from '../helpers/modules';
+import type { ModuleWorkflowSlug } from '@apphub/module-registry';
 
-const environmentalObservatoryJobSlugs: ExampleJobSlug[] = [
-  'observatory-data-generator',
-  'observatory-inbox-normalizer',
-  'observatory-timestore-loader',
-  'observatory-visualization-runner',
-  'observatory-report-publisher'
-];
-const environmentalObservatoryJobs = environmentalObservatoryJobSlugs.map(loadExampleJobDefinition);
-
-const observatoryWorkflowSlugs: ExampleWorkflowSlug[] = [
+const observatoryWorkflowSlugs: ModuleWorkflowSlug[] = [
   'observatory-minute-data-generator',
   'observatory-minute-ingest',
   'observatory-daily-publication'
 ];
-const [
-  observatoryMinuteDataGeneratorWorkflow,
-  observatoryMinuteIngestWorkflow,
-  observatoryDailyPublicationWorkflow
-] = observatoryWorkflowSlugs.map(loadExampleWorkflowDefinition);
-
 (async function run() {
-  for (const job of environmentalObservatoryJobs) {
-    const parsed = jobDefinitionCreateSchema.parse(job);
-    assert.ok(parsed.slug.startsWith('observatory-'));
-  }
+  const [
+    observatoryMinuteDataGeneratorWorkflow,
+    observatoryMinuteIngestWorkflow,
+    observatoryDailyPublicationWorkflow
+  ] = await Promise.all(observatoryWorkflowSlugs.map((slug) => loadModuleWorkflowDefinition(slug)));
 
   const generator = workflowDefinitionCreateSchema.parse(observatoryMinuteDataGeneratorWorkflow);
   const ingest = workflowDefinitionCreateSchema.parse(observatoryMinuteIngestWorkflow);

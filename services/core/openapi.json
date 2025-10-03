@@ -36130,7 +36130,7 @@
         }
       }
     },
-    "/examples/core": {
+    "/modules/catalog": {
       "get": {
         "responses": {
           "200": {
