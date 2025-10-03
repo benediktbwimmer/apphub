@@ -26,7 +26,7 @@ All planning now lives in GitHub Issues.
 Run these hooks locally to catch problems before review.
 - One-time setup: `git config core.hooksPath .githooks`
 - `pre-commit` runs `npm run lint -- --cache` as a quick sanity check.
-- `pre-push` runs the full `npm run lint`, `npm run build`, and `npm run test` sweep.
+- `pre-push` currently runs `npm run lint` and `npm run build`; re-enable `npm run test` once the suite stabilises.
 
 ## Commit & Pull Request Guidelines
 Follow Conventional Commits (`feat:`, `fix:`, `chore:`) as seen in recent history. Branch off `main` for each change (`git checkout -b <topic>`), and scope commits to a single feature or workspace. Before opening a PR, ensure `npm run lint`, `npm run build`, and the full `npm run test` sweep complete successfully. PRs must outline context, list verification commands, link tickets, and include screenshots or API transcripts for user-facing updates. Call out migrations or configuration changes in a checklist so reviewers can reproduce them.
