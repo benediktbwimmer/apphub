@@ -1,0 +1,472 @@
+---
+import BaseLayout from '@layouts/BaseLayout.astro';
+import { CodeSnippet } from '@components/code';
+import {
+  EventFlowDiagram,
+  FilestoreStackDiagram,
+  ObservabilityDiagram,
+  TechnicalArchitectureDiagram,
+  TimestoreStackDiagram
+} from '@components/diagrams';
+
+const title = 'Technical overview | Osiris AppHub';
+const description = 'Dive into the architecture of the AppHub control plane: orchestrator, data plane, event bus, and module ergonomics.';
+
+const coreStack = [
+  {
+    heading: 'Core orchestrator',
+    detail:
+      'Fastify gateway with typed OpenAPI surface. Redis + BullMQ drive ingest, workflow, build, and materializer queues. Asset materialisation keeps data fresh automatically.'
+  },
+  {
+    heading: 'Timestore',
+    detail:
+      'DuckDB runtime generates Parquet partitions in object storage, exposes ANSI SQL, and uses predicate pushdown to keep IO costs low.'
+  },
+  {
+    heading: 'Filestore',
+    detail:
+      'Transactional filesystem API that journals mutations, tracks hashes, and reconciles drift across MinIO, S3, GCS, or local disks.'
+  },
+  {
+    heading: 'Metastore',
+    detail: 'PostgreSQL-backed document store with optimistic concurrency and JSON-path querying for module settings and topology.'
+  },
+  {
+    heading: 'Unified UI',
+    detail: 'Vite + React console streaming WebSocket events, rendering workflow graphs, SQL editor, and service health from the core.'
+  }
+];
+
+const eventHighlights = [
+  'BullMQ queues with Redis deliver sub-50ms event fan-out for workflow runs, asset updates, and service health frames.',
+  'Inline mode keeps local development simple, while HTTP proxies let sandboxed jobs publish events without bundling BullMQ.',
+  'Asset materialisation and explicit event triggers both kick off workflows—choose freshness-based or domain-driven execution patterns.'
+];
+
+const timestoreDetails = [
+  'Partitioned Parquet manifests sharded by day keep ingestion free of row-level contention.',
+  'DuckDB query plans exploit predicate pushdown and column pruning, so scanning months of data remains affordable.',
+  'Lifecycle workers manage compaction, retention, and exports. Metrics such as `timestore_ingest_job_duration_seconds` ship out of the box.',
+  'SQL editor in the UI reuses the same API surface exposed to modules; no parallel warehouse required.'
+];
+
+const filestoreDetails = [
+  'Journaled mutations guarantee metadata accuracy—size, checksums, lifecycles—across every node.',
+  'Watchers and reconciliation workers detect drift introduced outside the API and self-heal using BullMQ jobs.',
+  'Backends span local volumes, MinIO, S3, or GCS. Metadata stays central in Postgres while payloads live in object storage.',
+  'Event feeds push change notifications into modules and timestore so downstream consumers react instantly.'
+];
+
+const moduleErgonomics = [
+  'TypeScript SDK supplies capability shims for filestore, metastore, timestore, and the event bus. Authors focus on domain logic.',
+  'Targets (jobs, workflows, services) declare semantic versions and assets, enabling precise rollouts and auto-materialisation.',
+  'Services ship with registrations so module-defined UIs appear automatically in the AppHub console.'
+];
+
+const moduleSnippet = String.raw`import { defineModule, createJobHandler } from '@apphub/module-sdk';
+
+const ingest = createJobHandler({
+  name: 'observatory-minute-ingest',
+  produces: [{ assetId: 'observatory.timeseries.raw' }],
+  handler: async (ctx) => {
+    const files = await ctx.capabilities.filestore?.list({ prefix: ctx.parameters.prefix });
+    await ctx.capabilities.timestore?.ingestRecords({
+      dataset: 'observatory-minute',
+      records: files.map((file) => buildRow(file))
+    });
+    await ctx.capabilities.eventBus?.publish({
+      type: 'observatory.ingest.completed',
+      source: 'observatory.module',
+      payload: { minute: ctx.parameters.minute }
+    });
+  }
+});
+
+export default defineModule({
+  metadata: { name: 'environmental-observatory', version: '0.5.0' },
+  targets: [ingest]
+});`;
+
+const deployment = [
+  {
+    title: 'Single-node prototyping',
+    copy: 'Docker Compose or Minikube packages Redis, Postgres, object storage (MinIO), and the AppHub services for quick demos.'
+  },
+  {
+    title: 'Kubernetes-first',
+    copy: 'Helm manifests and workers scale horizontally. Object storage can be S3, GCS, or in-cluster MinIO; Redis and Postgres scale independently.'
+  },
+  {
+    title: 'Hybrid footprints',
+    copy: 'Run ingestion workers next to data sources while keeping the control plane in the cloud. Event bus routing and service registry keep everything in sync.'
+  }
+];
+
+const observability = [
+  'Prometheus metrics across services (queue depth, ingest latency, reconciliation backlog) with configurable scopes.',
+  'OpenTelemetry spans for timestore queries, ingestion, and workflow execution.',
+  'Admin APIs expose queue health, event explorers, dataset audit trails, and asset histories.'
+];
+---
+<BaseLayout title={title} description={description}>
+  <section class="page-hero">
+    <div class="container page-hero__inner">
+      <div>
+        <p class="page-hero__eyebrow">For engineering and platform teams</p>
+        <h1>The event-driven control plane behind AppHub modules.</h1>
+        <p class="page-hero__intro">
+          AppHub is open source. It pairs an opinionated orchestrator with a scalable data plane so modules can blend automation, telemetry, and operator experiences without reinventing the stack.
+        </p>
+        <div class="page-hero__actions">
+          <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Book an architecture review</a>
+          <a class="button button--secondary" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">View on GitHub</a>
+          <a class="button button--ghost" href="/module-sdk">Explore the Module SDK</a>
+        </div>
+        <div class="page-hero__notice">
+          <strong>Current status:</strong>
+          <span>
+            UI polish is ongoing and the control plane is still in early access. We expect production readiness within the next couple of weeks—contributors are welcome to help us reach the finish line.
+          </span>
+        </div>
+      </div>
+      <figure>
+        <div class="diagram">
+          <TechnicalArchitectureDiagram />
+        </div>
+        <figcaption>Core workers, data services, and UI share the same event bus and object storage fabric.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="stack" aria-labelledby="stack-heading">
+    <div class="container stack__inner">
+      <h2 id="stack-heading" class="section-heading">Stack components</h2>
+      <div class="stack__grid">
+        {coreStack.map((item) => (
+          <article>
+            <h3>{item.heading}</h3>
+            <p>{item.detail}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="events" aria-labelledby="events-heading">
+    <div class="container events__inner">
+      <figure>
+        <div class="diagram">
+          <EventFlowDiagram />
+        </div>
+      </figure>
+      <div>
+        <h2 id="events-heading" class="section-heading">Event bus & asset materialisation</h2>
+        <ul>
+          {eventHighlights.map((item) => (
+            <li>{item}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="timestore" aria-labelledby="timestore-heading">
+    <div class="container timestore__inner">
+      <div>
+        <h2 id="timestore-heading" class="section-heading">Timestore at scale</h2>
+        <ul>
+          {timestoreDetails.map((item) => (
+            <li>{item}</li>
+          ))}
+        </ul>
+      </div>
+      <figure>
+        <div class="diagram">
+          <TimestoreStackDiagram />
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="filestore" aria-labelledby="filestore-heading">
+    <div class="container filestore__inner">
+      <figure>
+        <div class="diagram">
+          <FilestoreStackDiagram />
+        </div>
+      </figure>
+      <div>
+        <h2 id="filestore-heading" class="section-heading">Filestore metadata engine</h2>
+        <ul>
+          {filestoreDetails.map((item) => (
+            <li>{item}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="modules" aria-labelledby="modules-heading">
+    <div class="container modules__inner">
+      <h2 id="modules-heading" class="section-heading">Module ergonomics</h2>
+      <div class="modules__grid">
+        {moduleErgonomics.map((item) => (
+          <article>
+            <h3>{item}</h3>
+          </article>
+        ))}
+      </div>
+      <CodeSnippet
+        code={moduleSnippet}
+        language="typescript"
+        highlightLines={[1, 5, 15]}
+        caption="Module definition using Filestore, Timestore, and Event bus capabilities"
+      />
+    </div>
+  </section>
+
+  <section class="deployment" aria-labelledby="deployment-heading">
+    <div class="container deployment__inner">
+      <h2 id="deployment-heading" class="section-heading">Deployment options</h2>
+      <div class="deployment__grid">
+        {deployment.map((item) => (
+          <article>
+            <h3>{item.title}</h3>
+            <p>{item.copy}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="observability" aria-labelledby="observability-heading">
+    <div class="container observability__inner">
+      <div>
+        <h2 id="observability-heading" class="section-heading">Observability & operations</h2>
+        <ul>
+          {observability.map((item) => (
+            <li>{item}</li>
+          ))}
+        </ul>
+      </div>
+      <figure>
+        <div class="diagram">
+          <ObservabilityDiagram />
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="cta" aria-labelledby="cta-heading">
+    <div class="container cta__inner">
+      <div>
+        <h2 id="cta-heading" class="section-heading">Need a deeper walkthrough?</h2>
+        <p>We’ll step through the queues, sharding strategies, and SDK internals with your engineering leads.</p>
+      </div>
+      <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Book a technical session</a>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .page-hero {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: linear-gradient(140deg, rgba(13, 148, 136, 0.2), rgba(34, 211, 238, 0.14));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .page-hero {
+      background: linear-gradient(140deg, rgba(20, 184, 166, 0.24), rgba(2, 19, 18, 0.88));
+    }
+  }
+
+  .page-hero__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .page-hero__eyebrow {
+    margin: 0;
+    font-size: var(--apphub-typography-font-size-xs);
+    letter-spacing: var(--apphub-typography-letter-spacing-wide);
+    text-transform: uppercase;
+    color: var(--apphub-color-text-soft);
+  }
+
+  .page-hero__intro {
+    margin: 0 0 var(--apphub-spacing-lg);
+    color: var(--apphub-color-text-muted);
+    max-width: 72ch;
+  }
+
+  .page-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  .page-hero__notice {
+    margin-top: var(--apphub-spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--apphub-spacing-xxs);
+    padding: var(--apphub-spacing-sm);
+    border: 1px solid var(--apphub-color-border);
+    border-radius: var(--apphub-radius-lg);
+    background: var(--apphub-color-surface-muted);
+    color: var(--apphub-color-text);
+    font-size: var(--apphub-typography-font-size-sm);
+  }
+
+  .page-hero figure {
+    margin: 0;
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+    text-align: center;
+  }
+
+  .page-hero .diagram svg {
+    width: 100%;
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    box-shadow: var(--apphub-shadow-soft);
+    background: var(--apphub-color-surface);
+  }
+
+  .page-hero figcaption {
+    font-size: var(--apphub-typography-font-size-xs);
+    color: var(--apphub-color-text-soft);
+  }
+
+  .stack,
+  .events,
+  .timestore,
+  .filestore,
+  .modules,
+  .deployment,
+  .observability,
+  .cta {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .stack__grid,
+  .deployment__grid {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .stack__grid article,
+  .deployment__grid article {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .events__inner,
+  .timestore__inner,
+  .filestore__inner,
+  .observability__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .events figure,
+  .timestore figure,
+  .filestore figure,
+  .observability figure {
+    margin: 0;
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+    text-align: center;
+  }
+
+  .events .diagram svg,
+  .timestore .diagram svg,
+  .filestore .diagram svg,
+  .observability .diagram svg {
+    width: 100%;
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    box-shadow: var(--apphub-shadow-soft);
+    background: var(--apphub-color-surface);
+  }
+
+  .events ul,
+  .timestore ul,
+  .filestore ul,
+  .observability ul {
+    margin: 0;
+    padding-left: var(--apphub-spacing-lg);
+    display: grid;
+    gap: var(--apphub-spacing-sm);
+    color: var(--apphub-color-text-muted);
+  }
+
+  .modules {
+    background: var(--apphub-color-surface-muted);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .modules {
+      background: rgba(2, 19, 18, 0.82);
+    }
+  }
+
+  .modules__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+  }
+
+  .modules__grid {
+    display: grid;
+    gap: var(--apphub-spacing-md);
+  }
+
+  .modules__grid article {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-lg);
+    padding: var(--apphub-spacing-md);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .cta {
+    background: linear-gradient(160deg, rgba(13, 148, 136, 0.2), rgba(15, 118, 110, 0.16));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .cta {
+      background: linear-gradient(160deg, rgba(20, 184, 166, 0.22), rgba(2, 19, 18, 0.88));
+    }
+  }
+
+  .cta__inner {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+    align-items: center;
+  }
+
+  .diagram {
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  @media (min-width: 768px) {
+    .page-hero__inner,
+    .events__inner,
+    .timestore__inner,
+    .filestore__inner,
+    .observability__inner {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .stack__grid,
+    .deployment__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+</style>

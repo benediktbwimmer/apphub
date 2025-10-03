@@ -1,0 +1,409 @@
+---
+import BaseLayout from '@layouts/BaseLayout.astro';
+import { CodeSnippet } from '@components/code';
+import { moduleSdkSnippets } from '@data/moduleSdkSnippets';
+
+const title = 'Module SDK cookbook';
+const description = 'Explore ready-to-run snippets for the AppHub Module SDK—jobs, capabilities, and event patterns.';
+
+const categoryOrder: Array<'module' | 'jobs' | 'services' | 'workflows' | 'assets' | 'capabilities'> = [
+  'module',
+  'jobs',
+  'services',
+  'workflows',
+  'assets',
+  'capabilities'
+];
+
+const categoryLabels: Record<string, string> = {
+  module: 'Module definitions',
+  jobs: 'Jobs & handlers',
+  services: 'Services & UIs',
+  assets: 'Assets & materialisation',
+  workflows: 'Workflows, triggers & schedules',
+  capabilities: 'Service capabilities'
+};
+
+const categoryDescriptions: Record<string, string> = {
+  module: 'Start with the module shell—metadata, settings, and the targets you want to expose.',
+  jobs: 'Implement job handlers that interact with the control plane and emit events.',
+  services: 'Serve dashboards or control panes with lifecycle hooks and rich registrations.',
+  assets: 'Return assets with freshness hints so downstream workflows auto-materialise.',
+  workflows: 'Compose jobs into workflows, react to events, and schedule recurring automation.',
+  capabilities: 'Reach out to filestore, metastore, timestore, and other services from module code.'
+};
+
+const sections = categoryOrder
+  .map((category) => ({
+    category,
+    label: categoryLabels[category] ?? category,
+    description: categoryDescriptions[category] ?? '',
+    snippets: moduleSdkSnippets.filter((snippet) => snippet.category === category)
+  }))
+  .filter((section) => section.snippets.length > 0);
+
+const allTags = Array.from(
+  new Set(moduleSdkSnippets.flatMap((snippet) => snippet.tags))
+).sort((a, b) => a.localeCompare(b));
+
+const totalSnippets = moduleSdkSnippets.length;
+---
+<BaseLayout title={title} description={description}>
+  <section class="page-hero">
+    <div class="container page-hero__inner">
+      <div>
+        <p class="page-hero__eyebrow">Module SDK</p>
+        <h1>Build modules faster with reusable snippets.</h1>
+        <p class="page-hero__intro">
+          Every snippet is grounded in production usage—copy, adapt, and compose them to speed up your module development. Contributions are
+          welcome on GitHub.
+        </p>
+        <div class="page-hero__actions">
+          <a class="button button--primary" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">Browse the SDK on GitHub</a>
+          <a class="button button--ghost" href="mailto:osirisapphub@gmail.com">Request a walkthrough</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="snippets" aria-labelledby="snippets-heading">
+    <div class="container snippets__inner">
+      <h2 id="snippets-heading" class="section-heading">Cookbook</h2>
+      <div class="snippet-filters" data-snippet-filters>
+        <div class="snippet-filters__search">
+          <label class="visually-hidden" for="snippet-filter-search">Search snippets</label>
+          <input
+            id="snippet-filter-search"
+            type="search"
+            placeholder="Search snippets by name, description, or tag"
+            autocomplete="off"
+            data-filter-search
+          />
+        </div>
+        <div class="snippet-filters__tags" role="group" aria-label="Filter by tag">
+          {allTags.map((tag) => (
+            <button type="button" class="snippet-tag" data-filter-tag data-tag={tag} aria-pressed="false">
+              {tag}
+            </button>
+          ))}
+        </div>
+        <div class="snippet-filters__row">
+          <button type="button" class="snippet-filters__clear" data-filter-clear>Clear filters</button>
+          <span class="snippet-filters__summary" data-filter-summary>{totalSnippets} snippets</span>
+        </div>
+      </div>
+      {sections.map((section) => (
+        <section class="snippet-group" id={section.category} data-snippet-group>
+          <header class="snippet-group__header">
+            <div>
+              <h3>{section.label}</h3>
+              {section.description ? <p>{section.description}</p> : null}
+            </div>
+            <span class="snippet-group__count">{section.snippets.length} snippet{section.snippets.length === 1 ? '' : 's'}</span>
+          </header>
+          <div class="snippet-group__grid">
+            {section.snippets.map((snippet) => {
+              const tags = snippet.tags.join('|');
+              const search = `${snippet.title} ${snippet.description} ${snippet.tags.join(' ')}`.toLowerCase();
+              return (
+                <article
+                  class="snippet-card"
+                  id={snippet.id}
+                  data-snippet
+                  data-category={section.category}
+                  data-tags={tags}
+                  data-search={search}
+                >
+                  <h4>{snippet.title}</h4>
+                  <p>{snippet.description}</p>
+                  <CodeSnippet
+                    code={snippet.code}
+                    language={snippet.language}
+                    highlightLines={snippet.highlightLines}
+                    caption={`Tags: ${snippet.tags.join(', ')}`}
+                  />
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  </section>
+</BaseLayout>
+
+<script type="module">
+  const filters = document.querySelector('[data-snippet-filters]');
+  if (filters) {
+    const searchInput = filters.querySelector('[data-filter-search]');
+    const tagButtons = Array.from(filters.querySelectorAll('[data-filter-tag]'));
+    const clearButton = filters.querySelector('[data-filter-clear]');
+    const summary = filters.querySelector('[data-filter-summary]');
+    const cards = Array.from(document.querySelectorAll('[data-snippet]'));
+    const groups = Array.from(document.querySelectorAll('[data-snippet-group]'));
+    const activeTags = new Set();
+
+    const updateSummary = (visible) => {
+      if (!summary) return;
+      if (visible === cards.length) {
+        summary.textContent = `${cards.length} snippets`;
+      } else {
+        summary.textContent = `${visible} of ${cards.length} snippets`;
+      }
+    };
+
+    const applyFilters = () => {
+      const query = (searchInput?.value ?? '').trim().toLowerCase();
+      let visibleCount = 0;
+
+      cards.forEach((card) => {
+        const tags = (card.dataset.tags ?? '').split('|').filter(Boolean);
+        const matchesTags = activeTags.size === 0 || Array.from(activeTags).every((tag) => tags.includes(tag));
+        const searchHaystack = card.dataset.search ?? '';
+        const matchesQuery = query.length === 0 || searchHaystack.includes(query);
+        const isVisible = matchesTags && matchesQuery;
+        card.style.display = isVisible ? '' : 'none';
+        if (isVisible) {
+          visibleCount += 1;
+        }
+      });
+
+      groups.forEach((group) => {
+        const groupCards = Array.from(group.querySelectorAll('[data-snippet]'));
+        const hasVisible = groupCards.some((card) => card instanceof HTMLElement && card.style.display !== 'none');
+        (group instanceof HTMLElement) && (group.style.display = hasVisible ? '' : 'none');
+      });
+
+      updateSummary(visibleCount);
+    };
+
+    tagButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const tag = button.getAttribute('data-tag');
+        if (!tag) return;
+        if (activeTags.has(tag)) {
+          activeTags.delete(tag);
+          button.classList.remove('is-active');
+          button.setAttribute('aria-pressed', 'false');
+        } else {
+          activeTags.add(tag);
+          button.classList.add('is-active');
+          button.setAttribute('aria-pressed', 'true');
+        }
+        applyFilters();
+      });
+    });
+
+    searchInput?.addEventListener('input', () => {
+      window.requestAnimationFrame(applyFilters);
+    });
+
+    clearButton?.addEventListener('click', () => {
+      activeTags.clear();
+      tagButtons.forEach((button) => {
+        button.classList.remove('is-active');
+        button.setAttribute('aria-pressed', 'false');
+      });
+      if (searchInput) {
+        searchInput.value = '';
+        searchInput.focus();
+      }
+      applyFilters();
+    });
+
+    applyFilters();
+  }
+</script>
+
+<style>
+  .page-hero {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: linear-gradient(140deg, rgba(13, 148, 136, 0.18), rgba(34, 211, 238, 0.12));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .page-hero {
+      background: linear-gradient(140deg, rgba(20, 184, 166, 0.24), rgba(2, 19, 18, 0.88));
+    }
+  }
+
+  .page-hero__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+  }
+
+  .page-hero__eyebrow {
+    margin: 0;
+    font-size: var(--apphub-typography-font-size-xs);
+    letter-spacing: var(--apphub-typography-letter-spacing-wide);
+    text-transform: uppercase;
+    color: var(--apphub-color-text-soft);
+  }
+
+  .page-hero__intro {
+    margin: 0 0 var(--apphub-spacing-lg);
+    color: var(--apphub-color-text-muted);
+    max-width: 70ch;
+  }
+
+  .page-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  .snippets {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .snippets__inner {
+    display: grid;
+    gap: var(--apphub-spacing-2xl);
+  }
+
+  .snippet-filters {
+    display: grid;
+    gap: var(--apphub-spacing-md);
+    background: var(--apphub-color-surface);
+    border: 1px solid var(--apphub-color-border);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    box-shadow: var(--apphub-shadow-soft);
+  }
+
+  .snippet-filters__search input {
+    width: 100%;
+    padding: var(--apphub-spacing-sm) var(--apphub-spacing-md);
+    border: 1px solid var(--apphub-color-border);
+    border-radius: var(--apphub-radius-lg);
+    background: var(--apphub-color-surface-muted);
+    color: var(--apphub-color-text);
+  }
+
+  .snippet-filters__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-xs);
+  }
+
+  .snippet-tag {
+    padding: var(--apphub-spacing-xxs) var(--apphub-spacing-sm);
+    border-radius: 999px;
+    border: 1px solid var(--apphub-color-border);
+    background: var(--apphub-color-surface-muted);
+    color: var(--apphub-color-text-soft);
+    font-size: var(--apphub-typography-font-size-sm);
+    cursor: pointer;
+    transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+  }
+
+  .snippet-tag:hover {
+    border-color: var(--apphub-color-border);
+    color: var(--apphub-color-text);
+  }
+
+  .snippet-tag.is-active {
+    background: rgba(20, 184, 166, 0.16);
+    border-color: rgba(13, 148, 136, 0.6);
+    color: var(--apphub-color-text);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .snippet-tag.is-active {
+      background: rgba(45, 212, 191, 0.24);
+      border-color: rgba(20, 184, 166, 0.6);
+    }
+  }
+
+  .snippet-filters__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  .snippet-filters__clear {
+    padding: var(--apphub-spacing-xxs) var(--apphub-spacing-sm);
+    border-radius: var(--apphub-radius-lg);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--apphub-color-text-soft);
+    font-size: var(--apphub-typography-font-size-sm);
+    cursor: pointer;
+    transition: color 160ms ease, border-color 160ms ease;
+  }
+
+  .snippet-filters__clear:hover {
+    color: var(--apphub-color-text);
+    border-color: var(--apphub-color-border);
+  }
+
+  .snippet-filters__summary {
+    font-size: var(--apphub-typography-font-size-sm);
+    color: var(--apphub-color-text-soft);
+  }
+
+  .snippet-group {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+  }
+
+  .snippet-group__header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--apphub-spacing-xxs);
+  }
+
+  @media (min-width: 768px) {
+    .snippet-group__header {
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+  }
+
+  .snippet-group__header h3 {
+    margin: 0;
+    font-size: var(--apphub-typography-font-size-xl);
+  }
+
+  .snippet-group__header p {
+    margin: 0;
+    color: var(--apphub-color-text-soft);
+  }
+
+  .snippet-group__count {
+    font-size: var(--apphub-typography-font-size-sm);
+    color: var(--apphub-color-text-soft);
+  }
+
+  .snippet-group__grid {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .snippet-card {
+    display: grid;
+    gap: var(--apphub-spacing-sm);
+    background: var(--apphub-color-surface);
+    padding: var(--apphub-spacing-lg);
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    box-shadow: var(--apphub-shadow-soft);
+  }
+
+  .snippet-card h4 {
+    margin: 0;
+    font-size: var(--apphub-typography-font-size-lg);
+  }
+
+  .snippet-card p {
+    margin: 0;
+    color: var(--apphub-color-text-muted);
+  }
+
+</style>
