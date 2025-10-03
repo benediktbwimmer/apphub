@@ -46,7 +46,6 @@ export const CodeSnippet = ({ code, language, highlightLines, caption }: CodeSni
                 className="code-snippet__code"
                 dangerouslySetInnerHTML={{ __html: segment.content }}
               />
-              {'\n'}
             </span>
           ))}
         </code>

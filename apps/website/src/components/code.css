@@ -17,8 +17,8 @@
 .code-snippet__pre code {
   display: block;
   font-family: 'Source Code Pro', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.78rem;
-  line-height: 1.18;
+  font-size: 0.8rem;
+  line-height: 1.1;
   color: #f0fffd;
   white-space: pre;
 }
