@@ -1383,6 +1383,15 @@ const migrations: Migration[] = [
       `ALTER TABLE workflow_run_steps
          ALTER COLUMN resolution_error SET DEFAULT FALSE;`
     ]
+  },
+  {
+    id: '049_services_source_column',
+    statements: [
+      `ALTER TABLE services
+         ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'external';`,
+      `ALTER TABLE services
+         ALTER COLUMN source DROP DEFAULT;`
+    ]
   }
 ];
 
