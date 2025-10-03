@@ -118,7 +118,7 @@ const config: UserConfig & { test: VitestUserConfig['test'] } = {
       { find: '@apphub/examples/types', replacement: examplesTypesPath },
       { find: '@apphub/examples', replacement: examplesBrowserEntryPath },
       { find: '@apphub/examples/', replacement: `${examplesSrcPath}/` },
-      { find: '@apphub/module-registry', replacement: moduleRegistrySrcPath },
+      { find: /^@apphub\/module-registry$/, replacement: resolve(moduleRegistrySrcPath, 'index.browser.ts') },
       { find: '@apphub/module-registry/', replacement: `${moduleRegistrySrcPath}/` }
     ]
   },

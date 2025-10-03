@@ -52,12 +52,6 @@ type CompareDialogState = {
   error: string | null;
 };
 
-type ReplayState = {
-  runId: string | null;
-  loading: boolean;
-  warnings: WorkflowRunStaleAssetWarning[];
-};
-
 const WORKFLOW_PAGE_SIZE = 20;
 const JOB_PAGE_SIZE = 25;
 
@@ -837,11 +831,9 @@ export default function RunsPage() {
     loading: false,
     error: null
   });
-  const [replayState, setReplayState] = useState<ReplayState>({
-    runId: null,
-    loading: false,
-    warnings: []
-  });
+  const [replayRunId, setReplayRunId] = useState<string | null>(null);
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [replayWarnings, setReplayWarnings] = useState<WorkflowRunStaleAssetWarning[]>([]);
 
   const workflowReloadTimer = useRef<number | null>(null);
   const jobReloadTimer = useRef<number | null>(null);
@@ -1307,16 +1299,20 @@ export default function RunsPage() {
   }, [workflowState.items, selectedWorkflowEntry]);
 
   useEffect(() => {
-    setReplayState((current) => {
-      if (!selectedWorkflowEntry || selectedWorkflowEntry.kind !== 'run') {
-        return current.runId ? { runId: null, loading: false, warnings: [] } : current;
+    if (!selectedWorkflowEntry || selectedWorkflowEntry.kind !== 'run') {
+      if (replayRunId !== null || replayLoading || replayWarnings.length > 0) {
+        setReplayRunId(null);
+        setReplayLoading(false);
+        setReplayWarnings([]);
       }
-      if (current.runId && current.runId !== selectedWorkflowEntry.run.id) {
-        return { runId: null, loading: false, warnings: [] };
-      }
-      return current;
-    });
-  }, [selectedWorkflowEntry]);
+      return;
+    }
+    if (replayRunId && replayRunId !== selectedWorkflowEntry.run.id) {
+      setReplayRunId(null);
+      setReplayLoading(false);
+      setReplayWarnings([]);
+    }
+  }, [selectedWorkflowEntry, replayRunId, replayLoading, replayWarnings.length]);
 
   useEffect(() => {
     if (!selectedJobEntry) {
@@ -1510,7 +1506,9 @@ export default function RunsPage() {
 
   const handleWorkflowReplay = useCallback(
     async (entry: WorkflowActivityRunEntry, options: { allowStaleAssets?: boolean } = {}) => {
-      setReplayState({ runId: entry.run.id, loading: true, warnings: [] });
+      setReplayRunId(entry.run.id);
+      setReplayLoading(true);
+      setReplayWarnings([]);
       try {
         await replayWorkflowRun(authorizedFetch, entry.run.id, {
           allowStaleAssets: options.allowStaleAssets ?? false
@@ -1520,11 +1518,15 @@ export default function RunsPage() {
           title: 'Replay enqueued',
           description: `Workflow ${entry.workflow.slug} run replay queued`
         });
-        setReplayState({ runId: null, loading: false, warnings: [] });
+        setReplayRunId(null);
+        setReplayLoading(false);
+        setReplayWarnings([]);
         await loadWorkflowRuns();
       } catch (err) {
         if (err instanceof WorkflowRunReplayBlockedError) {
-          setReplayState({ runId: entry.run.id, loading: false, warnings: err.staleAssets });
+          setReplayRunId(entry.run.id);
+          setReplayLoading(false);
+          setReplayWarnings(err.staleAssets);
           pushToast({
             tone: 'warning',
             title: 'Replay requires confirmation',
@@ -1538,7 +1540,9 @@ export default function RunsPage() {
           title: 'Replay failed',
           description: message
         });
-        setReplayState({ runId: null, loading: false, warnings: [] });
+        setReplayRunId(null);
+        setReplayLoading(false);
+        setReplayWarnings([]);
       }
     },
     [authorizedFetch, loadWorkflowRuns, pushToast]
@@ -1744,8 +1748,10 @@ export default function RunsPage() {
               navigate(`${ROUTE_PATHS.workflows}?${params.toString()}`);
             }}
             onReplay={handleWorkflowReplay}
-            replayState={replayState}
             onCompare={handleOpenCompareDialog}
+            replayRunId={replayRunId}
+            replayLoading={replayLoading}
+            replayWarnings={replayWarnings}
           />
         </div>
       ) : (
@@ -1812,8 +1818,10 @@ type WorkflowRunsTableProps = {
   onCloseDetail: () => void;
   onViewWorkflow: () => void;
   onReplay: (entry: WorkflowActivityRunEntry, options?: { allowStaleAssets?: boolean }) => void;
-  replayState: ReplayState;
   onCompare: (entry: WorkflowActivityRunEntry) => void;
+  replayRunId: string | null;
+  replayLoading: boolean;
+  replayWarnings: WorkflowRunStaleAssetWarning[];
 };
 
 type JobRunsTableProps = {
@@ -1842,8 +1850,10 @@ function WorkflowRunsTable({
   onCloseDetail,
   onViewWorkflow,
   onReplay,
-  replayState,
-  onCompare
+  onCompare,
+  replayRunId,
+  replayLoading,
+  replayWarnings
 }: WorkflowRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
@@ -1928,9 +1938,9 @@ function WorkflowRunsTable({
                   : null;
                 const isPending = runEntry ? pendingRunId === runEntry.run.id : false;
                 const replayIsLoading =
-                  runEntry && replayState.runId === runEntry.run.id ? replayState.loading : false;
+                  runEntry && replayRunId === runEntry.run.id ? replayLoading : false;
                 const replayWarningsForEntry =
-                  runEntry && replayState.runId === runEntry.run.id ? replayState.warnings : [];
+                  runEntry && replayRunId === runEntry.run.id ? replayWarnings : [];
                 const nextAttemptText = deliveryEntry
                   ? deliveryEntry.delivery.nextAttemptAt
                     ? `Next attempt ${formatDateTime(deliveryEntry.delivery.nextAttemptAt)}`
