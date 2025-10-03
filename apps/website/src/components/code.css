@@ -1,0 +1,76 @@
+.code-snippet {
+  margin: var(--apphub-spacing-sm) 0 0;
+  display: grid;
+  gap: var(--apphub-spacing-xxs);
+}
+
+.code-snippet__pre {
+  margin: 0;
+  background: linear-gradient(160deg, rgba(2, 16, 16, 0.96), rgba(0, 10, 10, 0.98));
+  border-radius: var(--apphub-radius-lg);
+  border: 1px solid rgba(45, 212, 191, 0.32);
+  box-shadow: 0 20px 36px rgba(8, 145, 178, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: auto;
+  padding: 0.6rem 1.1rem;
+}
+
+.code-snippet__pre code {
+  display: block;
+  font-family: 'Source Code Pro', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.16;
+  color: #f0fffd;
+  white-space: pre;
+}
+
+.code-snippet__line {
+  display: block;
+  padding: 0;
+}
+
+.code-snippet__line.is-highlighted {
+  background: transparent;
+}
+
+.code-snippet__code {
+  display: block;
+  color: inherit;
+}
+
+.code-snippet__caption {
+  font-size: var(--apphub-typography-font-size-xs);
+  color: var(--apphub-color-text-soft);
+}
+
+.code-snippet__pre code .token.comment,
+.code-snippet__pre code .token.prolog,
+.code-snippet__pre code .token.doctype,
+.code-snippet__pre code .token.cdata {
+  color: rgba(94, 234, 212, 0.6);
+  font-style: italic;
+}
+
+.code-snippet__pre code .token.operator,
+.code-snippet__pre code .token.boolean,
+.code-snippet__pre code .token.keyword,
+.code-snippet__pre code .token.tag {
+  color: #5fffe2;
+}
+
+.code-snippet__pre code .token.string,
+.code-snippet__pre code .token.attr-value {
+  color: #7df9ff;
+}
+
+.code-snippet__pre code .token.function,
+.code-snippet__pre code .token.property {
+  color: #4ffacf;
+}
+
+.code-snippet__pre code .token.number {
+  color: #ffe066;
+}
+
+.code-snippet__pre code .token.punctuation {
+  color: rgba(250, 255, 255, 0.65);
+}

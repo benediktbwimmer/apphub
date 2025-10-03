@@ -1,0 +1,410 @@
+---
+import { navLinks } from '@components/navigation/navLinks'
+import OsirisEye from '@components/branding/OsirisEye.astro'
+
+interface LayoutProps {
+  title: string
+  description?: string
+}
+
+const { title, description }: LayoutProps = Astro.props
+const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    {description ? <meta name="description" content={description} /> : null}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style is:global>
+      :root {
+        color-scheme: light dark;
+        --apphub-color-background: #f0fdfa;
+        --apphub-color-surface: rgba(255, 255, 255, 0.95);
+        --apphub-color-surface-muted: #ecfdf5;
+        --apphub-color-text: #022c22;
+        --apphub-color-text-muted: #115e59;
+        --apphub-color-text-soft: #0f766e;
+        --apphub-color-border: rgba(17, 94, 89, 0.24);
+        --apphub-color-accent: #0f766e;
+        --apphub-color-accent-strong: #14b8a6;
+        --apphub-radius-sm: 0.5rem;
+        --apphub-radius-lg: 0.75rem;
+        --apphub-radius-xl: 1rem;
+        --apphub-shadow-soft: 0 24px 48px rgba(13, 148, 136, 0.16);
+        --apphub-spacing-xxs: 0.25rem;
+        --apphub-spacing-xs: 0.5rem;
+        --apphub-spacing-sm: 0.75rem;
+        --apphub-spacing-md: 1rem;
+        --apphub-spacing-lg: 1.5rem;
+        --apphub-spacing-xl: 2.5rem;
+        --apphub-spacing-2xl: 3rem;
+        --apphub-spacing-3xl: 3.5rem;
+        --apphub-spacing-4xl: 4rem;
+        --apphub-spacing-5xl: 5rem;
+        --apphub-typography-font-size-xs: 0.75rem;
+        --apphub-typography-font-size-sm: 0.95rem;
+        --apphub-typography-font-size-lg: 1.15rem;
+        --apphub-typography-font-size-xl: 1.35rem;
+        --apphub-typography-font-weight-medium: 500;
+        --apphub-typography-font-weight-semibold: 600;
+        --apphub-typography-letter-spacing-wide: 0.12em;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --apphub-color-background: #011312;
+          --apphub-color-surface: rgba(2, 30, 28, 0.92);
+          --apphub-color-surface-muted: rgba(4, 47, 46, 0.68);
+          --apphub-color-text: #ecfeff;
+          --apphub-color-text-muted: #ccfbf1;
+          --apphub-color-text-soft: #67e8f9;
+          --apphub-color-border: rgba(94, 234, 212, 0.28);
+          --apphub-color-accent: #2dd4bf;
+          --apphub-color-accent-strong: #22d3ee;
+          --apphub-shadow-soft: 0 32px 56px rgba(14, 165, 233, 0.25);
+        }
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        line-height: 1.6;
+        background: var(--apphub-color-background);
+        color: var(--apphub-color-text);
+        min-height: 100vh;
+      }
+
+      main {
+        display: block;
+      }
+
+      a {
+        color: var(--apphub-color-accent);
+        text-decoration: none;
+      }
+
+      a:hover,
+      a:focus-visible {
+        color: var(--apphub-color-accent-strong);
+        text-decoration: underline;
+      }
+
+      .skip-link {
+        position: absolute;
+        left: -999px;
+        top: 0;
+        padding: var(--apphub-spacing-xs) var(--apphub-spacing-md);
+        background: var(--apphub-color-accent-strong);
+        color: #022c22;
+        font-weight: var(--apphub-typography-font-weight-semibold);
+        border-radius: var(--apphub-radius-sm);
+        z-index: 1000;
+        transition: transform 0.2s ease;
+      }
+
+      .skip-link:focus {
+        left: var(--apphub-spacing-sm);
+        transform: translateY(var(--apphub-spacing-sm));
+      }
+
+      .container {
+        width: min(1080px, 100% - var(--apphub-spacing-2xl));
+        margin: 0 auto;
+      }
+
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        backdrop-filter: blur(12px);
+        background: color-mix(in srgb, var(--apphub-color-surface) 92%, transparent);
+        border-bottom: 1px solid var(--apphub-color-border);
+      }
+
+      .site-header__inner {
+        display: grid;
+        gap: var(--apphub-spacing-md);
+        align-items: center;
+        padding: var(--apphub-spacing-sm) 0;
+      }
+
+      @media (min-width: 820px) {
+        .site-header__inner {
+          grid-template-columns: auto 1fr auto;
+        }
+      }
+
+      .site-header__brand {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--apphub-spacing-xs);
+        font-weight: 600;
+        font-size: 1.05rem;
+        color: var(--apphub-color-text);
+        text-decoration: none;
+      }
+
+      .site-header__brand:hover,
+      .site-header__brand:focus-visible {
+        color: var(--apphub-color-accent-strong);
+      }
+
+      .site-header__logo {
+        width: 1.9rem;
+        height: auto;
+      }
+
+      .site-header__wordmark {
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .site-nav {
+        overflow-x: auto;
+      }
+
+      .site-nav__list {
+        list-style: none;
+        display: flex;
+        gap: var(--apphub-spacing-sm);
+        margin: 0;
+        padding: 0;
+      }
+
+      .site-nav__link {
+        display: inline-flex;
+        align-items: center;
+        padding: var(--apphub-spacing-xs) var(--apphub-spacing-sm);
+        border-radius: var(--apphub-radius-sm);
+        border: 1px solid transparent;
+        color: var(--apphub-color-text);
+        background: transparent;
+        text-decoration: none;
+        font-weight: var(--apphub-typography-font-weight-semibold);
+      }
+
+      .site-nav__link:hover,
+      .site-nav__link:focus-visible {
+        border-color: var(--apphub-color-border);
+        background: var(--apphub-color-surface-muted);
+      }
+
+      .site-nav__link.is-active {
+        border-color: var(--apphub-color-accent-strong);
+        background: color-mix(in srgb, var(--apphub-color-accent-strong) 16%, transparent);
+      }
+
+      .site-nav__link span {
+        line-height: 1.15;
+      }
+
+      .site-header__cta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: calc(var(--apphub-spacing-xs) - 0.15rem) var(--apphub-spacing-md);
+        border-radius: var(--apphub-radius-sm);
+        border: 1px solid var(--apphub-color-border);
+        background: var(--apphub-color-surface);
+        color: var(--apphub-color-text);
+        font-weight: var(--apphub-typography-font-weight-semibold);
+      }
+
+      .site-header__cta:hover,
+      .site-header__cta:focus-visible {
+        border-color: var(--apphub-color-accent-strong);
+        color: var(--apphub-color-accent-strong);
+      }
+
+      main {
+        padding: var(--apphub-spacing-3xl) 0 var(--apphub-spacing-5xl);
+      }
+
+      .site-footer {
+        border-top: 1px solid var(--apphub-color-border);
+        background: color-mix(in srgb, var(--apphub-color-surface) 95%, transparent);
+      }
+
+      .site-footer__inner {
+        display: flex;
+        flex-direction: column;
+        gap: var(--apphub-spacing-md);
+        padding: var(--apphub-spacing-2xl) 0;
+      }
+
+      @media (min-width: 720px) {
+        .site-footer__inner {
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+        }
+      }
+
+      .site-footer__brand {
+        display: flex;
+        align-items: center;
+        gap: var(--apphub-spacing-sm);
+        margin: 0;
+      }
+
+      .site-footer__tagline {
+        margin: 0.25rem 0 0;
+        color: var(--apphub-color-text-soft);
+        font-size: var(--apphub-typography-font-size-xs);
+      }
+
+      .site-footer__logo {
+        width: 2.3rem;
+        height: auto;
+      }
+
+      .site-footer__wordmark {
+        margin: 0;
+        font-weight: 700;
+      }
+
+      .site-footer__links {
+        display: flex;
+        gap: var(--apphub-spacing-sm);
+        flex-wrap: wrap;
+      }
+
+      .button {
+        display: inline-flex;
+        gap: 0.45rem;
+        align-items: center;
+        justify-content: center;
+        padding: calc(var(--apphub-spacing-xs) - 0.1rem) var(--apphub-spacing-md);
+        border-radius: var(--apphub-radius-sm);
+        font-weight: var(--apphub-typography-font-weight-semibold);
+        border: 1px solid transparent;
+        transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+        text-decoration: none;
+      }
+
+      .button--primary {
+        background: var(--apphub-color-accent);
+        color: #f0fdfa;
+      }
+
+      .button--primary:hover,
+      .button--primary:focus-visible {
+        background: var(--apphub-color-accent-strong);
+        color: #022c22;
+      }
+
+      .button--secondary {
+        background: color-mix(in srgb, var(--apphub-color-accent-strong) 18%, transparent);
+        color: var(--apphub-color-accent);
+        border-color: var(--apphub-color-border);
+      }
+
+      .button--secondary:hover,
+      .button--secondary:focus-visible {
+        border-color: var(--apphub-color-accent-strong);
+        color: var(--apphub-color-accent-strong);
+      }
+
+      .button--ghost {
+        background: transparent;
+        border-color: var(--apphub-color-border);
+        color: var(--apphub-color-text);
+      }
+
+      .button--ghost:hover,
+      .button--ghost:focus-visible {
+        color: var(--apphub-color-accent-strong);
+        border-color: var(--apphub-color-accent-strong);
+      }
+
+      .section-heading {
+        font-size: calc(var(--apphub-typography-font-size-lg) * 1.18);
+        margin: 0;
+      }
+
+      .diagram svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header class="site-header">
+      <div class="container site-header__inner">
+        <a class="site-header__brand" href="/">
+          <OsirisEye class="site-header__logo" aria-hidden="true" title="" />
+          <span class="site-header__wordmark">Osiris AppHub</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <ul class="site-nav__list">
+            {navLinks.map((link) => {
+              const normalized = link.href.replace(/\/$/, '') || '/'
+              const isActive = pathname === normalized
+              return (
+                <li>
+                  <a
+                    class={`site-nav__link${isActive ? ' is-active' : ''}`}
+                    href={link.href}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
+                    <span>{link.label}</span>
+                  </a>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
+        <a class="site-header__cta" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">
+          GitHub
+        </a>
+      </div>
+    </header>
+    <main id="main-content">
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <div class="container site-footer__inner">
+        <div class="site-footer__brand">
+          <OsirisEye class="site-footer__logo" aria-hidden="true" title="" />
+          <div>
+            <p class="site-footer__wordmark">Osiris AppHub</p>
+            <p class="site-footer__tagline">Modules for modern operations teams.</p>
+          </div>
+        </div>
+        <div class="site-footer__links">
+          <a href="mailto:osirisapphub@gmail.com">Contact</a>
+          <a href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="/module-sdk">Module SDK</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
