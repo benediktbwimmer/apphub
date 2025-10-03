@@ -116,23 +116,27 @@ function ThemeIdProbe() {
 
 describe('Semantic theming primitives', () => {
   it('applies semantic classes to the active nav item across themes', async () => {
+    const eventsNavItem = PRIMARY_NAV_ITEMS.find((item) => item.key === 'events');
+    const initialPath = eventsNavItem?.path ?? PRIMARY_NAV_ITEMS[0]?.path ?? '/';
+    const navLabel = eventsNavItem?.label ?? PRIMARY_NAV_ITEMS[0]?.label ?? 'Events';
+
     const { unmount } = renderWithTheme(
-      <MemoryRouter initialEntries={[PRIMARY_NAV_ITEMS[2]?.path ?? '/events']}>
+      <MemoryRouter initialEntries={[initialPath]}>
         <Navbar />
       </MemoryRouter>
     );
-    const activeLinkLight = await screen.findByRole('link', { name: /events/i });
+    const activeLinkLight = await screen.findByRole('link', { name: navLabel });
     expect(activeLinkLight.className).toContain('bg-accent');
     expect(activeLinkLight.className).toContain('text-on-accent');
     unmount();
 
     renderWithTheme(
-      <MemoryRouter initialEntries={[PRIMARY_NAV_ITEMS[2]?.path ?? '/events']}>
+      <MemoryRouter initialEntries={[initialPath]}>
         <Navbar />
       </MemoryRouter>
     );
 
-    const activeLinkContrast = await screen.findByRole('link', { name: /events/i });
+    const activeLinkContrast = await screen.findByRole('link', { name: navLabel });
     expect(activeLinkContrast.className).toContain('bg-accent');
     expect(activeLinkContrast.className).toContain('text-on-accent');
   });
