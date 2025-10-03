@@ -8,28 +8,28 @@
   margin: 0;
   background: linear-gradient(160deg, rgba(2, 16, 16, 0.96), rgba(0, 10, 10, 0.98));
   border-radius: var(--apphub-radius-lg);
-  border: 1px solid rgba(45, 212, 191, 0.38);
-  box-shadow: 0 24px 40px rgba(8, 145, 178, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(45, 212, 191, 0.32);
+  box-shadow: 0 20px 36px rgba(8, 145, 178, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   overflow: auto;
-  padding: var(--apphub-spacing-xs) var(--apphub-spacing-md);
+  padding: 0.6rem 1.1rem;
 }
 
 .code-snippet__pre code {
   display: block;
   font-family: 'Source Code Pro', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.84rem;
-  line-height: 1.28;
+  font-size: 0.78rem;
+  line-height: 1.18;
   color: #f0fffd;
   white-space: pre;
 }
 
 .code-snippet__line {
   display: block;
-  padding: 0.02rem 0;
+  padding: 0;
 }
 
 .code-snippet__line.is-highlighted {
-  background: rgba(34, 211, 238, 0.16);
+  background: transparent;
 }
 
 .code-snippet__code {
