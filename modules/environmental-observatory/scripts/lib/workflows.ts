@@ -3,8 +3,10 @@ import path from 'node:path';
 import { fetch } from 'undici';
 import {
   applyObservatoryWorkflowDefaults,
+  resolveWorkflowProvisioningPlan,
   type EventDrivenObservatoryConfig,
-  type WorkflowDefinitionTemplate
+  type WorkflowDefinitionTemplate,
+  type WorkflowProvisioningSchedule
 } from '@apphub/module-registry';
 
 export type SyncLogger = {
@@ -33,6 +35,215 @@ type TriggerDefinition = {
   idempotencyKeyExpression?: string;
   runKeyTemplate?: string;
 };
+
+type WorkflowScheduleListEntry = {
+  schedule: {
+    id: string;
+    name: string | null;
+    description: string | null;
+    cron: string;
+    timezone: string | null;
+    startWindow: string | null;
+    endWindow: string | null;
+    catchUp?: boolean | null;
+    isActive?: boolean | null;
+    parameters?: Record<string, unknown> | null;
+  };
+  workflow: {
+    slug: string;
+  };
+};
+
+type NormalizedScheduleSignature = {
+  name: string | null;
+  description: string | null;
+  cron: string;
+  timezone: string | null;
+  startWindow: string | null;
+  endWindow: string | null;
+  catchUp: boolean;
+  isActive: boolean;
+  parametersKey: string;
+};
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, val) => {
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const entries = Object.entries(val as Record<string, unknown>)
+        .filter((entry) => entry[1] !== undefined)
+        .sort(([a], [b]) => a.localeCompare(b));
+      return entries.reduce<Record<string, unknown>>((acc, [key, entryValue]) => {
+        acc[key] = entryValue;
+        return acc;
+      }, {});
+    }
+    if (Array.isArray(val)) {
+      return val.map((item) => (item === undefined ? null : item));
+    }
+    return val;
+  });
+}
+
+function normalizeScheduleTemplate(schedule: WorkflowProvisioningSchedule): NormalizedScheduleSignature {
+  return {
+    name: schedule.name ?? null,
+    description: schedule.description ?? null,
+    cron: schedule.cron.trim(),
+    timezone: schedule.timezone ?? null,
+    startWindow: schedule.startWindow ?? null,
+    endWindow: schedule.endWindow ?? null,
+    catchUp: schedule.catchUp ?? false,
+    isActive: schedule.isActive ?? true,
+    parametersKey: stableStringify(schedule.parameters ?? null)
+  };
+}
+
+function normalizeExistingSchedule(schedule: WorkflowScheduleListEntry['schedule']): NormalizedScheduleSignature {
+  return {
+    name: schedule.name ?? null,
+    description: schedule.description ?? null,
+    cron: schedule.cron.trim(),
+    timezone: schedule.timezone ?? null,
+    startWindow: schedule.startWindow ?? null,
+    endWindow: schedule.endWindow ?? null,
+    catchUp: schedule.catchUp ?? false,
+    isActive: schedule.isActive ?? true,
+    parametersKey: stableStringify(schedule.parameters ?? null)
+  };
+}
+
+function schedulesEquivalent(left: NormalizedScheduleSignature, right: NormalizedScheduleSignature): boolean {
+  return (
+    left.name === right.name &&
+    left.description === right.description &&
+    left.cron === right.cron &&
+    left.timezone === right.timezone &&
+    left.startWindow === right.startWindow &&
+    left.endWindow === right.endWindow &&
+    left.catchUp === right.catchUp &&
+    left.isActive === right.isActive &&
+    left.parametersKey === right.parametersKey
+  );
+}
+
+async function fetchWorkflowSchedules(
+  baseUrl: string,
+  token: string
+): Promise<WorkflowScheduleListEntry[]> {
+  const response = await request<{ data: WorkflowScheduleListEntry[] }>(
+    baseUrl,
+    token,
+    'GET',
+    '/workflow-schedules'
+  );
+  return Array.isArray(response.data) ? response.data : [];
+}
+
+async function ensureWorkflowSchedules(
+  baseUrl: string,
+  token: string,
+  slug: string,
+  definition: WorkflowDefinitionTemplate,
+  logger: SyncLogger
+): Promise<void> {
+  const plan = resolveWorkflowProvisioningPlan(definition);
+  if (plan.schedules.length === 0) {
+    return;
+  }
+
+  const schedules = await fetchWorkflowSchedules(baseUrl, token);
+  const scopedSchedules = schedules
+    .filter((entry) => entry.workflow?.slug === slug)
+    .map((entry) => ({ entry, signature: normalizeExistingSchedule(entry.schedule) }));
+
+  for (const scheduleTemplate of plan.schedules) {
+    const desiredSignature = normalizeScheduleTemplate(scheduleTemplate);
+    const matchIndex = desiredSignature.name
+      ? scopedSchedules.findIndex((candidate) => candidate.signature.name === desiredSignature.name)
+      : scopedSchedules.findIndex((candidate) =>
+          !candidate.signature.name && candidate.signature.cron === desiredSignature.cron
+        );
+    const match = matchIndex >= 0 ? scopedSchedules.splice(matchIndex, 1)[0] : undefined;
+
+    if (!match) {
+      const payload: Record<string, unknown> = { cron: scheduleTemplate.cron };
+      if (scheduleTemplate.name) {
+        payload.name = scheduleTemplate.name;
+      }
+      if (scheduleTemplate.description) {
+        payload.description = scheduleTemplate.description;
+      }
+      if (scheduleTemplate.timezone !== undefined && scheduleTemplate.timezone !== null) {
+        payload.timezone = scheduleTemplate.timezone;
+      }
+      if (scheduleTemplate.startWindow !== undefined && scheduleTemplate.startWindow !== null) {
+        payload.startWindow = scheduleTemplate.startWindow;
+      }
+      if (scheduleTemplate.endWindow !== undefined && scheduleTemplate.endWindow !== null) {
+        payload.endWindow = scheduleTemplate.endWindow;
+      }
+      if (scheduleTemplate.catchUp !== undefined) {
+        payload.catchUp = scheduleTemplate.catchUp;
+      }
+      if (scheduleTemplate.isActive !== undefined) {
+        payload.isActive = scheduleTemplate.isActive;
+      }
+      if (scheduleTemplate.parameters && Object.keys(scheduleTemplate.parameters).length > 0) {
+        payload.parameters = scheduleTemplate.parameters;
+      }
+      await request(baseUrl, token, 'POST', `/workflows/${slug}/schedules`, payload);
+      logger.info?.('Created workflow schedule', {
+        workflow: slug,
+        schedule: scheduleTemplate.name ?? scheduleTemplate.cron
+      });
+      continue;
+    }
+
+    if (schedulesEquivalent(desiredSignature, match.signature)) {
+      continue;
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (desiredSignature.name !== match.signature.name) {
+      updates.name = desiredSignature.name;
+    }
+    if (desiredSignature.description !== match.signature.description) {
+      updates.description = desiredSignature.description;
+    }
+    if (desiredSignature.cron !== match.signature.cron) {
+      updates.cron = desiredSignature.cron;
+    }
+    if (desiredSignature.timezone !== match.signature.timezone) {
+      updates.timezone = desiredSignature.timezone;
+    }
+    if (desiredSignature.startWindow !== match.signature.startWindow) {
+      updates.startWindow = desiredSignature.startWindow;
+    }
+    if (desiredSignature.endWindow !== match.signature.endWindow) {
+      updates.endWindow = desiredSignature.endWindow;
+    }
+    if (desiredSignature.catchUp !== match.signature.catchUp) {
+      updates.catchUp = desiredSignature.catchUp;
+    }
+    if (desiredSignature.isActive !== match.signature.isActive) {
+      updates.isActive = desiredSignature.isActive;
+    }
+    if (desiredSignature.parametersKey !== match.signature.parametersKey) {
+      updates.parameters = scheduleTemplate.parameters ?? null;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      continue;
+    }
+
+    await request(baseUrl, token, 'PATCH', `/workflow-schedules/${match.entry.schedule.id}`, updates);
+    logger.info?.('Updated workflow schedule', {
+      workflow: slug,
+      schedule: scheduleTemplate.name ?? scheduleTemplate.cron
+    });
+  }
+}
+
 
 type RequestMethod = 'GET' | 'POST' | 'PATCH';
 
@@ -121,6 +332,7 @@ export async function ensureWorkflow(
   if (!existing) {
     await request(baseUrl, token, 'POST', '/workflows', definition);
     logger.info?.('Created workflow', { slug });
+    await ensureWorkflowSchedules(baseUrl, token, slug, definition, logger);
     return;
   }
 
@@ -129,6 +341,7 @@ export async function ensureWorkflow(
     metadata: definition.metadata ?? null
   });
   logger.info?.('Updated workflow defaults', { slug });
+  await ensureWorkflowSchedules(baseUrl, token, slug, definition, logger);
 }
 
 type TriggerRecord = {
@@ -344,9 +557,8 @@ function buildTriggerDefinitions(config: EventDrivenObservatoryConfig): TriggerD
 
 function resolveWorkflowSlugs(config: EventDrivenObservatoryConfig): Set<string> {
   const slugs = new Set<string>();
-  if (config.workflows.generatorSlug) {
-    slugs.add(config.workflows.generatorSlug);
-  }
+  const generatorSlug = config.workflows.generatorSlug?.trim();
+  slugs.add(generatorSlug && generatorSlug.length > 0 ? generatorSlug : 'observatory-minute-data-generator');
   slugs.add(config.workflows.ingestSlug);
   slugs.add(config.workflows.publicationSlug);
   if (config.workflows.aggregateSlug) {

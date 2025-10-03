@@ -17,6 +17,9 @@
   ],
   "references": [
     {
+      "path": "../module-registry"
+    },
+    {
       "path": "../examples"
     }
   ]

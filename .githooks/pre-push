@@ -12,4 +12,5 @@ npm run lint
 echo 'pre-push: running npm run build'
 npm run build
 
-echo 'pre-push: skipping npm run test (temporarily disabled)'
+echo 'pre-push: running npm run test'
+npm run test

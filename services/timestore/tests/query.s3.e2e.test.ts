@@ -4,6 +4,7 @@ import './testEnv';
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import './utils/patchGeneratorFunction';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';

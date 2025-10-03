@@ -198,6 +198,127 @@ export type DeployObservatoryResult = {
   coreToken: string;
 };
 
+
+type ServiceListEntry = {
+  slug: string;
+  baseUrl?: string | null;
+  metadata?: {
+    manifest?: {
+      healthEndpoint?: string | null;
+    } | null;
+    runtime?: {
+      baseUrl?: string | null;
+      previewUrl?: string | null;
+    } | null;
+  } | null;
+};
+
+type ServiceListResponse = {
+  data: ServiceListEntry[];
+};
+
+function stripTrailingSlash(value: string | null | undefined): string {
+  if (!value) {
+    return '';
+  }
+  return value.replace(/\/+$/, '');
+}
+
+function resolvePublicFrontendBase(): string {
+  const explicit = process.env.APPHUB_FRONTEND_PUBLIC_URL?.trim();
+  if (explicit && explicit.length > 0) {
+    return explicit.replace(/\/+$/, '');
+  }
+  const port = process.env.APPHUB_FRONTEND_PORT ?? '4173';
+  return `http://localhost:${port}`;
+}
+
+function pruneUndefined<T extends Record<string, unknown>>(value: T): T {
+  const entries = Object.entries(value).filter(([, entryValue]) => entryValue !== undefined);
+  return Object.fromEntries(entries) as T;
+}
+
+async function ensureObservatoryServices(
+  baseUrl: string,
+  token: string,
+  logger?: SyncLogger
+): Promise<void> {
+  const response = await coreRequest<ServiceListResponse>(baseUrl, token, 'GET', '/services');
+  const services = Array.isArray(response.data) ? response.data : [];
+
+  const internalFrontendBase = 'http://frontend';
+  const normalizedInternal = stripTrailingSlash(internalFrontendBase);
+  const publicFrontendBase = resolvePublicFrontendBase().replace(/\/+$/, '');
+
+  const adjustments = [
+    { slug: 'observatory-dashboard', previewPath: '/observatory/dashboard' },
+    { slug: 'observatory-admin', previewPath: '/observatory/admin' }
+  ] as const;
+
+  for (const adjustment of adjustments) {
+    const service = services.find((entry) => entry.slug === adjustment.slug);
+    if (!service) {
+      continue;
+    }
+
+    const patch: Record<string, unknown> = {};
+    const metadataUpdate: Record<string, unknown> = { resourceType: 'service' };
+    let metadataChanged = false;
+
+    if (stripTrailingSlash(service.baseUrl ?? '') !== normalizedInternal) {
+      patch.baseUrl = internalFrontendBase;
+    }
+
+    const existingManifest = service.metadata?.manifest ?? null;
+    const currentHealthEndpoint = typeof existingManifest?.healthEndpoint === 'string'
+      ? existingManifest.healthEndpoint
+      : null;
+    if (currentHealthEndpoint !== '/') {
+      const manifestUpdate = pruneUndefined({ ...(existingManifest ?? {}), healthEndpoint: '/' });
+      metadataUpdate.manifest = manifestUpdate;
+      metadataChanged = true;
+    }
+
+    const existingRuntime = service.metadata?.runtime ?? null;
+    const currentRuntimeBase = typeof existingRuntime?.baseUrl === 'string'
+      ? existingRuntime.baseUrl
+      : null;
+    const currentPreviewUrl = typeof existingRuntime?.previewUrl === 'string'
+      ? existingRuntime.previewUrl
+      : null;
+    const desiredPreviewUrl = `${publicFrontendBase}${adjustment.previewPath}`;
+    const needsRuntimeBaseUpdate = stripTrailingSlash(currentRuntimeBase ?? '') !== normalizedInternal;
+    const needsPreviewUpdate = currentPreviewUrl !== desiredPreviewUrl;
+
+    if (needsRuntimeBaseUpdate || needsPreviewUpdate) {
+      const runtimeUpdate = pruneUndefined({
+        ...(existingRuntime ?? {}),
+        baseUrl: internalFrontendBase,
+        previewUrl: desiredPreviewUrl
+      });
+      metadataUpdate.runtime = runtimeUpdate;
+      metadataChanged = true;
+    }
+
+    if (metadataChanged) {
+      patch.metadata = metadataUpdate;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      continue;
+    }
+
+
+    await coreRequest(baseUrl, token, 'PATCH', `/services/${adjustment.slug}`, patch);
+    const updatedPreviewUrl = needsRuntimeBaseUpdate || needsPreviewUpdate ? desiredPreviewUrl : currentPreviewUrl;
+    logger?.info?.('Updated observatory service registration', {
+      service: adjustment.slug,
+      baseUrl: patch.baseUrl ?? service.baseUrl,
+      previewUrl: updatedPreviewUrl
+    });
+  }
+}
+
 export async function deployEnvironmentalObservatoryModule(
   options: DeployObservatoryOptions = {}
 ): Promise<DeployObservatoryResult> {
@@ -221,6 +342,7 @@ export async function deployEnvironmentalObservatoryModule(
     logger: options.logger,
     omitGeneratorSchedule: options.skipGeneratorSchedule
   });
+  await ensureObservatoryServices(coreBaseUrl, coreToken, options.logger);
 
   return {
     config,

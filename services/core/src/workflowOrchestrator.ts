@@ -47,6 +47,8 @@ import { logger } from './observability/logger';
 import { handleWorkflowFailureAlert } from './observability/alerts';
 import { buildWorkflowDagMetadata } from './workflows/dag';
 import { createStepExecutor } from './workflow/executors';
+import { ensureAssetRecoveryRequest } from './workflow/recovery/manager';
+import { getAssetRecoveryRequestById } from './db/assetRecovery';
 import { computeExponentialBackoff } from '@apphub/shared/retries/backoff';
 import { resolveRetryBackoffConfig } from '@apphub/shared/retries/config';
 import { getRuntimeScalingEffectiveConcurrency } from './runtimeScaling/state';
@@ -564,7 +566,9 @@ const executeWorkflowStep = createStepExecutor({
       signal: request.signal
     });
     return response;
-  }
+  },
+  ensureWorkflowAssetRecovery: ensureAssetRecoveryRequest,
+  getAssetRecoveryRequestById
 });
 
 function isJsonObject(value: JsonValue | null | undefined): value is Record<string, JsonValue> {

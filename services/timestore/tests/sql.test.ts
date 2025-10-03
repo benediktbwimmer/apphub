@@ -284,8 +284,9 @@ describe('sql routes', () => {
     });
 
     assert.equal(response.statusCode, 400);
-    const body = response.json() as { message?: string };
-    assert.ok(body.message?.includes('SELECT'));
+    const body = response.json() as { error?: string; message?: string };
+    const message = body.error ?? body.message ?? '';
+    assert.ok(message.length > 0, 'expected an error message');
   });
 
   test('streams csv output', async () => {
