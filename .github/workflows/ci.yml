@@ -58,4 +58,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run tests
-        run: npm run test
+        run: npm run build && npm run test
+        shell: bash
