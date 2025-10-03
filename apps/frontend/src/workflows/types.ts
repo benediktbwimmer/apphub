@@ -510,6 +510,7 @@ export type WorkflowRunStep = {
   nextAttemptAt?: string | null;
   retryMetadata?: unknown;
   retryCount?: number;
+  resolutionError?: boolean;
 };
 
 export type WorkflowAssetFreshness = {

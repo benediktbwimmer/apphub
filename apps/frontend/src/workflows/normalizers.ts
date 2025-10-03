@@ -1451,7 +1451,13 @@ export function normalizeWorkflowRunStep(payload: unknown): WorkflowRunStep | nu
           ? null
           : undefined,
     retryMetadata: 'retryMetadata' in raw ? raw.retryMetadata : undefined,
-    retryCount: typeof raw.retryCount === 'number' ? raw.retryCount : undefined
+    retryCount: typeof raw.retryCount === 'number' ? raw.retryCount : undefined,
+    resolutionError:
+      typeof raw.resolutionError === 'boolean'
+        ? raw.resolutionError
+        : raw.resolutionError === null
+          ? false
+          : undefined
   };
 }
 

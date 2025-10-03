@@ -120,3 +120,7 @@ The retry durability work ships in stages. This ticket introduces the shared per
 - Retry backoff timings are configurable via `EVENT_TRIGGER_RETRY_BASE_MS`, `EVENT_TRIGGER_RETRY_FACTOR`, `EVENT_TRIGGER_RETRY_MAX_MS`, and `EVENT_TRIGGER_RETRY_JITTER_RATIO` for trigger deliveries (plus analogous `EVENT_RETRY_*` variables for source retries).
 
 Apply the accompanying migration before enabling any runtime changes. Future tickets will wire these columns into the scheduler, workflow orchestrator, and UI workflows.
+
+### Parameter Resolution Failures
+
+Downstream steps now distinguish between handler errors and missing inputs. When template expansion cannot resolve a required value, the orchestrator flags the step attempt with `resolution_error = true` and skips handler execution. API responses expose the flag on `workflow_run_steps`, and the frontend renders those attempts as "Awaiting input" with guidance that upstream data is still pending. This keeps engineers focused on the real source of the failure—fixing the producer step—instead of chasing phantom handler bugs.

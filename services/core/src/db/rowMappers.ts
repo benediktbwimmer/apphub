@@ -2192,6 +2192,7 @@ export function mapWorkflowRunStepRow(
     retryState: (row.retry_state ?? 'pending') as WorkflowRunStepRecord['retryState'],
     retryAttempts: row.retry_attempts ?? 0,
     retryMetadata: parseJsonColumn(row.retry_metadata),
+    resolutionError: row.resolution_error ?? false,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowRunStepRecord;

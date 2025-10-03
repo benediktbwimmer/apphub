@@ -3589,6 +3589,7 @@ export async function createWorkflowRunStep(
          last_heartbeat_at,
          retry_count,
          failure_reason,
+         resolution_error,
          created_at,
          updated_at
        ) VALUES (
@@ -3612,6 +3613,7 @@ export async function createWorkflowRunStep(
         $18,
         $19,
         $20,
+        $21,
         NOW(),
         NOW()
       )
@@ -3636,7 +3638,8 @@ export async function createWorkflowRunStep(
         input.templateStepId ?? null,
         lastHeartbeatAt,
         retryCount,
-        failureReason
+        failureReason,
+        input.resolutionError ?? false
       ]
     );
     if (rows.length === 0) {
@@ -3967,6 +3970,9 @@ export async function updateWorkflowRunStep(
       updates.retryMetadata !== undefined
         ? serializeJson(updates.retryMetadata)
         : reuseJsonColumn(existing.retry_metadata);
+    const nextResolutionError = Object.prototype.hasOwnProperty.call(updates, 'resolutionError')
+      ? Boolean(updates.resolutionError)
+      : Boolean(existing.resolution_error);
 
     const { rows: updatedRows } = await client.query<WorkflowRunStepRow>(
       `UPDATE workflow_run_steps
@@ -3991,6 +3997,7 @@ export async function updateWorkflowRunStep(
            retry_state = $20,
            retry_attempts = $21,
            retry_metadata = $22::jsonb,
+           resolution_error = $23,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -4016,7 +4023,8 @@ export async function updateWorkflowRunStep(
         nextNextAttemptAt,
         nextRetryState,
         nextRetryAttempts,
-        nextRetryMetadata
+        nextRetryMetadata,
+        nextResolutionError
       ]
     );
     if (updatedRows.length === 0) {

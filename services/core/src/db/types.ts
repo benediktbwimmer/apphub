@@ -1571,6 +1571,7 @@ export type WorkflowRunStepRecord = {
   retryState: RetryState;
   retryAttempts: number;
   retryMetadata: JsonValue | null;
+  resolutionError: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -1598,6 +1599,7 @@ export type WorkflowRunStepCreateInput = {
   retryState?: RetryState;
   retryAttempts?: number;
   retryMetadata?: JsonValue | null;
+  resolutionError?: boolean;
 };
 
 export type WorkflowRunStepUpdateInput = {
@@ -1622,6 +1624,7 @@ export type WorkflowRunStepUpdateInput = {
   retryState?: RetryState;
   retryAttempts?: number;
   retryMetadata?: JsonValue | null;
+  resolutionError?: boolean;
 };
 
 export type WorkflowExecutionHistoryRecord = {

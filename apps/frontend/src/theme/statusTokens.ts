@@ -20,6 +20,8 @@ const STATUS_MAP: Record<string, StatusToneConfig> = {
   stopping: { tone: 'warning' },
   paused: { tone: 'warning' },
   degraded: { tone: 'warning' },
+  'awaiting input': { tone: 'warning' },
+  'awaiting inputs': { tone: 'warning' },
   unreachable: { tone: 'danger' },
   canceled: { tone: 'warning' },
   cancelled: { tone: 'warning' },

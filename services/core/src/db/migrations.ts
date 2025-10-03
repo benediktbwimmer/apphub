@@ -303,6 +303,7 @@ const migrations: Migration[] = [
          context JSONB,
          started_at TIMESTAMPTZ,
          completed_at TIMESTAMPTZ,
+         resolution_error BOOLEAN NOT NULL DEFAULT FALSE,
          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
        );`,
@@ -1372,6 +1373,15 @@ const migrations: Migration[] = [
        );`,
       `CREATE INDEX IF NOT EXISTS idx_module_target_configs_module
          ON module_target_configs(module_id, module_version);`
+    ]
+  },
+  {
+    id: '048_workflow_step_resolution_error',
+    statements: [
+      `ALTER TABLE workflow_run_steps
+         ADD COLUMN IF NOT EXISTS resolution_error BOOLEAN NOT NULL DEFAULT FALSE;`,
+      `ALTER TABLE workflow_run_steps
+         ALTER COLUMN resolution_error SET DEFAULT FALSE;`
     ]
   }
 ];

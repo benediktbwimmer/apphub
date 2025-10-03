@@ -42,7 +42,9 @@ import {
   type TemplateScope,
   type WorkflowRuntimeContext,
   type WorkflowStepRuntimeContext,
-  type WorkflowStepServiceContext
+  type WorkflowStepServiceContext,
+  type TemplateResolutionIssue,
+  type TemplateResolutionTracker
 } from './context';
 
 export type ScheduledRetryInfo = {
@@ -210,10 +212,34 @@ export function createStepExecutor(deps: StepExecutorDependencies) {
     const resolutionScope = runtimeStep?.fanOut
       ? withStepScope(baseScope, step.id, mergedParameters as JsonValue, runtimeStep.fanOut)
       : withStepScope(baseScope, step.id, mergedParameters as JsonValue);
-    const resolvedParameters = resolveJsonTemplates(mergedParameters as JsonValue, resolutionScope);
+    const parameterResolutionIssues: TemplateResolutionIssue[] = [];
+    const parameterTracker: TemplateResolutionTracker = {
+      record(issue) {
+        parameterResolutionIssues.push(issue);
+      }
+    } satisfies TemplateResolutionTracker;
+    const resolvedParameters = resolveJsonTemplates(
+      mergedParameters as JsonValue,
+      resolutionScope,
+      parameterTracker,
+      '$.parameters'
+    );
     const stepScope = runtimeStep?.fanOut
       ? withStepScope(baseScope, step.id, resolvedParameters, runtimeStep.fanOut)
       : withStepScope(baseScope, step.id, resolvedParameters);
+
+    if (parameterResolutionIssues.length > 0) {
+      return handleParameterResolutionFailure(
+        run,
+        step,
+        context,
+        stepIndex,
+        resolvedParameters,
+        parameterResolutionIssues,
+        runtimeStep?.fanOut ?? null,
+        deps
+      );
+    }
 
     if (step.type === 'service') {
       return executeServiceStep(
@@ -247,6 +273,122 @@ function generateFanOutChildId(parentStepId: string, templateStepId: string, ind
   const safeParent = normalize(parentStepId);
   const safeTemplate = normalize(templateStepId);
   return `${safeParent}:${safeTemplate}:${index + 1}`;
+}
+
+function dedupeResolutionIssues(issues: TemplateResolutionIssue[]): TemplateResolutionIssue[] {
+  const seen = new Map<string, TemplateResolutionIssue>();
+  for (const issue of issues) {
+    const expression = issue.expression.trim();
+    const path = issue.path.trim();
+    const key = `${path}|${expression}`;
+    if (!seen.has(key)) {
+      seen.set(key, { path, expression });
+    }
+  }
+  return Array.from(seen.values());
+}
+
+function describeResolutionIssues(issues: TemplateResolutionIssue[]): string {
+  const deduped = dedupeResolutionIssues(issues);
+  if (deduped.length === 0) {
+    return '';
+  }
+  return deduped
+    .map((issue) => {
+      const normalizedPath = issue.path
+        .replace(/^\$\.(?:parameters\.)?/, '')
+        .replace(/^\$\.?/, '');
+      const renderedPath = normalizedPath.length > 0 ? normalizedPath : 'parameters';
+      return `${renderedPath}: {{ ${issue.expression} }}`;
+    })
+    .join('; ');
+}
+
+async function handleParameterResolutionFailure(
+  run: WorkflowRunRecord,
+  step: WorkflowStepDefinition,
+  context: WorkflowRuntimeContext,
+  stepIndex: number,
+  parameters: JsonValue,
+  issues: TemplateResolutionIssue[],
+  fanOutMeta: FanOutRuntimeMetadata | null,
+  deps: StepExecutorDependencies
+): Promise<StepExecutionResult> {
+  const summary = describeResolutionIssues(issues);
+  const errorMessage = summary
+    ? `Parameter resolution failed: ${summary}`
+    : 'Parameter resolution failed: required inputs are missing';
+
+  const recordOptions = fanOutMeta
+    ? {
+        parentStepId: fanOutMeta.parentStepId,
+        fanoutIndex: fanOutMeta.index,
+        templateStepId: fanOutMeta.templateStepId
+      }
+    : undefined;
+
+  let stepRecord = await deps.loadOrCreateStepRecord(run.id, step, parameters, recordOptions);
+
+  const startedAt = stepRecord.startedAt ?? new Date().toISOString();
+  const completedAt = new Date().toISOString();
+  const previousStatus = stepRecord.status;
+
+  stepRecord = await deps.applyStepUpdateWithHistory(
+    stepRecord,
+    {
+      status: 'failed',
+      errorMessage,
+      startedAt,
+      completedAt,
+      input: parameters,
+      retryState: 'completed',
+      nextAttemptAt: null,
+      retryMetadata: null,
+      failureReason: 'parameter_resolution_failed',
+      resolutionError: true
+    },
+    {
+      eventType: 'status',
+      eventPayload: {
+        previousStatus,
+        status: 'failed',
+        errorMessage,
+        completedAt,
+        startedAt
+      }
+    }
+  );
+
+  const failureContext = updateStepContext(context, step.id, {
+    status: 'failed',
+    jobRunId: stepRecord.jobRunId ?? null,
+    result: null,
+    errorMessage,
+    logsUrl: stepRecord.logsUrl ?? null,
+    metrics: stepRecord.metrics ?? null,
+    startedAt,
+    completedAt,
+    attempt: stepRecord.attempt,
+    assets: toRuntimeAssetSummaries(stepRecord.producedAssets),
+    resolutionError: true
+  });
+
+  await deps.applyRunContextPatch(run.id, step.id, failureContext.steps[step.id], {
+    currentStepId: step.id,
+    currentStepIndex: stepIndex,
+    status: 'failed',
+    errorMessage,
+    completedAt,
+    startedAt
+  });
+
+  return {
+    context: failureContext,
+    stepStatus: 'failed',
+    completed: true,
+    stepPatch: failureContext.steps[step.id],
+    errorMessage
+  } satisfies StepExecutionResult;
 }
 
 async function executeFanOutStep(
@@ -337,7 +479,8 @@ async function executeFanOutStep(
     errorMessage: null,
     startedAt,
     completedAt: null,
-    attempt: stepRecord.attempt ?? 1
+    attempt: stepRecord.attempt ?? 1,
+    resolutionError: false
   });
 
   let sharedPatch: Record<string, JsonValue | null> | undefined;
@@ -472,7 +615,8 @@ async function executeJobStep(
         input: parameters,
         retryState: 'pending',
         nextAttemptAt: null,
-        retryMetadata: null
+        retryMetadata: null,
+        resolutionError: false
       },
       {
         eventType: 'status',
@@ -499,7 +643,8 @@ async function executeJobStep(
     logsUrl: stepRecord.logsUrl ?? null,
     metrics: stepRecord.metrics ?? null,
     completedAt: stepRecord.completedAt ?? null,
-    assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
+    assets: toRuntimeAssetSummaries(stepRecord.producedAssets),
+    resolutionError: false
   });
 
   await deps.applyRunContextPatch(run.id, step.id, nextContext.steps[step.id], {
@@ -1221,7 +1366,8 @@ async function executeServiceStep(
         input: prepared.requestInput,
         retryState: 'pending',
         nextAttemptAt: null,
-        retryMetadata: null
+        retryMetadata: null,
+        resolutionError: false
       },
       {
         eventType: 'status',
@@ -1249,7 +1395,8 @@ async function executeServiceStep(
     metrics: stepRecord.metrics ?? null,
     completedAt: stepRecord.completedAt ?? null,
     service: createMinimalServiceContext(step, prepared, null),
-    assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
+    assets: toRuntimeAssetSummaries(stepRecord.producedAssets),
+    resolutionError: false
   });
 
   await deps.applyRunContextPatch(run.id, step.id, nextContext.steps[step.id], {
@@ -1547,7 +1694,8 @@ async function scheduleWorkflowStepRetry(
     nextAttemptAt,
     errorMessage: message ?? stepRecord.errorMessage ?? null,
     completedAt: null,
-    lastHeartbeatAt: new Date().toISOString()
+    lastHeartbeatAt: new Date().toISOString(),
+    resolutionError: false
   };
 
   const updatedRecord =
@@ -1578,7 +1726,8 @@ async function scheduleWorkflowStepRetry(
     attempt: updatedRecord.attempt,
     startedAt: updatedRecord.startedAt,
     completedAt: null,
-    assets: toRuntimeAssetSummaries(updatedRecord.producedAssets ?? [])
+    assets: toRuntimeAssetSummaries(updatedRecord.producedAssets ?? []),
+    resolutionError: false
   });
 
   await deps.applyRunContextPatch(run.id, step.id, retryContext.steps[step.id], {

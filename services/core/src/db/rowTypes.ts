@@ -446,6 +446,7 @@ export type WorkflowRunStepRow = {
   retry_state: string;
   retry_attempts: number;
   retry_metadata: unknown;
+  resolution_error: boolean | null;
   created_at: string;
   updated_at: string;
 };

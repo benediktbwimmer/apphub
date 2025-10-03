@@ -41,12 +41,22 @@ export type WorkflowStepRuntimeContext = {
   errorName?: string | null;
   errorProperties?: Record<string, JsonValue> | null;
   context?: JsonValue | null;
+  resolutionError?: boolean;
 };
 
 export type WorkflowRuntimeContext = {
   steps: Record<string, WorkflowStepRuntimeContext>;
   lastUpdatedAt: string;
   shared?: Record<string, JsonValue | null>;
+};
+
+export type TemplateResolutionIssue = {
+  path: string;
+  expression: string;
+};
+
+export type TemplateResolutionTracker = {
+  record(issue: TemplateResolutionIssue): void;
 };
 
 export type FanOutRuntimeMetadata = {
@@ -230,7 +240,12 @@ function postProcessLegacyValue(expression: string, value: unknown): unknown {
   return value;
 }
 
-function resolveTemplateExpression(expression: string, scope: TemplateScope): unknown {
+function resolveTemplateExpression(
+  expression: string,
+  scope: TemplateScope,
+  tracker?: TemplateResolutionTracker,
+  path?: string
+): unknown {
   const trimmed = expression.trim();
   if (!trimmed) {
     return undefined;
@@ -246,26 +261,37 @@ function resolveTemplateExpression(expression: string, scope: TemplateScope): un
       return postProcessLegacyValue(trimmed, aliased);
     }
   }
+  if (tracker) {
+    tracker.record({
+      path: path ?? '$',
+      expression: trimmed
+    });
+  }
   return undefined;
 }
 
-export function resolveTemplateString(input: string, scope: TemplateScope): JsonValue {
+export function resolveTemplateString(
+  input: string,
+  scope: TemplateScope,
+  tracker?: TemplateResolutionTracker,
+  path = '$'
+): JsonValue {
   const trimmed = input.trim();
   const legacySimpleMatch = LEGACY_SIMPLE_TEMPLATE_PATTERN.exec(trimmed);
   if (legacySimpleMatch) {
-    const value = resolveTemplateExpression(legacySimpleMatch[1], scope);
+    const value = resolveTemplateExpression(legacySimpleMatch[1], scope, tracker, path);
     return coerceTemplateResult(value);
   }
 
   const matches = [...input.matchAll(TEMPLATE_PATTERN)];
   if (matches.length > 0) {
     if (matches.length === 1 && trimmed === matches[0][0]) {
-      const value = resolveTemplateExpression(matches[0][1], scope);
+      const value = resolveTemplateExpression(matches[0][1], scope, tracker, path);
       return coerceTemplateResult(value);
     }
 
     const replaced = input.replace(TEMPLATE_PATTERN, (_match, expr) => {
-      const value = resolveTemplateExpression(expr, scope);
+      const value = resolveTemplateExpression(expr, scope, tracker, path);
       return templateValueToString(value);
     });
     return replaced as JsonValue;
@@ -273,7 +299,7 @@ export function resolveTemplateString(input: string, scope: TemplateScope): Json
 
   let performedLegacyReplacement = false;
   const replacedLegacy = input.replace(LEGACY_INLINE_TEMPLATE_PATTERN, (_match, expr) => {
-    const value = resolveTemplateExpression(expr, scope);
+    const value = resolveTemplateExpression(expr, scope, tracker, path);
     performedLegacyReplacement = true;
     return templateValueToString(value);
   });
@@ -284,20 +310,28 @@ export function resolveTemplateString(input: string, scope: TemplateScope): Json
   return input;
 }
 
-export function resolveJsonTemplates(value: JsonValue, scope: TemplateScope): JsonValue {
+export function resolveJsonTemplates(
+  value: JsonValue,
+  scope: TemplateScope,
+  tracker?: TemplateResolutionTracker,
+  path = '$'
+): JsonValue {
   if (typeof value === 'string') {
-    return resolveTemplateString(value, scope);
+    return resolveTemplateString(value, scope, tracker, path);
   }
   if (value === null) {
     return null;
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => resolveJsonTemplates(entry as JsonValue, scope)) as JsonValue;
+    return value.map((entry, index) =>
+      resolveJsonTemplates(entry as JsonValue, scope, tracker, `${path}[${index}]`)
+    ) as JsonValue;
   }
   if (typeof value === 'object') {
     const record: Record<string, JsonValue> = {};
     for (const [key, entry] of Object.entries(value as Record<string, JsonValue>)) {
-      record[key] = resolveJsonTemplates(entry, scope);
+      const nextPath = `${path}.${key}`;
+      record[key] = resolveJsonTemplates(entry, scope, tracker, nextPath);
     }
     return record;
   }
@@ -335,7 +369,7 @@ export function updateStepContext(
     lastUpdatedAt: new Date().toISOString(),
     shared: deepCopyShared(context.shared)
   };
-  const previous = next.steps[stepId] ?? { status: 'pending', jobRunId: null };
+  const previous = next.steps[stepId] ?? { status: 'pending', jobRunId: null, resolutionError: false };
   const merged: WorkflowStepRuntimeContext = {
     ...previous,
     ...patch
@@ -365,6 +399,12 @@ export function updateStepContext(
     merged.errorProperties = patch.errorProperties ?? null;
   } else if (nextStatus !== 'failed') {
     merged.errorProperties = null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'resolutionError')) {
+    merged.resolutionError = Boolean(patch.resolutionError);
+  } else if (nextStatus !== 'failed') {
+    merged.resolutionError = false;
   }
 
   next.steps[stepId] = merged;

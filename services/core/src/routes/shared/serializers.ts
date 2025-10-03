@@ -425,6 +425,7 @@ export function serializeWorkflowRunStep(step: WorkflowRunStepRecord) {
     retryState: step.retryState,
     retryAttempts: step.retryAttempts,
     retryMetadata: step.retryMetadata,
+    resolutionError: step.resolutionError,
     createdAt: step.createdAt,
     updatedAt: step.updatedAt
   };

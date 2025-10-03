@@ -179,6 +179,8 @@ export default function WorkflowRunDetails({ run, steps, stepsLoading, stepsErro
         <ol className={STEPS_LIST}>
           {steps.map((step) => {
             const metrics = toRecord(step.metrics);
+            const isResolutionBlocked = Boolean(step.resolutionError);
+            const statusLabel = isResolutionBlocked ? 'awaiting input' : step.status;
             return (
               <li
                 key={step.id}
@@ -188,8 +190,11 @@ export default function WorkflowRunDetails({ run, steps, stepsLoading, stepsErro
                   <div>
                     <p className={STEP_TITLE}>{step.stepId}</p>
                     <p className={STEP_META_TEXT}>Attempt {step.attempt} · Job run {step.jobRunId ?? 'n/a'}</p>
+                    {isResolutionBlocked && (
+                      <p className={`${STEP_META_TEXT} text-status-warning`}>Waiting for upstream inputs</p>
+                    )}
                   </div>
-                  <StatusBadge status={step.status} />
+                  <StatusBadge status={statusLabel} />
                 </div>
                 <div className={STEP_GRID}>
                   <span>Started: {formatTimestamp(step.startedAt)}</span>

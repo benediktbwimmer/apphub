@@ -13,6 +13,7 @@ import {
   updateStepContext,
   withStepScope,
   type FanOutRuntimeMetadata,
+  type TemplateResolutionIssue,
   type WorkflowRuntimeContext,
   type WorkflowStepRuntimeContext
 } from '../src/workflow/context';
@@ -140,6 +141,28 @@ describe('workflow context helpers', () => {
     assert.deepEqual(resolved, { message: 'Say hello', audience: 'team' });
   });
 
+  it('tracks missing expressions during template resolution', () => {
+    const run = createRun();
+    const context = createContext();
+    const scope = withStepScope(buildTemplateScope(run, context), 'step-1', {} as JsonValue);
+    const issues: TemplateResolutionIssue[] = [];
+
+    resolveJsonTemplates(
+      { output: '{{ steps.previous.result.value }}' } as JsonValue,
+      scope,
+      {
+        record(issue) {
+          issues.push(issue);
+        }
+      },
+      '$.parameters'
+    );
+
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]?.expression, 'steps.previous.result.value');
+    assert.equal(issues[0]?.path, '$.parameters.output');
+  });
+
   it('stringifies template values when required', () => {
     const value = templateValueToString({ nested: true });
     assert.equal(value, '{"nested":true}');
@@ -185,5 +208,22 @@ describe('workflow context helpers', () => {
     assert.equal(clearedStep?.errorStack, null);
     assert.equal(clearedStep?.errorName, null);
     assert.equal(clearedStep?.errorProperties, null);
+  });
+
+  it('resets resolutionError flag when step status changes', () => {
+    const context = createContext();
+    const failed = updateStepContext(context, 'step-1', {
+      status: 'failed',
+      jobRunId: null,
+      resolutionError: true
+    });
+
+    assert.equal(failed.steps['step-1']?.resolutionError, true);
+
+    const recovered = updateStepContext(failed, 'step-1', {
+      status: 'running'
+    });
+
+    assert.equal(recovered.steps['step-1']?.resolutionError, false);
   });
 });
