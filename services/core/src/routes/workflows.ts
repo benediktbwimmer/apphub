@@ -22,6 +22,7 @@ import {
   listLatestWorkflowAssetSnapshots,
   listWorkflowAssetHistory,
   listWorkflowAssetPartitions,
+  listWorkflowAssetStalePartitions,
   getWorkflowAssetPartitionParameters,
   setWorkflowAssetPartitionParameters,
   removeWorkflowAssetPartitionParameters,
@@ -37,7 +38,9 @@ import {
   listWorkflowEventsByIds,
   listTriggerFailureEvents,
   listTriggerPauseEvents,
-  listSourcePauseEvents
+  listSourcePauseEvents,
+  listWorkflowRunExecutionHistory,
+  listWorkflowRunProducedAssets
 } from '../db/index';
 import type {
   JobDefinitionRecord,
@@ -89,7 +92,13 @@ import {
   serializeWorkflowRunStep,
   serializeWorkflowTriggerDelivery,
   serializeWorkflowActivityEntry,
-  serializeWorkflowEvent
+  serializeWorkflowEvent,
+  serializeWorkflowExecutionHistoryEntry,
+  serializeWorkflowRunAsset,
+  serializeJsonDiffEntry,
+  serializeStatusDiffEntry,
+  serializeAssetDiffEntry,
+  serializeStaleAssetWarning
 } from './shared/serializers';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
@@ -97,6 +106,12 @@ import { registerWorkflowTriggerRoutes } from './workflows/triggers';
 import { registerWorkflowGraphRoute } from './workflows/graph';
 import { getWorkflowDefaultParameters } from '../bootstrap';
 import { schemaRef } from '../openapi/definitions';
+import {
+  diffJson,
+  diffStatusTransitions,
+  diffProducedAssets,
+  computeStaleAssetWarnings
+} from '../workflows/runDiff';
 
 function jsonResponse(schemaName: string, description: string) {
   return {
@@ -950,6 +965,18 @@ const workflowRunIdParamSchema = z
     runId: z.string().min(1)
   })
   .strict();
+
+const workflowRunDiffQuerySchema = z
+  .object({
+    compareTo: z.string().min(1)
+  })
+  .strict();
+
+const workflowRunReplayBodySchema = z
+  .object({
+    allowStaleAssets: z.boolean().optional()
+  })
+  .partial();
 
 const ASSET_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 
@@ -2832,6 +2859,221 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       data: {
         run: serializeWorkflowRun(run),
         steps: steps.map((step) => serializeWorkflowRunStep(step))
+      }
+    };
+  });
+
+  app.get('/workflow-runs/:runId/diff', async (request, reply) => {
+    const parseParams = workflowRunIdParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowRunDiffQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const runId = parseParams.data.runId;
+    const compareTo = parseQuery.data.compareTo;
+
+    const [baseRun, compareRun] = await Promise.all([
+      getWorkflowRunById(runId),
+      getWorkflowRunById(compareTo)
+    ]);
+
+    if (!baseRun) {
+      reply.status(404);
+      return { error: 'workflow run not found' };
+    }
+
+    if (!compareRun) {
+      reply.status(404);
+      return { error: 'comparison workflow run not found' };
+    }
+
+    if (baseRun.workflowDefinitionId !== compareRun.workflowDefinitionId) {
+      reply.status(400);
+      return { error: 'runs belong to different workflows' };
+    }
+
+    const [
+      baseHistory,
+      compareHistory,
+      baseAssets,
+      compareAssets,
+      stalePartitions
+    ] = await Promise.all([
+      listWorkflowRunExecutionHistory(runId),
+      listWorkflowRunExecutionHistory(compareTo),
+      listWorkflowRunProducedAssets(runId),
+      listWorkflowRunProducedAssets(compareTo),
+      listWorkflowAssetStalePartitions(baseRun.workflowDefinitionId)
+    ]);
+
+    const diff = {
+      parameters: diffJson(baseRun.parameters ?? null, compareRun.parameters ?? null),
+      context: diffJson(baseRun.context ?? null, compareRun.context ?? null),
+      output: diffJson(baseRun.output ?? null, compareRun.output ?? null),
+      statusTransitions: diffStatusTransitions(baseHistory, compareHistory),
+      assets: diffProducedAssets(baseAssets, compareAssets)
+    } as const;
+
+    const staleAssets = computeStaleAssetWarnings(baseAssets, stalePartitions);
+
+    reply.status(200);
+    return {
+      data: {
+        base: {
+          run: serializeWorkflowRun(baseRun),
+          history: baseHistory.map((entry) => serializeWorkflowExecutionHistoryEntry(entry)),
+          assets: baseAssets.map((asset) => serializeWorkflowRunAsset(asset))
+        },
+        compare: {
+          run: serializeWorkflowRun(compareRun),
+          history: compareHistory.map((entry) => serializeWorkflowExecutionHistoryEntry(entry)),
+          assets: compareAssets.map((asset) => serializeWorkflowRunAsset(asset))
+        },
+        diff: {
+          parameters: diff.parameters.map((entry) => serializeJsonDiffEntry(entry)),
+          context: diff.context.map((entry) => serializeJsonDiffEntry(entry)),
+          output: diff.output.map((entry) => serializeJsonDiffEntry(entry)),
+          statusTransitions: diff.statusTransitions.map((entry) => serializeStatusDiffEntry(entry)),
+          assets: diff.assets.map((entry) => serializeAssetDiffEntry(entry))
+        },
+        staleAssets: staleAssets.map((entry) => serializeStaleAssetWarning(entry))
+      }
+    };
+  });
+
+  app.post('/workflow-runs/:runId/replay', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateRunId = typeof rawParams?.runId === 'string' ? rawParams.runId : 'unknown';
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflow-runs.replay',
+      resource: `workflow-run:${candidateRunId}`,
+      requiredScopes: WORKFLOW_RUN_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = workflowRunIdParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = workflowRunReplayBodySchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const run = await getWorkflowRunById(parseParams.data.runId);
+    if (!run) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'run_not_found',
+        runId: parseParams.data.runId
+      });
+      return { error: 'workflow run not found' };
+    }
+
+    const [producedAssets, stalePartitions] = await Promise.all([
+      listWorkflowRunProducedAssets(run.id),
+      listWorkflowAssetStalePartitions(run.workflowDefinitionId)
+    ]);
+
+    const staleAssets = computeStaleAssetWarnings(producedAssets, stalePartitions);
+    const allowStale = Boolean(parseBody.data.allowStaleAssets);
+
+    if (staleAssets.length > 0 && !allowStale) {
+      reply.status(409);
+      await authResult.auth.log('failed', {
+        reason: 'stale_assets',
+        runId: run.id,
+        staleAssets: staleAssets.length
+      });
+      return {
+        error: 'stale assets detected; replay requires confirmation',
+        code: 'stale_assets',
+        data: {
+          staleAssets: staleAssets.map((entry) => serializeStaleAssetWarning(entry))
+        }
+      };
+    }
+
+    let replayRun: Awaited<ReturnType<typeof createWorkflowRun>>;
+    try {
+      replayRun = await createWorkflowRun(run.workflowDefinitionId, {
+        parameters: run.parameters,
+        triggeredBy: run.triggeredBy,
+        trigger: run.trigger ?? null,
+        partitionKey: run.partitionKey
+      });
+    } catch (err) {
+      request.log.error(
+        { err, runId: run.id },
+        'Failed to create workflow replay run'
+      );
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'replay_create_failed',
+        runId: run.id,
+        message: (err as Error).message ?? 'unknown'
+      });
+      return { error: 'failed to create workflow replay run' };
+    }
+
+    try {
+      await enqueueWorkflowRun(replayRun.id, { runKey: replayRun.runKey ?? null });
+    } catch (err) {
+      request.log.error(
+        { err, runId: replayRun.id },
+        'Failed to enqueue workflow replay run'
+      );
+      const message = (err as Error).message ?? 'Failed to enqueue workflow run';
+      await updateWorkflowRun(replayRun.id, {
+        status: 'failed',
+        errorMessage: message,
+        completedAt: new Date().toISOString(),
+        durationMs: 0
+      });
+      reply.status(502);
+      await authResult.auth.log('failed', {
+        reason: 'replay_enqueue_failed',
+        runId: run.id,
+        replayRunId: replayRun.id,
+        message
+      });
+      return { error: message };
+    }
+
+    const latest = (await getWorkflowRunById(replayRun.id)) ?? replayRun;
+
+    reply.status(202);
+    await authResult.auth.log('succeeded', {
+      reason: 'replay_enqueued',
+      runId: run.id,
+      replayRunId: latest.id,
+      allowStaleAssets: allowStale,
+      staleAssetCount: staleAssets.length
+    });
+    return {
+      data: {
+        run: serializeWorkflowRun(latest),
+        staleAssets: staleAssets.map((entry) => serializeStaleAssetWarning(entry))
       }
     };
   });

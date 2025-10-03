@@ -2908,6 +2908,44 @@ export async function getWorkflowRunById(id: string): Promise<WorkflowRunRecord 
   return run;
 }
 
+export async function listWorkflowRunExecutionHistory(
+  workflowRunId: string
+): Promise<WorkflowExecutionHistoryRecord[]> {
+  const trimmed = workflowRunId?.trim() ?? '';
+  if (!trimmed) {
+    return [];
+  }
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowExecutionHistoryRow>(
+      `SELECT *
+         FROM workflow_execution_history
+        WHERE workflow_run_id = $1
+        ORDER BY created_at ASC, id ASC`,
+      [trimmed]
+    )
+  );
+  return rows.map(mapWorkflowExecutionHistoryRow);
+}
+
+export async function listWorkflowRunProducedAssets(
+  workflowRunId: string
+): Promise<WorkflowRunStepAssetRecord[]> {
+  const trimmed = workflowRunId?.trim() ?? '';
+  if (!trimmed) {
+    return [];
+  }
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowRunStepAssetRow>(
+      `SELECT *
+         FROM workflow_run_step_assets
+        WHERE workflow_run_id = $1
+        ORDER BY created_at ASC, id ASC`,
+      [trimmed]
+    )
+  );
+  return rows.map(mapWorkflowRunStepAssetRow);
+}
+
 export async function getActiveWorkflowRunByKey(
   workflowDefinitionId: string,
   runKeyNormalized: string

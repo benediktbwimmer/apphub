@@ -2,7 +2,7 @@ import classNames from 'classnames';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { Spinner, CopyButton } from '../components';
+import { Spinner, CopyButton, Modal } from '../components';
 import { useToasts } from '../components/toast';
 import { ROUTE_PATHS } from '../routes/paths';
 import { useAppHubEvent } from '../events/context';
@@ -11,6 +11,9 @@ import {
   fetchWorkflowActivity,
   retriggerJobRun,
   retriggerWorkflowRun,
+  fetchWorkflowRunDiff,
+  replayWorkflowRun,
+  WorkflowRunReplayBlockedError,
   type JobRunListItem,
   type WorkflowActivityEntry,
   type WorkflowActivityDeliveryEntry,
@@ -24,6 +27,13 @@ import type { WorkflowRun, WorkflowRunStep } from '../workflows/types';
 import { useSavedSearches } from '../savedSearches/useSavedSearches';
 import type { SavedSearch, SavedSearchMutationState } from '../savedSearches/types';
 import { getStatusToneClasses } from '../theme/statusTokens';
+import type {
+  WorkflowRunDiffPayload,
+  WorkflowRunStaleAssetWarning,
+  WorkflowRunDiffEntry,
+  WorkflowRunStatusDiffEntry,
+  WorkflowRunAssetDiffEntry
+} from './types';
 
 type RunsTabKey = 'workflows' | 'jobs';
 
@@ -31,6 +41,21 @@ type RunsTab = {
   key: RunsTabKey;
   label: string;
   description: string;
+};
+
+type CompareDialogState = {
+  open: boolean;
+  baseEntry: WorkflowActivityRunEntry | null;
+  compareRunId: string | null;
+  diff: WorkflowRunDiffPayload | null;
+  loading: boolean;
+  error: string | null;
+};
+
+type ReplayState = {
+  runId: string | null;
+  loading: boolean;
+  warnings: WorkflowRunStaleAssetWarning[];
 };
 
 const WORKFLOW_PAGE_SIZE = 20;
@@ -804,6 +829,19 @@ export default function RunsPage() {
   const [workflowDetailLoading, setWorkflowDetailLoading] = useState(false);
   const [workflowDetailError, setWorkflowDetailError] = useState<string | null>(null);
   const [selectedJobEntry, setSelectedJobEntry] = useState<JobRunListItem | null>(null);
+  const [compareState, setCompareState] = useState<CompareDialogState>({
+    open: false,
+    baseEntry: null,
+    compareRunId: null,
+    diff: null,
+    loading: false,
+    error: null
+  });
+  const [replayState, setReplayState] = useState<ReplayState>({
+    runId: null,
+    loading: false,
+    warnings: []
+  });
 
   const workflowReloadTimer = useRef<number | null>(null);
   const jobReloadTimer = useRef<number | null>(null);
@@ -1269,6 +1307,18 @@ export default function RunsPage() {
   }, [workflowState.items, selectedWorkflowEntry]);
 
   useEffect(() => {
+    setReplayState((current) => {
+      if (!selectedWorkflowEntry || selectedWorkflowEntry.kind !== 'run') {
+        return current.runId ? { runId: null, loading: false, warnings: [] } : current;
+      }
+      if (current.runId && current.runId !== selectedWorkflowEntry.run.id) {
+        return { runId: null, loading: false, warnings: [] };
+      }
+      return current;
+    });
+  }, [selectedWorkflowEntry]);
+
+  useEffect(() => {
     if (!selectedJobEntry) {
       return;
     }
@@ -1330,6 +1380,109 @@ export default function RunsPage() {
     void loadJobRuns();
   }, [loadJobRuns]);
 
+  const loadCompareDiff = useCallback(
+    async (baseEntry: WorkflowActivityRunEntry, compareRunId: string) => {
+      setCompareState((current) => {
+        if (current.baseEntry && current.baseEntry.run.id !== baseEntry.run.id) {
+          return current;
+        }
+        return {
+          open: true,
+          baseEntry,
+          compareRunId,
+          diff: null,
+          loading: true,
+          error: null
+        };
+      });
+      try {
+        const diff = await fetchWorkflowRunDiff(authorizedFetch, {
+          runId: baseEntry.run.id,
+          compareTo: compareRunId
+        });
+        setCompareState((current) => {
+          if (
+            !current.baseEntry ||
+            current.baseEntry.run.id !== baseEntry.run.id ||
+            current.compareRunId !== compareRunId
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            diff,
+            loading: false,
+            error: null
+          };
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load workflow run diff';
+        setCompareState((current) => {
+          if (
+            !current.baseEntry ||
+            current.baseEntry.run.id !== baseEntry.run.id ||
+            current.compareRunId !== compareRunId
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            loading: false,
+            error: message
+          };
+        });
+      }
+    },
+    [authorizedFetch]
+  );
+
+  const handleOpenCompareDialog = useCallback(
+    (entry: WorkflowActivityRunEntry) => {
+      const candidates = workflowState.items.filter(
+        (item): item is WorkflowActivityRunEntry =>
+          item.kind === 'run' &&
+          item.workflow.id === entry.workflow.id &&
+          item.run.id !== entry.run.id
+      );
+      const defaultCompareId = candidates.length > 0 ? candidates[0].run.id : null;
+      setCompareState({
+        open: true,
+        baseEntry: entry,
+        compareRunId: defaultCompareId,
+        diff: null,
+        loading: Boolean(defaultCompareId),
+        error: null
+      });
+      if (defaultCompareId) {
+        void loadCompareDiff(entry, defaultCompareId);
+      }
+    },
+    [workflowState.items, loadCompareDiff]
+  );
+
+  const handleCloseCompareDialog = useCallback(() => {
+    setCompareState({ open: false, baseEntry: null, compareRunId: null, diff: null, loading: false, error: null });
+  }, []);
+
+  const handleSelectCompareRun = useCallback(
+    (runId: string) => {
+      if (!runId || !compareState.baseEntry) {
+        return;
+      }
+      if (compareState.compareRunId === runId && !compareState.loading) {
+        return;
+      }
+      setCompareState((current) => {
+        if (!current.baseEntry) {
+          return current;
+        }
+        return { ...current, compareRunId: runId };
+      });
+      void loadCompareDiff(compareState.baseEntry, runId);
+    },
+    [compareState.baseEntry, compareState.compareRunId, compareState.loading, loadCompareDiff]
+  );
+
   const handleWorkflowRetrigger = useCallback(
     async (entry: WorkflowActivityRunEntry) => {
       setPendingWorkflowRunId(entry.run.id);
@@ -1350,6 +1503,42 @@ export default function RunsPage() {
         });
       } finally {
         setPendingWorkflowRunId(null);
+      }
+    },
+    [authorizedFetch, loadWorkflowRuns, pushToast]
+  );
+
+  const handleWorkflowReplay = useCallback(
+    async (entry: WorkflowActivityRunEntry, options: { allowStaleAssets?: boolean } = {}) => {
+      setReplayState({ runId: entry.run.id, loading: true, warnings: [] });
+      try {
+        await replayWorkflowRun(authorizedFetch, entry.run.id, {
+          allowStaleAssets: options.allowStaleAssets ?? false
+        });
+        pushToast({
+          tone: 'success',
+          title: 'Replay enqueued',
+          description: `Workflow ${entry.workflow.slug} run replay queued`
+        });
+        setReplayState({ runId: null, loading: false, warnings: [] });
+        await loadWorkflowRuns();
+      } catch (err) {
+        if (err instanceof WorkflowRunReplayBlockedError) {
+          setReplayState({ runId: entry.run.id, loading: false, warnings: err.staleAssets });
+          pushToast({
+            tone: 'warning',
+            title: 'Replay requires confirmation',
+            description: 'Stale assets were detected for this workflow run.'
+          });
+          return;
+        }
+        const message = err instanceof Error ? err.message : 'Failed to replay workflow run';
+        pushToast({
+          tone: 'error',
+          title: 'Replay failed',
+          description: message
+        });
+        setReplayState({ runId: null, loading: false, warnings: [] });
       }
     },
     [authorizedFetch, loadWorkflowRuns, pushToast]
@@ -1459,6 +1648,18 @@ export default function RunsPage() {
   }, []);
 
   const activeTabConfig = useMemo(() => TABS.find((tab) => tab.key === activeTab) ?? TABS[0], [activeTab]);
+
+  const compareCandidates = useMemo(() => {
+    if (!compareState.baseEntry) {
+      return [] as WorkflowActivityRunEntry[];
+    }
+    return workflowState.items.filter(
+      (item): item is WorkflowActivityRunEntry =>
+        item.kind === 'run' &&
+        item.workflow.id === compareState.baseEntry?.workflow.id &&
+        item.run.id !== compareState.baseEntry?.run.id
+    );
+  }, [workflowState.items, compareState.baseEntry]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -1579,6 +1780,17 @@ export default function RunsPage() {
           />
         </div>
       )}
+      <WorkflowRunCompareDialog
+        open={compareState.open}
+        baseEntry={compareState.baseEntry}
+        compareRunId={compareState.compareRunId}
+        candidates={compareCandidates}
+        diff={compareState.diff}
+        loading={compareState.loading}
+        error={compareState.error}
+        onClose={handleCloseCompareDialog}
+        onSelectCompare={handleSelectCompareRun}
+      />
     </div>
   );
 }
@@ -1706,6 +1918,10 @@ function WorkflowRunsTable({
                   ? computeDurationMs(runEntry.run.startedAt, runEntry.run.completedAt, runEntry.run.durationMs)
                   : null;
                 const isPending = runEntry ? pendingRunId === runEntry.run.id : false;
+                const replayIsLoading =
+                  runEntry && replayState.runId === runEntry.run.id ? replayState.loading : false;
+                const replayWarningsForEntry =
+                  runEntry && replayState.runId === runEntry.run.id ? replayState.warnings : [];
                 const nextAttemptText = deliveryEntry
                   ? deliveryEntry.delivery.nextAttemptAt
                     ? `Next attempt ${formatDateTime(deliveryEntry.delivery.nextAttemptAt)}`
@@ -1870,6 +2086,10 @@ function WorkflowRunsTable({
                             error={detailErrorForEntry}
                             onClose={onCloseDetail}
                             onViewWorkflow={onViewWorkflow}
+                            onReplay={handleWorkflowReplay}
+                            replayLoading={replayIsLoading}
+                            replayWarnings={replayWarningsForEntry}
+                            onCompare={handleOpenCompareDialog}
                           />
                         </td>
                       </tr>
@@ -1909,6 +2129,249 @@ function WorkflowRunsTable({
   );
 }
 
+type WorkflowRunCompareDialogProps = {
+  open: boolean;
+  baseEntry: WorkflowActivityRunEntry | null;
+  compareRunId: string | null;
+  candidates: WorkflowActivityRunEntry[];
+  diff: WorkflowRunDiffPayload | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSelectCompare: (runId: string) => void;
+};
+
+function WorkflowRunCompareDialog({
+  open,
+  baseEntry,
+  compareRunId,
+  candidates,
+  diff,
+  loading,
+  error,
+  onClose,
+  onSelectCompare
+}: WorkflowRunCompareDialogProps) {
+  const baseRun = baseEntry?.run ?? null;
+  const compareRun = diff?.compare.run ?? null;
+  const statusDiff = diff?.diff.statusTransitions ?? [];
+
+  return (
+    <Modal open={open} onClose={onClose} contentClassName="max-w-5xl p-6">
+      <div className="flex flex-col gap-4">
+        <header className="flex flex-col gap-1">
+          <span className={DETAIL_PANEL_HEADER_LABEL_CLASSES}>Compare workflow runs</span>
+          <h3 className={DETAIL_PANEL_HEADER_TITLE_CLASSES}>{baseEntry?.workflow.name ?? 'Select run'}</h3>
+        </header>
+        <div className="flex flex-col gap-2">
+          <label className="flex flex-col gap-1 text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted">
+            Compare against
+            <select
+              className="rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-elevation-sm"
+              value={compareRunId ?? ''}
+              onChange={(event) => onSelectCompare(event.target.value)}
+              disabled={candidates.length === 0}
+            >
+              <option value="" disabled>
+                Select a run…
+              </option>
+              {candidates.map((candidate) => (
+                <option key={candidate.run.id} value={candidate.run.id}>
+                  {`${formatDateTime(candidate.run.createdAt)} · ${candidate.run.status}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          {candidates.length === 0 && (
+            <span className="text-scale-xs text-muted">No other runs available for comparison.</span>
+          )}
+          {error && (
+            <div className={`${DETAIL_PANEL_ALERT_BASE_CLASSES} ${getStatusToneClasses('warning')}`}>{error}</div>
+          )}
+        </div>
+        {loading && (
+          <div className="flex items-center gap-2 text-scale-sm text-secondary">
+            <Spinner label="Loading diff…" size="sm" />
+          </div>
+        )}
+        {!loading && !diff && (!compareRunId || compareRunId.length === 0) && (
+          <div className={DETAIL_PANEL_EMPTY_STATE_CLASSES}>Select another run to generate a diff.</div>
+        )}
+        {diff && !loading && (
+          <div className="flex flex-col gap-4">
+            <section className="grid gap-3 md:grid-cols-2">
+              <InfoRow label="Base run" value={baseRun?.id ?? '—'} copyValue={baseRun?.id ?? null} monospace />
+              <InfoRow
+                label="Compared run"
+                value={compareRun?.id ?? (compareRunId ? compareRunId : '—')}
+                copyValue={compareRun?.id ?? compareRunId}
+                monospace
+              />
+              <InfoRow label="Base status" value={baseRun?.status ?? '—'} />
+              <InfoRow label="Compared status" value={compareRun?.status ?? '—'} />
+            </section>
+
+            <JsonDiffSection title="Parameters" entries={diff.diff.parameters} />
+            <JsonDiffSection title="Context" entries={diff.diff.context} />
+            <JsonDiffSection title="Output" entries={diff.diff.output} />
+            <StatusDiffSection entries={statusDiff} />
+            <AssetDiffSection entries={diff.diff.assets} />
+            {diff.staleAssets.length > 0 && (
+              <div className={`${DETAIL_PANEL_ALERT_BASE_CLASSES} ${getStatusToneClasses('warning')}`}>
+                <span className="font-weight-semibold">Stale assets recorded on base run:</span>
+                <ul className="mt-2 flex flex-col gap-1 text-scale-xs">
+                  {diff.staleAssets.map((warning) => (
+                    <li key={`${warning.assetId}:${warning.partitionKey ?? 'global'}`}>
+                      <span className="font-weight-medium text-primary">{warning.assetId}</span>
+                      {warning.partitionKey ? ` · Partition ${warning.partitionKey}` : ''}
+                      {` · Requested ${formatDateTime(warning.requestedAt)}`}
+                      {warning.requestedBy ? ` · by ${warning.requestedBy}` : ''}
+                      {warning.note ? ` · ${warning.note}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+type JsonDiffSectionProps = {
+  title: string;
+  entries: WorkflowRunDiffEntry[];
+};
+
+function JsonDiffSection({ title, entries }: JsonDiffSectionProps) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h4 className={DETAIL_PANEL_STEP_TITLE_CLASSES}>{title}</h4>
+      {entries.length === 0 ? (
+        <span className={DETAIL_PANEL_EMPTY_STATE_CLASSES}>No differences detected.</span>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {entries.map((entry) => (
+            <li key={`${title}:${entry.path}`} className={JSON_PREVIEW_CONTAINER_CLASSES}>
+              <div className="flex items-center justify-between gap-2 text-scale-xs font-weight-semibold text-primary">
+                <span>{entry.path}</span>
+                <span className="uppercase tracking-[0.24em] text-muted">{entry.change}</span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <div>
+                  <span className={JSON_PREVIEW_TITLE_CLASSES}>Before</span>
+                  <pre className={`${JSON_PREVIEW_CONTENT_CLASSES} whitespace-pre-wrap`}>
+                    {formatJson(entry.before)}
+                  </pre>
+                </div>
+                <div>
+                  <span className={JSON_PREVIEW_TITLE_CLASSES}>After</span>
+                  <pre className={`${JSON_PREVIEW_CONTENT_CLASSES} whitespace-pre-wrap`}>
+                    {formatJson(entry.after)}
+                  </pre>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+type StatusDiffSectionProps = {
+  entries: WorkflowRunStatusDiffEntry[];
+};
+
+function StatusDiffSection({ entries }: StatusDiffSectionProps) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h4 className={DETAIL_PANEL_STEP_TITLE_CLASSES}>Status transitions</h4>
+      {entries.length === 0 ? (
+        <span className={DETAIL_PANEL_EMPTY_STATE_CLASSES}>No status differences detected.</span>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {entries.map((entry) => (
+            <li key={entry.index} className={DETAIL_PANEL_STEP_CARD_CLASSES}>
+              <div className="flex items-center justify-between">
+                <span className="text-scale-xs uppercase tracking-[0.24em] text-muted">Transition {entry.index + 1}</span>
+                <span className="font-weight-semibold text-primary">{entry.change}</span>
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-2 text-scale-xs text-secondary">
+                <div>
+                  <span className="font-weight-semibold text-primary">Base</span>
+                  <div>{entry.base ? entry.base.eventType : '—'}</div>
+                  {entry.base && <div>{formatDateTime(entry.base.createdAt)}</div>}
+                </div>
+                <div>
+                  <span className="font-weight-semibold text-primary">Compared</span>
+                  <div>{entry.compare ? entry.compare.eventType : '—'}</div>
+                  {entry.compare && <div>{formatDateTime(entry.compare.createdAt)}</div>}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+type AssetDiffSectionProps = {
+  entries: WorkflowRunAssetDiffEntry[];
+};
+
+function AssetDiffSection({ entries }: AssetDiffSectionProps) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h4 className={DETAIL_PANEL_STEP_TITLE_CLASSES}>Asset snapshots</h4>
+      {entries.length === 0 ? (
+        <span className={DETAIL_PANEL_EMPTY_STATE_CLASSES}>No asset differences detected.</span>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {entries.map((entry) => (
+            <li key={`${entry.assetId}:${entry.partitionKey ?? 'global'}`} className={DETAIL_PANEL_STEP_CARD_CLASSES}>
+              <div className="flex items-center justify-between">
+                <span className="font-weight-semibold text-primary">
+                  {entry.assetId}
+                  {entry.partitionKey ? ` · ${entry.partitionKey}` : ''}
+                </span>
+                <span className="uppercase tracking-[0.24em] text-muted">{entry.change}</span>
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-2 text-scale-xs text-secondary">
+                <div>
+                  <span className="font-weight-semibold text-primary">Base</span>
+                  <pre className={`${JSON_PREVIEW_CONTENT_CLASSES} whitespace-pre-wrap`}>
+                    {formatJson(entry.base?.payload ?? null)}
+                  </pre>
+                </div>
+                <div>
+                  <span className="font-weight-semibold text-primary">Compared</span>
+                  <pre className={`${JSON_PREVIEW_CONTENT_CLASSES} whitespace-pre-wrap`}>
+                    {formatJson(entry.compare?.payload ?? null)}
+                  </pre>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function formatJson(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 type WorkflowRunDetailPanelProps = {
   entry: WorkflowActivityRunEntry;
   detail: { run: WorkflowRun; steps: WorkflowRunStep[] } | null;
@@ -1916,9 +2379,24 @@ type WorkflowRunDetailPanelProps = {
   error: string | null;
   onClose: () => void;
   onViewWorkflow: () => void;
+  onReplay: (entry: WorkflowActivityRunEntry, options?: { allowStaleAssets?: boolean }) => void;
+  replayLoading: boolean;
+  replayWarnings: WorkflowRunStaleAssetWarning[];
+  onCompare: (entry: WorkflowActivityRunEntry) => void;
 };
 
-function WorkflowRunDetailPanel({ entry, detail, loading, error, onClose, onViewWorkflow }: WorkflowRunDetailPanelProps) {
+function WorkflowRunDetailPanel({
+  entry,
+  detail,
+  loading,
+  error,
+  onClose,
+  onViewWorkflow,
+  onReplay,
+  replayLoading,
+  replayWarnings,
+  onCompare
+}: WorkflowRunDetailPanelProps) {
   const run = detail?.run ?? entry.run;
   const steps = detail?.steps ?? [];
   const duration = computeDurationMs(run.startedAt, run.completedAt, run.durationMs);
@@ -1934,7 +2412,18 @@ function WorkflowRunDetailPanel({ entry, detail, loading, error, onClose, onView
           <span className={`${STATUS_CHIP_BASE_CLASSES} px-4 ${statusChipClass(run.status)}`}>
             {run.status}
           </span>
-          <button type="button" className={DETAIL_PANEL_ACTION_PRIMARY} onClick={onViewWorkflow}>
+          <button
+            type="button"
+            className={DETAIL_PANEL_ACTION_PRIMARY}
+            onClick={() => onReplay(entry)}
+            disabled={replayLoading}
+          >
+            {replayLoading ? <Spinner label="Replaying" size="xs" /> : 'Replay with prior inputs'}
+          </button>
+          <button type="button" className={DETAIL_PANEL_ACTION_SECONDARY} onClick={() => onCompare(entry)}>
+            Compare runs
+          </button>
+          <button type="button" className={DETAIL_PANEL_ACTION_SECONDARY} onClick={onViewWorkflow}>
             View workflow
           </button>
           <button type="button" className={DETAIL_PANEL_ACTION_SECONDARY} onClick={onClose}>
@@ -1942,6 +2431,37 @@ function WorkflowRunDetailPanel({ entry, detail, loading, error, onClose, onView
           </button>
         </div>
       </div>
+
+      {replayWarnings.length > 0 && (
+        <div className={`${DETAIL_PANEL_ALERT_BASE_CLASSES} ${getStatusToneClasses('warning')}`}>
+          <div className="flex flex-col gap-2">
+            <span className="font-weight-semibold">Stale assets detected for this replay:</span>
+            <ul className="flex flex-col gap-1 text-scale-xs">
+              {replayWarnings.map((warning) => (
+                <li key={`${warning.assetId}:${warning.partitionKey ?? 'global'}`}>
+                  <span className="font-weight-medium text-primary">{warning.assetId}</span>
+                  {warning.partitionKey ? ` · Partition ${warning.partitionKey}` : ' · Unpartitioned'}
+                  {` · Requested ${formatDateTime(warning.requestedAt)}`}
+                  {warning.requestedBy ? ` · by ${warning.requestedBy}` : ''}
+                  {warning.note ? ` · ${warning.note}` : ''}
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={DETAIL_PANEL_ACTION_PRIMARY}
+                onClick={() => onReplay(entry, { allowStaleAssets: true })}
+              >
+                Replay anyway
+              </button>
+              <button type="button" className={DETAIL_PANEL_ACTION_SECONDARY} onClick={() => onCompare(entry)}>
+                Review diff
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <InfoRow label="Run key" value={run.runKey ?? '—'} copyValue={run.runKey ?? null} monospace />

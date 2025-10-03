@@ -20,10 +20,18 @@ import {
   type WorkflowEventTriggerRecord,
   type WorkflowTriggerDeliveryRecord,
   type WorkflowEventRecord,
-  type WorkflowActivityEntry
+  type WorkflowActivityEntry,
+  type WorkflowExecutionHistoryRecord,
+  type WorkflowRunStepAssetRecord
 } from '../../db/index';
 import type { BundleDownloadInfo } from '../../jobs/bundleStorage';
 import type { WorkflowJsonValue } from '../../workflows/zodSchemas';
+import type {
+  JsonDiffEntry,
+  StatusDiffEntry,
+  AssetDiffEntry,
+  StaleAssetWarning
+} from '../../workflows/runDiff';
 
 export type JsonValue = WorkflowJsonValue;
 
@@ -383,6 +391,93 @@ export function serializeWorkflowRun(run: WorkflowRunRecord) {
       overdueSteps: run.retrySummary.overdueSteps
     },
     health: run.retrySummary.pendingSteps > 0 ? 'degraded' : 'healthy'
+  };
+}
+
+export function serializeWorkflowExecutionHistoryEntry(entry: WorkflowExecutionHistoryRecord) {
+  return {
+    id: entry.id,
+    workflowRunId: entry.workflowRunId,
+    workflowRunStepId: entry.workflowRunStepId,
+    stepId: entry.stepId,
+    eventType: entry.eventType,
+    eventPayload: entry.eventPayload ?? null,
+    createdAt: entry.createdAt
+  };
+}
+
+export function serializeWorkflowRunAsset(asset: WorkflowRunStepAssetRecord) {
+  return {
+    id: asset.id,
+    workflowDefinitionId: asset.workflowDefinitionId,
+    workflowRunId: asset.workflowRunId,
+    workflowRunStepId: asset.workflowRunStepId,
+    stepId: asset.stepId,
+    assetId: asset.assetId,
+    partitionKey: asset.partitionKey ?? null,
+    producedAt: asset.producedAt ?? null,
+    payload: asset.payload ?? null,
+    freshness: asset.freshness ?? null,
+    schema: asset.schema ?? null,
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt
+  };
+}
+
+export function serializeJsonDiffEntry(entry: JsonDiffEntry) {
+  return {
+    path: entry.path,
+    change: entry.change,
+    before: entry.before ?? null,
+    after: entry.after ?? null
+  };
+}
+
+export function serializeStatusDiffEntry(entry: StatusDiffEntry) {
+  return {
+    index: entry.index,
+    change: entry.change,
+    base: entry.base ? serializeWorkflowExecutionHistoryEntry(entry.base) : null,
+    compare: entry.compare ? serializeWorkflowExecutionHistoryEntry(entry.compare) : null
+  };
+}
+
+export function serializeAssetDiffEntry(entry: AssetDiffEntry) {
+  return {
+    change: entry.change,
+    assetId: entry.assetId,
+    partitionKey: entry.partitionKey ?? null,
+    base: entry.base
+      ? {
+          assetId: entry.base.assetId,
+          partitionKey: entry.base.partitionKey ?? null,
+          stepId: entry.base.stepId,
+          producedAt: entry.base.producedAt ?? null,
+          payload: entry.base.payload ?? null,
+          freshness: entry.base.freshness ?? null
+        }
+      : null,
+    compare: entry.compare
+      ? {
+          assetId: entry.compare.assetId,
+          partitionKey: entry.compare.partitionKey ?? null,
+          stepId: entry.compare.stepId,
+          producedAt: entry.compare.producedAt ?? null,
+          payload: entry.compare.payload ?? null,
+          freshness: entry.compare.freshness ?? null
+        }
+      : null
+  };
+}
+
+export function serializeStaleAssetWarning(entry: StaleAssetWarning) {
+  return {
+    assetId: entry.assetId,
+    partitionKey: entry.partitionKey ?? null,
+    stepId: entry.stepId,
+    requestedAt: entry.requestedAt,
+    requestedBy: entry.requestedBy ?? null,
+    note: entry.note ?? null
   };
 }
 
