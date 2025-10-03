@@ -16,6 +16,7 @@ import type {
 } from '../../db/types';
 import { buildRunKeyFromParts } from '../../workflows/runKey';
 import { enqueueWorkflowRun } from '../../queue';
+import { recordAssetRecoveryFailed, recordAssetRecoveryScheduled } from '../../observability/recoveryMetrics';
 
 const RECOVERY_POLL_DELAY_MS = Math.max(15_000, Number(process.env.ASSET_RECOVERY_POLL_INTERVAL_MS ?? 30_000));
 
@@ -165,6 +166,8 @@ export async function ensureAssetRecoveryRequest(
         lastAttemptAt: now
       });
 
+      recordAssetRecoveryScheduled();
+
       return {
         request: updated ?? request,
         producerWorkflowDefinitionId: producerDefinitionId
@@ -181,6 +184,7 @@ export async function ensureAssetRecoveryRequest(
         lastError: err instanceof Error ? err.message : 'unknown',
         completedAt: now
       });
+      recordAssetRecoveryFailed('schedule_error');
       return failed
         ? { request: failed, producerWorkflowDefinitionId: producerDefinitionId }
         : { request, producerWorkflowDefinitionId: producerDefinitionId };

@@ -30,13 +30,9 @@ import {
   parseRuntimeAssets,
   toRuntimeAssetSummaries
 } from './assets';
-import {
-  ensureAssetRecoveryRequest as ensureWorkflowAssetRecovery,
-  getRecoveryPollDelayMs,
-  type AssetRecoveryDescriptor
-} from './recovery/manager';
-import { getAssetRecoveryRequestById } from '../db/assetRecovery';
+import { getRecoveryPollDelayMs, type AssetRecoveryDescriptor, type RecoveryRequestOutcome } from './recovery/manager';
 import { logger } from '../observability/logger';
+import { recordAssetRecoveryCompleted, recordAssetRecoveryFailed } from '../observability/recoveryMetrics';
 import {
   mergeParameters,
   resolveJsonTemplates,
@@ -177,6 +173,14 @@ export type StepExecutorDependencies = {
       signal?: AbortSignal;
     }
   ) => Promise<Response>;
+  ensureWorkflowAssetRecovery: (options: {
+    descriptor: AssetRecoveryDescriptor;
+    failingDefinition: WorkflowDefinitionRecord;
+    failingRun: WorkflowRunRecord;
+    step: WorkflowStepDefinition;
+    stepRecord: WorkflowRunStepRecord;
+  }) => Promise<RecoveryRequestOutcome | null>;
+  getAssetRecoveryRequestById: (id: string) => Promise<WorkflowAssetRecoveryRequestRecord | null>;
 };
 
 export function createStepExecutor(deps: StepExecutorDependencies) {
@@ -814,7 +818,7 @@ async function executeJobStep(
     if (executed.failureReason === 'asset_missing') {
       const descriptor = extractAssetRecoveryDescriptorFromContext(executed.context ?? null);
       if (descriptor) {
-        const recoveryOutcome = await ensureWorkflowAssetRecovery({
+        const recoveryOutcome = await deps.ensureWorkflowAssetRecovery({
           descriptor,
           failingDefinition: definition,
           failingRun: run,
@@ -1903,7 +1907,8 @@ async function clearRecoveryMetadata(
     await deps.applyStepUpdateWithHistory(
       stepRecord,
       {
-        retryMetadata: null
+        retryMetadata: null,
+        context: null
       },
       {
         eventType: 'recovery-metadata-cleared',
@@ -1946,7 +1951,8 @@ async function scheduleRecoveryPoll(
         lastHeartbeatAt: new Date().toISOString(),
         errorMessage: stepRecord.errorMessage ?? null,
         completedAt: null,
-        resolutionError: false
+        resolutionError: false,
+        context: metadataValue
       },
       {
         eventType: 'retry-scheduled',
@@ -1974,7 +1980,8 @@ async function scheduleRecoveryPoll(
     startedAt: updatedRecord.startedAt,
     completedAt: null,
     assets: toRuntimeAssetSummaries(updatedRecord.producedAssets ?? []),
-    resolutionError: false
+    resolutionError: false,
+    context: metadataValue as JsonValue | null
   });
 
   await deps.applyRunContextPatch(run.id, step.id, retryContext.steps[step.id], {
@@ -2010,14 +2017,22 @@ async function maybeDeferForAssetRecovery(
     return null;
   }
 
-  const request = await getAssetRecoveryRequestById(metadata.requestId);
+  const request = await deps.getAssetRecoveryRequestById(metadata.requestId);
   if (!request) {
+    recordAssetRecoveryFailed('request_missing');
     await clearRecoveryMetadata(stepRecord, deps, 'request-missing');
     return null;
   }
 
-  if (request.status === 'succeeded' || request.status === 'failed') {
-    await clearRecoveryMetadata(stepRecord, deps, `request-${request.status}`);
+  if (request.status === 'succeeded') {
+    recordAssetRecoveryCompleted();
+    await clearRecoveryMetadata(stepRecord, deps, 'request-succeeded');
+    return null;
+  }
+
+  if (request.status === 'failed') {
+    recordAssetRecoveryFailed('request_failed');
+    await clearRecoveryMetadata(stepRecord, deps, 'request-failed');
     return null;
   }
 
