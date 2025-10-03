@@ -5,7 +5,7 @@ import {
   useServiceMetrics,
   useObservabilityEvents
 } from './hooks';
-import type { CoreRunMetrics, ServiceMetricSource } from './types';
+import type { CoreRunMetrics, ServiceMetricSource, ObservabilityEvent } from './types';
 import { SummaryCards } from './components/SummaryCards';
 import { QueueHealthPanel } from './components/QueueHealthPanel';
 import { ServiceMetricsPanel, getServicePrimaryMetric } from './components/ServiceMetricsPanel';
@@ -29,27 +29,30 @@ export default function ObservabilityPage() {
   });
 
   useEffect(() => {
-    if (!coreMetrics.metrics) {
+    const metrics = coreMetrics.metrics;
+    if (!metrics) {
       return;
     }
-    setCoreHistory((previous) => appendHistory(previous, coreMetrics.metrics));
+    setCoreHistory((previous) => appendHistory(previous, metrics));
   }, [coreMetrics.metrics]);
 
   useEffect(() => {
-    if (!queueHealth.snapshot) {
+    const snapshot = queueHealth.snapshot;
+    if (!snapshot) {
       return;
     }
-    const waiting = queueHealth.snapshot.queues.reduce((sum, queue) => sum + (queue.counts?.waiting ?? 0), 0);
+    const waiting = snapshot.queues.reduce((sum, queue) => sum + (queue.counts?.waiting ?? 0), 0);
     setQueueWaitingHistory((previous) => appendNumericHistory(previous, waiting));
   }, [queueHealth.snapshot]);
 
   useEffect(() => {
-    if (!serviceMetrics.snapshots) {
+    const snapshots = serviceMetrics.snapshots;
+    if (!snapshots) {
       return;
     }
     setServiceHistories((previous) => {
       const next = { ...previous };
-      for (const snapshot of serviceMetrics.snapshots) {
+      for (const snapshot of snapshots) {
         if (snapshot.error) {
           continue;
         }
@@ -121,7 +124,7 @@ function appendNumericHistory(history: number[], value: number) {
   return next;
 }
 
-function computeEventFrequency(events: ReturnType<typeof useObservabilityEvents>['events']) {
+function computeEventFrequency(events: ObservabilityEvent[]) {
   const bucketMinutes = 2;
   const buckets = new Map<number, number>();
   for (const event of events.slice(0, 200)) {

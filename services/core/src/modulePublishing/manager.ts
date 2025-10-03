@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import process from 'node:process';
-import { emitApphubEvent } from '../events';
 import {
   clearStatus,
   getStatus,
@@ -23,10 +22,6 @@ export type PublishModuleOptions = {
   skipBuild?: boolean;
   jobId?: string | null;
 };
-
-function emitProgressEvent(status: ModulePublishStatus): void {
-  emitApphubEvent({ type: 'module.publish.progress', data: status });
-}
 
 function buildCommandArgs(options: PublishModuleOptions): string[] {
   const args = ['run', 'module:publish', '--', '--module', options.workspacePath];
@@ -77,7 +72,6 @@ export async function publishModule(options: PublishModuleOptions): Promise<Modu
     jobId: options.jobId ?? null,
     message: 'Module publish queued'
   });
-  emitProgressEvent(baseProgress);
 
   const runningStatus = await recordProgress(moduleId, 'publishing', {
     workspacePath,
@@ -85,7 +79,6 @@ export async function publishModule(options: PublishModuleOptions): Promise<Modu
     jobId: options.jobId ?? null,
     message: 'Running npm run module:publish'
   });
-  emitProgressEvent(runningStatus);
 
   const commandArgs = buildCommandArgs({
     ...options,
@@ -113,7 +106,6 @@ export async function publishModule(options: PublishModuleOptions): Promise<Modu
       jobId: options.jobId ?? null,
       logs
     });
-    emitProgressEvent(failure);
     throw error;
   }
 
@@ -125,7 +117,6 @@ export async function publishModule(options: PublishModuleOptions): Promise<Modu
       jobId: options.jobId ?? null,
       logs
     });
-    emitProgressEvent(failure);
     throw new Error(message);
   }
 
@@ -136,7 +127,6 @@ export async function publishModule(options: PublishModuleOptions): Promise<Modu
     message: 'Module publish completed',
     logs
   });
-  emitProgressEvent(success);
   return success;
 }
 

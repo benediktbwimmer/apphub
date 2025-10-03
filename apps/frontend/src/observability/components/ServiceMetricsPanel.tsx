@@ -12,6 +12,13 @@ const SERVICE_LABELS: Record<ServiceMetricSource, string> = {
   filestore: 'Filestore'
 };
 
+type ServiceMetricSummary = {
+  primaryLabel: string;
+  primaryValue: number;
+  unit: 'count' | 'seconds';
+  detail: string;
+};
+
 export function ServiceMetricsPanel({
   snapshots,
   histories
@@ -66,7 +73,7 @@ export function ServiceMetricsPanel({
   );
 }
 
-export function getServicePrimaryMetric(snapshot: ServiceMetricsSnapshot) {
+export function getServicePrimaryMetric(snapshot: ServiceMetricsSnapshot): ServiceMetricSummary {
   switch (snapshot.service) {
     case 'timestore': {
       const waiting = findMetricValue(snapshot.metrics, 'timestore_ingest_queue_jobs', { state: 'waiting' }) ?? 0;

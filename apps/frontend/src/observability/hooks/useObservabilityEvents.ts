@@ -22,17 +22,6 @@ const JOB_RUN_EVENT_TYPES = [
   'job.run.expired'
 ] as const;
 
-const FILESTORE_EVENT_TYPES = [
-  'filestore.node.created',
-  'filestore.node.updated',
-  'filestore.node.deleted',
-  'filestore.node.uploaded',
-  'filestore.node.reconciled',
-  'filestore.node.missing',
-  'filestore.command.completed',
-  'filestore.drift.detected'
-] as const;
-
 export function useObservabilityEvents(options: { enabled?: boolean } = {}) {
   const enabled = options.enabled ?? true;
   const [events, setEvents] = useState<ObservabilityEvent[]>([]);
@@ -126,24 +115,6 @@ export function useObservabilityEvents(options: { enabled?: boolean } = {}) {
     });
   });
 
-  useAppHubEvent(FILESTORE_EVENT_TYPES, (event) => {
-    if (!enabled) {
-      return;
-    }
-    const payload = event.data as { path?: string; observedAt?: string; updatedAt?: string };
-    const occurredAt = payload?.observedAt ?? payload?.updatedAt ?? new Date().toISOString();
-    const summary = buildFilestoreSummary(event.type, payload?.path);
-    appendEvent({
-      id: `filestore-${event.type}-${payload?.observedAt ?? Math.random()}`,
-      kind: 'filestore',
-      source: 'filestore',
-      occurredAt,
-      summary,
-      severity: event.type.includes('missing') || event.type.includes('drift') ? 'warning' : 'info',
-      payload: payload ?? event.data
-    });
-  });
-
   const metastoreStream = useMetastoreRecordStream({ enabled });
 
   useEffect(() => {
@@ -151,7 +122,7 @@ export function useObservabilityEvents(options: { enabled?: boolean } = {}) {
       return;
     }
     for (const entry of metastoreStream.events) {
-      const occurredAt = entry.payload.observedAt ?? entry.receivedAt;
+      const occurredAt = entry.payload.occurredAt ?? entry.receivedAt;
       const id = `metastore-${entry.payload.namespace}-${entry.payload.key}-${entry.payload.version ?? 'latest'}-${entry.receivedAt}`;
       if (seenIdsRef.current.has(id)) {
         continue;
@@ -191,28 +162,4 @@ function deriveSeverity(eventType: string): ObservabilityEventSeverity {
     return eventType.endsWith('failed') ? 'danger' : 'warning';
   }
   return 'info';
-}
-
-function buildFilestoreSummary(eventType: string, path?: string | null) {
-  const normalizedPath = path ?? 'unknown path';
-  switch (eventType) {
-    case 'filestore.node.created':
-      return `Node created · ${normalizedPath}`;
-    case 'filestore.node.updated':
-      return `Node updated · ${normalizedPath}`;
-    case 'filestore.node.deleted':
-      return `Node deleted · ${normalizedPath}`;
-    case 'filestore.node.uploaded':
-      return `Node uploaded · ${normalizedPath}`;
-    case 'filestore.node.reconciled':
-      return `Node reconciled · ${normalizedPath}`;
-    case 'filestore.node.missing':
-      return `Node missing · ${normalizedPath}`;
-    case 'filestore.command.completed':
-      return `Command completed · ${normalizedPath}`;
-    case 'filestore.drift.detected':
-      return `Drift detected · ${normalizedPath}`;
-    default:
-      return `${eventType} · ${normalizedPath}`;
-  }
 }

@@ -1,11 +1,8 @@
 import { Worker } from 'bullmq';
 import { publishModule, type PublishModuleOptions } from './modulePublishing/manager';
-import {
-  MODULE_PUBLISH_QUEUE_NAME,
-  closeQueueConnection,
-  getQueueConnection,
-  isInlineQueueMode
-} from './queue';
+import { closeQueueConnection, getQueueConnection, isInlineQueueMode } from './queue';
+
+const MODULE_PUBLISH_QUEUE_NAME = process.env.MODULE_PUBLISH_QUEUE_NAME ?? 'apphub_module_publish_queue';
 
 export type ModulePublishJobData = PublishModuleOptions;
 

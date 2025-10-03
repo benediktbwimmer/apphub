@@ -123,8 +123,9 @@ function computeInstanceBounds(instance: ReactFlowInstance | null): GraphBounds 
   let maxY = Number.NEGATIVE_INFINITY;
 
   for (const node of nodes) {
-    const width = node.measured?.width ?? node.width ?? 0;
-    const height = node.measured?.height ?? node.height ?? 0;
+    const measured = (node as typeof node & { measured?: { width?: number; height?: number } }).measured;
+    const width = measured?.width ?? node.width ?? 0;
+    const height = measured?.height ?? node.height ?? 0;
     const base = node.positionAbsolute ?? node.position ?? { x: 0, y: 0 };
     const nodeMinX = base.x;
     const nodeMinY = base.y;
@@ -517,8 +518,8 @@ export function WorkflowGraphCanvas({
     return buildRenderGraph(resolvedModel, mergedTheme, handleNodeSelect, onNodeSelect);
   }, [resolvedModel, mergedTheme, handleNodeSelect, onNodeSelect]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<WorkflowGraphCanvasNodeData>>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<WorkflowGraphCanvasEdgeData>>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowGraphCanvasNodeData>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<WorkflowGraphCanvasEdgeData>([]);
 
   const [instance, setInstance] = useState<ReactFlowInstance | null>(null);
   const layoutBoundsRef = useRef<GraphBounds | null>(null);
@@ -583,8 +584,8 @@ export function WorkflowGraphCanvas({
     if (!renderGraph) {
       return;
     }
-    setNodes(() => renderGraph.nodes);
-    setEdges(() => renderGraph.edges);
+    setNodes(renderGraph.nodes);
+    setEdges(renderGraph.edges);
     layoutBoundsRef.current = renderGraph.bounds;
     const previousSignature = structureSignatureRef.current;
     structureSignatureRef.current = renderGraph.structureSignature;
