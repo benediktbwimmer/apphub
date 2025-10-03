@@ -48,6 +48,8 @@ This guide walks through provisioning the AppHub demo stack on a single Linux VM
 
    You can regenerate the tokens later; the viewer token is baked into the frontend bundle so users can browse without signing in.
 
+  The frontend build reads `APPHUB_FRONTEND_API_BASE_URL` when you run `docker compose ... --build`. On a remote VM, set this variable to the hostname or IP that browsers use to reach the demo (for example `APPHUB_FRONTEND_API_BASE_URL=http://demo.example.com:4000`) before building; otherwise the bundle defaults to `http://localhost:4000` and remote visitors will see DNS errors when the UI calls the API.
+
 ## 3. Build and launch the stack
 
 1. **Build the runtime images and start the services**:
