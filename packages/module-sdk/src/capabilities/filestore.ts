@@ -1,6 +1,9 @@
 import { Buffer } from 'node:buffer';
 import { Readable } from 'node:stream';
-import { CapabilityRequestError } from '../errors';
+import {
+  CapabilityRequestError,
+  type CapabilityErrorMetadata
+} from '../errors';
 import { httpRequest, type FetchLike, type TokenProvider } from '../internal/http';
 
 export type FilestoreNodeKind = 'file' | 'directory' | string;
@@ -109,6 +112,21 @@ export interface ListNodesResult {
   limit: number;
   offset: number;
   nextOffset: number | null;
+}
+
+function classifyAssetMissing(
+  error: CapabilityRequestError,
+  metadata: CapabilityErrorMetadata
+): never {
+  const details: CapabilityErrorMetadata = {
+    capability: 'filestore',
+    resource: 'filestore.node',
+    ...metadata
+  };
+  throw CapabilityRequestError.classify(error, {
+    code: 'asset_missing',
+    metadata: details
+  });
 }
 
 export interface CopyNodeInput {
@@ -396,21 +414,33 @@ export function createFilestoreCapability(config: FilestoreCapabilityConfig): Fi
 
     async getNodeByPath(input: GetNodeByPathInput): Promise<FilestoreNode> {
       const backendMountId = resolveBackendMountId(input.backendMountId, config.backendMountId);
-      const response = await httpRequest<{ data?: FilestoreNode }>(
-        {
-          baseUrl: config.baseUrl,
-          path: '/v1/nodes/by-path',
-          method: 'GET',
-          authToken: config.token,
-          principal: input.principal ?? config.principal,
-          fetchImpl: config.fetchImpl,
-          query: {
-            backendMountId,
-            path: input.path
-          },
-          expectJson: true
+      let response: Awaited<ReturnType<typeof httpRequest<{ data?: FilestoreNode }>>>;
+      try {
+        response = await httpRequest<{ data?: FilestoreNode }>(
+          {
+            baseUrl: config.baseUrl,
+            path: '/v1/nodes/by-path',
+            method: 'GET',
+            authToken: config.token,
+            principal: input.principal ?? config.principal,
+            fetchImpl: config.fetchImpl,
+            query: {
+              backendMountId,
+              path: input.path
+            },
+            expectJson: true
+          }
+        );
+      } catch (error) {
+        if (error instanceof CapabilityRequestError && error.status === 404) {
+          classifyAssetMissing(error, {
+            capability: 'filestore.getNodeByPath',
+            resource: 'filestore.path',
+            assetId: input.path
+          });
         }
-      );
+        throw error;
+      }
 
       const node = response.data?.data;
       if (!node) {
@@ -418,7 +448,13 @@ export function createFilestoreCapability(config: FilestoreCapabilityConfig): Fi
           method: 'GET',
           url: buildUrl(config.baseUrl, '/v1/nodes/by-path'),
           status: response.status,
-          body: 'Node not found'
+          body: 'Node not found',
+          code: 'asset_missing',
+          metadata: {
+            capability: 'filestore.getNodeByPath',
+            resource: 'filestore.path',
+            assetId: input.path
+          }
         });
       }
       return node;
@@ -555,12 +591,20 @@ export function createFilestoreCapability(config: FilestoreCapabilityConfig): Fi
 
       if (!response.ok || !response.body) {
         const detail = await response.text().catch(() => undefined);
-        throw new CapabilityRequestError({
+        const error = new CapabilityRequestError({
           method: 'GET',
           url,
           status: response.status,
           body: detail
         });
+        if (response.status === 404) {
+          classifyAssetMissing(error, {
+            capability: 'filestore.downloadFile',
+            assetId: String(input.nodeId),
+            resource: 'filestore.node'
+          });
+        }
+        throw error;
       }
 
       const headersRecord = normalizeHeaders(response.headers);

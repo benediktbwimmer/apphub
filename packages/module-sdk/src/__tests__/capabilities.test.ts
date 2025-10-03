@@ -165,6 +165,53 @@ test('capability errors bubble as CapabilityRequestError', async () => {
   );
 });
 
+test('filestore download 404 is classified as asset_missing', async () => {
+  const fetchImpl = createFetchStub(404, { error: 'missing' });
+  const filestore = createFilestoreCapability({
+    baseUrl: 'https://filestore.local',
+    backendMountId: 1,
+    fetchImpl
+  });
+
+  await assert.rejects(
+    () =>
+      filestore.downloadFile({
+        nodeId: 99
+      }),
+    (error) => {
+      assert.ok(error instanceof CapabilityRequestError);
+      assert.equal(error.code, 'asset_missing');
+      assert.equal(error.metadata?.assetId, '99');
+      assert.equal(error.metadata?.capability, 'filestore.downloadFile');
+      return true;
+    }
+  );
+});
+
+test('timestore query 404 is classified as asset_missing', async () => {
+  const fetchImpl = createFetchStub(404, { error: 'missing dataset' });
+  const timestore = createTimestoreCapability({
+    baseUrl: 'https://timestore.local',
+    fetchImpl
+  });
+
+  const now = new Date().toISOString();
+  await assert.rejects(
+    () =>
+      timestore.queryDataset({
+        datasetSlug: 'observatory.dataset',
+        timeRange: { start: now, end: now }
+      }),
+    (error) => {
+      assert.ok(error instanceof CapabilityRequestError);
+      assert.equal(error.code, 'asset_missing');
+      assert.equal(error.metadata?.assetId, 'observatory.dataset');
+      assert.equal(error.metadata?.capability, 'timestore.queryDataset');
+      return true;
+    }
+  );
+});
+
 test('mergeCapabilityOverrides prefers the latest entry', () => {
   const merged = mergeCapabilityOverrides(
     { filestore: null },

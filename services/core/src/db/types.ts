@@ -1418,6 +1418,86 @@ export type WorkflowRunStepAssetInput = {
   partitionKey?: string | null;
 };
 
+export type WorkflowAssetProvenanceRecord = {
+  id: string;
+  assetId: string;
+  assetKey: string;
+  workflowDefinitionId: string;
+  workflowSlug: string | null;
+  stepId: string;
+  workflowRunId: string;
+  workflowRunStepId: string;
+  jobRunId: string | null;
+  jobSlug: string | null;
+  partitionKey: string | null;
+  partitionKeyNormalized: string;
+  producedAt: string;
+  metadata: JsonValue;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowAssetProvenanceInput = {
+  assetId: string;
+  workflowDefinitionId: string;
+  workflowSlug: string | null;
+  stepId: string;
+  workflowRunId: string;
+  workflowRunStepId: string;
+  jobRunId: string | null;
+  jobSlug: string | null;
+  partitionKey: string | null;
+  producedAt: string;
+  metadata?: JsonValue;
+};
+
+export type WorkflowAssetRecoveryStatus = 'pending' | 'running' | 'succeeded' | 'failed';
+
+export type WorkflowAssetRecoveryRequestRecord = {
+  id: string;
+  assetId: string;
+  assetKey: string;
+  workflowDefinitionId: string;
+  partitionKey: string | null;
+  partitionKeyNormalized: string;
+  status: WorkflowAssetRecoveryStatus;
+  requestedByWorkflowRunId: string;
+  requestedByWorkflowRunStepId: string;
+  requestedByStepId: string;
+  recoveryWorkflowDefinitionId: string | null;
+  recoveryWorkflowRunId: string | null;
+  recoveryJobRunId: string | null;
+  attempts: number;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+  metadata: JsonValue;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+};
+
+export type WorkflowAssetRecoveryRequestCreateInput = {
+  assetId: string;
+  workflowDefinitionId: string;
+  partitionKey: string | null;
+  requestedByWorkflowRunId: string;
+  requestedByWorkflowRunStepId: string;
+  requestedByStepId: string;
+  metadata?: JsonValue;
+};
+
+export type WorkflowAssetRecoveryRequestUpdateInput = {
+  status?: WorkflowAssetRecoveryStatus;
+  recoveryWorkflowDefinitionId?: string | null;
+  recoveryWorkflowRunId?: string | null;
+  recoveryJobRunId?: string | null;
+  attempts?: number;
+  lastAttemptAt?: string | null;
+  lastError?: string | null;
+  metadata?: JsonValue;
+  completedAt?: string | null;
+};
+
 export type WorkflowAssetSnapshotRecord = {
   asset: WorkflowRunStepAssetRecord;
   workflowRunId: string;

@@ -1,4 +1,7 @@
-import { CapabilityRequestError } from '../errors';
+import {
+  CapabilityRequestError,
+  type CapabilityErrorMetadata
+} from '../errors';
 import { httpRequest, type FetchLike, type TokenProvider } from '../internal/http';
 
 type TimestoreFieldType = 'timestamp' | 'string' | 'double' | 'integer' | 'boolean';
@@ -118,6 +121,21 @@ interface DatasetListResponse {
   nextCursor?: string | null;
 }
 
+function classifyTimestoreMissing(
+  error: CapabilityRequestError,
+  metadata: CapabilityErrorMetadata
+): never {
+  const details: CapabilityErrorMetadata = {
+    capability: 'timestore',
+    resource: 'timestore.dataset',
+    ...metadata
+  };
+  throw CapabilityRequestError.classify(error, {
+    code: 'asset_missing',
+    metadata: details
+  });
+}
+
 interface DatasetEnvelope {
   dataset?: DatasetRecord;
 }
@@ -194,16 +212,27 @@ export function createTimestoreCapability(config: TimestoreCapabilityConfig): Ti
     ingestRecords: ingest,
 
     async triggerPartitionBuild(input: PartitionBuildInput): Promise<void> {
-      await httpRequest({
-        baseUrl,
-        path: `/v1/datasets/${encodeURIComponent(input.datasetSlug)}/partitions/${encodeURIComponent(input.partitionKey)}/build`,
-        method: 'POST',
-        authToken: config.token,
-        principal: input.principal,
-        idempotencyKey: input.idempotencyKey,
-        fetchImpl: config.fetchImpl,
-        expectJson: true
-      });
+      try {
+        await httpRequest({
+          baseUrl,
+          path: `/v1/datasets/${encodeURIComponent(input.datasetSlug)}/partitions/${encodeURIComponent(input.partitionKey)}/build`,
+          method: 'POST',
+          authToken: config.token,
+          principal: input.principal,
+          idempotencyKey: input.idempotencyKey,
+          fetchImpl: config.fetchImpl,
+          expectJson: true
+        });
+      } catch (error) {
+        if (error instanceof CapabilityRequestError && error.status === 404) {
+          classifyTimestoreMissing(error, {
+            capability: 'timestore.triggerPartitionBuild',
+            assetId: input.datasetSlug,
+            partitionKey: input.partitionKey
+          });
+        }
+        throw error;
+      }
     },
 
     async queryDataset(input: QueryDatasetInput): Promise<QueryDatasetResult> {
@@ -216,16 +245,27 @@ export function createTimestoreCapability(config: TimestoreCapabilityConfig): Ti
         limit: input.limit
       });
 
-      const response = await httpRequest<QueryDatasetResult>({
-        baseUrl,
-        path: `/v1/datasets/${encodeURIComponent(input.datasetSlug)}/query`,
-        method: 'POST',
-        authToken: config.token,
-        principal: input.principal,
-        fetchImpl: config.fetchImpl,
-        body,
-        expectJson: true
-      });
+      let response: Awaited<ReturnType<typeof httpRequest<QueryDatasetResult>>>;
+      try {
+        response = await httpRequest<QueryDatasetResult>({
+          baseUrl,
+          path: `/v1/datasets/${encodeURIComponent(input.datasetSlug)}/query`,
+          method: 'POST',
+          authToken: config.token,
+          principal: input.principal,
+          fetchImpl: config.fetchImpl,
+          body,
+          expectJson: true
+        });
+      } catch (error) {
+        if (error instanceof CapabilityRequestError && error.status === 404) {
+          classifyTimestoreMissing(error, {
+            capability: 'timestore.queryDataset',
+            assetId: input.datasetSlug
+          });
+        }
+        throw error;
+      }
 
       const result = response.data ?? { rows: [], columns: [], mode: 'raw' };
       return {

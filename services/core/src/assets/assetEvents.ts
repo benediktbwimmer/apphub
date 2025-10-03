@@ -10,6 +10,11 @@ import {
   recordWorkflowRunStepAssets,
   clearWorkflowAssetPartitionStale
 } from '../db/workflows';
+import {
+  listAssetRecoveryRequests,
+  updateAssetRecoveryRequest,
+  upsertWorkflowAssetProvenance
+} from '../db/assetRecovery';
 import type {
   WorkflowDefinitionRecord,
   WorkflowRunRecord,
@@ -280,6 +285,59 @@ export async function handleAssetsProduced(options: {
       });
       emitApphubEvent({ type: 'asset.produced', data: event });
       await scheduleFreshnessEvents(event);
+      try {
+        await upsertWorkflowAssetProvenance({
+          assetId: asset.assetId,
+          workflowDefinitionId: options.definition.id,
+          workflowSlug: options.definition.slug,
+          stepId: options.stepId,
+          workflowRunId: options.run.id,
+          workflowRunStepId: options.stepRecordId,
+          jobRunId: null,
+          jobSlug: null,
+          partitionKey: asset.partitionKey ?? options.run.partitionKey ?? null,
+          producedAt: asset.producedAt,
+          metadata: {
+            payload: asset.payload ?? null,
+            schema: asset.schema ?? null,
+            freshness: asset.freshness ?? null
+          } satisfies JsonValue
+        });
+      } catch (provenanceErr) {
+        logError('Failed to upsert asset provenance', {
+          workflowDefinitionId: options.definition.id,
+          assetId: asset.assetId,
+          partitionKey: asset.partitionKey ?? options.run.partitionKey ?? null,
+          error: provenanceErr instanceof Error ? provenanceErr.message : 'unknown'
+        });
+      }
+      try {
+        const pendingRequests = await listAssetRecoveryRequests({
+          assetId: asset.assetId,
+          partitionKey: asset.partitionKey ?? options.run.partitionKey ?? null,
+          statuses: ['pending', 'running']
+        });
+        if (pendingRequests.length > 0) {
+          const completedAt = new Date().toISOString();
+          await Promise.all(
+            pendingRequests.map((request) =>
+              updateAssetRecoveryRequest(request.id, {
+                status: 'succeeded',
+                recoveryWorkflowDefinitionId: options.run.workflowDefinitionId,
+                recoveryWorkflowRunId: options.run.id,
+                completedAt
+              })
+            )
+          );
+        }
+      } catch (updateErr) {
+        logError('Failed to mark asset recovery request as succeeded', {
+          workflowDefinitionId: options.definition.id,
+          assetId: asset.assetId,
+          partitionKey: asset.partitionKey ?? options.run.partitionKey ?? null,
+          error: updateErr instanceof Error ? updateErr.message : 'unknown'
+        });
+      }
       try {
         await clearWorkflowAssetPartitionStale(
           options.definition.id,
