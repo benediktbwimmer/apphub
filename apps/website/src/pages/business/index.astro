@@ -1,0 +1,426 @@
+---
+import BaseLayout from '@layouts/BaseLayout.astro';
+import { BusinessConstellationDiagram, BusinessObservatoryDiagram } from '@components/diagrams';
+
+const title = 'Business value | Osiris AppHub';
+const description =
+  'Understand how AppHub modules accelerate operations programmes and how we partner with leadership teams to model use cases in weeks.';
+
+const reasons = [
+  {
+    heading: 'Everything becomes a module',
+    detail:
+      'Use cases live as versioned modules with jobs, assets, UI surfaces, and runbooks. Governance, rollout, and measurement stay consistent across teams.'
+  },
+  {
+    heading: 'Shared control plane',
+    detail:
+      'Executives, engineers, and operators work from the same data and workflow fabric—no fragmented stacks or duplicate tooling.'
+  },
+  {
+    heading: 'Weeks, not quarters',
+    detail:
+      'We model the first module alongside you and hand over a repeatable blueprint so every follow-on use case arrives faster.'
+  }
+];
+
+const offerings = [
+  {
+    title: 'Strategy & module framing',
+    detail: 'Translate goals into module boundaries, assets, and KPIs that leadership can track from day one.'
+  },
+  {
+    title: 'Enablement intensives',
+    detail: 'Teach your product, operations, and data teams how the AppHub stack works and how to extend it safely.'
+  },
+  {
+    title: 'Co-built delivery',
+    detail: 'Our engineers build the first module with you, packaging workflows, dashboards, and operator experiences as turnkey assets.'
+  }
+];
+
+const modulePatterns = [
+  {
+    name: 'Observatory networks',
+    body: 'Coordinate instrument telemetry, enrich data, and publish live dashboards without stitching multiple vendors together.'
+  },
+  {
+    name: 'Asset lifecycle programmes',
+    body: 'Standardise inspections, maintenance, and compliance evidence across sites while retaining local flexibility.'
+  },
+  {
+    name: 'Field response playbooks',
+    body: 'Blend logistics, comms, and policy to orchestrate crews and partners in real time.'
+  }
+];
+
+const valueSignals = [
+  'Shared source of truth for telemetry, workflows, and reports.',
+  'Faster time-to-market because modules reuse the same infrastructure footprint.',
+  'Lower integration risk: Redis queues, timestore partitions, and module governance are already battle tested in the platform.',
+  'Operators stay in the loop through the AppHub UI—no context lost in spreadsheets or slide decks.'
+];
+
+const engagementTimeline = [
+  {
+    phase: 'Discover',
+    description: 'Clarify the use case, data sources, and success metrics. Align stakeholders on a shared module scope and governance model.'
+  },
+  {
+    phase: 'Design',
+    description: 'Mock the module experience, define assets, and plan integrations. Hands-on workshops with the module SDK accelerate alignment.'
+  },
+  {
+    phase: 'Deliver',
+    description: 'Co-build the module, hook into timestore/filestore, and rehearse workflows. Document change management and handoff playbooks.'
+  }
+];
+
+const observatoryHighlights = [
+  {
+    title: 'Telemetry to action',
+    detail: 'Instrument data arrives via the observatory gateway, lands in Filestore with rich metadata, and kicks off workflow runs when assets refresh.'
+  },
+  {
+    title: 'Audience-aligned visuals',
+    detail: 'Module services render dashboards directly inside the AppHub UI, so site leads and executives read the same view.'
+  },
+  {
+    title: 'Auditable outcomes',
+    detail: 'Every workflow run, file change, and timestore partition is logged. Leadership reviews readiness in minutes, not days.'
+  }
+];
+---
+<BaseLayout title={title} description={description}>
+  <section class="page-hero">
+    <div class="container page-hero__inner">
+      <div>
+        <p class="page-hero__eyebrow">For leadership teams</p>
+        <h1>Model any operations programme as an AppHub module.</h1>
+        <p class="page-hero__intro">
+          AppHub is open source. We collaborate with business leaders to turn critical initiatives into modules that deploy in weeks—self-hosted or with our guidance.
+        </p>
+        <div class="page-hero__actions">
+          <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Schedule a strategy workshop</a>
+          <a class="button button--secondary" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">View on GitHub</a>
+          <a class="button button--ghost" href="/adoption">Explore adoption services</a>
+        </div>
+      </div>
+      <figure>
+        <div class="diagram">
+          <BusinessConstellationDiagram />
+        </div>
+        <figcaption>Modules keep telemetry, workflows, and reporting aligned across teams.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="reasons" aria-labelledby="reasons-heading">
+    <div class="container">
+      <h2 id="reasons-heading" class="section-heading">Why organisations are choosing modules</h2>
+      <div class="cards-grid">
+        {reasons.map((item) => (
+          <article>
+            <h3>{item.heading}</h3>
+            <p>{item.detail}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="offerings" aria-labelledby="offerings-heading">
+    <div class="container offerings__inner">
+      <h2 id="offerings-heading" class="section-heading">How we partner with you</h2>
+      <div class="cards-grid cards-grid--three">
+        {offerings.map((item) => (
+          <article>
+            <h3>{item.title}</h3>
+            <p>{item.detail}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="patterns" aria-labelledby="patterns-heading">
+    <div class="container patterns__inner">
+      <h2 id="patterns-heading" class="section-heading">Module patterns ready to adapt</h2>
+      <div class="cards-grid cards-grid--three">
+        {modulePatterns.map((item) => (
+          <article>
+            <h3>{item.name}</h3>
+            <p>{item.body}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="value" aria-labelledby="value-heading">
+    <div class="container value__inner">
+      <h2 id="value-heading" class="section-heading">The value lens</h2>
+      <ul>
+        {valueSignals.map((signal) => (
+          <li>{signal}</li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <section class="timeline" aria-labelledby="timeline-heading">
+    <div class="container timeline__inner">
+      <h2 id="timeline-heading" class="section-heading">What the first six weeks look like</h2>
+      <ol>
+        {engagementTimeline.map((item) => (
+          <li>
+            <h3>{item.phase}</h3>
+            <p>{item.description}</p>
+          </li>
+        ))}
+      </ol>
+      <p class="timeline__note">
+        Combine internal teams with our strategists, solution engineers, and operator coaches—we meet you where you are on the open-source journey.
+      </p>
+    </div>
+  </section>
+
+  <section class="observatory" aria-labelledby="observatory-heading">
+    <div class="container observatory__inner">
+      <div>
+        <h2 id="observatory-heading" class="section-heading">In focus: The Observatory module</h2>
+        <p>
+          Our flagship module demonstrates the full control plane: ingestion, storage, workflow automation, and operator surfaces orchestrated in one place.
+        </p>
+        <div class="observatory__grid">
+          {observatoryHighlights.map((item) => (
+            <article>
+              <h3>{item.title}</h3>
+              <p>{item.detail}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+      <figure>
+        <div class="diagram">
+          <BusinessObservatoryDiagram />
+        </div>
+        <figcaption>Telemetry → module automations → dashboards, all powered by AppHub components.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="cta" aria-labelledby="cta-heading">
+    <div class="container cta__inner">
+      <div>
+        <h2 id="cta-heading" class="section-heading">Accelerate with open source AppHub</h2>
+        <p>
+          Use the repository as your foundation or partner with us for a guided rollout. We align strategy, data, and operations on the same control plane.
+        </p>
+      </div>
+      <div class="cta__actions">
+        <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Start the conversation</a>
+        <a class="button button--ghost" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">Explore on GitHub</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .page-hero {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: linear-gradient(150deg, rgba(13, 148, 136, 0.18), rgba(34, 211, 238, 0.12));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .page-hero {
+      background: linear-gradient(150deg, rgba(20, 184, 166, 0.24), rgba(2, 19, 18, 0.9));
+    }
+  }
+
+  .page-hero__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .page-hero__eyebrow {
+    margin: 0;
+    font-size: var(--apphub-typography-font-size-xs);
+    letter-spacing: var(--apphub-typography-letter-spacing-wide);
+    text-transform: uppercase;
+    color: var(--apphub-color-text-soft);
+  }
+
+  .page-hero__intro {
+    margin: 0 0 var(--apphub-spacing-lg);
+    color: var(--apphub-color-text-muted);
+    max-width: 70ch;
+  }
+
+  .page-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  .page-hero figure {
+    margin: 0;
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+    text-align: center;
+  }
+
+  .page-hero .diagram svg {
+    width: 100%;
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    box-shadow: var(--apphub-shadow-soft);
+    background: var(--apphub-color-surface);
+  }
+
+  .page-hero figcaption {
+    font-size: var(--apphub-typography-font-size-xs);
+    color: var(--apphub-color-text-soft);
+  }
+
+  .cards-grid {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .cards-grid article {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .reasons,
+  .offerings,
+  .patterns,
+  .value,
+  .timeline,
+  .observatory {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .value__inner ul {
+    margin: 0;
+    padding-left: var(--apphub-spacing-lg);
+    display: grid;
+    gap: var(--apphub-spacing-sm);
+    color: var(--apphub-color-text-muted);
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .timeline__inner {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .timeline ol {
+    margin: 0;
+    padding-left: var(--apphub-spacing-lg);
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .timeline li {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .timeline__note {
+    margin: 0;
+    color: var(--apphub-color-text-soft);
+  }
+
+  .observatory__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .observatory__grid {
+    display: grid;
+    gap: var(--apphub-spacing-md);
+  }
+
+  .observatory__grid article {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-lg);
+    padding: var(--apphub-spacing-md);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .observatory figure {
+    margin: 0;
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+    text-align: center;
+  }
+
+  .observatory .diagram svg {
+    width: 100%;
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    box-shadow: var(--apphub-shadow-soft);
+    background: var(--apphub-color-surface);
+  }
+
+  .observatory figcaption {
+    font-size: var(--apphub-typography-font-size-xs);
+    color: var(--apphub-color-text-soft);
+  }
+
+  .cta {
+    padding: var(--apphub-spacing-4xl) 0;
+    background: linear-gradient(160deg, rgba(13, 148, 136, 0.2), rgba(15, 118, 110, 0.16));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .cta {
+      background: linear-gradient(160deg, rgba(20, 184, 166, 0.22), rgba(2, 19, 18, 0.88));
+    }
+  }
+
+  .cta__inner {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+    align-items: center;
+  }
+
+  .diagram {
+    width: 100%;
+    max-width: 540px;
+    margin: 0 auto;
+  }
+
+  .cta__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  .cards-grid--three {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  @media (min-width: 768px) {
+    .page-hero__inner,
+    .observatory__inner {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cards-grid--three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+</style>

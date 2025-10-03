@@ -1,0 +1,322 @@
+---
+import BaseLayout from '@layouts/BaseLayout.astro';
+import { AdoptionJourneyDiagram } from '@components/diagrams';
+
+const title = 'Adoption services | Osiris AppHub';
+const description = 'Partner with the AppHub team to learn the platform, model your module, and launch in weeks.';
+
+const sessions = [
+  {
+    name: 'Architecture deep dive',
+    detail: 'Understand the core orchestrator, timestore, filestore, and metastore. We map your systems onto the AppHub fabric.'
+  },
+  {
+    name: 'Module SDK lab',
+    detail: 'Hands-on labs show how to declare jobs, assets, and services with the SDK so your team can extend modules confidently.'
+  },
+  {
+    name: 'Operations rehearsal',
+    detail: 'Simulate workflow runs, asset materialisation, and UI monitoring before production. Capture runbooks as part of the module.'
+  }
+];
+
+const phases = [
+  {
+    title: 'Frame the module',
+    copy: 'Clarify outcomes, inputs, assets, and governance. Draft the module descriptor and integration checklist.'
+  },
+  {
+    title: 'Co-build & test',
+    copy: 'Pair with our engineers to wire the workflows, timestore datasets, filestore mounts, and UI surfaces.'
+  },
+  {
+    title: 'Launch & handoff',
+    copy: 'Run rehearsals, document change management, and hand back a module that your team can version without us.'
+  }
+];
+
+const crew = [
+  { role: 'Module strategist', focus: 'Keeps the charter aligned with business outcomes and governance requirements.' },
+  { role: 'Platform engineer', focus: 'Pairs on integrations, module code, and observability hooks.' },
+  { role: 'Operator coach', focus: 'Designs rehearsals, trains end users, and documents operational playbooks.' }
+];
+
+const signals = [
+  'Module charter approved with clear success metrics and dependencies.',
+  'First workflow run rehearsed end-to-end with simulated telemetry.',
+  'Team members comfortable publishing module updates and monitoring assets.'
+];
+---
+<BaseLayout title={title} description={description}>
+  <section class="page-hero">
+    <div class="container page-hero__inner">
+      <div>
+        <p class="page-hero__eyebrow">Adoption programme</p>
+        <h1>Co-build your first AppHub module with us.</h1>
+        <p class="page-hero__intro">
+          AppHub is open source. We teach your team the platform, model the module with you, and launch together—so you can run and extend it with confidence.
+        </p>
+        <div class="page-hero__actions">
+          <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Plan an onboarding sprint</a>
+          <a class="button button--secondary" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">View on GitHub</a>
+          <a class="button button--ghost" href="/module-sdk">Explore the Module SDK</a>
+        </div>
+        <div class="page-hero__notice">
+          <strong>Help build the Service Adoption team.</strong>
+          <span>
+            We are recruiting contributors, facilitators, and designers to co-create the onboarding experience. If you love shaping playbooks and polishing the UI,
+            reach out at <a href="mailto:osirisapphub@gmail.com">osirisapphub@gmail.com</a>.
+          </span>
+        </div>
+      </div>
+      <figure>
+        <div class="diagram">
+          <AdoptionJourneyDiagram />
+        </div>
+        <figcaption>Learn, co-design, build, and launch in weeks.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sessions" aria-labelledby="sessions-heading">
+    <div class="container sessions__inner">
+      <h2 id="sessions-heading" class="section-heading">What the teaching sessions cover</h2>
+      <div class="sessions__grid">
+        {sessions.map((item) => (
+          <article>
+            <h3>{item.name}</h3>
+            <p>{item.detail}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="phases" aria-labelledby="phases-heading">
+    <div class="container phases__inner">
+      <h2 id="phases-heading" class="section-heading">Three-phase adoption path</h2>
+      <ol>
+        {phases.map((phase) => (
+          <li>
+            <h3>{phase.title}</h3>
+            <p>{phase.copy}</p>
+          </li>
+        ))}
+      </ol>
+      <div class="diagram">
+        <AdoptionJourneyDiagram />
+      </div>
+    </div>
+  </section>
+
+  <section class="crew" aria-labelledby="crew-heading">
+    <div class="container crew__inner">
+      <h2 id="crew-heading" class="section-heading">Your embedded crew</h2>
+      <div class="crew__grid">
+        {crew.map((member) => (
+          <article>
+            <p class="crew__role">{member.role}</p>
+            <p>{member.focus}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="signals" aria-labelledby="signals-heading">
+    <div class="container signals__inner">
+      <h2 id="signals-heading" class="section-heading">Signals we look for before launch</h2>
+      <ul>
+        {signals.map((signal) => (
+          <li>{signal}</li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <section class="cta" aria-labelledby="cta-heading">
+    <div class="container cta__inner">
+      <div>
+        <h2 id="cta-heading" class="section-heading">Ready to build?</h2>
+        <p>
+          Share your module idea and we will assemble the right crew—strategist, engineer, coach—to help you deploy faster while contributing back to the open-source platform.
+        </p>
+      </div>
+      <div class="cta__actions">
+        <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Start the conversation</a>
+        <a class="button button--ghost" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">Explore on GitHub</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .page-hero {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: linear-gradient(150deg, rgba(13, 148, 136, 0.18), rgba(34, 211, 238, 0.12));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .page-hero {
+      background: linear-gradient(150deg, rgba(20, 184, 166, 0.22), rgba(2, 19, 18, 0.88));
+    }
+  }
+
+  .page-hero__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .page-hero__eyebrow {
+    margin: 0;
+    font-size: var(--apphub-typography-font-size-xs);
+    letter-spacing: var(--apphub-typography-letter-spacing-wide);
+    text-transform: uppercase;
+    color: var(--apphub-color-text-soft);
+  }
+
+  .page-hero__intro {
+    margin: 0 0 var(--apphub-spacing-lg);
+    color: var(--apphub-color-text-muted);
+    max-width: 70ch;
+  }
+
+  .page-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  .page-hero__notice {
+    margin-top: var(--apphub-spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--apphub-spacing-xxs);
+    padding: var(--apphub-spacing-sm);
+    border: 1px solid var(--apphub-color-border);
+    border-radius: var(--apphub-radius-lg);
+    background: var(--apphub-color-surface-muted);
+    color: var(--apphub-color-text);
+    font-size: var(--apphub-typography-font-size-sm);
+  }
+
+  .page-hero__notice a {
+    color: var(--apphub-color-accent-strong);
+  }
+
+  .page-hero figure {
+    margin: 0;
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+    text-align: center;
+  }
+
+  .page-hero .diagram svg {
+    width: 100%;
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    box-shadow: var(--apphub-shadow-soft);
+    background: var(--apphub-color-surface);
+  }
+
+  .page-hero figcaption {
+    font-size: var(--apphub-typography-font-size-xs);
+    color: var(--apphub-color-text-soft);
+  }
+
+  .sessions,
+  .phases,
+  .crew,
+  .signals,
+  .cta {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .sessions__grid,
+  .crew__grid {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .sessions__grid article,
+  .crew__grid article {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .crew__role {
+    margin: 0 0 var(--apphub-spacing-xxs);
+    font-size: var(--apphub-typography-font-size-sm);
+    letter-spacing: var(--apphub-typography-letter-spacing-wide);
+    text-transform: uppercase;
+    color: var(--apphub-color-text-soft);
+    font-weight: var(--apphub-typography-font-weight-semibold);
+  }
+
+  .phases__inner {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .phases ol {
+    margin: 0;
+    padding-left: var(--apphub-spacing-lg);
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .phases li {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .signals__inner ul {
+    margin: 0;
+    padding-left: var(--apphub-spacing-lg);
+    display: grid;
+    gap: var(--apphub-spacing-sm);
+    color: var(--apphub-color-text-muted);
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .cta {
+    background: linear-gradient(160deg, rgba(13, 148, 136, 0.2), rgba(15, 118, 110, 0.16));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .cta {
+      background: linear-gradient(160deg, rgba(20, 184, 166, 0.22), rgba(2, 19, 18, 0.88));
+    }
+  }
+
+  .cta__inner {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+    align-items: center;
+  }
+
+  .cta__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  @media (min-width: 768px) {
+    .page-hero__inner {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sessions__grid,
+    .crew__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+</style>

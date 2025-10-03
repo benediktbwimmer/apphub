@@ -1,0 +1,781 @@
+---
+import BaseLayout from '@layouts/BaseLayout.astro';
+import {
+  DataPlaneDiagram,
+  DeploymentOptionsDiagram,
+  EventBusDiagram,
+  ModuleLifecycleDiagram,
+  ObservatoryFlowDiagram,
+  SystemArchitectureDiagram,
+  UiGraphDiagram
+} from '@components/diagrams';
+
+const title = 'Osiris AppHub | Unified operations platform built on modules';
+const description =
+  'AppHub pairs an event-driven core, timestore, filestore, metastore, and unified UI so teams can ship modules that orchestrate data and automation in weeks.';
+
+const heroStats = [
+  { label: 'Platform status', value: 'Open-source control plane' },
+  { label: 'Module rollout time', value: 'Weeks from sketch to live operations' },
+  { label: 'Engagement focus', value: 'Teaching + turnkey module creation' }
+];
+
+const components = [
+  {
+    name: 'Core orchestrator',
+    copy:
+      'Fastify API and Redis-backed BullMQ workers coordinate jobs, assets, and events. Asset auto-materialisation keeps modules fresh without manual triggers.'
+  },
+  {
+    name: 'Timestore',
+    copy:
+      'DuckDB-powered SQL API backed by partitioned Parquet in object storage. Predicate pushdown and distributed execution keep costs low and queries fast.'
+  },
+  {
+    name: 'Filestore',
+    copy:
+      'Deterministic storage control plane that tracks directory sizes, hashes, and change events across S3, MinIO, and local mounts.'
+  },
+  {
+    name: 'Metastore',
+    copy:
+      'Namespace-scoped document store with optimistic concurrency and rich querying for module settings, topology, and governance metadata.'
+  },
+  {
+    name: 'Unified UI',
+    copy:
+      'React console renders live workflow graphs, asset lineage, service health, and SQL workspaces without leaving the browser.'
+  }
+];
+
+const modulePrinciples = [
+  {
+    title: 'Modules everywhere',
+    detail:
+      'Every use case becomes a module bundle built with the TypeScript SDK. Jobs, workflows, services, and UI surfaces ship together, versioned, and ready to import.'
+  },
+  {
+    title: 'First-class ergonomics',
+    detail:
+      'Capability shims for filestore, metastore, timestore, and the event bus mean module authors write clear domain logic instead of plumbing.'
+  },
+  {
+    title: 'Real-time evolution',
+    detail:
+      'Publish new module versions with compatibility checks, migrations, and promotion pipelines so operations stay ahead of changing requirements.'
+  }
+];
+
+const useCases = [
+  {
+    name: 'Environmental observatory',
+    summary:
+      'Ingest instrument telemetry every minute, reconcile files with Filestore, materialise partitions in Timestore, and publish dashboards automatically.'
+  },
+  {
+    name: 'Industrial asset uptime',
+    summary:
+      'Fuse PLC readings, operator inspections, and maintenance orders into a module that predicts equipment drift and schedules remediation flows.'
+  },
+  {
+    name: 'Field logistics co-ordination',
+    summary:
+      'Blend inventory snapshots, routing constraints, and crew updates with custom events so dispatchers and sites stay in lockstep.'
+  }
+];
+
+const dataHighlights = [
+  'SQL you already know. Timestore accepts ANSI SQL while translating queries into DuckDB plans executed over Parquet shards in object storage.',
+  'Partitioned manifests. Manifest sharding keeps ingestion fast even as datasets span months of history.',
+  'Hybrid storage. Pair cloud buckets with MinIO or on-prem disks; Filestore keeps metadata consistent and reconciles drift automatically.'
+];
+
+const orchestrationPoints = [
+  'Redis-backed event bus. BullMQ queues move events, workflow runs, and triggers with millisecond latency.',
+  'Asset-based automation and event triggers. Choose freshness-based runs or explicit domain events to launch workflows instantly.',
+  'Observable workers. Queue metrics, Prometheus exports, and OpenTelemetry traces come baked in for every background role.'
+];
+
+const uiHighlights = [
+  'Live workflow topology. Graphs show each run, dependency, and asset freshness in real time—no separate tracing tool needed.',
+  'Faster than stand-alone orchestrators. AppHub skips heavyweight RPC layers so modules move quicker than Temporal while inheriting Dagster-style assets.',
+  'In-app SQL lab. Query timestores, preview files, and link every result back to the producing module without leaving the console.'
+];
+
+const deploymentOptions = [
+  {
+    heading: 'Dedicated servers',
+    detail: 'Bring your own hardware with Docker Compose or Minikube. MinIO supplies object storage when S3 is not available.'
+  },
+  {
+    heading: 'Cloud-native',
+    detail: 'Deploy on Kubernetes with autoscaling workers, or run the stack on a VM plus managed S3/GCS buckets for effortless durability.'
+  },
+  {
+    heading: 'Hybrid topologies',
+    detail: 'Mix local ingestion workers with cloud control planes. Redis queues and service discovery keep modules coordinated across sites.'
+  }
+];
+
+const services = [
+  {
+    title: 'Immersive teaching sessions',
+    detail:
+      'Hands-on workshops cover AppHub architecture, the module SDK, and how to wire timestore/filestore integrations. Teams leave ready to build.'
+  },
+  {
+    title: 'Module modelling sprints',
+    detail:
+      'We translate your use case into a module blueprint—jobs, assets, services, and governance artifacts included.'
+  },
+  {
+    title: 'Turnkey module builds',
+    detail:
+      'Partner with our engineers to deliver a production-ready module, complete with observability dashboards and runbooks.'
+  }
+];
+
+const observatoryTakeaways = [
+  'Gateway normalises sensor events and pushes them through the Redis event bus into the Core.',
+  'Filestore journals every instrument upload, tracking directory sizes and hashing payloads for provenance.',
+  'Timestore compacts minute partitions into Parquet shards while exposing a SQL API for analysts and dashboards.',
+  'Event triggers fire downstream workflows the moment new telemetry arrives, complementing asset auto-materialisation.',
+  'Module services render the Observatory graph and status boards inside the unified UI using the module SDK capabilities.'
+];
+---
+<BaseLayout title={title} description={description}>
+  <section class="hero" aria-labelledby="hero-heading">
+    <div class="container hero__inner">
+      <div class="hero__content">
+        <p class="hero__eyebrow">Modules over monoliths</p>
+        <h1 id="hero-heading">Build an operations control plane that evolves faster than your roadmap.</h1>
+        <p class="hero__summary">
+          Osiris AppHub unifies the orchestrator, timestore, filestore, metastore, and UI into one event-driven platform. It is fully open
+          source—self-host it, fork it, or collaborate with our team to build modules faster.
+        </p>
+        <div class="hero__status">
+          <p>
+            <strong>Heads-up:</strong> the unified UI is mid-polish and will keep changing rapidly—expect frequent visual and UX updates as we harden the experience.
+          </p>
+          <p>
+            <strong>Early access:</strong> AppHub is not production ready yet. We are in the final hardening sprint and expect to flip the production-ready switch within the next couple of weeks.
+          </p>
+        </div>
+        <div class="hero__actions">
+          <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Book a module workshop</a>
+          <a class="button button--secondary" href="/technical">Review the technical brief</a>
+          <a class="button button--ghost" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">View on GitHub</a>
+        </div>
+        <div class="hero__contributor">
+          <strong>Join the crew:</strong>
+          <span>
+            We are actively looking for open-source contributors and teammates for the Service Adoption team. If you want to shape onboarding playbooks or ship UI polish, email
+            <a href="mailto:osirisapphub@gmail.com">osirisapphub@gmail.com</a>.
+          </span>
+        </div>
+        <dl class="hero__stats" aria-label="Current commitments">
+          {heroStats.map((item) => (
+            <div>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <figure class="hero__visual">
+        <div class="diagram">
+          <SystemArchitectureDiagram />
+        </div>
+        <figcaption>Event bus at the centre: modules speak through shared services instead of bespoke glue code.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="components" aria-labelledby="components-heading">
+    <div class="container components__inner">
+      <div class="section-header">
+        <h2 id="components-heading" class="section-heading">Five services, one platform</h2>
+        <p>
+          Each AppHub workspace ships the same building blocks, so modules rely on proven infrastructure instead of reinventing data pipes
+          and orchestration.
+        </p>
+      </div>
+      <div class="components__grid">
+        {components.map((item) => (
+          <article>
+            <h3>{item.name}</h3>
+            <p>{item.copy}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="modules" aria-labelledby="modules-heading">
+    <div class="container modules__inner">
+      <figure>
+        <div class="diagram">
+          <ModuleLifecycleDiagram />
+        </div>
+      </figure>
+      <div>
+        <h2 id="modules-heading" class="section-heading">Modules are how you ship use cases</h2>
+        <div class="modules__grid">
+          {modulePrinciples.map((item) => (
+            <article>
+              <h3>{item.title}</h3>
+              <p>{item.detail}</p>
+            </article>
+          ))}
+        </div>
+        <p class="modules__footnote">
+          The module SDK lives in <code>packages/module-sdk</code> and gives authors typed access to filestore, metastore, timestore, and the event bus in just a
+          few lines.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="use-cases" aria-labelledby="use-cases-heading">
+    <div class="container use-cases__inner">
+      <h2 id="use-cases-heading" class="section-heading">Example modules we are delivering</h2>
+      <div class="use-cases__grid">
+        {useCases.map((item) => (
+          <article>
+            <h3>{item.name}</h3>
+            <p>{item.summary}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="data-plane" aria-labelledby="data-plane-heading">
+    <div class="container data-plane__inner">
+      <div>
+        <h2 id="data-plane-heading" class="section-heading">Data plane built on object storage</h2>
+        <ul>
+          {dataHighlights.map((point) => (
+            <li>{point}</li>
+          ))}
+        </ul>
+      </div>
+      <figure>
+        <div class="diagram">
+          <DataPlaneDiagram />
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="orchestration" aria-labelledby="orchestration-heading">
+    <div class="container orchestration__inner">
+      <figure>
+        <div class="diagram">
+          <EventBusDiagram />
+        </div>
+      </figure>
+      <div>
+        <h2 id="orchestration-heading" class="section-heading">Event-driven orchestration without the overhead</h2>
+        <ul>
+          {orchestrationPoints.map((point) => (
+            <li>{point}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="ui" aria-labelledby="ui-heading">
+    <div class="container ui__inner">
+      <div>
+        <h2 id="ui-heading" class="section-heading">A unified UI operators actually enjoy using</h2>
+        <ul>
+          {uiHighlights.map((point) => (
+            <li>{point}</li>
+          ))}
+        </ul>
+      </div>
+      <figure>
+        <div class="diagram">
+          <UiGraphDiagram />
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="deploy" aria-labelledby="deploy-heading">
+    <div class="container deploy__inner">
+      <h2 id="deploy-heading" class="section-heading">Deploy it your way</h2>
+      <div class="diagram">
+        <DeploymentOptionsDiagram />
+      </div>
+      <div class="deploy__grid">
+        {deploymentOptions.map((option) => (
+          <article>
+            <h3>{option.heading}</h3>
+            <p>{option.detail}</p>
+          </article>
+        ))}
+      </div>
+      <p class="deploy__note">
+        Redis queues, Postgres, and object storage scale independently, so hybrid footprints—edge ingestion, cloud analytics, dedicated failover—stay in sync.
+      </p>
+    </div>
+  </section>
+
+  <section class="services" aria-labelledby="services-heading">
+    <div class="container services__inner">
+      <h2 id="services-heading" class="section-heading">What we offer today</h2>
+      <div class="services__grid">
+        {services.map((item) => (
+          <article>
+            <h3>{item.title}</h3>
+            <p>{item.detail}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="observatory" aria-labelledby="observatory-heading">
+    <div class="container observatory__inner">
+      <div>
+        <h2 id="observatory-heading" class="section-heading">Case study · Observatory module</h2>
+        <p class="observatory__intro">
+          The environmental observatory module is built entirely with the module SDK. It ingests instrument data, reconciles files, materialises parquet, and renders dashboards without leaving AppHub.
+        </p>
+        <ul>
+          {observatoryTakeaways.map((item) => (
+            <li>{item}</li>
+          ))}
+        </ul>
+      </div>
+      <figure>
+        <div class="diagram">
+          <ObservatoryFlowDiagram />
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="cta" aria-labelledby="cta-heading">
+    <div class="container cta__inner">
+      <div>
+        <h2 id="cta-heading" class="section-heading">Start building with the community</h2>
+        <p>
+          Clone the repo, explore existing modules, and ship your own workflows. We collaborate in the open—file issues, open pull requests, or team up with us for turnkey delivery.
+        </p>
+      </div>
+      <div class="cta__actions">
+        <a class="button button--primary" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">Explore on GitHub</a>
+        <a class="button button--ghost" href="mailto:osirisapphub@gmail.com">Plan a discovery session</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .hero {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: linear-gradient(140deg, rgba(13, 148, 136, 0.16), rgba(34, 211, 238, 0.12));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .hero {
+      background: linear-gradient(140deg, rgba(20, 184, 166, 0.24), rgba(94, 234, 212, 0.14));
+    }
+  }
+
+  .hero__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .hero__eyebrow {
+    margin: 0;
+    font-size: var(--apphub-typography-font-size-xs);
+    letter-spacing: var(--apphub-typography-letter-spacing-wide);
+    text-transform: uppercase;
+    color: var(--apphub-color-text-soft);
+    font-weight: var(--apphub-typography-font-weight-semibold);
+  }
+
+  .hero__summary {
+    margin: 0;
+    font-size: var(--apphub-typography-font-size-lg);
+    color: var(--apphub-color-text-muted);
+    max-width: 68ch;
+  }
+
+  .hero__status {
+    margin-top: var(--apphub-spacing-md);
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+    padding: var(--apphub-spacing-sm);
+    border: 1px solid var(--apphub-color-border);
+    border-radius: var(--apphub-radius-lg);
+    background: var(--apphub-color-surface-muted);
+    color: var(--apphub-color-text);
+  }
+
+  .hero__status p {
+    margin: 0;
+    font-size: var(--apphub-typography-font-size-sm);
+  }
+
+  .hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  .hero__contributor {
+    margin-top: var(--apphub-spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--apphub-spacing-xxs);
+    font-size: var(--apphub-typography-font-size-sm);
+    color: var(--apphub-color-text);
+  }
+
+  .hero__contributor a {
+    color: var(--apphub-color-accent-strong);
+  }
+
+  .hero__stats {
+    display: grid;
+    gap: var(--apphub-spacing-sm);
+    margin: var(--apphub-spacing-lg) 0 0;
+  }
+
+  .hero__stats dt {
+    font-size: var(--apphub-typography-font-size-xs);
+    letter-spacing: var(--apphub-typography-letter-spacing-wide);
+    text-transform: uppercase;
+    color: var(--apphub-color-text-soft);
+  }
+
+  .hero__stats dd {
+    margin: 0;
+    font-weight: var(--apphub-typography-font-weight-medium);
+  }
+
+  .hero__visual {
+    margin: 0;
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+    text-align: center;
+  }
+
+  .hero__visual .diagram svg {
+    width: 100%;
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    box-shadow: var(--apphub-shadow-soft);
+    background: var(--apphub-color-surface);
+  }
+
+  .hero__visual figcaption {
+    font-size: var(--apphub-typography-font-size-xs);
+    color: var(--apphub-color-text-soft);
+  }
+
+  .section-header {
+    display: grid;
+    gap: var(--apphub-spacing-sm);
+    margin-bottom: var(--apphub-spacing-xl);
+    max-width: 72ch;
+  }
+
+  .components {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .components__grid {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .components__grid article {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+    box-shadow: var(--apphub-shadow-soft);
+  }
+
+  .components__grid h3 {
+    margin: 0 0 var(--apphub-spacing-xxs);
+  }
+
+  .modules {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: var(--apphub-color-surface-muted);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .modules {
+      background: rgba(8, 49, 47, 0.6);
+    }
+  }
+
+  .modules__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .modules__grid {
+    display: grid;
+    gap: var(--apphub-spacing-md);
+  }
+
+  .modules__grid article {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-lg);
+    padding: var(--apphub-spacing-md);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .modules__footnote {
+    margin: var(--apphub-spacing-md) 0 0;
+    font-size: var(--apphub-typography-font-size-sm);
+    color: var(--apphub-color-text-soft);
+  }
+
+  .modules__footnote code {
+    background: rgba(15, 118, 110, 0.1);
+    padding: 0 var(--apphub-spacing-xxs);
+    border-radius: var(--apphub-radius-sm);
+  }
+
+  .use-cases {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .use-cases__grid {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .use-cases__grid article {
+    padding: var(--apphub-spacing-lg);
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    background: var(--apphub-color-surface);
+  }
+
+  .data-plane {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: linear-gradient(145deg, rgba(13, 148, 136, 0.12), rgba(15, 118, 110, 0.08));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .data-plane {
+      background: linear-gradient(145deg, rgba(20, 184, 166, 0.16), rgba(4, 47, 46, 0.9));
+    }
+  }
+
+  .data-plane__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .data-plane ul,
+  .orchestration ul,
+  .ui ul,
+  .observatory ul {
+    margin: 0;
+    padding-left: var(--apphub-spacing-lg);
+    display: grid;
+    gap: var(--apphub-spacing-sm);
+    color: var(--apphub-color-text-muted);
+  }
+
+  .data-plane figure,
+  .orchestration figure,
+  .ui figure,
+  .observatory figure {
+    margin: 0;
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+    text-align: center;
+  }
+
+  .data-plane .diagram svg,
+  .orchestration .diagram svg,
+  .ui .diagram svg,
+  .observatory .diagram svg {
+    width: 100%;
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    box-shadow: var(--apphub-shadow-soft);
+    background: var(--apphub-color-surface);
+  }
+
+  .diagram {
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  .data-plane figcaption,
+  .orchestration figcaption,
+  .ui figcaption,
+  .observatory figcaption {
+    font-size: var(--apphub-typography-font-size-xs);
+    color: var(--apphub-color-text-soft);
+  }
+
+  .orchestration {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .orchestration__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .ui {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: var(--apphub-color-surface-muted);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .ui {
+      background: rgba(2, 19, 18, 0.78);
+    }
+  }
+
+  .ui__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .deploy {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .deploy__grid {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .deploy__grid article {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .deploy__note {
+    margin: var(--apphub-spacing-lg) 0 0;
+    color: var(--apphub-color-text-soft);
+  }
+
+  .services {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(13, 148, 136, 0.08));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .services {
+      background: linear-gradient(135deg, rgba(20, 184, 166, 0.18), rgba(2, 19, 18, 0.92));
+    }
+  }
+
+  .services__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+  }
+
+  .services__grid {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .services__grid article {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    padding: var(--apphub-spacing-lg);
+    border: 1px solid var(--apphub-color-border);
+  }
+
+  .observatory {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .observatory__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .observatory__intro {
+    margin: 0 0 var(--apphub-spacing-md);
+    color: var(--apphub-color-text-muted);
+  }
+
+  .cta {
+    padding: var(--apphub-spacing-4xl) 0 var(--apphub-spacing-5xl);
+    background: linear-gradient(160deg, rgba(13, 148, 136, 0.2), rgba(15, 118, 110, 0.16));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .cta {
+      background: linear-gradient(160deg, rgba(20, 184, 166, 0.24), rgba(2, 19, 18, 0.88));
+    }
+  }
+
+  .cta__inner {
+    display: grid;
+    gap: var(--apphub-spacing-xl);
+    align-items: center;
+  }
+
+  .cta__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  @media (min-width: 768px) {
+    .hero__inner {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    }
+
+    .hero__stats {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .components__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .modules__inner,
+    .data-plane__inner,
+    .orchestration__inner,
+    .ui__inner,
+    .observatory__inner {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .modules__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .use-cases__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .deploy__grid,
+    .services__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+</style>
