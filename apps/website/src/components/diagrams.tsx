@@ -33,7 +33,9 @@ const frameWidth = 360
 const frameHeight = 220
 const nodeDefaultWidth = 104
 const nodeDefaultHeight = 52
-const connectionPadding = 8
+const connectionPadding = 10
+const connectionStartInset = 4
+const connectionArrowInset = 10
 
 type NodeRect = {
   x: number
@@ -178,8 +180,25 @@ const renderConnections = (nodes: NodeDefinition[], connections?: ConnectionDefi
     const toRect = getNodeRect(to)
     const fromCenter = getRectCenter(fromRect)
     const toCenter = getRectCenter(toRect)
-    const start = projectToward(fromRect, toCenter)
-    const end = projectToward(toRect, fromCenter)
+    let start = projectToward(fromRect, toCenter)
+    let end = projectToward(toRect, fromCenter)
+
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    const distance = Math.hypot(dx, dy)
+
+    if (distance > 0) {
+      const ux = dx / distance
+      const uy = dy / distance
+      start = {
+        x: start.x + ux * connectionStartInset,
+        y: start.y + uy * connectionStartInset
+      }
+      end = {
+        x: end.x - ux * connectionArrowInset,
+        y: end.y - uy * connectionArrowInset
+      }
+    }
 
     return (
       <path
@@ -332,12 +351,12 @@ export const ObservatoryFlowDiagram = createDiagram({
 export const SystemArchitectureDiagram = createDiagram({
   title: 'System architecture overview',
   nodes: [
-    { id: 'ui', label: 'Unified\nUI', x: 24, y: 24, width: 112, height: 60 },
-    { id: 'api', label: 'API\nGateway', x: 132, y: 24, width: 112, height: 60 },
-    { id: 'workers', label: 'Workers', x: 240, y: 24, width: 112, height: 60 },
-    { id: 'eventBus', label: 'Event\nBus', x: 24, y: 148, width: 112, height: 60 },
-    { id: 'db', label: 'DB', x: 132, y: 148, width: 112, height: 60 },
-    { id: 'storage', label: 'Object\nStorage', x: 240, y: 148, width: 112, height: 60 }
+    { id: 'ui', label: 'Unified\nUI', x: 28, y: 30, width: 104, height: 56 },
+    { id: 'api', label: 'API\nGateway', x: 132, y: 30, width: 104, height: 56 },
+    { id: 'workers', label: 'Workers', x: 236, y: 30, width: 104, height: 56 },
+    { id: 'db', label: 'DB', x: 28, y: 152, width: 104, height: 56 },
+    { id: 'eventBus', label: 'Event\nBus', x: 132, y: 152, width: 104, height: 56 },
+    { id: 'storage', label: 'Object\nStorage', x: 236, y: 152, width: 104, height: 56 }
   ],
   connections: [
     { from: 'ui', to: 'api' },
