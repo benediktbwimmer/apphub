@@ -33,6 +33,47 @@ const frameWidth = 360
 const frameHeight = 220
 const nodeDefaultWidth = 104
 const nodeDefaultHeight = 52
+const connectionPadding = 8
+
+type NodeRect = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+const getNodeRect = (node: NodeDefinition): NodeRect => ({
+  x: node.x,
+  y: node.y,
+  width: node.width ?? nodeDefaultWidth,
+  height: node.height ?? nodeDefaultHeight
+})
+
+const getRectCenter = (rect: NodeRect) => ({
+  x: rect.x + rect.width / 2,
+  y: rect.y + rect.height / 2
+})
+
+const projectToward = (fromRect: NodeRect, toCenter: { x: number; y: number }) => {
+  const center = getRectCenter(fromRect)
+  const dx = toCenter.x - center.x
+  const dy = toCenter.y - center.y
+
+  if (dx === 0 && dy === 0) {
+    return center
+  }
+
+  const usableHalfWidth = Math.max(fromRect.width / 2 - connectionPadding, 0.01)
+  const usableHalfHeight = Math.max(fromRect.height / 2 - connectionPadding, 0.01)
+  const scaleX = dx === 0 ? Number.POSITIVE_INFINITY : usableHalfWidth / Math.abs(dx)
+  const scaleY = dy === 0 ? Number.POSITIVE_INFINITY : usableHalfHeight / Math.abs(dy)
+  const scale = Math.min(scaleX, scaleY)
+
+  return {
+    x: center.x + dx * scale,
+    y: center.y + dy * scale
+  }
+}
 
 const DiagramSurface: FC<{ title: string; children: ReactNode }> = ({ title, children }) => (
   <svg
@@ -133,27 +174,22 @@ const renderConnections = (nodes: NodeDefinition[], connections?: ConnectionDefi
     const to = nodeMap.get(connection.to)
     if (!from || !to) return null
 
-    const widthFrom = from.width ?? nodeDefaultWidth
-    const heightFrom = from.height ?? nodeDefaultHeight
-    const widthTo = to.width ?? nodeDefaultWidth
-    const heightTo = to.height ?? nodeDefaultHeight
-
-    const startX = from.x + widthFrom / 2
-    const startY = from.y + heightFrom / 2
-    const endX = to.x + widthTo / 2
-    const endY = to.y + heightTo / 2
+    const fromRect = getNodeRect(from)
+    const toRect = getNodeRect(to)
+    const fromCenter = getRectCenter(fromRect)
+    const toCenter = getRectCenter(toRect)
+    const start = projectToward(fromRect, toCenter)
+    const end = projectToward(toRect, fromCenter)
 
     return (
-      <line
+      <path
         key={`${connection.from}-${connection.to}-${index}`}
-        x1={startX}
-        y1={startY}
-        x2={endX}
-        y2={endY}
+        d={`M ${start.x} ${start.y} L ${end.x} ${end.y}`}
         stroke="rgba(94, 234, 212, 0.75)"
         strokeWidth="2"
         strokeDasharray={connection.dashed ? '6 6' : undefined}
         markerEnd="url(#diagram-arrowhead)"
+        fill="none"
       />
     )
   })
