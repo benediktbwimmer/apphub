@@ -255,10 +255,10 @@ export const EventBusDiagram = createDiagram({
 export const ModuleLifecycleDiagram = createDiagram({
   title: 'Module lifecycle',
   nodes: [
-    { id: 'design', label: 'Design\nBlueprint', x: 22, y: 94 },
-    { id: 'develop', label: 'Develop\nModule', x: 118, y: 44 },
-    { id: 'deploy', label: 'Deploy &\nOperate', x: 214, y: 94 },
-    { id: 'evolve', label: 'Evolve\nVersion', x: 118, y: 154 }
+    { id: 'design', label: 'Design\nBlueprint', x: 32, y: 44 },
+    { id: 'develop', label: 'Develop\nModule', x: 228, y: 44 },
+    { id: 'deploy', label: 'Deploy &\nOperate', x: 228, y: 156 },
+    { id: 'evolve', label: 'Evolve\nVersion', x: 32, y: 156 }
   ],
   connections: [
     { from: 'design', to: 'develop' },
@@ -267,7 +267,7 @@ export const ModuleLifecycleDiagram = createDiagram({
     { from: 'evolve', to: 'design', dashed: true }
   ],
   annotations: [
-    { x: 180, y: 30, text: 'Tests, docs & observability baked in', align: 'middle' }
+    { x: 180, y: 26, text: 'Tests, docs & observability baked in', align: 'middle' }
   ]
 })
 
@@ -296,24 +296,22 @@ export const ObservatoryFlowDiagram = createDiagram({
 export const SystemArchitectureDiagram = createDiagram({
   title: 'System architecture overview',
   nodes: [
-    { id: 'ui', label: 'Unified\nUI', x: 36, y: 28 },
-    { id: 'api', label: 'Fastify API', x: 142, y: 28 },
-    { id: 'workers', label: 'Workers', x: 248, y: 28 },
-    { id: 'redis', label: 'Redis\nQueues', x: 36, y: 132 },
-    { id: 'db', label: 'PostgreSQL', x: 142, y: 132 },
-    { id: 'storage', label: 'Object\nStorage', x: 248, y: 132 }
+    { id: 'ui', label: 'Unified\nUI', x: 24, y: 24, width: 112, height: 60 },
+    { id: 'api', label: 'API\nGateway', x: 132, y: 24, width: 112, height: 60 },
+    { id: 'workers', label: 'Workers', x: 240, y: 24, width: 112, height: 60 },
+    { id: 'eventBus', label: 'Event\nBus', x: 24, y: 148, width: 112, height: 60 },
+    { id: 'db', label: 'DB', x: 132, y: 148, width: 112, height: 60 },
+    { id: 'storage', label: 'Object\nStorage', x: 240, y: 148, width: 112, height: 60 }
   ],
   connections: [
     { from: 'ui', to: 'api' },
     { from: 'api', to: 'workers' },
-    { from: 'api', to: 'redis' },
-    { from: 'workers', to: 'redis' },
+    { from: 'api', to: 'eventBus' },
+    { from: 'workers', to: 'eventBus' },
     { from: 'api', to: 'db' },
     { from: 'workers', to: 'storage' },
-    { from: 'db', to: 'api' }
-  ],
-  annotations: [
-    { x: 180, y: 112, text: 'Event-driven orchestration', align: 'middle' }
+    { from: 'eventBus', to: 'workers', dashed: true },
+    { from: 'db', to: 'api', dashed: true }
   ]
 })
 

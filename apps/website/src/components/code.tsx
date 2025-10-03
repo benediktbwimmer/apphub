@@ -29,7 +29,6 @@ export const CodeSnippet = ({ code, language, highlightLines, caption }: CodeSni
     const highlighted = Prism.highlight(trimmed, grammar, normalisedLanguage)
     return highlighted.split('\n').map((content, index) => ({
       content: content.length > 0 ? content : '&nbsp;',
-      lineNumber: index + 1,
       highlighted: highlightedLines.has(index + 1)
     }))
   }, [code, normalisedLanguage, highlightedLines])
@@ -38,12 +37,11 @@ export const CodeSnippet = ({ code, language, highlightLines, caption }: CodeSni
     <figure className="code-snippet">
       <pre className="code-snippet__pre" aria-label={`${normalisedLanguage} code example`}>
         <code className={`language-${normalisedLanguage}`}>
-          {segments.map((segment) => (
+          {segments.map((segment, index) => (
             <span
-              key={segment.lineNumber}
+              key={`line-${index}`}
               className={`code-snippet__line${segment.highlighted ? ' is-highlighted' : ''}`}
             >
-              <span className="code-snippet__number">{segment.lineNumber}</span>
               <span
                 className="code-snippet__code"
                 dangerouslySetInnerHTML={{ __html: segment.content }}

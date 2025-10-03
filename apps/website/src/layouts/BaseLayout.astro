@@ -1,5 +1,6 @@
 ---
 import { navLinks } from '@components/navigation/navLinks'
+import OsirisEye from '@components/branding/OsirisEye.astro'
 
 interface LayoutProps {
   title: string
@@ -148,14 +149,28 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
       }
 
       .site-header__brand {
-        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--apphub-spacing-xs);
+        font-weight: 600;
         font-size: 1.05rem;
         color: var(--apphub-color-text);
+        text-decoration: none;
       }
 
       .site-header__brand:hover,
       .site-header__brand:focus-visible {
         color: var(--apphub-color-accent-strong);
+      }
+
+      .site-header__logo {
+        width: 1.9rem;
+        height: auto;
+      }
+
+      .site-header__wordmark {
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
 
       .site-nav {
@@ -171,15 +186,15 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
       }
 
       .site-nav__link {
-        display: grid;
-        gap: 0.15rem;
+        display: inline-flex;
+        align-items: center;
         padding: var(--apphub-spacing-xs) var(--apphub-spacing-sm);
         border-radius: var(--apphub-radius-sm);
         border: 1px solid transparent;
         color: var(--apphub-color-text);
         background: transparent;
         text-decoration: none;
-        min-width: 160px;
+        font-weight: var(--apphub-typography-font-weight-semibold);
       }
 
       .site-nav__link:hover,
@@ -193,13 +208,8 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
         background: color-mix(in srgb, var(--apphub-color-accent-strong) 16%, transparent);
       }
 
-      .site-nav__label {
-        font-weight: var(--apphub-typography-font-weight-semibold);
-      }
-
-      .site-nav__description {
-        font-size: var(--apphub-typography-font-size-xs);
-        color: var(--apphub-color-text-soft);
+      .site-nav__link span {
+        line-height: 1.15;
       }
 
       .site-header__cta {
@@ -245,14 +255,26 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
       }
 
       .site-footer__brand {
+        display: flex;
+        align-items: center;
+        gap: var(--apphub-spacing-sm);
         margin: 0;
-        font-weight: 700;
       }
 
       .site-footer__tagline {
         margin: 0.25rem 0 0;
         color: var(--apphub-color-text-soft);
         font-size: var(--apphub-typography-font-size-xs);
+      }
+
+      .site-footer__logo {
+        width: 2.3rem;
+        height: auto;
+      }
+
+      .site-footer__wordmark {
+        margin: 0;
+        font-weight: 700;
       }
 
       .site-footer__links {
@@ -337,7 +359,10 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <header class="site-header">
       <div class="container site-header__inner">
-        <a class="site-header__brand" href="/">Osiris AppHub</a>
+        <a class="site-header__brand" href="/">
+          <OsirisEye class="site-header__logo" aria-hidden="true" title="" />
+          <span class="site-header__wordmark">Osiris AppHub</span>
+        </a>
         <nav class="site-nav" aria-label="Primary">
           <ul class="site-nav__list">
             {navLinks.map((link) => {
@@ -350,8 +375,7 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
                     href={link.href}
                     aria-current={isActive ? 'page' : undefined}
                   >
-                    <span class="site-nav__label">{link.label}</span>
-                    <span class="site-nav__description">{link.description}</span>
+                    <span>{link.label}</span>
                   </a>
                 </li>
               )
@@ -368,9 +392,12 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
     </main>
     <footer class="site-footer">
       <div class="container site-footer__inner">
-        <div>
-          <p class="site-footer__brand">Osiris AppHub</p>
-          <p class="site-footer__tagline">Modules for modern operations teams.</p>
+        <div class="site-footer__brand">
+          <OsirisEye class="site-footer__logo" aria-hidden="true" title="" />
+          <div>
+            <p class="site-footer__wordmark">Osiris AppHub</p>
+            <p class="site-footer__tagline">Modules for modern operations teams.</p>
+          </div>
         </div>
         <div class="site-footer__links">
           <a href="mailto:osirisapphub@gmail.com">Contact</a>
