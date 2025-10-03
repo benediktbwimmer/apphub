@@ -1,0 +1,147 @@
+#!/bin/bash
+set -xeuo pipefail
+
+REGION="${aws_region}"
+PROJECT="${project_name}"
+GIT_REPO="${apphub_git_repo}"
+GIT_REF="${apphub_git_ref}"
+CONTACT_EMAIL="${contact_email}"
+
+exec &> >(tee -a /var/log/apphub-bootstrap.log)
+
+dnf -y upgrade
+
+dnf -y install docker git jq amazon-cloudwatch-agent nginx
+
+install -d -m 0755 /usr/libexec/docker/cli-plugins
+curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
+  -o /usr/libexec/docker/cli-plugins/docker-compose
+chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+systemctl enable docker
+systemctl start docker
+usermod -aG docker ec2-user || true
+
+install -d -o ec2-user -g ec2-user /opt/apphub
+install -d -o ec2-user -g ec2-user /opt/apphub/data/{postgres,redis,minio,scratch}
+install -d -o ec2-user -g ec2-user /opt/apphub/website
+
+cat <<'ENVEOF' >/opt/apphub/.env
+${env_base}
+ENVEOF
+
+aws ssm get-parameters \
+  --names \
+    /apphub/demo/APPHUB_SESSION_SECRET \
+    /apphub/demo/APPHUB_DEMO_ADMIN_TOKEN \
+    /apphub/demo/APPHUB_DEMO_SERVICE_TOKEN \
+    /apphub/demo/APPHUB_DEMO_VIEWER_TOKEN \
+  --with-decryption \
+  --region "${aws_region}" \
+  --query 'Parameters[*].[Name,Value]' \
+  --output text \
+  | while read -r name value; do
+    key="$(basename "$${name}")"
+    echo "$${key}=$${value}" >>/opt/apphub/.env
+  done
+
+chown ec2-user:ec2-user /opt/apphub/.env
+chmod 600 /opt/apphub/.env
+
+cat <<'OVERRIDE' >/opt/apphub/docker-compose.override.yml
+${compose_override}
+OVERRIDE
+chown ec2-user:ec2-user /opt/apphub/docker-compose.override.yml
+
+if [ ! -d /opt/apphub/source ]; then
+  git clone "${apphub_git_repo}" /opt/apphub/source
+fi
+
+cd /opt/apphub/source
+git fetch --all --tags || true
+git checkout "${apphub_git_ref}"
+git pull --ff-only origin "${apphub_git_ref}" || true
+chown -R ec2-user:ec2-user /opt/apphub/source
+
+cat <<'SERVICEF' >/etc/systemd/system/apphub-demo.service
+[Unit]
+Description=AppHub demo stack
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/apphub/source
+EnvironmentFile=/opt/apphub/.env
+ExecStart=/usr/bin/docker compose --project-directory /opt/apphub/source --file /opt/apphub/source/docker/demo-stack.compose.yml --file /opt/apphub/docker-compose.override.yml --env-file /opt/apphub/.env up -d --remove-orphans --build
+ExecStop=/usr/bin/docker compose --project-directory /opt/apphub/source --file /opt/apphub/source/docker/demo-stack.compose.yml --file /opt/apphub/docker-compose.override.yml --env-file /opt/apphub/.env down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+SERVICEF
+
+systemctl daemon-reload
+systemctl enable apphub-demo.service
+systemctl start apphub-demo.service || true
+
+cat <<'NGINX' >/etc/nginx/conf.d/apphub.conf
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    root /opt/apphub/website/dist;
+    index index.html;
+
+    access_log /var/log/nginx/apphub-website.access.log;
+    error_log /var/log/nginx/apphub-website.error.log;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+NGINX
+
+rm -f /etc/nginx/conf.d/default.conf || true
+systemctl enable nginx
+systemctl restart nginx
+
+cat <<'CWAE' >/opt/apphub/cloudwatch-agent.json
+${cloudwatch_agent}
+CWAE
+
+INSTANCE_ID="$(curl -s http://169.254.169.254/latest/meta-data/instance-id)"
+sed -i "s/INSTANCE_ID_PLACEHOLDER/$${INSTANCE_ID}/g" /opt/apphub/cloudwatch-agent.json
+
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config \
+  -m ec2 \
+  -c file:/opt/apphub/cloudwatch-agent.json \
+  -s
+
+cat <<'LOGROT' >/etc/logrotate.d/docker-containers
+/var/lib/docker/containers/*/*.log {
+  rotate 7
+  daily
+  compress
+  missingok
+  delaycompress
+  copytruncate
+}
+LOGROT
+
+systemctl restart rsyslog || true
+
+echo "Bootstrap complete"
