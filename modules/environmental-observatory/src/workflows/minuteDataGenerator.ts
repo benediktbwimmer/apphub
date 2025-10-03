@@ -74,6 +74,7 @@ const definition: WorkflowDefinition = {
     ]
   },
   defaultParameters: {
+    seed: 1337,
     rowsPerInstrument: 6,
     intervalMinutes: 10,
     instrumentCount: 3,
@@ -96,11 +97,11 @@ const definition: WorkflowDefinition = {
       type: 'job',
       jobSlug: 'observatory-data-generator',
       parameters: {
-        minute: '{{ parameters.minute }}',
+        minute: '{{ parameters.minute | default: run.trigger.occurrence | slice: 0, 16 }}',
         rowsPerInstrument: '{{ parameters.rowsPerInstrument }}',
         intervalMinutes: '{{ parameters.intervalMinutes }}',
         instrumentCount: '{{ parameters.instrumentCount }}',
-        seed: '{{ parameters.seed }}',
+        seed: '{{ parameters.seed | default: 1337 }}',
         filestoreBaseUrl: '{{ parameters.filestoreBaseUrl }}',
         filestoreBackendId: '{{ parameters.filestoreBackendId }}',
         filestoreToken: '{{ parameters.filestoreToken }}',
@@ -189,6 +190,7 @@ const schedules = [
       rowsPerInstrument: '{{ defaultParameters.rowsPerInstrument }}',
       intervalMinutes: '{{ defaultParameters.intervalMinutes }}',
       instrumentCount: '{{ defaultParameters.instrumentCount }}',
+      seed: '{{ defaultParameters.seed }}',
       filestoreBaseUrl: '{{ defaultParameters.filestoreBaseUrl }}',
       filestoreBackendId: '{{ defaultParameters.filestoreBackendId }}',
       filestoreToken: '{{ defaultParameters.filestoreToken }}',
