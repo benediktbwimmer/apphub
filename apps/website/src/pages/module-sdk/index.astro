@@ -171,7 +171,9 @@ const totalSnippets = moduleSdkSnippets.length;
       groups.forEach((group) => {
         const groupCards = Array.from(group.querySelectorAll('[data-snippet]'));
         const hasVisible = groupCards.some((card) => card instanceof HTMLElement && card.style.display !== 'none');
-        (group instanceof HTMLElement) && (group.style.display = hasVisible ? '' : 'none');
+        if (group instanceof HTMLElement) {
+          group.style.display = hasVisible ? '' : 'none';
+        }
       });
 
       updateSummary(visibleCount);

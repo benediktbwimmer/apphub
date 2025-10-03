@@ -1,0 +1,56 @@
+.code-snippet {
+  margin: var(--apphub-spacing-sm) 0 0;
+  display: grid;
+  gap: var(--apphub-spacing-xxs);
+}
+
+.code-snippet__pre {
+  margin: 0;
+  background: rgba(2, 44, 41, 0.92);
+  border-radius: var(--apphub-radius-lg);
+  border: 1px solid rgba(94, 234, 212, 0.28);
+  box-shadow: inset 0 1px 8px rgba(14, 165, 233, 0.12);
+  overflow-x: auto;
+  padding: var(--apphub-spacing-xs) 0;
+}
+
+.code-snippet__pre code {
+  display: block;
+  font-family: 'Source Code Pro', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: #ecfeff;
+  white-space: pre;
+}
+
+.code-snippet__line {
+  display: grid;
+  grid-template-columns: minmax(2.5ch, auto) 1fr;
+  gap: var(--apphub-spacing-xs);
+  align-items: start;
+  padding: 0.1rem var(--apphub-spacing-sm);
+}
+
+.code-snippet__line:nth-child(odd) {
+  background: rgba(13, 148, 136, 0.08);
+}
+
+.code-snippet__line.is-highlighted {
+  background: rgba(14, 165, 233, 0.18);
+  border-left: 3px solid rgba(45, 212, 191, 0.9);
+}
+
+.code-snippet__number {
+  font-variant-numeric: tabular-nums;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.code-snippet__code {
+  display: block;
+  color: inherit;
+}
+
+.code-snippet__caption {
+  font-size: var(--apphub-typography-font-size-xs);
+  color: var(--apphub-color-text-soft);
+}
