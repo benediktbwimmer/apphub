@@ -713,3 +713,15 @@ export type ModuleTargetRow = {
   metadata: unknown;
   created_at: string;
 };
+
+export type ModuleTargetConfigRow = {
+  module_id: string;
+  module_version: string;
+  target_name: string;
+  target_version: string;
+  settings: unknown;
+  secrets: unknown;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+};

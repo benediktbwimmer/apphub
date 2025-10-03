@@ -4,11 +4,15 @@ export { createModuleContext, createJobContext } from './context';
 export type {
   ModuleCapabilities,
   ModuleCapabilityConfig,
+  ResolvedModuleCapabilityConfig,
+  CapabilityConfigTemplate,
+  CapabilityValueTemplate,
+  CapabilityValueReference,
   ModuleCapabilityOverrides,
   CapabilityOverride,
   CapabilityOverrideFactory
 } from './runtime/capabilities';
-export { createModuleCapabilities, mergeCapabilityOverrides } from './runtime/capabilities';
+export { createModuleCapabilities, mergeCapabilityOverrides, resolveModuleCapabilityConfig } from './runtime/capabilities';
 export { defineModule, type ModuleDefinition, type ModuleDefinitionOf, type ModuleContextFromDefinition } from './module';
 export {
   serializeModuleDefinition,

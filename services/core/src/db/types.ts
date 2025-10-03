@@ -852,6 +852,18 @@ export type ModuleTargetRecord = {
   createdAt: string;
 };
 
+export type ModuleTargetRuntimeConfigRecord = {
+  moduleId: string;
+  moduleVersion: string;
+  targetName: string;
+  targetVersion: string;
+  settings: JsonValue;
+  secrets: JsonValue;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ModuleArtifactRecord = {
   id: string;
   moduleId: string;

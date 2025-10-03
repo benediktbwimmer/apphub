@@ -78,7 +78,8 @@ import {
   type ModuleTargetKind,
   type ModuleArtifactRecord,
   type ModuleRecord,
-  type ModuleTargetRecord
+  type ModuleTargetRecord,
+  type ModuleTargetRuntimeConfigRecord
 } from './types';
 import type {
   BuildRow,
@@ -118,7 +119,8 @@ import type {
   ExampleBundleStatusRow,
   ModuleArtifactRow,
   ModuleRow,
-  ModuleTargetRow
+  ModuleTargetRow,
+  ModuleTargetConfigRow
 } from './rowTypes';
 import type {
   ServiceRecord,
@@ -1690,6 +1692,20 @@ export function mapModuleTargetRow(row: ModuleTargetRow): ModuleTargetRecord {
     metadata: toModuleTargetMetadata(row.metadata),
     createdAt: row.created_at
   } satisfies ModuleTargetRecord;
+}
+
+export function mapModuleTargetConfigRow(row: ModuleTargetConfigRow): ModuleTargetRuntimeConfigRecord {
+  return {
+    moduleId: row.module_id,
+    moduleVersion: row.module_version,
+    targetName: row.target_name,
+    targetVersion: row.target_version,
+    settings: ensureJsonValue(row.settings, {}),
+    secrets: ensureJsonValue(row.secrets, {}),
+    metadata: ensureJsonValue(row.metadata, null),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies ModuleTargetRuntimeConfigRecord;
 }
 
 export function mapExampleBundleArtifactRow(row: ExampleBundleArtifactRow): ExampleBundleArtifactRecord {

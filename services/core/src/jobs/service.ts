@@ -17,8 +17,10 @@ import {
   completeJobRun,
   upsertJobDefinition
 } from '../db/index';
+import { getModuleTargetRuntimeConfig } from '../db/modules';
 import { enqueueBuildJob, enqueueRepositoryIngestion } from '../queue';
 import { executeJobRun } from './runtime';
+import { mergeJsonObjects } from './jsonMerge';
 import { getRuntimeReadiness } from './runtimeReadiness';
 import { introspectEntryPointSchemas } from './schemaIntrospector';
 import { isDockerRuntimeEnabled } from '../config/dockerRuntime';
@@ -271,7 +273,7 @@ function normalizeJobRunPayload(job: JobDefinitionRecord, payload: JobRunRequest
   const fallbackMaxAttempts = job.retryPolicy?.maxAttempts ?? null;
   const maxAttempts =
     payload.maxAttempts !== undefined ? payload.maxAttempts : fallbackMaxAttempts;
-  return { parameters, timeoutMs, maxAttempts, context: payload.context ?? null } as const;
+  return { parameters, timeoutMs, maxAttempts, context: payload.context ?? null };
 }
 
 function normalizeCapabilityFlagInput(flags: string[] | undefined): string[] {
@@ -1001,7 +1003,23 @@ export class JobService {
       throw new JobServiceError('job_not_found', 404, 'job not found');
     }
 
-    const runInput = normalizeJobRunPayload(job, payload);
+    let runInput = normalizeJobRunPayload(job, payload);
+    if (job.runtime === 'module' && job.moduleBinding) {
+      const runtimeConfig = await getModuleTargetRuntimeConfig({ binding: job.moduleBinding });
+      if (runtimeConfig) {
+        const moduleRuntimeContext = {
+          settings: runtimeConfig.settings ?? null,
+          secrets: runtimeConfig.secrets ?? null
+        } satisfies Record<string, JsonValue>;
+        const moduleRuntimeEnvelope = {
+          moduleRuntime: moduleRuntimeContext
+        } satisfies Record<string, JsonValue>;
+        runInput = {
+          ...runInput,
+          context: mergeJsonObjects(runInput.context, moduleRuntimeEnvelope)
+        };
+      }
+    }
     const run = await this.deps.createJobRun(job.id, runInput);
     let latestRun: JobRunRecord | null = run;
 

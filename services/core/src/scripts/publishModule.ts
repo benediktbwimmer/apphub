@@ -25,7 +25,8 @@ import {
   upsertService,
   listServices,
   getServiceBySlug,
-  replaceModuleManifests
+  replaceModuleManifests,
+  upsertModuleTargetRuntimeConfig
 } from '../db';
 import { shutdownApphubEvents } from '../events';
 import type { ModuleArtifactPublishResult } from '../db/modules';
@@ -68,6 +69,11 @@ interface JobDefinitionFile {
   parametersSchema?: unknown;
   outputSchema?: unknown;
   metadata?: unknown;
+}
+
+function cloneJsonValue<T>(value: T, fallback: T): T {
+  const source = value === undefined ? fallback : value;
+  return JSON.parse(JSON.stringify(source)) as T;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -416,6 +422,7 @@ function buildBaseUrl(host: string, port: number, basePath: string): string {
 
 async function registerModuleJobs(
   result: ModuleArtifactPublishResult,
+  manifest: ModuleManifest,
   options: { moduleDir?: string } = {}
 ): Promise<void> {
   if (!result.targets || result.targets.length === 0) {
@@ -428,6 +435,9 @@ async function registerModuleJobs(
     console.log('[module:publish] No job targets found; skipping job definition registration');
     return;
   }
+
+  const moduleSettingsDefaults = manifest.settings?.defaults as JsonValue | undefined;
+  const moduleSecretsDefaults = manifest.secrets?.defaults as JsonValue | undefined;
 
   const moduleDir = options.moduleDir;
 
@@ -454,6 +464,8 @@ async function registerModuleJobs(
           job?: { slug?: string; name?: string };
           parameters?: { defaults?: JsonValue; schema?: JsonValue };
           output?: { schema?: JsonValue };
+          settings?: { defaults?: JsonValue | null };
+          secrets?: { defaults?: JsonValue | null };
         }
       | undefined;
 
@@ -484,6 +496,11 @@ async function registerModuleJobs(
       }
     }
 
+    const targetSettingsSource = metadataShape?.settings?.defaults ?? moduleSettingsDefaults;
+    const targetSecretsSource = metadataShape?.secrets?.defaults ?? moduleSecretsDefaults;
+    const runtimeSettings = cloneJsonValue<JsonValue>((targetSettingsSource ?? {}) as JsonValue, {} as JsonValue);
+    const runtimeSecrets = cloneJsonValue<JsonValue>((targetSecretsSource ?? {}) as JsonValue, {} as JsonValue);
+
     const jobMetadata: JsonValue = {
       module: {
         id: result.module.id,
@@ -491,6 +508,10 @@ async function registerModuleJobs(
         targetName: target.name,
         targetVersion: target.version,
         fingerprint: target.fingerprint ?? null
+      },
+      moduleRuntime: {
+        settings: runtimeSettings,
+        secrets: runtimeSecrets
       }
     };
 
@@ -512,6 +533,12 @@ async function registerModuleJobs(
     if (legacySlug !== slug) {
       await deleteJobDefinitionBySlug(legacySlug);
     }
+
+    await upsertModuleTargetRuntimeConfig({
+      binding,
+      settings: runtimeSettings,
+      secrets: runtimeSecrets
+    });
 
     console.log('[module:publish] Registered job definition', {
       slug,
@@ -1623,7 +1650,7 @@ async function main(): Promise<void> {
   console.log(`  Bundle:   ${path.relative(process.cwd(), artifactInfo.modulePath)} (sha256 ${artifactInfo.checksum})`);
 
   if (options.registerJobs) {
-    await registerModuleJobs(artifactRecord, { moduleDir });
+    await registerModuleJobs(artifactRecord, manifest, { moduleDir });
     await registerModuleServices(artifactRecord, manifest);
     await registerModuleWorkflows(artifactRecord);
   }

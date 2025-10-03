@@ -1,4 +1,8 @@
 import { defineModule } from '@apphub/module-sdk';
+import type {
+  CapabilityValueReference,
+  CapabilityValueTemplate
+} from '@apphub/module-sdk';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from './src/runtime/settings';
 import { defaultObservatorySettings } from './src/runtime/settings';
 import { dataGeneratorJob } from './src/jobs/dataGenerator';
@@ -20,10 +24,41 @@ import {
   calibrationReprocessWorkflow
 } from './src/workflows';
 
+type RefOptions<T> = {
+  fallback?: CapabilityValueTemplate<T>;
+  optional?: boolean;
+};
+
+function settingsRef<T>(path: string, options: RefOptions<T> = {}): CapabilityValueReference<T> {
+  const reference: CapabilityValueReference<T> = {
+    $ref: `settings.${path}`
+  };
+  if (options.fallback !== undefined) {
+    reference.fallback = options.fallback;
+  }
+  if (options.optional) {
+    reference.optional = true;
+  }
+  return reference;
+}
+
+function secretsRef<T>(path: string, options: RefOptions<T> = {}): CapabilityValueReference<T> {
+  const reference: CapabilityValueReference<T> = {
+    $ref: `secrets.${path}`
+  };
+  if (options.fallback !== undefined) {
+    reference.fallback = options.fallback;
+  }
+  if (options.optional === undefined || options.optional) {
+    reference.optional = true;
+  }
+  return reference;
+}
+
 export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>({
   metadata: {
     name: 'environmental-observatory',
-    version: '0.1.4',
+    version: '0.1.5',
     displayName: 'Environmental Observatory',
     description:
       'Reference implementation of the environmental observatory scenario using the AppHub module runtime.'
@@ -36,25 +71,31 @@ export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>
   },
   capabilities: {
     filestore: {
-      baseUrl: defaultObservatorySettings.filestore.baseUrl,
-      backendMountId: defaultObservatorySettings.filestore.backendId ?? 1
+      baseUrl: settingsRef('filestore.baseUrl'),
+      backendMountId: settingsRef('filestore.backendId', { fallback: 1 }),
+      token: secretsRef('filestoreToken')
     },
     metastore: {
-      baseUrl: defaultObservatorySettings.metastore.baseUrl,
-      namespace: defaultObservatorySettings.metastore.namespace
+      baseUrl: settingsRef('metastore.baseUrl'),
+      namespace: settingsRef('metastore.namespace'),
+      token: secretsRef('metastoreToken')
     },
     timestore: {
-      baseUrl: defaultObservatorySettings.timestore.baseUrl
+      baseUrl: settingsRef('timestore.baseUrl'),
+      token: secretsRef('timestoreToken')
     },
     events: {
-      baseUrl: defaultObservatorySettings.core.baseUrl,
-      defaultSource: defaultObservatorySettings.events.source
+      baseUrl: settingsRef('core.baseUrl'),
+      defaultSource: settingsRef('events.source'),
+      token: secretsRef('eventsToken')
     },
     coreHttp: {
-      baseUrl: defaultObservatorySettings.core.baseUrl
+      baseUrl: settingsRef('core.baseUrl'),
+      token: secretsRef('coreApiToken')
     },
     coreWorkflows: {
-      baseUrl: defaultObservatorySettings.core.baseUrl
+      baseUrl: settingsRef('core.baseUrl'),
+      token: secretsRef('coreApiToken')
     }
   },
   targets: [

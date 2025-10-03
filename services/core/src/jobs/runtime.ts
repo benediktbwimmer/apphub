@@ -40,6 +40,7 @@ import { resolveJobRuntime, type JobRuntimeKind } from './runtimeKind';
 import { mergeJsonObjects, asJsonObject } from './jsonMerge';
 import { getWorkflowEventContext, type WorkflowEventContext } from '../workflowEventContext';
 import { ModuleRuntimeLoader } from '../moduleRuntime';
+import { getModuleTargetRuntimeConfig } from '../db/modules';
 import {
   createJobContext,
   type ModuleLogger,
@@ -184,9 +185,23 @@ export async function createJobRunForSlug(
 ): Promise<JobRunRecord> {
   const definition = await ensureJobDefinitionExists(slug);
   const moduleBinding = input.moduleBinding === undefined ? definition.moduleBinding ?? null : input.moduleBinding;
+
+  let resolvedContext = input.context ?? null;
+  if (moduleBinding) {
+    const runtimeConfig = await getModuleTargetRuntimeConfig({ binding: moduleBinding });
+    if (runtimeConfig) {
+      const moduleRuntimeContext = {
+        settings: runtimeConfig.settings ?? null,
+        secrets: runtimeConfig.secrets ?? null
+      } satisfies Record<string, JsonValue>;
+      resolvedContext = mergeJsonObjects(resolvedContext, { moduleRuntime: moduleRuntimeContext });
+    }
+  }
+
   return createJobRun(definition.id, {
     ...input,
-    moduleBinding
+    moduleBinding,
+    context: resolvedContext ?? null
   });
 }
 
@@ -642,6 +657,48 @@ function resolveModuleBinding(run: JobRunRecord, definition: JobDefinitionRecord
   return run.moduleBinding ?? definition.moduleBinding ?? null;
 }
 
+type ModuleRuntimeInputs = {
+  settings?: unknown;
+  secrets?: unknown;
+};
+
+function extractModuleRuntimeValues(value: JsonValue | null | undefined): ModuleRuntimeInputs | null {
+  const object = asJsonObject(value);
+  if (!object) {
+    return null;
+  }
+
+  const moduleNode = object.module ?? object.moduleRuntime ?? object.moduleContext;
+  if (moduleNode && typeof moduleNode === 'object' && !Array.isArray(moduleNode)) {
+    const moduleRecord = moduleNode as Record<string, JsonValue>;
+    const settings = moduleRecord.settings as unknown;
+    const secrets = moduleRecord.secrets as unknown;
+    if (settings !== undefined || secrets !== undefined) {
+      return { settings, secrets };
+    }
+  }
+
+  if (object.moduleSettings !== undefined || object.moduleSecrets !== undefined) {
+    return {
+      settings: object.moduleSettings as unknown,
+      secrets: object.moduleSecrets as unknown
+    };
+  }
+
+  return null;
+}
+
+function resolveModuleRuntimeInputs(
+  definition: JobDefinitionRecord,
+  run: JobRunRecord
+): ModuleRuntimeInputs {
+  return (
+    extractModuleRuntimeValues(run.context) ??
+    extractModuleRuntimeValues(definition.metadata) ??
+    {}
+  );
+}
+
 function createModuleJobLogger(
   context: JobRunContext,
   info: {
@@ -698,6 +755,7 @@ async function executeModuleJob(params: ModuleExecutionParams): Promise<JobResul
   };
 
   const moduleDefinition = loaded.module.definition;
+  const moduleRuntimeInputs = resolveModuleRuntimeInputs(params.definition, params.run);
   const capabilityOverrides: ModuleCapabilityOverrides[] | undefined = jobTarget.capabilityOverrides
     ? [jobTarget.capabilityOverrides]
     : undefined;
@@ -722,8 +780,8 @@ async function executeModuleJob(params: ModuleExecutionParams): Promise<JobResul
     capabilityOverrides,
     parametersDescriptor: jobTarget.kind === 'job' ? jobTarget.parameters : undefined,
     parameters: context.parameters,
-    settings: undefined,
-    secrets: undefined,
+    settings: moduleRuntimeInputs.settings,
+    secrets: moduleRuntimeInputs.secrets,
     logger: moduleLogger
   });
 

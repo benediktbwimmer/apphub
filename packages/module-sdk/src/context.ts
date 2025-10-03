@@ -2,6 +2,7 @@ import { ModuleLogger, noopLogger } from './logger';
 import {
   createModuleCapabilities,
   mergeCapabilityOverrides,
+  resolveModuleCapabilityConfig,
   type ModuleCapabilities,
   type ModuleCapabilityConfig,
   type ModuleCapabilityOverrides
@@ -56,9 +57,13 @@ export function createModuleContext<TSettings, TSecrets>(
   options: CreateModuleContextOptions<TSettings, TSecrets>
 ): ModuleContext<TSettings, TSecrets> {
   const capabilityOverrides = mergeCapabilityOverrides(...(options.capabilityOverrides ?? []));
-  const capabilities = createModuleCapabilities(options.capabilityConfig, capabilityOverrides);
   const settings = resolveValue(options.settingsDescriptor, options.settings, 'Module settings');
   const secrets = resolveValue(options.secretsDescriptor, options.secrets, 'Module secrets', { optional: true });
+  const resolvedCapabilitiesConfig = resolveModuleCapabilityConfig(options.capabilityConfig, {
+    settings,
+    secrets
+  });
+  const capabilities = createModuleCapabilities(resolvedCapabilitiesConfig, capabilityOverrides);
 
   return {
     module: options.module,

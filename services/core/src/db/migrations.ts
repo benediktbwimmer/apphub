@@ -1334,13 +1334,22 @@ const migrations: Migration[] = [
     ]
   },
   {
-    id: '046_service_source',
+    id: '047_module_target_runtime',
     statements: [
-      `ALTER TABLE services
-         ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'external';`,
-      `UPDATE services
-         SET source = 'module'
-       WHERE metadata -> 'config' -> 'module' IS NOT NULL;`
+      `CREATE TABLE IF NOT EXISTS module_target_configs (
+         module_id TEXT NOT NULL,
+         module_version TEXT NOT NULL,
+         target_name TEXT NOT NULL,
+         target_version TEXT NOT NULL,
+         settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+         secrets JSONB NOT NULL DEFAULT '{}'::jsonb,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (module_id, module_version, target_name, target_version)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_module_target_configs_module
+         ON module_target_configs(module_id, module_version);`
     ]
   }
 ];

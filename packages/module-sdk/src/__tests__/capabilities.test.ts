@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createModuleCapabilities, mergeCapabilityOverrides } from '../runtime/capabilities';
+import { createModuleCapabilities, mergeCapabilityOverrides, resolveModuleCapabilityConfig } from '../runtime/capabilities';
 import { createFilestoreCapability } from '../capabilities/filestore';
 import { createMetastoreCapability } from '../capabilities/metastore';
 import { createEventBusCapability } from '../capabilities/eventBus';
@@ -30,6 +30,56 @@ function createFetchStub(status = 200, body: unknown = {}, options: FetchStubOpt
 }
 
 createFetchStub.lastCall = {} as { input?: RequestInfo | URL; init?: RequestInit };
+
+test('resolveModuleCapabilityConfig maps settings and secrets references', () => {
+  const resolved = resolveModuleCapabilityConfig(
+    {
+      filestore: {
+        baseUrl: { $ref: 'settings.filestore.baseUrl' },
+        backendMountId: { $ref: 'settings.filestore.backendId', fallback: 1 }
+      },
+      events: {
+        baseUrl: { $ref: 'settings.core.baseUrl' },
+        defaultSource: { $ref: 'settings.events.source' },
+        token: { $ref: 'secrets.eventsToken', optional: true }
+      }
+    },
+    {
+      settings: {
+        filestore: { baseUrl: 'https://filestore.local', backendId: 7 },
+        core: { baseUrl: 'https://core.local' },
+        events: { source: 'observatory.events' }
+      },
+      secrets: { eventsToken: 'token-xyz' }
+    }
+  );
+
+  assert.equal(resolved.filestore?.baseUrl, 'https://filestore.local');
+  assert.equal(resolved.filestore?.backendMountId, 7);
+  assert.equal(resolved.events?.baseUrl, 'https://core.local');
+  assert.equal(resolved.events?.defaultSource, 'observatory.events');
+  assert.equal(resolved.events?.token, 'token-xyz');
+});
+
+test('resolveModuleCapabilityConfig applies fallbacks for missing references', () => {
+  const resolved = resolveModuleCapabilityConfig(
+    {
+      filestore: {
+        backendMountId: { $ref: 'settings.filestore.backendId', fallback: 99 }
+      },
+      coreHttp: {
+        baseUrl: { $ref: 'settings.core.baseUrl' }
+      }
+    },
+    {
+      settings: { filestore: {}, core: { baseUrl: 'https://core.local' } },
+      secrets: {}
+    }
+  );
+
+  assert.equal(resolved.filestore?.backendMountId, 99);
+  assert.equal(resolved.coreHttp?.baseUrl, 'https://core.local');
+});
 
 test('createModuleCapabilities builds defaults and allows overrides', async () => {
   const fetchImpl = createFetchStub(200, {

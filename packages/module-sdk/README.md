@@ -67,6 +67,26 @@ const capabilities = createModuleCapabilities({
 });
 ```
 
+When module instances control these values through stored settings or secrets, reference them directly from the module definition. The runtime resolves the references before instantiating the capability shims:
+
+```ts
+export default defineModule({
+  metadata: { name: 'example-module', version: '1.0.0' },
+  settings: { defaults: { filestore: { baseUrl: 'http://127.0.0.1:4300', backendId: 1 } } },
+  secrets: { defaults: {} },
+  capabilities: {
+    filestore: {
+      baseUrl: { $ref: 'settings.filestore.baseUrl' },
+      backendMountId: { $ref: 'settings.filestore.backendId', fallback: 1 },
+      token: { $ref: 'secrets.filestoreToken', optional: true }
+    }
+  },
+  targets: [/* ... */]
+});
+```
+
+Each `$ref` path starts with `settings` or `secrets` and may include an optional `fallback` value or `optional: true` flag. Fallbacks are used when the referenced value is missing, ensuring capability clients always receive concrete connection details.
+
 ### Custom overrides
 
 Modules can override any capability on a per-target or per-runtime basis. Pass either a concrete implementation or a factory that receives the original config and a helper to build the default shim.

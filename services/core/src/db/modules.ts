@@ -8,7 +8,8 @@ import type {
 import {
   mapModuleArtifactRow,
   mapModuleRow,
-  mapModuleTargetRow
+  mapModuleTargetRow,
+  mapModuleTargetConfigRow
 } from './rowMappers';
 import {
   type ModuleArtifactRecord,
@@ -18,9 +19,11 @@ import {
   type ModuleTargetValueDescriptorMetadata,
   type ModuleTargetWorkflowMetadata,
   type ModuleTargetKind,
+  type ModuleTargetRuntimeConfigRecord,
+  type ModuleTargetBinding,
   type JsonValue
 } from './types';
-import type { ModuleArtifactRow, ModuleRow, ModuleTargetRow } from './rowTypes';
+import type { ModuleArtifactRow, ModuleRow, ModuleTargetRow, ModuleTargetConfigRow } from './rowTypes';
 import { useConnection, useTransaction } from './utils';
 
 interface ModuleTargetInsert {
@@ -557,6 +560,76 @@ export async function getModuleTarget(options: {
       artifact: artifactRecord,
       target: targetRecord
     };
+  });
+}
+
+export async function upsertModuleTargetRuntimeConfig(options: {
+  binding: ModuleTargetBinding;
+  settings?: JsonValue | null;
+  secrets?: JsonValue | null;
+  metadata?: JsonValue | null;
+}): Promise<ModuleTargetRuntimeConfigRecord> {
+  const moduleId = normalizeModuleId(options.binding.moduleId);
+  const moduleVersion = normalizeSemver(options.binding.moduleVersion, 'Module version');
+  const targetName = normalizeText(options.binding.targetName) ?? (() => {
+    throw new Error('Target name is required');
+  })();
+  const targetVersion = normalizeText(options.binding.targetVersion) ?? (() => {
+    throw new Error('Target version is required');
+  })();
+  const settings = options.settings ?? ({} as JsonValue);
+  const secrets = options.secrets ?? ({} as JsonValue);
+  const metadata = options.metadata ?? null;
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<ModuleTargetConfigRow>(
+      `INSERT INTO module_target_configs (
+         module_id,
+         module_version,
+         target_name,
+         target_version,
+         settings,
+         secrets,
+         metadata
+       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)
+       ON CONFLICT (module_id, module_version, target_name, target_version)
+       DO UPDATE SET
+         settings = EXCLUDED.settings,
+         secrets = EXCLUDED.secrets,
+         metadata = EXCLUDED.metadata,
+         updated_at = NOW()
+       RETURNING *`,
+      [moduleId, moduleVersion, targetName, targetVersion, settings ?? {}, secrets ?? {}, metadata]
+    );
+    if (rows.length === 0) {
+      throw new Error('Failed to persist module target runtime configuration');
+    }
+    return mapModuleTargetConfigRow(rows[0]);
+  });
+}
+
+export async function getModuleTargetRuntimeConfig(options: {
+  binding: ModuleTargetBinding;
+}): Promise<ModuleTargetRuntimeConfigRecord | null> {
+  const moduleId = normalizeModuleId(options.binding.moduleId);
+  const moduleVersion = normalizeSemver(options.binding.moduleVersion, 'Module version');
+  const targetName = normalizeText(options.binding.targetName) ?? (() => {
+    throw new Error('Target name is required');
+  })();
+  const targetVersion = normalizeText(options.binding.targetVersion) ?? (() => {
+    throw new Error('Target version is required');
+  })();
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<ModuleTargetConfigRow>(
+      `SELECT * FROM module_target_configs
+         WHERE module_id = $1 AND module_version = $2 AND target_name = $3 AND target_version = $4`,
+      [moduleId, moduleVersion, targetName, targetVersion]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapModuleTargetConfigRow(rows[0]);
   });
 }
 

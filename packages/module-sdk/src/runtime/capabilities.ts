@@ -19,7 +19,34 @@ import {
   type CoreWorkflowsCapabilityConfig
 } from '../capabilities';
 
+export interface CapabilityValueReference<T = unknown> {
+  $ref: string;
+  fallback?: CapabilityValueTemplate<T>;
+  optional?: boolean;
+}
+
+export type CapabilityValueTemplate<T> =
+  | T
+  | CapabilityValueReference<T>
+  | (T extends Array<infer U> ? CapabilityValueTemplate<U>[] : never)
+  | (T extends Record<string, unknown>
+      ? { [K in keyof T]: CapabilityValueTemplate<T[K]> }
+      : never);
+
+export type CapabilityConfigTemplate<TConfig> = {
+  [K in keyof TConfig]?: CapabilityValueTemplate<TConfig[K]>;
+};
+
 export interface ModuleCapabilityConfig {
+  filestore?: CapabilityConfigTemplate<FilestoreCapabilityConfig>;
+  metastore?: CapabilityConfigTemplate<MetastoreCapabilityConfig>;
+  timestore?: CapabilityConfigTemplate<TimestoreCapabilityConfig>;
+  events?: CapabilityConfigTemplate<EventBusCapabilityConfig>;
+  coreHttp?: CapabilityConfigTemplate<CoreHttpCapabilityConfig>;
+  coreWorkflows?: CapabilityConfigTemplate<CoreWorkflowsCapabilityConfig>;
+}
+
+export interface ResolvedModuleCapabilityConfig {
   filestore?: FilestoreCapabilityConfig;
   metastore?: MetastoreCapabilityConfig;
   timestore?: TimestoreCapabilityConfig;
@@ -57,6 +84,162 @@ export interface ModuleCapabilities {
   coreWorkflows?: CoreWorkflowsCapability;
 }
 
+type ResolveContext = {
+  settings: unknown;
+  secrets: unknown;
+};
+
+function isCapabilityValueReference<T>(value: unknown): value is CapabilityValueReference<T> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  return '$ref' in (value as Record<string, unknown>) && typeof (value as Record<string, unknown>).$ref === 'string';
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getReferenceValue(reference: string, context: ResolveContext): unknown {
+  const trimmed = reference.trim();
+  if (!trimmed) {
+    throw new Error('Capability reference path must not be empty');
+  }
+  const segments = trimmed.split('.');
+  const scope = segments.shift();
+  let current: unknown;
+  if (scope === 'settings') {
+    current = context.settings;
+  } else if (scope === 'secrets') {
+    current = context.secrets;
+  } else {
+    throw new Error(`Capability reference must start with "settings" or "secrets": ${reference}`);
+  }
+  if (segments.length === 0) {
+    return current;
+  }
+  for (const rawSegment of segments) {
+    const segment = rawSegment.trim();
+    if (!segment) {
+      return undefined;
+    }
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+    if (typeof current !== 'object') {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function resolveReference<T>(
+  reference: CapabilityValueReference<T>,
+  context: ResolveContext,
+  label: string
+): T {
+  const raw = getReferenceValue(reference.$ref, context);
+  if (raw === undefined) {
+    if (reference.fallback !== undefined) {
+      return resolveTemplate(reference.fallback, context, `${label} (fallback)`);
+    }
+    if (reference.optional) {
+      return undefined as T;
+    }
+    throw new Error(`Capability reference "${reference.$ref}" resolved to undefined for ${label}`);
+  }
+  return raw as T;
+}
+
+function resolveTemplate<T>(
+  value: CapabilityValueTemplate<T>,
+  context: ResolveContext,
+  label: string
+): T {
+  if (isCapabilityValueReference<T>(value)) {
+    return resolveReference(value, context, label);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry, index) =>
+        resolveTemplate(entry as CapabilityValueTemplate<unknown>, context, `${label}[${index}]`)
+      ) as T;
+  }
+  if (isPlainObject(value)) {
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      const resolved = resolveTemplate(entry as CapabilityValueTemplate<unknown>, context, `${label}.${key}`);
+      if (resolved !== undefined) {
+        result[key] = resolved;
+      }
+    }
+    return result as T;
+  }
+  return value as T;
+}
+
+function resolveCapabilitySection<TConfig>(
+  template: CapabilityConfigTemplate<TConfig> | null | undefined,
+  context: ResolveContext,
+  label: string
+): TConfig | undefined {
+  if (template === undefined || template === null) {
+    return undefined;
+  }
+  const resolved = resolveTemplate(template as CapabilityValueTemplate<TConfig>, context, label);
+  if (resolved === undefined) {
+    return undefined;
+  }
+  return resolved;
+}
+
+export function resolveModuleCapabilityConfig(
+  config: ModuleCapabilityConfig | undefined,
+  context: ResolveContext
+): ResolvedModuleCapabilityConfig {
+  if (!config) {
+    return {};
+  }
+  const resolved: ResolvedModuleCapabilityConfig = {};
+
+  const filestore = resolveCapabilitySection(config.filestore, context, 'capabilities.filestore');
+  if (filestore !== undefined) {
+    resolved.filestore = filestore;
+  }
+
+  const metastore = resolveCapabilitySection(config.metastore, context, 'capabilities.metastore');
+  if (metastore !== undefined) {
+    resolved.metastore = metastore;
+  }
+
+  const timestore = resolveCapabilitySection(config.timestore, context, 'capabilities.timestore');
+  if (timestore !== undefined) {
+    resolved.timestore = timestore;
+  }
+
+  const events = resolveCapabilitySection(config.events, context, 'capabilities.events');
+  if (events !== undefined) {
+    resolved.events = events;
+  }
+
+  const coreHttp = resolveCapabilitySection(config.coreHttp, context, 'capabilities.coreHttp');
+  if (coreHttp !== undefined) {
+    resolved.coreHttp = coreHttp;
+  }
+
+  const coreWorkflows = resolveCapabilitySection(
+    config.coreWorkflows,
+    context,
+    'capabilities.coreWorkflows'
+  );
+  if (coreWorkflows !== undefined) {
+    resolved.coreWorkflows = coreWorkflows;
+  }
+
+  return resolved;
+}
+
 function resolveCapability<TCapability, TConfig>(
   config: TConfig | undefined,
   override: CapabilityOverride<TCapability, TConfig>,
@@ -80,7 +263,7 @@ function resolveCapability<TCapability, TConfig>(
 }
 
 export function createModuleCapabilities(
-  config: ModuleCapabilityConfig = {},
+  config: ResolvedModuleCapabilityConfig = {},
   overrides: ModuleCapabilityOverrides = {}
 ): ModuleCapabilities {
   return {
