@@ -12,7 +12,7 @@ type ModalProps = {
 };
 
 const BASE_OVERLAY_CLASSES =
-  'fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-overlay-scrim backdrop-blur-sm';
+  'fixed inset-0 z-50 flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-overlay-scrim backdrop-blur-sm p-6 sm:p-10';
 const BASE_CONTENT_CLASSES =
   'relative w-full max-w-2xl rounded-3xl border border-subtle bg-surface-raised shadow-elevation-xl';
 
