@@ -28,6 +28,7 @@ services/core/.env
 
 # Local development storage
 .dev/minio/
+dump.rdb
 
 # Generated bundle artifacts
 apps/frontend/public/examples/job-bundles/*.tgz
