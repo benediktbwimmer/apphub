@@ -1,18 +1,42 @@
-import { describe, expect, it, beforeEach, afterEach, beforeAll, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ImportWorkspace from '../ImportWorkspace';
 import type { ExampleScenario } from '../examples';
 import type { ExampleBundleStatus } from '../exampleBundles';
-import { loadModuleCatalog } from '@apphub/module-registry';
-import { resolve } from 'node:path';
 
-const SCENARIO_FIXTURE_IDS = new Set([
-  'observatory-inbox-normalizer-job',
-  'observatory-timestore-loader-job',
-  'observatory-minute-ingest-workflow'
-]);
-let exampleScenarios: ExampleScenario[] = [];
+const exampleScenarios: ExampleScenario[] = [
+  {
+    id: 'observatory-inbox-normalizer-job',
+    type: 'job',
+    title: 'Observatory inbox normalizer',
+    summary: 'Normalize inbox CSVs and fan out downstream ingest.',
+    description: 'Test fixture job scenario for the observatory pipeline.',
+    form: { source: 'upload' },
+    moduleId: 'observatory-inbox-normalizer'
+  },
+  {
+    id: 'observatory-timestore-loader-job',
+    type: 'job',
+    title: 'Observatory timestore loader',
+    summary: 'Stream normalized readings into timestore.',
+    description: 'Test fixture job scenario for the observatory pipeline.',
+    form: { source: 'upload' },
+    moduleId: 'observatory-timestore-loader'
+  },
+  {
+    id: 'observatory-minute-ingest-workflow',
+    type: 'workflow',
+    title: 'Observatory minute ingest',
+    summary: 'Full minute ingest DAG.',
+    description: 'Test fixture workflow scenario for the observatory pipeline.',
+    form: {
+      slug: 'observatory-minute-ingest',
+      name: 'Observatory minute ingest',
+      steps: []
+    }
+  }
+] satisfies ExampleScenario[];
 
 const authorizedFetchMock = vi.fn<(url: string, options?: RequestInit) => Promise<Response>>();
 const pushToastMock = vi.fn();
@@ -42,16 +66,6 @@ vi.mock('../../utils/fileEncoding', () => ({
 }));
 
 let bundleStatuses: ExampleBundleStatus[] = [];
-
-const WORKSPACE_ROOT = resolve(__dirname, '../../../../..');
-
-beforeAll(async () => {
-  const { scenarios } = await loadModuleCatalog({ repoRoot: WORKSPACE_ROOT });
-  exampleScenarios = scenarios.filter((scenario) => SCENARIO_FIXTURE_IDS.has(scenario.id));
-  if (exampleScenarios.length === 0) {
-    throw new Error('No module scenarios found for ImportWorkspace tests');
-  }
-});
 
 beforeEach(() => {
   bundleStatuses = [];

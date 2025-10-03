@@ -14,10 +14,10 @@ import {
 } from './examples';
 import {
   resolveWorkflowProvisioningPlan,
-  type JsonValue,
   type WorkflowProvisioningEventTrigger,
-  type WorkflowProvisioningSchedule
-} from '@apphub/module-registry';
+  type WorkflowProvisioningSchedule,
+  type JsonValue
+} from './provisioning';
 
 import type { ManifestPlaceholder } from './useImportServiceManifest';
 import type { JobImportPreviewResult } from './useJobImportWorkflow';
@@ -240,7 +240,7 @@ function getMetadataValue(metadata: JsonValue | undefined, path: string): unknow
 
 function pruneTriggerParameterTemplate(
   metadata: JsonValue | undefined,
-  template: Record<string, JsonValue> | undefined
+  template: Record<string, JsonValue> | null | undefined
 ): Record<string, JsonValue> | undefined {
   if (!template || Object.keys(template).length === 0) {
     return undefined;
@@ -264,7 +264,10 @@ function pruneTriggerParameterTemplate(
 }
 
 function buildTriggerRequest(trigger: WorkflowProvisioningEventTrigger) {
-  const parameterTemplate = pruneTriggerParameterTemplate(trigger.metadata, trigger.parameterTemplate);
+  const parameterTemplate = pruneTriggerParameterTemplate(
+    trigger.metadata,
+    trigger.parameterTemplate ?? undefined
+  );
   const predicates = trigger.predicates.length > 0 ? trigger.predicates : undefined;
   const metadataPayload = trigger.metadata ?? undefined;
   return compactRecord({
