@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import type { ServiceConfig } from '../config/serviceConfig';
 import { refreshServiceTokens } from '../config/serviceConfig';
+import { parse as parseUrl } from 'node:url';
 import { createDisabledIdentity, createIdentityFromToken, type AuthIdentity } from './identity';
 
 declare module 'fastify' {
@@ -37,6 +38,24 @@ function extractBearerToken(request: FastifyRequest): string | null {
 }
 
 type TokenIndex = Map<string, AuthIdentity>;
+
+const PUBLIC_PATHS = new Set(['/health', '/healthz', '/readyz']);
+
+function isPublicRequest(request: FastifyRequest): boolean {
+  const rawUrl = request.raw.url ?? '';
+  if (!rawUrl) {
+    return false;
+  }
+  try {
+    const parsed = parseUrl(rawUrl, false);
+    const pathname = (parsed.pathname ?? (parsed.path as string | undefined)) ?? rawUrl;
+    return PUBLIC_PATHS.has(pathname);
+  } catch {
+    const path = rawUrl.split('?')[0] ?? rawUrl;
+    return PUBLIC_PATHS.has(path);
+  }
+}
+
 
 function buildTokenIndex(config: ServiceConfig): TokenIndex {
   const index: TokenIndex = new Map();
@@ -74,6 +93,11 @@ export const authPlugin = fp<AuthPluginOptions>(async (app, options) => {
 
   app.addHook('onRequest', async (request, reply) => {
     if (config.authDisabled) {
+      request.identity = createDisabledIdentity();
+      return;
+    }
+
+    if (isPublicRequest(request)) {
       request.identity = createDisabledIdentity();
       return;
     }
