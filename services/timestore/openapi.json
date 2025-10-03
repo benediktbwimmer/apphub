@@ -2472,6 +2472,13 @@
               "raw",
               "downsampled"
             ]
+          },
+          "warnings": {
+            "type": "array",
+            "description": "Non-fatal issues encountered while executing the query.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -5804,6 +5811,13 @@
               "raw",
               "downsampled"
             ]
+          },
+          "warnings": {
+            "type": "array",
+            "description": "Non-fatal issues encountered while executing the query.",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "title": "https://timestore.apphub/schemas/DatasetQueryResponse.json"
