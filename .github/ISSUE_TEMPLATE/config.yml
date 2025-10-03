@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability report
+    url: https://github.com/benediktbwimmer/apphub/security/advisories/new
+    about: Please use GitHub Advisories or email security@apphub.dev to report sensitive issues privately.
+  - name: Questions / Discussions
+    url: https://github.com/benediktbwimmer/apphub/discussions
+    about: Start a discussion for design ideas, support requests, or general questions.
