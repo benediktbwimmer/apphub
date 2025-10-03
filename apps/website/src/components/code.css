@@ -17,22 +17,19 @@
 .code-snippet__pre code {
   display: block;
   font-family: 'Source Code Pro', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.88rem;
-  line-height: 1.45;
+  font-size: 0.84rem;
+  line-height: 1.28;
   color: #f0fffd;
   white-space: pre;
 }
 
 .code-snippet__line {
   display: block;
-  padding: 0.06rem var(--apphub-spacing-xs);
-  margin: 0 calc(var(--apphub-spacing-xs) * -1);
-  border-radius: 0.55rem;
+  padding: 0.02rem 0;
 }
 
 .code-snippet__line.is-highlighted {
-  background: rgba(34, 211, 238, 0.2);
-  box-shadow: inset 0 0 0 1px rgba(165, 243, 252, 0.3);
+  background: rgba(34, 211, 238, 0.16);
 }
 
 .code-snippet__code {
