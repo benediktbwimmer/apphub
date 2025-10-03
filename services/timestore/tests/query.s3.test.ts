@@ -1,4 +1,5 @@
 import './testEnv';
+import './utils/patchGeneratorFunction';
 
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';

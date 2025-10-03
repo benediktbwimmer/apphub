@@ -40,6 +40,8 @@ test('packages descriptor from git repository clone', async () => {
 
     const git = simpleGit(tempRepoRoot);
     await git.init();
+    await git.addConfig('user.name', 'example-bundler-test');
+    await git.addConfig('user.email', 'example-bundler@example.com');
     await git.add('.');
     await git.commit('initial commit');
 
