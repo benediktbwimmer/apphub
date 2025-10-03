@@ -20,7 +20,7 @@ The event-driven flavour now partitions Timestore manifests per instrument and p
 - Embedded Postgres plus core/filestore/metastore/timestore test servers start successfully and the data generator uploads 10 instrument CSVs to MinIO with matching metastore records.
 - Inbox normalizer emits `observatory.minute.raw-uploaded` events into the core queue, trigger deliveries are created, but the `observatory-minute-ingest` workflow never launches; the benchmark currently fails waiting for that run.
 - Suspect area: core event trigger processing when queues run against the external Redis container. The next session should inspect the event ingress queue and trigger delivery retries to confirm whether events are enqueued but not drained, or if a rendering error drops the job before launch.
-- To resume quickly: rerun `npx tsx examples/tests/core/environmentalObservatoryEventDrivenBenchmark.e2e.ts` (set `OBSERVATORY_BENCH_INSTRUMENTS=10`) and tail core logs for trigger processing around the first minute (look for `Trigger delivery not found for retry`).
+- To resume quickly: rerun `npx tsx tests/e2e/runBench.ts` (set `OBSERVATORY_BENCH_INSTRUMENTS=10`) and tail core logs for trigger processing around the first minute (look for `Trigger delivery not found for retry`).
 
 
 ## Architecture overview
@@ -197,10 +197,10 @@ npm run build --workspace @apphub/environmental-observatory-module
    PORT=4311 \
    npm run dev
    ```
-6. Register both workflows by copying the curated JSON definitions:
+6. Register both workflows by copying the curated JSON definitions from the module build output:
    ```bash
-   cp examples/environmental-observatory-event-driven/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
-   cp examples/environmental-observatory-event-driven/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
+   cp modules/environmental-observatory/dist/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
+   cp modules/environmental-observatory/dist/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
    ```
 7. Simulate an instrument drop by writing new minute CSV files into `inbox` (the gateway will mirror them into `staging/<minute>/` and queue the ingest workflow automatically). Trigger the ingest workflow manually with:
    ```bash

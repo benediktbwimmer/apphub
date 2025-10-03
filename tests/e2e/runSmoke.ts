@@ -1,6 +1,6 @@
 import { runE2E } from '../helpers';
 import { startExternalStack } from './stack';
-import { prepareObservatoryExample, type ObservatoryContext } from './observatory';
+import { prepareObservatoryModule, type ObservatoryContext } from './observatory';
 import { requestJson, waitForEndpoint } from './httpClient';
 import { triggerGeneratorWorkflow } from './flows';
 import { verifyFilestoreIngest, verifyMetastore, verifyTimestore } from './verification';
@@ -36,8 +36,8 @@ async function runSmoke(): Promise<void> {
   await waitForServiceHealth('timestore', `${TIMESTORE_BASE_URL}/health`);
   await waitForServiceHealth('filestore', `${FILESTORE_BASE_URL}/health`);
 
-  log('Preparing observatory example deployment');
-  const observatory = await prepareObservatoryExample();
+  log('Preparing observatory module deployment');
+  const observatory = await prepareObservatoryModule();
   log('Observatory deployment ready', {
     configPath: observatory.configPath,
     backendMountId: observatory.config.filestore.backendMountId

@@ -1,10 +1,10 @@
 import { S3Client, HeadBucketCommand, CreateBucketCommand } from '@aws-sdk/client-s3';
-import type { EventDrivenObservatoryConfig } from '@apphub/examples';
+import type { EventDrivenObservatoryConfig } from '@apphub/module-registry';
 import {
-  deployEnvironmentalObservatoryExample,
+  deployEnvironmentalObservatoryModule,
   type DeployObservatoryOptions,
   type DeployObservatoryResult
-} from '../../examples/environmental-observatory-event-driven/scripts/deploy';
+} from '../../modules/environmental-observatory/scripts/deploy';
 import {
   MINIO_ENDPOINT,
   OBSERVATORY_OPERATOR_TOKEN,
@@ -67,12 +67,12 @@ export type ObservatoryContext = {
   coreToken: string;
 };
 
-export async function prepareObservatoryExample(
+export async function prepareObservatoryModule(
   options: PrepareObservatoryOptions = {}
 ): Promise<ObservatoryContext> {
   const restoreEnv = configureE2EEnvironment();
   try {
-    console.info('[observatory] Preparing example', { options });
+    console.info('[observatory] Preparing module deployment', { options });
     await ensureBuckets();
 
     const deployOptions: DeployObservatoryOptions = {
@@ -80,9 +80,9 @@ export async function prepareObservatoryExample(
       skipGeneratorSchedule: options.skipGeneratorSchedule ?? true
     };
 
-    console.info('[observatory] Deploying observatory example', deployOptions);
+    console.info('[observatory] Deploying observatory module', deployOptions);
 
-    const result: DeployObservatoryResult = await deployEnvironmentalObservatoryExample(deployOptions);
+    const result: DeployObservatoryResult = await deployEnvironmentalObservatoryModule(deployOptions);
 
     if (!result.coreToken) {
       result.coreToken = OBSERVATORY_OPERATOR_TOKEN;
@@ -99,3 +99,5 @@ export async function prepareObservatoryExample(
     restoreEnv();
   }
 }
+
+export const prepareObservatoryExample = prepareObservatoryModule;

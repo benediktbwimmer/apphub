@@ -588,9 +588,9 @@ The script launches an embedded PostgreSQL instance, registers a sample repo, wa
 Developer tooling for dynamic job bundles lives in `apps/cli`. The workspace is wired into the root install, so once `npm install` completes you can use the `apphub` binary to scaffold, test, and publish bundles:
 
 ```bash
-npx tsx apps/cli/src/index.ts jobs package ./examples/summary-job
-npx tsx apps/cli/src/index.ts jobs test ./examples/summary-job --input-json '{"foo":"bar"}'
-npx tsx apps/cli/src/index.ts jobs publish ./examples/summary-job --token dev-operator-token
+npx tsx apps/cli/src/index.ts jobs package ./modules/environmental-observatory/dist/bundles/observatory-data-generator
+npx tsx apps/cli/src/index.ts jobs test ./modules/environmental-observatory/dist/bundles/observatory-data-generator --input-json '{"minute":"2025-08-01T09:00"}'
+npx tsx apps/cli/src/index.ts jobs publish ./modules/environmental-observatory/dist/bundles/observatory-data-generator --token dev-operator-token
 ```
 
 The CLI creates `apphub.bundle.json`, validates `manifest.json` against the registry schema, emits reproducible tarballs with SHA-256 signatures, and wires a local harness for executing handlers with sample payloads. See `docs/job-bundles.md` for a complete walkthrough. The example importer no longer relies on prebuilt archives—when you load an example bundle, the core API packages the sources on demand and streams the result directly into the registry. The first run may take longer while dependencies are installed inside each bundle directory; subsequent imports reuse the compiled output.

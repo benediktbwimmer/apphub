@@ -16,7 +16,7 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 2. **Backfill manifests** – run the helper script from repo root:
 
    ```bash
-   npm run backfill:service-registry -- --path examples/environmental-observatory-event-driven --module github.com/apphub/examples/environmental-observatory-event-driven
+   npm run backfill:service-registry -- --path modules/environmental-observatory/dist --module github.com/apphub/examples/environmental-observatory-event-driven
    ```
 
    - The script loads the example module (`service-manifests/service-manifest.json`) and writes through the new registry. Placeholders leverage the defaults baked into the example, so no extra flags are required.
@@ -34,7 +34,7 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 2. Port-forward the core API (`kubectl port-forward deploy/core-api 4000:4000`).
 3. Run the backfill script against the minikube endpoint (uses shared Postgres):
    ```bash
-   DATABASE_URL=postgres://... npm run backfill:service-registry -- --path examples/environmental-observatory-event-driven
+   DATABASE_URL=postgres://... npm run backfill:service-registry -- --path modules/environmental-observatory/dist
    ```
 4. Hit `/services` on both pods (repeat port-forward with `kubectl exec`) — both should return identical manifest and `health` metadata blocks.
 5. Trigger the background poller once (or PATCH the service) and confirm a new row appears in `service_health_snapshots`; the other pod’s `/services` response updates within the polling interval.
@@ -79,5 +79,4 @@ psql $DATABASE_URL -c "select module_id, service_slug, checksum from service_man
 psql $DATABASE_URL -c "select status, latency_ms, checked_at from service_health_snapshots where service_slug = 'observatory-dashboard' order by version desc limit 1;"
 ```
 
-Use `examples/environmental-observatory-event-driven` as the canonical smoke test module whenever verifying shared registry behaviour locally or in staging.
-
+Use `modules/environmental-observatory/dist` as the canonical smoke test module whenever verifying shared registry behaviour locally or in staging.
