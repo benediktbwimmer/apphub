@@ -108,4 +108,8 @@ export type {
   GetWorkflowRunInput,
   GetWorkflowRunResponse
 } from './capabilities';
-export { CapabilityRequestError } from './errors';
+export {
+  CapabilityRequestError,
+  type CapabilityErrorCode,
+  type CapabilityErrorMetadata
+} from './errors';

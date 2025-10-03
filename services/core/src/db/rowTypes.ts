@@ -421,6 +421,48 @@ export type WorkflowAssetPartitionParametersRow = {
   updated_at: string;
 };
 
+export type WorkflowAssetProvenanceRow = {
+  id: string;
+  asset_id: string;
+  asset_key: string;
+  workflow_definition_id: string;
+  workflow_slug: string | null;
+  step_id: string;
+  workflow_run_id: string;
+  workflow_run_step_id: string;
+  job_run_id: string | null;
+  job_slug: string | null;
+  partition_key: string | null;
+  partition_key_normalized: string;
+  produced_at: string;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowAssetRecoveryRequestRow = {
+  id: string;
+  asset_id: string;
+  asset_key: string;
+  workflow_definition_id: string;
+  partition_key: string | null;
+  partition_key_normalized: string;
+  status: string;
+  requested_by_workflow_run_id: string;
+  requested_by_workflow_run_step_id: string;
+  requested_by_step_id: string;
+  recovery_workflow_definition_id: string | null;
+  recovery_workflow_run_id: string | null;
+  recovery_job_run_id: string | null;
+  attempts: number;
+  last_attempt_at: string | null;
+  last_error: string | null;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
 export type WorkflowRunStepRow = {
   id: string;
   workflow_run_id: string;

@@ -1,9 +1,9 @@
 import {
-  completeJobRun,
+  completeJobRun as defaultCompleteJobRun,
   createJobRun,
-  getJobDefinitionById,
+  getJobDefinitionById as defaultGetJobDefinitionById,
   getJobDefinitionBySlug,
-  getJobRunById,
+  getJobRunById as defaultGetJobRunById,
   startJobRun,
   updateJobRun
 } from '../db/jobs';
@@ -54,6 +54,16 @@ const handlers = new Map<string, JobHandler>();
 const moduleLoader = new ModuleRuntimeLoader();
 
 export const WORKFLOW_BUNDLE_CONTEXT_KEY = '__workflowBundle';
+
+const jobsDbAdapter = {
+  getJobRunById: defaultGetJobRunById,
+  getJobDefinitionById: defaultGetJobDefinitionById,
+  completeJobRun: defaultCompleteJobRun
+};
+
+export function __setJobsDbForTesting(overrides: Partial<typeof jobsDbAdapter>): void {
+  Object.assign(jobsDbAdapter, overrides);
+}
 
 type BundleResolutionReason = 'not-found' | 'acquire-failed';
 
@@ -242,18 +252,18 @@ function parseWorkflowBundleOverride(contextValue: JsonValue | null): BundleBind
 }
 
 export async function executeJobRun(runId: string): Promise<JobRunRecord | null> {
-  let currentRun = await getJobRunById(runId);
+  let currentRun = await jobsDbAdapter.getJobRunById(runId);
   if (!currentRun) {
     return null;
   }
   let latestRun = currentRun;
 
-  const definition = await getJobDefinitionById(currentRun.jobDefinitionId);
+  const definition = await jobsDbAdapter.getJobDefinitionById(currentRun.jobDefinitionId);
   if (!definition) {
-    await completeJobRun(runId, 'failed', {
+    await jobsDbAdapter.completeJobRun(runId, 'failed', {
       errorMessage: 'Job definition missing for run'
     });
-    return getJobRunById(runId);
+    return jobsDbAdapter.getJobRunById(runId);
   }
 
   const staticHandler = handlers.get(definition.slug);
@@ -267,10 +277,10 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
   const workflowEventContext = getWorkflowEventContext();
 
   if (!staticHandler && !bundleBinding && runtimeKind !== 'docker' && runtimeKind !== 'module') {
-    await completeJobRun(runId, 'failed', {
+    await jobsDbAdapter.completeJobRun(runId, 'failed', {
       errorMessage: `No handler registered for job ${definition.slug}`
     });
-    return getJobRunById(runId);
+    return jobsDbAdapter.getJobRunById(runId);
   }
 
   if (currentRun.status === 'pending') {
@@ -353,7 +363,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
         jobRunId: runId,
         jobSlug: definition.slug
       });
-      const completed = await completeJobRun(runId, 'failed', {
+      const completed = await jobsDbAdapter.completeJobRun(runId, 'failed', {
         errorMessage: 'Docker runtime is disabled',
         context: {
           docker: {
@@ -386,7 +396,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
           formErrors
         }
       } satisfies Record<string, JsonValue>;
-      const completed = await completeJobRun(runId, 'failed', {
+      const completed = await jobsDbAdapter.completeJobRun(runId, 'failed', {
         errorMessage: 'Docker job metadata is invalid',
         context: errorContext
       });
@@ -424,7 +434,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
         completedAt: execution.telemetry.completedAt
       } satisfies JobRunCompletionInput;
 
-      const completed = await completeJobRun(runId, finalStatus, completion);
+      const completed = await jobsDbAdapter.completeJobRun(runId, finalStatus, completion);
       return completed ?? currentRun;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Docker execution failed';
@@ -450,7 +460,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
       if (derivedProperties) {
         errorContext.properties = derivedProperties;
       }
-      const completed = await completeJobRun(runId, 'failed', {
+      const completed = await jobsDbAdapter.completeJobRun(runId, 'failed', {
         errorMessage: message,
         context: errorContext
       });
@@ -558,7 +568,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
       context: mergedContext
     } satisfies JobRunCompletionInput;
 
-    const completed = await completeJobRun(runId, status, completion);
+    const completed = await jobsDbAdapter.completeJobRun(runId, status, completion);
     return completed ?? currentRun;
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Job execution failed';
@@ -583,6 +593,47 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     }
     if (Object.keys(combinedProperties).length > 0) {
       errorContext.properties = combinedProperties;
+    }
+
+    let failureReason: string | null = null;
+    const propertyCode = combinedProperties.code;
+    if (typeof propertyCode === 'string' && propertyCode.trim().length > 0) {
+      failureReason = propertyCode.trim();
+    }
+
+    if (failureReason === 'asset_missing') {
+      const metadataValue = combinedProperties.metadata;
+      const recoveryPayload: Record<string, JsonValue> = {
+        code: 'asset_missing'
+      };
+
+      if (metadataValue && typeof metadataValue === 'object' && !Array.isArray(metadataValue)) {
+        const metadataRecord = metadataValue as Record<string, JsonValue>;
+
+        const assetId = metadataRecord.assetId;
+        if (typeof assetId === 'string' && assetId.trim().length > 0) {
+          recoveryPayload.assetId = assetId.trim();
+        }
+
+        const partitionKey = metadataRecord.partitionKey;
+        if (typeof partitionKey === 'string' && partitionKey.trim().length > 0) {
+          recoveryPayload.partitionKey = partitionKey.trim();
+        }
+
+        const resourceValue = metadataRecord.resource;
+        if (typeof resourceValue === 'string' && resourceValue.trim().length > 0) {
+          recoveryPayload.resource = resourceValue.trim();
+        }
+
+        const capabilityValue = metadataRecord.capability;
+        if (typeof capabilityValue === 'string' && capabilityValue.trim().length > 0) {
+          recoveryPayload.capability = capabilityValue.trim();
+        }
+
+        recoveryPayload.metadata = metadataRecord;
+      }
+
+      errorContext.assetRecovery = recoveryPayload;
     }
 
     let status: JobRunStatus = 'failed';
@@ -638,10 +689,16 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
 
     context.logger('Job handler threw error', logMeta);
 
-    const completed = await completeJobRun(runId, status, {
+    const completionPayload: JobRunCompletionInput = {
       errorMessage,
       context: errorContext
-    });
+    };
+
+    if (failureReason) {
+      completionPayload.failureReason = failureReason;
+    }
+
+    const completed = await jobsDbAdapter.completeJobRun(runId, status, completionPayload);
     return completed ?? currentRun;
   }
 }
