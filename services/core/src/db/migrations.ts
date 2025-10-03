@@ -1334,6 +1334,28 @@ const migrations: Migration[] = [
     ]
   },
   {
+    id: '046_module_publish_status',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS module_publish_status (
+         module_id TEXT PRIMARY KEY,
+         workspace_path TEXT,
+         workspace_name TEXT,
+         stage TEXT NOT NULL,
+         state TEXT NOT NULL,
+         job_id TEXT,
+         message TEXT,
+         error TEXT,
+         logs TEXT,
+         started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         completed_at TIMESTAMPTZ,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_module_publish_status_updated_at
+         ON module_publish_status(updated_at DESC);`
+    ]
+  },
+  {
     id: '047_module_target_runtime',
     statements: [
       `CREATE TABLE IF NOT EXISTS module_target_configs (
