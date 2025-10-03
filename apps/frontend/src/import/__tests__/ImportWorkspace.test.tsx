@@ -13,7 +13,8 @@ const exampleScenarios: ExampleScenario[] = [
     summary: 'Normalize inbox CSVs and fan out downstream ingest.',
     description: 'Test fixture job scenario for the observatory pipeline.',
     form: { source: 'upload' },
-    moduleId: 'observatory-inbox-normalizer'
+    moduleId: 'observatory-inbox-normalizer',
+    exampleSlug: 'observatory-inbox-normalizer'
   },
   {
     id: 'observatory-timestore-loader-job',
@@ -22,7 +23,8 @@ const exampleScenarios: ExampleScenario[] = [
     summary: 'Stream normalized readings into timestore.',
     description: 'Test fixture job scenario for the observatory pipeline.',
     form: { source: 'upload' },
-    moduleId: 'observatory-timestore-loader'
+    moduleId: 'observatory-timestore-loader',
+    exampleSlug: 'observatory-timestore-loader'
   },
   {
     id: 'observatory-minute-ingest-workflow',
@@ -34,7 +36,8 @@ const exampleScenarios: ExampleScenario[] = [
       slug: 'observatory-minute-ingest',
       name: 'Observatory minute ingest',
       steps: []
-    }
+    },
+    includes: ['observatory-inbox-normalizer-job', 'observatory-timestore-loader-job']
   }
 ] satisfies ExampleScenario[];
 
@@ -139,7 +142,7 @@ describe('ImportWorkspace wizard', () => {
     });
 
     expect(screen.getByText('Observatory inbox normalizer')).toBeInTheDocument();
-    expect(screen.getByText('Observatory Timestore loader')).toBeInTheDocument();
+    expect(screen.getByText('Observatory timestore loader')).toBeInTheDocument();
     expect(screen.getByText('Packaging')).toBeInTheDocument();
     expect(screen.getByText('Packaging bundle')).toBeInTheDocument();
   });

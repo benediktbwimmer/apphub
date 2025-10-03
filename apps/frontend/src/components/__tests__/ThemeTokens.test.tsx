@@ -116,25 +116,31 @@ function ThemeIdProbe() {
 
 describe('Semantic theming primitives', () => {
   it('applies semantic classes to the active nav item across themes', async () => {
+    const eventsNavItem = PRIMARY_NAV_ITEMS.find((item) => item.key === 'events');
+    const targetPath = eventsNavItem?.path ?? '/events';
+
     const { unmount } = renderWithTheme(
-      <MemoryRouter initialEntries={[PRIMARY_NAV_ITEMS[2]?.path ?? '/events']}>
+      <MemoryRouter initialEntries={[targetPath]}>
         <Navbar />
       </MemoryRouter>
     );
     const activeLinkLight = await screen.findByRole('link', { name: /events/i });
-    expect(activeLinkLight.className).toContain('bg-accent');
-    expect(activeLinkLight.className).toContain('text-on-accent');
+    expect(activeLinkLight).toHaveClass('bg-accent');
+    expect(activeLinkLight).toHaveClass('text-on-accent');
     unmount();
 
     renderWithTheme(
-      <MemoryRouter initialEntries={[PRIMARY_NAV_ITEMS[2]?.path ?? '/events']}>
-        <Navbar />
-      </MemoryRouter>
+      <>
+        <PreferenceSetter themeId={highContrastTheme.id} />
+        <MemoryRouter initialEntries={[targetPath]}>
+          <Navbar />
+        </MemoryRouter>
+      </>
     );
 
     const activeLinkContrast = await screen.findByRole('link', { name: /events/i });
-    expect(activeLinkContrast.className).toContain('bg-accent');
-    expect(activeLinkContrast.className).toContain('text-on-accent');
+    expect(activeLinkContrast).toHaveClass('bg-accent');
+    expect(activeLinkContrast).toHaveClass('text-on-accent');
   });
 
   it('renders FormButton variants with semantic token classes', () => {

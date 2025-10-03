@@ -7,7 +7,7 @@ import {
   serializeJobRunWithDefinition
 } from './shared/serializers';
 import { requireOperatorScopes } from './shared/operatorAuth';
-import { JOB_BUNDLE_WRITE_SCOPES, JOB_RUN_SCOPES, JOB_WRITE_SCOPES } from './shared/scopes';
+import { JOB_BUNDLE_WRITE_SCOPES, JOB_READ_SCOPES, JOB_RUN_SCOPES, JOB_WRITE_SCOPES } from './shared/scopes';
 import {
   jobDefinitionCreateSchema,
   jobDefinitionUpdateSchema
@@ -315,7 +315,7 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       const authResult = await requireOperatorScopes(request, reply, {
         action: 'job-runs.list',
         resource: 'jobs',
-        requiredScopes: JOB_RUN_SCOPES
+        requiredScopes: JOB_READ_SCOPES
       });
       if (!authResult.ok) {
         return { error: authResult.error };

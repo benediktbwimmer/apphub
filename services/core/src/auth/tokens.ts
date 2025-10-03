@@ -15,8 +15,10 @@ import { getUserWithAccess } from '../db/users';
 import { hashSha256 } from './crypto';
 
 type OperatorScope =
+  | 'jobs:read'
   | 'jobs:write'
   | 'jobs:run'
+  | 'workflows:read'
   | 'workflows:write'
   | 'workflows:run'
   | 'job-bundles:write'
@@ -30,8 +32,10 @@ type OperatorScope =
   | 'timestore:sql:exec';
 
 const ALL_SCOPES: OperatorScope[] = [
+  'jobs:read',
   'jobs:write',
   'jobs:run',
+  'workflows:read',
   'workflows:write',
   'workflows:run',
   'job-bundles:write',
@@ -48,10 +52,12 @@ const ALL_SCOPES: OperatorScope[] = [
 export const OPERATOR_SCOPES: readonly OperatorScope[] = [...ALL_SCOPES];
 
 const SCOPE_ALIASES: Record<OperatorScope, OperatorScope[]> = {
-  'jobs:write': ['job-bundles:write', 'job-bundles:read'],
-  'jobs:run': [],
-  'workflows:write': [],
-  'workflows:run': [],
+  'jobs:read': [],
+  'jobs:write': ['job-bundles:write', 'job-bundles:read', 'jobs:read'],
+  'jobs:run': ['jobs:read'],
+  'workflows:read': [],
+  'workflows:write': ['workflows:read'],
+  'workflows:run': ['workflows:read'],
   'job-bundles:write': ['job-bundles:read'],
   'job-bundles:read': [],
   'auth:manage-api-keys': [],

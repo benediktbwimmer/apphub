@@ -171,7 +171,7 @@ function createAuthMockValue(): AuthContextValue {
   const identity = {
     subject: 'user@example.com',
     kind: 'user' as const,
-    scopes: ['workflows:run', 'workflows:write', 'jobs:write', 'job-bundles:write'],
+    scopes: ['workflows:read', 'workflows:run', 'workflows:write', 'jobs:write', 'job-bundles:write'],
     authDisabled: false,
     userId: 'usr_1',
     sessionId: 'sess_1',
@@ -185,7 +185,7 @@ function createAuthMockValue(): AuthContextValue {
     id: 'key-1',
     name: 'Operator key',
     prefix: 'op',
-    scopes: ['workflows:run'],
+    scopes: ['workflows:read', 'workflows:run'],
     createdAt: nowIso,
     updatedAt: nowIso,
     lastUsedAt: null,

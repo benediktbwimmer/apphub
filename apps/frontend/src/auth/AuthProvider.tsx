@@ -10,6 +10,15 @@ import {
 } from './context';
 import { API_BASE_URL } from '../config';
 
+const DEMO_OPERATOR_TOKEN = (() => {
+  const token = import.meta.env.VITE_DEMO_OPERATOR_TOKEN;
+  if (typeof token !== 'string') {
+    return null;
+  }
+  const trimmed = token.trim();
+  return trimmed.length > 0 ? trimmed : null;
+})();
+
 const DEV_SERVICE_SCOPES = [
   'timestore:read',
   'timestore:write',
@@ -83,7 +92,7 @@ export function AuthProvider({ children }: PropsWithChildren<unknown>) {
   const [apiKeysLoading, setApiKeysLoading] = useState(false);
   const [apiKeysError, setApiKeysError] = useState<string | null>(null);
 
-  const [activeToken, setActiveToken] = useState<string | null>(null);
+  const [activeToken, setActiveToken] = useState<string | null>(DEMO_OPERATOR_TOKEN);
 
   const identityFetchRef = useRef<Promise<void> | null>(null);
   const apiKeysFetchRef = useRef<Promise<void> | null>(null);

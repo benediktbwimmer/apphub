@@ -1392,6 +1392,20 @@ const migrations: Migration[] = [
       `ALTER TABLE services
          ALTER COLUMN source DROP DEFAULT;`
     ]
+  },
+  {
+    id: '050_read_scope_roles',
+    statements: [
+      `INSERT INTO role_scopes (role_id, scope)
+         VALUES
+           ('role-viewer', 'jobs:read'),
+           ('role-viewer', 'workflows:read'),
+           ('role-editor', 'jobs:read'),
+           ('role-editor', 'workflows:read'),
+           ('role-admin', 'jobs:read'),
+           ('role-admin', 'workflows:read')
+       ON CONFLICT DO NOTHING;`
+    ]
   }
 ];
 
