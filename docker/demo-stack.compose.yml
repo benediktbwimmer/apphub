@@ -160,7 +160,7 @@ services:
       <<: *shared-env
       PORT: 4000
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:4000/readyz || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:4000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -350,7 +350,7 @@ services:
         condition: service_healthy
     environment:
       <<: *shared-env
-    command: ["node", "services/timestore/dist/workers/ingestionWorker.js"]
+    command: ["services/timestore/dist/workers/ingestionWorker.js"]
     volumes:
       - type: bind
         source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
@@ -366,7 +366,7 @@ services:
         condition: service_healthy
     environment:
       <<: *shared-env
-    command: ["node", "services/timestore/dist/workers/partitionBuildWorker.js"]
+    command: ["services/timestore/dist/workers/partitionBuildWorker.js"]
     volumes:
       - type: bind
         source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
