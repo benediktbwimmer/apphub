@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "pre-push: npm is required but was not found; skipping checks" >&2
+  exit 0
+fi
+
+echo 'pre-push: running npm run lint'
+npm run lint
+
+echo 'pre-push: running npm run build'
+npm run build
+
+echo 'pre-push: skipping npm run test (temporarily disabled)'

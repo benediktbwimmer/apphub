@@ -1394,7 +1394,64 @@ const migrations: Migration[] = [
     ]
   },
   {
-    id: '050_read_scope_roles',
+    id: '050_workflow_asset_recovery',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workflow_asset_provenance (
+         id TEXT PRIMARY KEY,
+         asset_id TEXT NOT NULL,
+         asset_key TEXT NOT NULL,
+         workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         workflow_slug TEXT,
+         step_id TEXT NOT NULL,
+         workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+         workflow_run_step_id TEXT NOT NULL REFERENCES workflow_run_steps(id) ON DELETE CASCADE,
+         job_run_id TEXT,
+         job_slug TEXT,
+         partition_key TEXT,
+         partition_key_normalized TEXT NOT NULL,
+         produced_at TIMESTAMPTZ NOT NULL,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         UNIQUE (asset_key, partition_key_normalized)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_asset_provenance_asset
+         ON workflow_asset_provenance(asset_key, partition_key_normalized);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_asset_provenance_workflow
+         ON workflow_asset_provenance(workflow_definition_id, asset_key, partition_key_normalized);`,
+      `CREATE TABLE IF NOT EXISTS workflow_asset_recovery_requests (
+         id TEXT PRIMARY KEY,
+         asset_id TEXT NOT NULL,
+         asset_key TEXT NOT NULL,
+         workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         partition_key TEXT,
+         partition_key_normalized TEXT NOT NULL,
+         status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed')),
+         requested_by_workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+         requested_by_workflow_run_step_id TEXT NOT NULL REFERENCES workflow_run_steps(id) ON DELETE CASCADE,
+         requested_by_step_id TEXT NOT NULL,
+         recovery_workflow_definition_id TEXT,
+         recovery_workflow_run_id TEXT,
+         recovery_job_run_id TEXT,
+         attempts INTEGER NOT NULL DEFAULT 0,
+         last_attempt_at TIMESTAMPTZ,
+         last_error TEXT,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         completed_at TIMESTAMPTZ
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_asset_recovery_asset
+         ON workflow_asset_recovery_requests(asset_key, partition_key_normalized, status);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_asset_recovery_requester
+         ON workflow_asset_recovery_requests(requested_by_workflow_run_id, requested_by_workflow_run_step_id);`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_asset_recovery_active
+         ON workflow_asset_recovery_requests(asset_key, partition_key_normalized)
+         WHERE status IN ('pending', 'running');`
+    ]
+  },
+  {
+    id: '051_read_scope_roles',
     statements: [
       `INSERT INTO role_scopes (role_id, scope)
          VALUES

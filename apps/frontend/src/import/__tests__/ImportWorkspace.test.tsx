@@ -72,7 +72,7 @@ let bundleStatuses: ExampleBundleStatus[] = [];
 
 beforeEach(() => {
   bundleStatuses = [];
-  authorizedFetchMock.mockImplementation(async (url: string) => {
+  authorizedFetchMock.mockImplementation(async (url: string, options?: RequestInit) => {
     if (url.includes('/modules/catalog')) {
       return new Response(
         JSON.stringify({ data: { catalog: { scenarios: exampleScenarios } } }),
@@ -84,6 +84,26 @@ beforeEach(() => {
         JSON.stringify({ data: { statuses: bundleStatuses } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
+    }
+    if (url.includes('/job-imports/preview')) {
+      const body = options?.body ? JSON.parse(String(options.body)) : {};
+      const slug = typeof body.slug === 'string' ? body.slug : 'example-job';
+      const version = '0.1.0';
+      return new Response(
+        JSON.stringify({
+          data: {
+            bundle: { slug, version },
+            job: { slug, version }
+          }
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    if (url.includes('/job-imports')) {
+      return new Response(JSON.stringify({ data: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
     return new Response(JSON.stringify({ data: {} }), {
       status: 200,
@@ -141,8 +161,8 @@ describe('ImportWorkspace wizard', () => {
       expect(screen.getByText('Dependencies')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Observatory inbox normalizer')).toBeInTheDocument();
-    expect(screen.getByText('Observatory timestore loader')).toBeInTheDocument();
+    expect(screen.getByText(/observatory inbox normalizer/i)).toBeInTheDocument();
+    expect(screen.getByText(/observatory timestore loader/i)).toBeInTheDocument();
     expect(screen.getByText('Packaging')).toBeInTheDocument();
     expect(screen.getByText('Packaging bundle')).toBeInTheDocument();
   });

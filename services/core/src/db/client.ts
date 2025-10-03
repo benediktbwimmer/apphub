@@ -22,35 +22,64 @@ function buildPool(options: PoolOptions = {}) {
   });
 }
 
-let poolHelpers = buildPool();
+let poolHelpers: ReturnType<typeof buildPool> | null = null;
+let shutdownHookRegistered = false;
+
+function registerShutdownHook(): void {
+  if (shutdownHookRegistered) {
+    return;
+  }
+  shutdownHookRegistered = true;
+  process.once('beforeExit', () => {
+    if (!poolHelpers) {
+      return;
+    }
+    void poolHelpers.closePool().catch(() => undefined);
+    poolHelpers = null;
+  });
+}
+
+function ensurePool(): ReturnType<typeof buildPool> {
+  if (!poolHelpers) {
+    poolHelpers = buildPool();
+    registerShutdownHook();
+  }
+  return poolHelpers;
+}
 
 export function getClient(options?: PostgresAcquireOptions): Promise<PoolClient> {
-  return poolHelpers.getClient(options);
+  return ensurePool().getClient(options);
 }
 
 export function withConnection<T>(
   fn: (client: PoolClient) => Promise<T>,
   options?: PostgresAcquireOptions
 ): Promise<T> {
-  return poolHelpers.withConnection(fn, options);
+  return ensurePool().withConnection(fn, options);
 }
 
 export function withTransaction<T>(
   fn: (client: PoolClient) => Promise<T>,
   options?: PostgresAcquireOptions
 ): Promise<T> {
-  return poolHelpers.withTransaction(fn, options);
+  return ensurePool().withTransaction(fn, options);
 }
 
 export async function closePool(): Promise<void> {
+  if (!poolHelpers) {
+    return;
+  }
   await poolHelpers.closePool();
+  poolHelpers = null;
 }
 
 export function getPool(): Pool {
-  return poolHelpers.getPool();
+  return ensurePool().getPool();
 }
 
 export async function resetDatabasePool(options: PoolOptions = {}): Promise<void> {
-  await poolHelpers.closePool().catch(() => undefined);
+  if (poolHelpers) {
+    await poolHelpers.closePool().catch(() => undefined);
+  }
   poolHelpers = buildPool(options);
 }

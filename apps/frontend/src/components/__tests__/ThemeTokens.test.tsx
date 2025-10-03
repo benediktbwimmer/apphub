@@ -117,14 +117,15 @@ function ThemeIdProbe() {
 describe('Semantic theming primitives', () => {
   it('applies semantic classes to the active nav item across themes', async () => {
     const eventsNavItem = PRIMARY_NAV_ITEMS.find((item) => item.key === 'events');
-    const targetPath = eventsNavItem?.path ?? '/events';
+    const initialPath = eventsNavItem?.path ?? PRIMARY_NAV_ITEMS[0]?.path ?? '/';
+    const navLabel = eventsNavItem?.label ?? PRIMARY_NAV_ITEMS[0]?.label ?? 'Events';
 
     const { unmount } = renderWithTheme(
-      <MemoryRouter initialEntries={[targetPath]}>
+      <MemoryRouter initialEntries={[initialPath]}>
         <Navbar />
       </MemoryRouter>
     );
-    const activeLinkLight = await screen.findByRole('link', { name: /events/i });
+    const activeLinkLight = await screen.findByRole('link', { name: navLabel });
     expect(activeLinkLight).toHaveClass('bg-accent');
     expect(activeLinkLight).toHaveClass('text-on-accent');
     unmount();
@@ -132,13 +133,13 @@ describe('Semantic theming primitives', () => {
     renderWithTheme(
       <>
         <PreferenceSetter themeId={highContrastTheme.id} />
-        <MemoryRouter initialEntries={[targetPath]}>
+        <MemoryRouter initialEntries={[initialPath]}>
           <Navbar />
         </MemoryRouter>
       </>
     );
 
-    const activeLinkContrast = await screen.findByRole('link', { name: /events/i });
+    const activeLinkContrast = await screen.findByRole('link', { name: navLabel });
     expect(activeLinkContrast).toHaveClass('bg-accent');
     expect(activeLinkContrast).toHaveClass('text-on-accent');
   });

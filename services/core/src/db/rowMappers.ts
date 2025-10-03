@@ -51,6 +51,8 @@ import {
   type WorkflowAssetDirection,
   type WorkflowAssetPartitioning,
   type WorkflowRunStepAssetRecord,
+  type WorkflowAssetProvenanceRecord,
+  type WorkflowAssetRecoveryRequestRecord,
   type WorkflowAssetSnapshotRecord,
   type WorkflowExecutionHistoryRecord,
   type WorkflowAssetStalePartitionRecord,
@@ -103,6 +105,8 @@ import type {
   WorkflowRunStepRow,
   WorkflowRunStepAssetRow,
   WorkflowAssetSnapshotRow,
+  WorkflowAssetProvenanceRow,
+  WorkflowAssetRecoveryRequestRow,
   WorkflowExecutionHistoryRow,
   WorkflowAssetStalePartitionRow,
   WorkflowAssetPartitionParametersRow,
@@ -2160,6 +2164,56 @@ export function mapWorkflowRunStepAssetRow(
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowRunStepAssetRecord;
+}
+
+export function mapWorkflowAssetProvenanceRow(
+  row: WorkflowAssetProvenanceRow
+): WorkflowAssetProvenanceRecord {
+  return {
+    id: row.id,
+    assetId: row.asset_id,
+    assetKey: row.asset_key,
+    workflowDefinitionId: row.workflow_definition_id,
+    workflowSlug: row.workflow_slug ?? null,
+    stepId: row.step_id,
+    workflowRunId: row.workflow_run_id,
+    workflowRunStepId: row.workflow_run_step_id,
+    jobRunId: row.job_run_id ?? null,
+    jobSlug: row.job_slug ?? null,
+    partitionKey: row.partition_key ?? null,
+    partitionKeyNormalized: row.partition_key_normalized,
+    producedAt: row.produced_at,
+    metadata: toJsonValue(row.metadata) ?? {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies WorkflowAssetProvenanceRecord;
+}
+
+export function mapWorkflowAssetRecoveryRequestRow(
+  row: WorkflowAssetRecoveryRequestRow
+): WorkflowAssetRecoveryRequestRecord {
+  return {
+    id: row.id,
+    assetId: row.asset_id,
+    assetKey: row.asset_key,
+    workflowDefinitionId: row.workflow_definition_id,
+    partitionKey: row.partition_key ?? null,
+    partitionKeyNormalized: row.partition_key_normalized,
+    status: row.status as WorkflowAssetRecoveryRequestRecord['status'],
+    requestedByWorkflowRunId: row.requested_by_workflow_run_id,
+    requestedByWorkflowRunStepId: row.requested_by_workflow_run_step_id,
+    requestedByStepId: row.requested_by_step_id,
+    recoveryWorkflowDefinitionId: row.recovery_workflow_definition_id ?? null,
+    recoveryWorkflowRunId: row.recovery_workflow_run_id ?? null,
+    recoveryJobRunId: row.recovery_job_run_id ?? null,
+    attempts: row.attempts ?? 0,
+    lastAttemptAt: row.last_attempt_at ?? null,
+    lastError: row.last_error ?? null,
+    metadata: toJsonValue(row.metadata) ?? {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    completedAt: row.completed_at ?? null
+  } satisfies WorkflowAssetRecoveryRequestRecord;
 }
 
 export function mapWorkflowRunStepRow(

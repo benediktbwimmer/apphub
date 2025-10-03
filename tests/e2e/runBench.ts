@@ -4,7 +4,7 @@ import { performance } from 'node:perf_hooks';
 
 import { runE2E } from '../helpers';
 import { startExternalStack } from './stack';
-import { prepareObservatoryExample } from './observatory';
+import { prepareObservatoryModule } from './observatory';
 import { triggerGeneratorWorkflow } from './flows';
 import { verifyFilestoreIngest, verifyMetastore, verifyTimestore } from './verification';
 import { requestJson, waitForEndpoint } from './httpClient';
@@ -61,7 +61,7 @@ async function runBenchmarks(): Promise<void> {
   await waitForEndpoint(`${TIMESTORE_BASE_URL}/health`);
   await waitForEndpoint(`${FILESTORE_BASE_URL}/health`);
 
-  const observatory = await prepareObservatoryExample();
+  const observatory = await prepareObservatoryModule();
   await verifyFilestoreIngest(observatory);
   await verifyMetastore();
   await verifyTimestore();

@@ -97,7 +97,7 @@ const definition: WorkflowDefinition = {
       type: 'job',
       jobSlug: 'observatory-data-generator',
       parameters: {
-        minute: '{{ parameters.minute | default: run.trigger.occurrence | slice: 0, 16 }}',
+        minute: '{{ parameters.minute | default: run.trigger.schedule.occurrence | slice: 0, 16 }}',
         rowsPerInstrument: '{{ parameters.rowsPerInstrument }}',
         intervalMinutes: '{{ parameters.intervalMinutes }}',
         instrumentCount: '{{ parameters.instrumentCount }}',

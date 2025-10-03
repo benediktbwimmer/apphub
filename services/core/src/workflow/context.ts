@@ -240,12 +240,149 @@ function postProcessLegacyValue(expression: string, value: unknown): unknown {
   return value;
 }
 
-function resolveTemplateExpression(
-  expression: string,
-  scope: TemplateScope,
-  tracker?: TemplateResolutionTracker,
-  path?: string
-): unknown {
+type TemplateFilter = {
+  name: string;
+  args: string[];
+};
+
+function splitPipelineSegments(expression: string): string[] {
+  const segments: string[] = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const char = expression[index];
+    if (char === "'" && !inDoubleQuote) {
+      const escaped = index > 0 && expression[index - 1] === '\\';
+      if (!escaped) {
+        inSingleQuote = !inSingleQuote;
+      }
+    } else if (char === '"' && !inSingleQuote) {
+      const escaped = index > 0 && expression[index - 1] === '\\';
+      if (!escaped) {
+        inDoubleQuote = !inDoubleQuote;
+      }
+    }
+
+    if (char === '|' && !inSingleQuote && !inDoubleQuote) {
+      segments.push(current);
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  segments.push(current);
+  return segments;
+}
+
+function parseFilterArguments(argumentString: string): string[] {
+  if (!argumentString) {
+    return [];
+  }
+  const args: string[] = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (let index = 0; index < argumentString.length; index += 1) {
+    const char = argumentString[index];
+    if (char === "'" && !inDoubleQuote) {
+      const escaped = index > 0 && argumentString[index - 1] === '\\';
+      if (!escaped) {
+        inSingleQuote = !inSingleQuote;
+      }
+    } else if (char === '"' && !inSingleQuote) {
+      const escaped = index > 0 && argumentString[index - 1] === '\\';
+      if (!escaped) {
+        inDoubleQuote = !inDoubleQuote;
+      }
+    }
+
+    if (char === ',' && !inSingleQuote && !inDoubleQuote) {
+      if (current.trim().length > 0) {
+        args.push(current.trim());
+      }
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim().length > 0) {
+    args.push(current.trim());
+  }
+
+  return args;
+}
+
+function parseFilterPipeline(expression: string): { base: string; filters: TemplateFilter[] } {
+  const segments = splitPipelineSegments(expression);
+  const [rawBase, ...rawFilters] = segments;
+  const base = (rawBase ?? '').trim();
+  const filters = rawFilters
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .map((segment) => {
+      const colonIndex = segment.indexOf(':');
+      if (colonIndex === -1) {
+        return {
+          name: segment.trim(),
+          args: []
+        } satisfies TemplateFilter;
+      }
+      const name = segment.slice(0, colonIndex).trim();
+      const args = parseFilterArguments(segment.slice(colonIndex + 1));
+      return {
+        name,
+        args
+      } satisfies TemplateFilter;
+    });
+
+  return {
+    base,
+    filters
+  };
+}
+
+function unescapeStringLiteral(value: string): string {
+  return value.replace(/\\(['"\\])/g, '$1');
+}
+
+function evaluateFilterArgument(token: string, scope: TemplateScope): unknown {
+  const trimmed = token.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+    return unescapeStringLiteral(trimmed.slice(1, -1));
+  }
+  if (trimmed === 'null') {
+    return null;
+  }
+  if (trimmed === 'true') {
+    return true;
+  }
+  if (trimmed === 'false') {
+    return false;
+  }
+  const numeric = Number(trimmed);
+  if (!Number.isNaN(numeric) && trimmed.match(/^-?\d+(?:\.\d+)?$/)) {
+    return numeric;
+  }
+  // Treat remaining as template lookup path
+  const resolved = resolveLookupWithAliases(trimmed, scope);
+  return resolved;
+}
+
+function isBlankTemplateValue(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'string' && value.length === 0);
+}
+
+function resolveLookupWithAliases(expression: string, scope: TemplateScope): unknown {
   const trimmed = expression.trim();
   if (!trimmed) {
     return undefined;
@@ -261,13 +398,91 @@ function resolveTemplateExpression(
       return postProcessLegacyValue(trimmed, aliased);
     }
   }
-  if (tracker) {
+  return undefined;
+}
+
+function resolveTemplateExpression(
+  expression: string,
+  scope: TemplateScope,
+  tracker?: TemplateResolutionTracker,
+  path?: string
+): unknown {
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const { base, filters } = parseFilterPipeline(trimmed);
+  let value = resolveLookupWithAliases(base, scope);
+  let resolved = value !== undefined;
+
+  for (const filter of filters) {
+    const name = filter.name.toLowerCase();
+    if (name === 'default') {
+      const fallbackToken = filter.args[0];
+      const fallbackValue = fallbackToken !== undefined ? evaluateFilterArgument(fallbackToken, scope) : undefined;
+      if (isBlankTemplateValue(value)) {
+        value = fallbackValue;
+        resolved = value !== undefined;
+      }
+      continue;
+    }
+
+    if (value === undefined || value === null) {
+      resolved = value !== undefined;
+      continue;
+    }
+
+    switch (name) {
+      case 'slice': {
+        const startArg = filter.args[0];
+        const lengthArg = filter.args[1];
+        const start = Number(startArg ?? 0);
+        const hasStart = startArg !== undefined && !Number.isNaN(start);
+        const length = lengthArg !== undefined ? Number(lengthArg) : undefined;
+        const hasLength = lengthArg !== undefined && !Number.isNaN(length);
+        if (typeof value === 'string') {
+          const begin = hasStart ? start : 0;
+          value = hasLength ? value.slice(begin, begin + (length as number)) : value.slice(begin);
+          resolved = true;
+        } else if (Array.isArray(value)) {
+          const begin = hasStart ? start : 0;
+          value = hasLength ? value.slice(begin, begin + (length as number)) : value.slice(begin);
+          resolved = true;
+        } else {
+          resolved = false;
+        }
+        break;
+      }
+      case 'replace': {
+        const searchToken = filter.args[0];
+        const replaceToken = filter.args[1] ?? "";
+        const searchValue = searchToken !== undefined ? evaluateFilterArgument(searchToken, scope) : undefined;
+        const replacementValue = evaluateFilterArgument(replaceToken, scope);
+        if (typeof value === 'string' && typeof searchValue === 'string') {
+          const replacement = typeof replacementValue === 'string' ? replacementValue : String(replacementValue ?? '');
+          value = value.split(searchValue).join(replacement);
+          resolved = true;
+        } else {
+          resolved = false;
+        }
+        break;
+      }
+      default: {
+        // Unsupported filter
+        resolved = false;
+        break;
+      }
+    }
+  }
+
+  if (value === undefined && tracker) {
     tracker.record({
       path: path ?? '$',
       expression: trimmed
     });
   }
-  return undefined;
+  return value;
 }
 
 export function resolveTemplateString(

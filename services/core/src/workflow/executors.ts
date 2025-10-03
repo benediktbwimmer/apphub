@@ -11,14 +11,15 @@ import type {
   WorkflowJobStepDefinition,
   WorkflowRunRecord,
   WorkflowRunStepAssetInput,
+  WorkflowRunStepAssetRecord,
   WorkflowRunStepRecord,
   WorkflowRunStepStatus,
   WorkflowRunStepUpdateInput,
   WorkflowServiceStepDefinition,
-  WorkflowStepDefinition
+  WorkflowStepDefinition,
+  WorkflowAssetRecoveryRequestRecord
 } from '../db/types';
 import { WORKFLOW_BUNDLE_CONTEXT_KEY } from '../jobs/runtime';
-import type { WorkflowRunStepAssetRecord } from '../db/types';
 import {
   calculateRetryDelay,
   computeWorkflowRetryTimestamp,
@@ -29,6 +30,13 @@ import {
   parseRuntimeAssets,
   toRuntimeAssetSummaries
 } from './assets';
+import {
+  ensureAssetRecoveryRequest as ensureWorkflowAssetRecovery,
+  getRecoveryPollDelayMs,
+  type AssetRecoveryDescriptor
+} from './recovery/manager';
+import { getAssetRecoveryRequestById } from '../db/assetRecovery';
+import { logger } from '../observability/logger';
 import {
   mergeParameters,
   resolveJsonTemplates,
@@ -604,6 +612,11 @@ async function executeJobStep(
     } satisfies StepExecutionResult;
   }
 
+  const recoveryGate = await maybeDeferForAssetRecovery(run, step, stepRecord, context, stepIndex, deps);
+  if (recoveryGate) {
+    return recoveryGate;
+  }
+
   const startedAt = stepRecord.startedAt ?? new Date().toISOString();
   if (stepRecord.status !== 'running') {
     const previousStatus = stepRecord.status;
@@ -728,6 +741,8 @@ async function executeJobStep(
       assets: extractProducedAssetsFromResult(step, executed.result ?? null)
     });
 
+    stepRecord = { ...stepRecord, producedAssets: assetsPersisted };
+
     let successContext = updateStepContext(nextContext, step.id, {
       status: jobStatusToStepStatus(executed.status),
       jobRunId: jobRun.id,
@@ -776,8 +791,6 @@ async function executeJobStep(
         }
       );
 
-      stepRecord = { ...stepRecord, producedAssets: assetsPersisted };
-
       successContext = updateStepContext(successContext, step.id, {
         completedAt: stepRecord.completedAt ?? completedAt
       });
@@ -796,6 +809,32 @@ async function executeJobStep(
         sharedPatch,
         errorMessage: executed.errorMessage ?? null
       } satisfies StepExecutionResult;
+    }
+
+    if (executed.failureReason === 'asset_missing') {
+      const descriptor = extractAssetRecoveryDescriptorFromContext(executed.context ?? null);
+      if (descriptor) {
+        const recoveryOutcome = await ensureWorkflowAssetRecovery({
+          descriptor,
+          failingDefinition: definition,
+          failingRun: run,
+          step,
+          stepRecord
+        });
+        if (recoveryOutcome && recoveryOutcome.request.status !== 'failed') {
+          const metadata = buildRecoveryRetryMetadata(recoveryOutcome.request, descriptor);
+          return scheduleRecoveryPoll(
+            run,
+            step,
+            stepRecord,
+            successContext,
+            stepIndex,
+            'asset_recovery_pending',
+            metadata,
+            deps
+          );
+        }
+      }
     }
 
     return finalizeStepFailure(
@@ -1748,6 +1787,262 @@ async function scheduleWorkflowStepRetry(
       reason
     }
   } satisfies StepExecutionResult;
+}
+
+type RecoveryRetryMetadata = {
+  requestId: string;
+  assetId: string;
+  partitionKey: string | null;
+  status: string;
+  capability?: string | null;
+  resource?: string | null;
+  lastCheckedAt?: string;
+  scheduledAt?: string;
+};
+
+function isPlainObject(value: JsonValue | null | undefined): value is Record<string, JsonValue> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function extractAssetRecoveryDescriptorFromContext(
+  context: JsonValue | null | undefined
+): AssetRecoveryDescriptor | null {
+  if (!isPlainObject(context)) {
+    return null;
+  }
+  const node = context.assetRecovery as JsonValue | undefined;
+  if (!isPlainObject(node)) {
+    return null;
+  }
+  const assetIdValue = node.assetId;
+  const assetId = typeof assetIdValue === 'string' ? assetIdValue.trim() : '';
+  if (!assetId) {
+    return null;
+  }
+  const partitionKeyValue = node.partitionKey;
+  const partitionKey =
+    typeof partitionKeyValue === 'string' && partitionKeyValue.trim().length > 0
+      ? partitionKeyValue.trim()
+      : null;
+  const capability = typeof node.capability === 'string' ? node.capability : null;
+  const resource = typeof node.resource === 'string' ? node.resource : null;
+
+  return {
+    assetId,
+    partitionKey,
+    capability: capability ?? undefined,
+    resource: resource ?? undefined
+  } satisfies AssetRecoveryDescriptor;
+}
+
+function extractRecoveryRetryMetadata(value: JsonValue | null | undefined): RecoveryRetryMetadata | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  const recoveryNode = value.recovery as JsonValue | undefined;
+  if (!isPlainObject(recoveryNode)) {
+    return null;
+  }
+  const requestIdValue = recoveryNode.requestId;
+  const requestId = typeof requestIdValue === 'string' ? requestIdValue.trim() : '';
+  if (!requestId) {
+    return null;
+  }
+  const assetIdValue = recoveryNode.assetId;
+  const assetId = typeof assetIdValue === 'string' ? assetIdValue.trim() : '';
+  if (!assetId) {
+    return null;
+  }
+  const partitionKeyValue = recoveryNode.partitionKey;
+  const partitionKey =
+    typeof partitionKeyValue === 'string' && partitionKeyValue.trim().length > 0
+      ? partitionKeyValue.trim()
+      : null;
+  const statusValue = recoveryNode.status;
+  const status = typeof statusValue === 'string' ? statusValue : 'pending';
+  const capability = typeof recoveryNode.capability === 'string' ? recoveryNode.capability : null;
+  const resource = typeof recoveryNode.resource === 'string' ? recoveryNode.resource : null;
+  const lastCheckedAt = typeof recoveryNode.lastCheckedAt === 'string' ? recoveryNode.lastCheckedAt : undefined;
+  const scheduledAt = typeof recoveryNode.scheduledAt === 'string' ? recoveryNode.scheduledAt : undefined;
+
+  return {
+    requestId,
+    assetId,
+    partitionKey,
+    status,
+    capability,
+    resource,
+    lastCheckedAt,
+    scheduledAt
+  } satisfies RecoveryRetryMetadata;
+}
+
+function buildRecoveryRetryMetadata(
+  request: WorkflowAssetRecoveryRequestRecord,
+  descriptor: AssetRecoveryDescriptor
+): JsonValue {
+  return {
+    recovery: {
+      requestId: request.id,
+      assetId: descriptor.assetId,
+      partitionKey: descriptor.partitionKey,
+      status: request.status,
+      capability: descriptor.capability ?? null,
+      resource: descriptor.resource ?? null,
+      scheduledAt: new Date().toISOString()
+    }
+  } satisfies JsonValue;
+}
+
+async function clearRecoveryMetadata(
+  stepRecord: WorkflowRunStepRecord,
+  deps: StepExecutorDependencies,
+  reason: string
+): Promise<void> {
+  try {
+    await deps.applyStepUpdateWithHistory(
+      stepRecord,
+      {
+        retryMetadata: null
+      },
+      {
+        eventType: 'recovery-metadata-cleared',
+        eventPayload: {
+          reason
+        }
+      }
+    );
+  } catch (err) {
+    logger.warn('workflow.recovery.clear_metadata_failed', {
+      stepId: stepRecord.stepId,
+      workflowRunStepId: stepRecord.id,
+      error: err instanceof Error ? err.message : 'unknown'
+    });
+  }
+}
+
+async function scheduleRecoveryPoll(
+  run: WorkflowRunRecord,
+  step: WorkflowStepDefinition,
+  stepRecord: WorkflowRunStepRecord,
+  context: WorkflowRuntimeContext,
+  stepIndex: number,
+  reason: string,
+  metadata: JsonValue,
+  deps: StepExecutorDependencies
+): Promise<StepExecutionResult> {
+  const delayMs = getRecoveryPollDelayMs();
+  const runAt = new Date(Date.now() + delayMs).toISOString();
+  const metadataValue = metadata ?? null;
+
+  const updatedRecord =
+    (await deps.applyStepUpdateWithHistory(
+      stepRecord,
+      {
+        status: 'pending',
+        retryState: 'scheduled',
+        nextAttemptAt: runAt,
+        retryMetadata: metadataValue,
+        lastHeartbeatAt: new Date().toISOString(),
+        errorMessage: stepRecord.errorMessage ?? null,
+        completedAt: null,
+        resolutionError: false
+      },
+      {
+        eventType: 'retry-scheduled',
+        eventPayload: {
+          reason,
+          nextAttemptAt: runAt,
+          attempt: stepRecord.attempt ?? 1,
+          retryAttempts: stepRecord.retryCount ?? 0
+        }
+      }
+    )) ?? stepRecord;
+
+  await deps.scheduleWorkflowRetryJob(run.id, step.id, runAt, stepRecord.retryCount ?? 0, {
+    runKey: run.runKey ?? null
+  });
+
+  const retryContext = updateStepContext(context, step.id, {
+    status: 'pending',
+    jobRunId: updatedRecord.jobRunId ?? null,
+    result: null,
+    errorMessage: updatedRecord.errorMessage ?? null,
+    logsUrl: updatedRecord.logsUrl ?? null,
+    metrics: updatedRecord.metrics ?? null,
+    attempt: updatedRecord.attempt,
+    startedAt: updatedRecord.startedAt,
+    completedAt: null,
+    assets: toRuntimeAssetSummaries(updatedRecord.producedAssets ?? []),
+    resolutionError: false
+  });
+
+  await deps.applyRunContextPatch(run.id, step.id, retryContext.steps[step.id], {
+    currentStepId: step.id,
+    currentStepIndex: stepIndex
+  });
+
+  return {
+    context: retryContext,
+    stepStatus: 'pending',
+    completed: false,
+    stepPatch: retryContext.steps[step.id],
+    errorMessage: updatedRecord.errorMessage ?? null,
+    scheduledRetry: {
+      stepId: step.id,
+      runAt,
+      attempts: stepRecord.retryCount ?? 0,
+      reason
+    }
+  } satisfies StepExecutionResult;
+}
+
+async function maybeDeferForAssetRecovery(
+  run: WorkflowRunRecord,
+  step: WorkflowStepDefinition,
+  stepRecord: WorkflowRunStepRecord,
+  context: WorkflowRuntimeContext,
+  stepIndex: number,
+  deps: StepExecutorDependencies
+): Promise<StepExecutionResult | null> {
+  const metadata = extractRecoveryRetryMetadata(stepRecord.retryMetadata ?? null);
+  if (!metadata) {
+    return null;
+  }
+
+  const request = await getAssetRecoveryRequestById(metadata.requestId);
+  if (!request) {
+    await clearRecoveryMetadata(stepRecord, deps, 'request-missing');
+    return null;
+  }
+
+  if (request.status === 'succeeded' || request.status === 'failed') {
+    await clearRecoveryMetadata(stepRecord, deps, `request-${request.status}`);
+    return null;
+  }
+
+  const updatedMetadata: JsonValue = {
+    recovery: {
+      requestId: request.id,
+      assetId: metadata.assetId,
+      partitionKey: metadata.partitionKey,
+      status: request.status,
+      capability: metadata.capability ?? null,
+      resource: metadata.resource ?? null,
+      lastCheckedAt: new Date().toISOString()
+    }
+  } satisfies JsonValue;
+
+  return scheduleRecoveryPoll(
+    run,
+    step,
+    stepRecord,
+    context,
+    stepIndex,
+    request.status === 'running' ? 'asset_recovery_running' : 'asset_recovery_pending',
+    updatedMetadata,
+    deps
+  );
 }
 
 async function finalizeStepFailure(

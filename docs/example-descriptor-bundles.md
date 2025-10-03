@@ -6,7 +6,7 @@ Ticket 082 extended the example system so packaging no longer depends on a stati
 
 Example descriptors live in `config.json` files that conform to `docs/schemas/example-config.schema.json`. They may declare bundle manifests via the `manifests` array. Any entry with `kind: "bundle"` (or no `kind` field) is treated as an `apphub.bundle.json` root that points at a job bundle.
 
-Curated descriptors inside this repo already list each job bundle (see `examples/environmental-observatory-event-driven/config.json`). When the core loads descriptors it stores `{ module, configPath }` alongside each job bundle record so that tooling can reference the descriptor again at runtime.
+Curated descriptors inside this repo already list each job bundle (see `modules/environmental-observatory/dist/config.json`). When the core loads descriptors it stores `{ module, configPath }` alongside each job bundle record so that tooling can reference the descriptor again at runtime.
 
 ## Bundling With `@apphub/example-bundler`
 
@@ -25,7 +25,7 @@ await bundler.packageExampleByDescriptor({
   slug: 'observatory-data-generator',
   descriptor: {
     module: 'github.com/apphub/examples/environmental-observatory-event-driven',
-    path: 'examples/environmental-observatory-event-driven'
+    path: 'modules/environmental-observatory/dist'
   }
 });
 
@@ -36,7 +36,7 @@ await bundler.packageExampleByDescriptor({
     module: 'github.com/apphub/examples/environmental-observatory-event-driven',
     repo: 'https://github.com/apphub/examples.git',
     ref: 'main',
-    configPath: 'examples/environmental-observatory-event-driven/config.json'
+    configPath: 'modules/environmental-observatory/dist/config.json'
   }
 });
 ```
@@ -61,7 +61,7 @@ The bundler computes cache fingerprints from both the descriptor JSON and the bu
     "module": "github.com/apphub/examples/environmental-observatory-event-driven",
     "repo": "https://github.com/apphub/examples.git",
     "ref": "main",
-    "configPath": "examples/environmental-observatory-event-driven/config.json"
+    "configPath": "modules/environmental-observatory/dist/config.json"
   }
 }
 ```
