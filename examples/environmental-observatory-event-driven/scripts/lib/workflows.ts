@@ -188,6 +188,7 @@ function buildTriggerDefinitions(config: EventDrivenObservatoryConfig): TriggerD
     filestore: {
       baseUrl: config.filestore.baseUrl,
       backendMountId: config.filestore.backendMountId,
+      backendMountKey: config.filestore.backendMountKey,
       token: config.filestore.token ?? null,
       inboxPrefix: config.filestore.inboxPrefix,
       stagingPrefix: config.filestore.stagingPrefix,
