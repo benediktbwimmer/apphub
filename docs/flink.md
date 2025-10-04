@@ -65,6 +65,10 @@ The repo ships a SQL-based demo that consumes events from Redpanda, performs a 1
    kubectl exec -n apphub-system statefulset/apphub-redpanda -- rpk topic consume apphub.streaming.aggregates -n 5
    ```
 
+## Streaming Micro-Batcher
+
+AppHub's timestore service includes a Redpanda-backed micro-batcher that consumes `apphub.streaming.aggregates`, groups records by dataset window, and publishes Parquet partitions via the standard ingestion pipeline. Configure batchers with `TIMESTORE_STREAMING_BATCHERS`—each descriptor specifies the dataset slug, schema, timestamp field, partition keys, and window duration. Once enabled, the worker updates watermarks (`streaming_watermarks` table) so hybrid queries can distinguish sealed intervals from hot streaming windows.
+
 ## Checkpoints & Savepoints
 
 - **Compose / E2E** – Mounted volume `./docker/demo-data/flink/checkpoints` keeps checkpoints between restarts. Remove the directory to reset state.

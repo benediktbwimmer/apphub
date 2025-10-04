@@ -16,6 +16,7 @@ import { setupTracing } from './observability/tracing';
 import { initializeFilestoreActivity, shutdownFilestoreActivity } from './filestore/consumer';
 import { shutdownManifestCache } from './cache/manifestCache';
 import { initializeIngestionConnectors, shutdownIngestionConnectors } from './ingestion/connectors';
+import { initializeStreamingBatchers, shutdownStreamingBatchers } from './streaming/batchers';
 import { initializeDatasetAccessCleanup, shutdownDatasetAccessCleanup } from './service/auditCleanup';
 import { registerOpenApi } from './openapi/plugin';
 
@@ -71,6 +72,7 @@ async function start(): Promise<void> {
     await shutdownManifestCache();
     await shutdownFilestoreActivity();
     await shutdownIngestionConnectors();
+    await shutdownStreamingBatchers();
     await shutdownDatasetAccessCleanup();
   });
 
@@ -80,6 +82,7 @@ async function start(): Promise<void> {
   await verifyLifecycleQueueConnection();
   await initializeFilestoreActivity({ config, logger: app.log });
   await initializeIngestionConnectors({ config, logger: app.log });
+  await initializeStreamingBatchers({ config, logger: app.log });
   await initializeDatasetAccessCleanup({ config, logger: app.log });
 
   try {

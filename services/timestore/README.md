@@ -67,6 +67,7 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_INGEST_CONCURRENCY` | Worker concurrency when processing ingestion jobs. | `2` |
 | `TIMESTORE_CONNECTORS_ENABLED` | Toggle streaming/bulk ingestion connectors managed by the API node. | `false` |
 | `TIMESTORE_STREAMING_CONNECTORS` | JSON array describing streaming connectors (file driver supported). | `[]` |
+| `TIMESTORE_STREAMING_BATCHERS` | JSON array describing streaming micro-batcher definitions that consume Redpanda topics. | `[]` |
 | `TIMESTORE_BULK_CONNECTORS` | JSON array describing bulk loaders (file driver supported). | `[]` |
 | `TIMESTORE_CONNECTOR_BACKPRESSURE` | JSON object with queue depth thresholds controlling connector pause/resume. | `{}` |
 | `TIMESTORE_PARTITION_BUILD_QUEUE_NAME` | BullMQ queue backing remote partition builds. | `timestore_partition_build_queue` |
@@ -90,6 +91,7 @@ When the service boots it ensures the configured Postgres schema exists, runs ti
 ### Streaming & Bulk Connectors
 - Enable connector workers by setting `TIMESTORE_CONNECTORS_ENABLED=true`. When disabled, connector definitions are ignored even if configured.
 - `TIMESTORE_STREAMING_CONNECTORS` expects a JSON array. The file driver consumes newline-delimited JSON envelopes that match the ingestion schema (`offset`, `idempotencyKey`, `ingestion`). Provide `checkpointPath` and optional `dlqPath` to persist offsets and capture failures.
+- Streaming micro-batchers are configured through `TIMESTORE_STREAMING_BATCHERS`. Each descriptor maps a Kafka/Redpanda topic to a dataset slug, schema, and time window so high-frequency events are aggregated before entering the ingestion pipeline.
 - `TIMESTORE_BULK_CONNECTORS` tail directories for staged files (currently JSON). Each descriptor can override `chunkSize`, set `deleteAfterLoad`, or leave ingested files renamed with a `.processed` suffix.
 - Backpressure thresholds come from `TIMESTORE_CONNECTOR_BACKPRESSURE` (high/low watermarks + pause window); connectors pause polling when the ingestion queue depth crosses the configured limits.
 - Connector progress is tracked in JSON checkpoints so a restart resumes from the previous offset without reprocessing data.
