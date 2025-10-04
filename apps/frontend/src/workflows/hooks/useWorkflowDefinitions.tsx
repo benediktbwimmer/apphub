@@ -18,7 +18,7 @@ import {
   normalizeWorkflowDefinition,
   type WorkflowSummary
 } from '../normalizers';
-import { listServices, listWorkflowDefinitions } from '../api';
+import { listServices, listWorkflowDefinitions, listWorkflowRunsForSlug } from '../api';
 import { useAppHubEvent } from '../../events/context';
 import type {
   WorkflowDefinition,
@@ -80,6 +80,7 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
 
   const workflowsRef = useRef<WorkflowDefinition[]>([]);
   const selectedSlugRef = useRef<string | null>(null);
+  const hydrationGenerationRef = useRef(0);
 
   const updateRuntimeSummary = useCallback((workflow: WorkflowDefinition, run: WorkflowRun) => {
     setWorkflowRuntimeSummaries((current) => ({
@@ -95,6 +96,61 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
       }
     }));
   }, []);
+
+  const hydrateRuntimeSummaries = useCallback(
+    (definitions: WorkflowDefinition[]) => {
+      if (definitions.length === 0) {
+        return;
+      }
+      const generation = ++hydrationGenerationRef.current;
+      let nextIndex = 0;
+      const workers = Math.min(4, definitions.length);
+
+      const getNextDefinition = () => {
+        if (hydrationGenerationRef.current !== generation) {
+          return null;
+        }
+        if (nextIndex >= definitions.length) {
+          return null;
+        }
+        const current = definitions[nextIndex];
+        nextIndex += 1;
+        return current;
+      };
+
+      const tasks = Array.from({ length: workers }, () =>
+        (async () => {
+          while (true) {
+            const definition = getNextDefinition();
+            if (!definition) {
+              break;
+            }
+            try {
+              const { runs } = await listWorkflowRunsForSlug(authorizedFetch, definition.slug, { limit: 1 });
+              if (hydrationGenerationRef.current !== generation) {
+                break;
+              }
+              const latestRun = runs[0];
+              if (latestRun) {
+                updateRuntimeSummary(definition, latestRun);
+              }
+            } catch (error) {
+              if (hydrationGenerationRef.current !== generation) {
+                break;
+              }
+              console.warn('workflow.runtime_summaries.fetch_failed', {
+                slug: definition.slug,
+                error
+              });
+            }
+          }
+        })()
+      );
+
+      void Promise.allSettled(tasks);
+    },
+    [authorizedFetch, updateRuntimeSummary]
+  );
 
   const seedRuntimeSummaryFromMetadata = useCallback((workflow: WorkflowDefinition) => {
     const metadataSummary = summarizeWorkflowMetadata(workflow);
@@ -137,6 +193,7 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
       setWorkflows(normalized);
       workflowsRef.current = normalized;
       normalized.forEach(seedRuntimeSummaryFromMetadata);
+      hydrateRuntimeSummaries(normalized);
       if (normalized.length > 0) {
         setSelectedSlug((current) => {
           if (current) {
@@ -157,7 +214,7 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
     } finally {
       setWorkflowsLoading(false);
     }
-  }, [authorizedFetch, seedRuntimeSummaryFromMetadata]);
+  }, [authorizedFetch, seedRuntimeSummaryFromMetadata, hydrateRuntimeSummaries]);
 
   const loadServices = useCallback(async () => {
     try {

@@ -28,6 +28,9 @@ const {
   workflowDefinition,
   runResponse,
   listWorkflowDefinitionsMock,
+  listWorkflowRunsForSlugMock,
+  fetchWorkflowTopologyGraphMock,
+  getWorkflowEventHealthMock,
   getWorkflowDetailMock,
   listWorkflowRunStepsMock,
   listServicesMock,
@@ -110,6 +113,69 @@ const {
     workflowDefinition: definition,
     runResponse: run,
     listWorkflowDefinitionsMock: vi.fn(async () => [definition]),
+    listWorkflowRunsForSlugMock: vi.fn(async () => ({ runs: [run], meta: { limit: 1, offset: 0 } })),
+    fetchWorkflowTopologyGraphMock: vi.fn(async () => ({
+      graph: {
+        version: 'v2' as const,
+        generatedAt: new Date().toISOString(),
+        nodes: {
+          workflows: [
+            {
+              id: definition.id,
+              slug: definition.slug,
+              name: definition.name,
+              version: definition.version,
+              description: definition.description,
+              createdAt: definition.createdAt,
+              updatedAt: definition.updatedAt,
+              metadata: definition.metadata,
+              annotations: {
+                tags: [],
+                ownerName: null,
+                ownerContact: null,
+                team: null,
+                domain: null,
+                environment: null,
+                slo: null
+              }
+            }
+          ],
+          steps: definition.steps.map((step) => ({
+            id: step.id,
+            workflowId: definition.id,
+            name: step.name,
+            description: step.description ?? null,
+            type: step.serviceSlug ? 'service' : 'job',
+            dependsOn: step.dependsOn ?? [],
+            dependents: step.dependents ?? [],
+            runtime: step.serviceSlug
+              ? { type: 'service' as const, serviceSlug: step.serviceSlug }
+              : { type: 'job' as const, jobSlug: step.jobSlug ?? step.id }
+          })),
+          triggers: [],
+          schedules: [],
+          assets: [],
+          eventSources: []
+        },
+        edges: {
+          triggerToWorkflow: [],
+          workflowToStep: definition.steps.flatMap((step) => {
+            const parents = step.dependsOn && step.dependsOn.length > 0 ? step.dependsOn : [null];
+            return parents.map((parent) => ({
+              workflowId: definition.id,
+              fromStepId: parent,
+              toStepId: step.id
+            }));
+          }),
+          stepToAsset: [],
+          assetToWorkflow: [],
+          eventSourceToTrigger: [],
+          stepToEventSource: []
+        }
+      },
+      meta: { cache: null }
+    })),
+    getWorkflowEventHealthMock: vi.fn(async () => null),
     getWorkflowDetailMock: vi.fn(async () => ({ workflow: definition, runs: [run] })),
     listWorkflowRunStepsMock: vi.fn(async () => ({ run, steps })),
     listServicesMock: vi.fn(async () => []),
@@ -258,6 +324,9 @@ vi.mock('../../api', async () => {
   return {
     ...actual,
     listWorkflowDefinitions: listWorkflowDefinitionsMock,
+    listWorkflowRunsForSlug: listWorkflowRunsForSlugMock,
+    fetchWorkflowTopologyGraph: fetchWorkflowTopologyGraphMock,
+    getWorkflowEventHealth: getWorkflowEventHealthMock,
     getWorkflowDetail: getWorkflowDetailMock,
     listWorkflowRunSteps: listWorkflowRunStepsMock,
     listServices: listServicesMock,
@@ -283,6 +352,9 @@ beforeEach(() => {
   authorizedFetchMock.mockClear();
   pushToastMock.mockClear();
   listWorkflowDefinitionsMock.mockClear();
+  listWorkflowRunsForSlugMock.mockClear();
+  fetchWorkflowTopologyGraphMock.mockClear();
+  getWorkflowEventHealthMock.mockClear();
   getWorkflowDetailMock.mockClear();
   listWorkflowRunStepsMock.mockClear();
   fetchWorkflowAssetsMock.mockClear();

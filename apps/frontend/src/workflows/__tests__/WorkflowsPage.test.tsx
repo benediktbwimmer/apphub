@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement, type PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,7 @@ import type { MockedFunction } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import WorkflowsPage from '../WorkflowsPage';
 import { ToastProvider } from '../../components/toast';
+import { ThemeProvider } from '../../theme/ThemeProvider';
 import { useAuth } from '../../auth/useAuth';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../types';
 import {
@@ -275,6 +276,69 @@ function createFetchMock(options?: FetchMockOptions) {
     ]
   } as const;
 
+  const workflowAnnotations = {
+    tags: Array.isArray((workflow.metadata as Record<string, unknown> | undefined)?.tags)
+      ? ((workflow.metadata as Record<string, unknown>).tags as string[])
+      : [],
+    ownerName: null,
+    ownerContact: null,
+    team: null,
+    domain: null,
+    environment: null,
+    slo: null
+  } as const;
+
+  const graphPayload = {
+    version: 'v2' as const,
+    generatedAt: now,
+    nodes: {
+      workflows: [
+        {
+          id: workflow.id,
+          slug: workflow.slug,
+          name: workflow.name,
+          version: workflow.version,
+          description: workflow.description,
+          createdAt: workflow.createdAt,
+          updatedAt: workflow.updatedAt,
+          metadata: workflow.metadata ?? null,
+          annotations: workflowAnnotations
+        }
+      ],
+      steps: workflow.steps.map((step) => ({
+        id: step.id,
+        workflowId: workflow.id,
+        name: step.name,
+        description: step.description ?? null,
+        type: step.serviceSlug ? 'service' : 'job',
+        dependsOn: step.dependsOn ?? [],
+        dependents: step.dependents ?? [],
+        runtime: step.serviceSlug
+          ? { type: 'service' as const, serviceSlug: step.serviceSlug }
+          : { type: 'job' as const, jobSlug: step.jobSlug ?? step.id }
+      })),
+      triggers: [],
+      schedules: [],
+      assets: [],
+      eventSources: []
+    },
+    edges: {
+      triggerToWorkflow: [],
+      workflowToStep: workflow.steps.flatMap((step) => {
+        const parents = step.dependsOn && step.dependsOn.length > 0 ? step.dependsOn : [null];
+        return parents.map((parent) => ({
+          workflowId: workflow.id,
+          fromStepId: parent,
+          toStepId: step.id
+        }));
+      }),
+      stepToAsset: [],
+      assetToWorkflow: [],
+      eventSourceToTrigger: [],
+      stepToEventSource: []
+    }
+  };
+
   return vi.fn(async (...args: FetchArgs) => {
     const [input, init] = args;
     const rawUrl = typeof input === 'string'
@@ -302,9 +366,37 @@ function createFetchMock(options?: FetchMockOptions) {
       });
     }
 
+    if (pathname === '/workflows/graph' && method === 'GET') {
+      return new Response(
+        JSON.stringify({ data: graphPayload, meta: { cache: null } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (pathname === '/admin/event-health' && method === 'GET') {
+      return new Response(
+        JSON.stringify({ data: { queues: {}, metrics: { generatedAt: now, triggers: [], sources: [] } } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     if (pathname === `/workflows/${workflow.slug}` && method === 'GET') {
       return new Response(
         JSON.stringify({ data: { workflow, runs: detailRuns } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (pathname === `/workflows/${workflow.slug}/runs` && method === 'GET') {
+      return new Response(
+        JSON.stringify({
+          data: { runs: detailRuns.length > 0 ? detailRuns : [run] },
+          meta: {
+            workflow: { id: workflow.id, slug: workflow.slug, name: workflow.name },
+            limit: Number(url.searchParams.get('limit') ?? 20),
+            offset: Number(url.searchParams.get('offset') ?? 0)
+          }
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -397,9 +489,13 @@ function renderWorkflowsPage(initialEntries: string[] = ['/workflows']) {
         MemoryRouter,
         { initialEntries },
         createElement(
-          ToastProvider,
+          ThemeProvider,
           null,
-          createElement(WorkflowsPage)
+          createElement(
+            ToastProvider,
+            null,
+            createElement(WorkflowsPage)
+          )
         )
       )
     )
@@ -428,19 +524,24 @@ describe('WorkflowsPage manual run flow', () => {
 
     await screen.findByText(/Triggers: manual/i);
 
-    const tenantInput = await screen.findByLabelText(/tenant/i);
+    const launchButton = await screen.findByRole('button', { name: /launch workflow/i });
+    await userEvent.click(launchButton);
+
+    const dialog = await screen.findByRole('dialog');
+
+    const tenantInput = within(dialog).getByLabelText(/tenant/i);
     await userEvent.clear(tenantInput);
     await userEvent.type(tenantInput, 'umbrella');
 
-    const retriesInput = await screen.findByLabelText(/retries/i);
+    const retriesInput = within(dialog).getByLabelText(/retries/i);
     await userEvent.clear(retriesInput);
     await userEvent.type(retriesInput, '2');
 
-    const triggeredByInput = await screen.findByPlaceholderText('you@example.com');
+    const triggeredByInput = within(dialog).getByPlaceholderText('you@example.com');
     await userEvent.clear(triggeredByInput);
     await userEvent.type(triggeredByInput, 'operator@apphub.test');
 
-    const submitButton = screen.getByRole('button', { name: /launch workflow/i });
+    const submitButton = within(dialog).getByRole('button', { name: /launch workflow/i });
     expect(submitButton).toBeEnabled();
     await userEvent.click(submitButton);
 
@@ -448,7 +549,9 @@ describe('WorkflowsPage manual run flow', () => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/workflows\/demo-workflow\/run$/), expect.anything());
     });
 
-    const stepRow = await screen.findByText('First Step');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    const stepRow = await screen.findByText(/1\. First Step/, { selector: 'span' });
     expect(stepRow).toBeVisible();
     const logLinks = screen.getAllByRole('link', { name: /view/i });
     expect(logLinks.some((link) => link.getAttribute('href') === 'https://example.com/logs/1')).toBe(true);
@@ -536,7 +639,10 @@ describe('WorkflowsPage manual run flow', () => {
       );
     });
 
-    expect(await screen.findByText(/Run ID: run-2/i)).toBeVisible();
+    const runIdElements = await screen.findAllByText(/Run ID: run-2/i);
+    const visibleRunId = runIdElements.find((element) => !element.classList.contains('sr-only'));
+    expect(visibleRunId).toBeDefined();
+    expect(visibleRunId).toBeVisible();
   });
 
   it('renders auto-materialization activity and supports filtering', async () => {
