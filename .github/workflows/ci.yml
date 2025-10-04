@@ -35,7 +35,8 @@ jobs:
           corepack npm install --no-save \
             @rollup/rollup-linux-x64-gnu \
             @tailwindcss/oxide-linux-x64-gnu \
-            lightningcss-linux-x64-gnu
+            lightningcss-linux-x64-gnu \
+            @embedded-postgres/linux-x64
       - name: Run lint
         run: corepack npm run lint
 
@@ -62,7 +63,8 @@ jobs:
           corepack npm install --no-save \
             @rollup/rollup-linux-x64-gnu \
             @tailwindcss/oxide-linux-x64-gnu \
-            lightningcss-linux-x64-gnu
+            lightningcss-linux-x64-gnu \
+            @embedded-postgres/linux-x64
       - name: Run build
         run: corepack npm run build
 
@@ -89,7 +91,8 @@ jobs:
           corepack npm install --no-save \
             @rollup/rollup-linux-x64-gnu \
             @tailwindcss/oxide-linux-x64-gnu \
-            lightningcss-linux-x64-gnu
+            lightningcss-linux-x64-gnu \
+            @embedded-postgres/linux-x64
       - name: Run tests
         run: corepack npm run build && corepack npm run test
         shell: bash
