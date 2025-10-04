@@ -1,4 +1,4 @@
-import type { ModuleManifest, WorkflowDefinition } from '@apphub/module-sdk';
+import type { ModuleManifest, ModuleManifestTarget, WorkflowDefinition } from '@apphub/module-sdk';
 import {
   resolveWorkflowProvisioningPlan,
   type WorkflowProvisioningPlan,
@@ -19,7 +19,9 @@ interface SyncWorkflowsOptions {
 }
 
 export async function syncWorkflows(options: SyncWorkflowsOptions): Promise<number> {
-  const targets = options.manifest.targets.filter((target) => target.kind === 'workflow');
+  const targets = options.manifest.targets.filter(
+    (target): target is ModuleManifestTarget => target.kind === 'workflow'
+  );
   let processed = 0;
 
   for (const target of targets) {
