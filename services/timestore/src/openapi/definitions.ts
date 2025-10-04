@@ -171,7 +171,7 @@ const healthUnavailableResponseSchema: OpenAPIV3.SchemaObject = {
   properties: {
     status: {
       type: 'string',
-      enum: ['unavailable'],
+      enum: ['unavailable', 'degraded'],
       description: 'Indicates the service cannot serve traffic.'
     },
     lifecycle: lifecycleQueueHealthSchema,

@@ -2489,7 +2489,7 @@ const healthUnavailableResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['status', 'features'],
   properties: {
-    status: { type: 'string', enum: ['unavailable'] },
+    status: { type: 'string', enum: ['unavailable', 'degraded'] },
     warnings: {
       type: 'array',
       items: { type: 'string' }
@@ -2528,7 +2528,7 @@ const readyUnavailableResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['status', 'features'],
   properties: {
-    status: { type: 'string', enum: ['unavailable'] },
+    status: { type: 'string', enum: ['unavailable', 'degraded'] },
     warnings: {
       type: 'array',
       items: { type: 'string' }

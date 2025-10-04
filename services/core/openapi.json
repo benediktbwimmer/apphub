@@ -16634,7 +16634,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "unavailable"
+              "unavailable",
+              "degraded"
             ]
           },
           "warnings": {
@@ -17085,7 +17086,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "unavailable"
+              "unavailable",
+              "degraded"
             ]
           },
           "warnings": {
@@ -36102,7 +36104,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "unavailable"
+              "unavailable",
+              "degraded"
             ]
           },
           "warnings": {
@@ -36595,7 +36598,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "unavailable"
+              "unavailable",
+              "degraded"
             ]
           },
           "warnings": {

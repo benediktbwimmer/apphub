@@ -753,7 +753,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "unavailable"
+              "unavailable",
+              "degraded"
             ],
             "description": "Indicates the service cannot serve traffic."
           },
@@ -5169,7 +5170,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "unavailable"
+              "unavailable",
+              "degraded"
             ],
             "description": "Indicates the service cannot serve traffic."
           },
