@@ -18,6 +18,7 @@ export { resolveContainerPath } from './containerPaths';
 export {
   applyObservatoryWorkflowDefaults,
   ensureObservatoryBackend,
+  ensureS3Bucket,
   isObservatoryModule,
   isObservatoryWorkflowSlug,
   loadObservatoryConfig,
@@ -27,7 +28,8 @@ export {
 export type {
   EventDrivenObservatoryConfig,
   ObservatoryBootstrapLogger,
-  EnsureObservatoryBackendOptions
+  EnsureObservatoryBackendOptions,
+  S3BucketOptions
 } from './observatorySupport';
 export {
   extractWorkflowProvisioningPlan,

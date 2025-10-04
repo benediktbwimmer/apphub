@@ -52,13 +52,20 @@ This guide walks through provisioning the AppHub demo stack on a single Linux VM
 
 ## 3. Build and launch the stack
 
-1. **Build the runtime images and start the services**:
+1. **Build the runtime images once** (same commands on macOS or Linux):
    ```bash
    cd docker
-   docker compose -f demo-stack.compose.yml --env-file demo.env up -d --build
+   COMPOSE_DOCKER_CLI_BUILD=1 docker compose -f demo-stack.compose.yml --env-file demo.env build \
+     core-api metastore filestore timestore frontend
    ```
 
-2. **Wait for bootstrap to finish**. The `demo-bootstrap` container runs a one-shot script that publishes the observatory module, creates the observatory config file under `/var/lib/apphub/scratch`, and synchronises workflows/triggers.
+2. **Launch (or relaunch) the stack using the prebuilt images**:
+   ```bash
+   docker compose -f demo-stack.compose.yml --env-file demo.env up -d --no-build
+   ```
+   If you make source changes, rerun the previous build command before bringing the stack back up.
+
+3. **Wait for bootstrap to finish**. The `demo-bootstrap` container runs a one-shot script that publishes the observatory module, creates the observatory config file under `/var/lib/apphub/scratch`, and synchronises workflows/triggers.
    ```bash
    docker compose -f demo-stack.compose.yml --env-file demo.env logs -f demo-bootstrap
    ```

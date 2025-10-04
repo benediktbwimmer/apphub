@@ -1,6 +1,14 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  CreateBucketCommand,
+  HeadBucketCommand,
+  S3Client,
+  type BucketLocationConstraint,
+  type CreateBucketCommandInput,
+  type S3ServiceException
+} from '@aws-sdk/client-s3';
 import { resolveContainerPath as resolveSharedContainerPath } from './containerPaths';
 import { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
 import type { JsonObject, JsonValue, WorkflowDefinitionTemplate } from './types';
@@ -131,6 +139,9 @@ export function applyObservatoryWorkflowDefaults(
       defaults.archivePrefix = config.filestore.archivePrefix;
       defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-data-generator';
       defaults.filestoreToken = config.filestore.token ?? null;
+      if (defaults.seed === undefined || defaults.seed === null) {
+        defaults.seed = 1337;
+      }
       if (config.workflows.generator?.instrumentCount !== undefined) {
         defaults.instrumentCount = config.workflows.generator.instrumentCount;
       }
@@ -138,6 +149,30 @@ export function applyObservatoryWorkflowDefaults(
       defaults.metastoreNamespace =
         defaults.metastoreNamespace ?? config.metastore?.namespace ?? 'observatory.ingest';
       defaults.metastoreAuthToken = config.metastore?.authToken ?? defaults.metastoreAuthToken ?? null;
+
+      const metadata = ensureJsonObject(definition.metadata as JsonValue | undefined);
+      definition.metadata = metadata;
+      const provisioning = ensureJsonObject(metadata.provisioning as JsonValue | undefined);
+      metadata.provisioning = provisioning;
+      const schedules = Array.isArray(provisioning.schedules)
+        ? (provisioning.schedules as JsonValue[])
+        : [];
+      provisioning.schedules = schedules;
+      for (let index = 0; index < schedules.length; index += 1) {
+        const scheduleEntry = schedules[index];
+        if (!scheduleEntry || typeof scheduleEntry !== 'object' || Array.isArray(scheduleEntry)) {
+          continue;
+        }
+        const scheduleObject = scheduleEntry as JsonObject;
+        const parameters = ensureJsonObject(scheduleObject.parameters as JsonValue | undefined);
+        if (parameters.seed === undefined) {
+          parameters.seed = '{{ defaultParameters.seed }}';
+        }
+        if (parameters.minute === undefined) {
+          parameters.minute = '{{ run.trigger.schedule.occurrence | slice: 0, 16 }}';
+        }
+        scheduleObject.parameters = parameters;
+      }
       break;
     case 'observatory-minute-ingest':
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
@@ -379,6 +414,129 @@ async function requestFilestore(
   return response.json();
 }
 
+function extractS3ErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+  const code = (error as { Code?: string }).Code;
+  if (typeof code === 'string' && code.length > 0) {
+    return code;
+  }
+  const lowerCode = (error as { code?: string }).code;
+  if (typeof lowerCode === 'string' && lowerCode.length > 0) {
+    return lowerCode;
+  }
+  const name = (error as { name?: string }).name;
+  if (typeof name === 'string' && name.length > 0) {
+    return name;
+  }
+  return undefined;
+}
+
+function isMissingBucketError(error: unknown): boolean {
+  const status = (error as S3ServiceException | undefined)?.$metadata?.httpStatusCode;
+  if (status === 404) {
+    return true;
+  }
+  const code = extractS3ErrorCode(error);
+  if (!code) {
+    return false;
+  }
+  const normalized = code.toLowerCase();
+  return normalized === 'nosuchbucket' || normalized === 'notfound';
+}
+
+function isBucketAlreadyOwnedError(error: unknown): boolean {
+  const status = (error as S3ServiceException | undefined)?.$metadata?.httpStatusCode;
+  if (status === 409) {
+    return true;
+  }
+  const code = extractS3ErrorCode(error);
+  if (!code) {
+    return false;
+  }
+  const normalized = code.toLowerCase();
+  return normalized === 'bucketalreadyownedbyyou' || normalized === 'bucketalreadyexists';
+}
+
+export type S3BucketOptions = {
+  bucket: string;
+  endpoint?: string | null;
+  region?: string | null;
+  forcePathStyle?: boolean | null;
+  accessKeyId?: string | null;
+  secretAccessKey?: string | null;
+  sessionToken?: string | null;
+};
+
+export async function ensureS3Bucket(
+  s3Config: S3BucketOptions,
+  logger?: ObservatoryBootstrapLogger
+): Promise<void> {
+  const bucket = s3Config.bucket.trim();
+  if (bucket.length === 0) {
+    return;
+  }
+
+  const region = (s3Config.region ?? process.env.AWS_REGION ?? 'us-east-1').trim();
+  const endpoint = s3Config.endpoint ?? process.env.AWS_S3_ENDPOINT ?? undefined;
+  const accessKeyId = s3Config.accessKeyId ?? process.env.AWS_ACCESS_KEY_ID ?? undefined;
+  const secretAccessKey = s3Config.secretAccessKey ?? process.env.AWS_SECRET_ACCESS_KEY ?? undefined;
+  const sessionToken = s3Config.sessionToken ?? process.env.AWS_SESSION_TOKEN ?? undefined;
+  const forcePathStyle = s3Config.forcePathStyle ?? true;
+
+  const client = new S3Client({
+    region,
+    endpoint,
+    forcePathStyle,
+    credentials:
+      accessKeyId && secretAccessKey
+        ? {
+            accessKeyId,
+            secretAccessKey,
+            sessionToken: sessionToken ?? undefined
+          }
+        : undefined
+  });
+
+  try {
+    await client.send(new HeadBucketCommand({ Bucket: bucket }));
+    logger?.debug?.({ bucket, region, endpoint }, 'Observatory filestore bucket present');
+    return;
+  } catch (error) {
+    if (!isMissingBucketError(error)) {
+      client.destroy();
+      throw error;
+    }
+  }
+
+  try {
+    const createInput: CreateBucketCommandInput = { Bucket: bucket };
+    if (region && region.toLowerCase() !== 'us-east-1') {
+      createInput.CreateBucketConfiguration = {
+        LocationConstraint: region as BucketLocationConstraint
+      };
+    }
+    await client.send(new CreateBucketCommand(createInput));
+    logger?.debug?.({ bucket, region, endpoint }, 'Created observatory filestore bucket');
+  } catch (error) {
+    if (isBucketAlreadyOwnedError(error)) {
+      logger?.debug?.({ bucket, region, endpoint }, 'Observed existing filestore bucket during creation');
+    } else {
+      throw error;
+    }
+  } finally {
+    client.destroy();
+  }
+}
+
+async function ensureFilestoreBucketExists(
+  s3Config: S3BucketOptions,
+  logger?: ObservatoryBootstrapLogger
+): Promise<void> {
+  await ensureS3Bucket(s3Config, logger);
+}
+
 async function findMountByKey(
   baseUrl: string,
   headers: Headers,
@@ -439,6 +597,8 @@ export async function ensureObservatoryBackend(
   }
 
   const existing = await findMountByKey(baseUrl, headers, backendMountKey);
+  let backendId: number;
+
   if (existing) {
     if (existing.backendKind !== 's3') {
       throw new Error(
@@ -455,21 +615,37 @@ export async function ensureObservatoryBackend(
     }));
 
     options?.logger?.debug?.({ backendId: existing.id }, 'Reused existing observatory filestore backend');
-    return existing.id;
+    backendId = existing.id;
+  }
+  else {
+    const created = (await requestFilestore('POST', baseUrl, '/v1/backend-mounts', headers, {
+      mountKey: backendMountKey,
+      backendKind: 's3',
+      bucket: desiredBucket,
+      prefix: null,
+      accessMode: 'rw',
+      state: 'active',
+      config: desiredConfig,
+      displayName: 'Observatory (event-driven)'
+    })) as BackendMountEnvelope;
+    backendId = created.data.id;
+    options?.logger?.debug?.({ backendId }, 'Created observatory filestore backend');
   }
 
-  const created = (await requestFilestore('POST', baseUrl, '/v1/backend-mounts', headers, {
-    mountKey: backendMountKey,
-    backendKind: 's3',
-    bucket: desiredBucket,
-    prefix: null,
-    accessMode: 'rw',
-    state: 'active',
-    config: desiredConfig,
-    displayName: 'Observatory (event-driven)'
-  })) as BackendMountEnvelope;
-  const backendId = created.data.id;
-  options?.logger?.debug?.({ backendId }, 'Created observatory filestore backend');
+  await ensureFilestoreBucketExists(
+    {
+      bucket: desiredBucket,
+      endpoint: typeof config.filestore.endpoint === 'string' ? config.filestore.endpoint : null,
+      region: typeof config.filestore.region === 'string' ? config.filestore.region : null,
+      forcePathStyle:
+        config.filestore.forcePathStyle !== undefined ? Boolean(config.filestore.forcePathStyle) : null,
+      accessKeyId: config.filestore.accessKeyId ?? null,
+      secretAccessKey: config.filestore.secretAccessKey ?? null,
+      sessionToken: config.filestore.sessionToken ?? null
+    },
+    options?.logger
+  );
+
   return backendId;
 }
 
