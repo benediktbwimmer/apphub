@@ -11,6 +11,7 @@ export type RequireOperatorScopesOptions = {
   action: string;
   resource: string;
   requiredScopes: OperatorScope[];
+  anyOfScopes?: OperatorScope[][];
 };
 
 export type RequireOperatorScopesResult =

@@ -19,7 +19,7 @@ condensing them into the shared `@apphub/shared/workflowTopology` payload that d
     producers and consumers agree on casing and trimming rules.
 
 ## API Endpoint & Caching
-- The core API exposes the graph at `GET /workflows/graph`, gated by the `workflows:write` operator scope.
+- The core API exposes the graph at `GET /workflows/graph`, gated by either the `workflows:read` or `workflows:write` operator scope.
 - Responses come from an in-memory cache (`services/core/src/workflows/workflowGraphCache.ts`) that rebuilds on
   demand and invalidates when `workflow.definition.updated` events fire (workflow edits, schedules, triggers) or on
   explicit refresh. Set `APPHUB_WORKFLOW_GRAPH_CACHE_TTL_MS` to override the default 30 second TTL.

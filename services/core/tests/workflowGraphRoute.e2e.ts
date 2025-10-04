@@ -11,11 +11,17 @@ import { runE2E } from '@apphub/test-helpers';
 
 type CoreDbModule = typeof import('../src/db');
 
-const OPERATOR_TOKEN = 'workflow-graph-operator-token';
+const READ_OPERATOR_TOKEN = 'workflow-graph-operator-token';
+const WRITE_OPERATOR_TOKEN = 'workflow-graph-operator-write-token';
 process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
   {
     subject: 'workflow-graph-route-test',
-    token: OPERATOR_TOKEN,
+    token: READ_OPERATOR_TOKEN,
+    scopes: ['workflows:read']
+  },
+  {
+    subject: 'workflow-graph-route-write-test',
+    token: WRITE_OPERATOR_TOKEN,
     scopes: ['workflows:write']
   }
 ]);
@@ -137,7 +143,7 @@ runE2E(async ({ registerCleanup }) => {
       method: 'GET',
       url: '/workflows/graph',
       headers: {
-        Authorization: `Bearer ${OPERATOR_TOKEN}`
+        Authorization: `Bearer ${READ_OPERATOR_TOKEN}`
       }
     });
     assert.equal(firstResponse.statusCode, 200);
@@ -152,7 +158,7 @@ runE2E(async ({ registerCleanup }) => {
       method: 'GET',
       url: '/workflows/graph',
       headers: {
-        Authorization: `Bearer ${OPERATOR_TOKEN}`
+        Authorization: `Bearer ${READ_OPERATOR_TOKEN}`
       }
     });
     assert.equal(secondResponse.statusCode, 200);
@@ -169,7 +175,7 @@ runE2E(async ({ registerCleanup }) => {
       method: 'GET',
       url: '/workflows/graph',
       headers: {
-        Authorization: `Bearer ${OPERATOR_TOKEN}`
+        Authorization: `Bearer ${READ_OPERATOR_TOKEN}`
       }
     });
     assert.equal(thirdResponse.statusCode, 200);
@@ -187,11 +193,20 @@ runE2E(async ({ registerCleanup }) => {
       method: 'GET',
       url: '/workflows/graph',
       headers: {
-        Authorization: `Bearer ${OPERATOR_TOKEN}`
+        Authorization: `Bearer ${READ_OPERATOR_TOKEN}`
       }
     });
     assert.equal(fourthResponse.statusCode, 200);
     const fourthBody = fourthResponse.json() as { meta: { cache: { hit: boolean } } };
     assert.equal(fourthBody.meta.cache.hit, true, 'subsequent request should reuse rebuilt cache');
+
+    const writeScopeResponse = await app.inject({
+      method: 'GET',
+      url: '/workflows/graph',
+      headers: {
+        Authorization: `Bearer ${WRITE_OPERATOR_TOKEN}`
+      }
+    });
+    assert.equal(writeScopeResponse.statusCode, 200, 'write-scoped operator should also access graph');
   });
 }, { name: 'core-workflow-graph-route.e2e' });
