@@ -188,6 +188,7 @@ function buildTriggerDefinitions(config: EventDrivenObservatoryConfig): TriggerD
     filestore: {
       baseUrl: config.filestore.baseUrl,
       backendMountId: config.filestore.backendMountId,
+      backendMountKey: config.filestore.backendMountKey,
       token: config.filestore.token ?? null,
       inboxPrefix: config.filestore.inboxPrefix,
       stagingPrefix: config.filestore.stagingPrefix,
@@ -262,25 +263,58 @@ function buildTriggerDefinitions(config: EventDrivenObservatoryConfig): TriggerD
     {
       workflowSlug: config.workflows.ingestSlug,
       name: 'observatory-minute.raw-uploaded',
-      description: 'Kick off minute ingest whenever normalized inbox files are ready.',
-      eventType: 'observatory.minute.raw-uploaded',
-      predicates: [],
+      description:
+        'Kick off the minute ingest workflow whenever new observatory CSV uploads land in Filestore.',
+      eventType: 'filestore.command.completed',
+      eventSource: 'filestore.service',
+      predicates: [
+        {
+          path: '$.payload.command',
+          operator: 'equals',
+          value: 'uploadFile'
+        },
+        {
+          path: '$.payload.backendMountId',
+          operator: 'equals',
+          value: '{{ defaultParameters.filestoreBackendId }}'
+        },
+        {
+          path: '$.payload.node.metadata.minute',
+          operator: 'exists'
+        }
+      ],
       parameterTemplate: {
-        minute: '{{ trigger.payload.minute }}',
-        filestoreBaseUrl: config.filestore.baseUrl,
-        filestoreBackendId: config.filestore.backendMountId,
-        filestoreToken: config.filestore.token ?? null,
-        inboxPrefix: config.filestore.inboxPrefix,
-        stagingPrefix: config.filestore.stagingPrefix,
-        archivePrefix: config.filestore.archivePrefix,
-        filestorePrincipal: 'observatory-inbox-normalizer',
-        timestoreBaseUrl: config.timestore.baseUrl,
-        timestoreDatasetSlug: config.timestore.datasetSlug,
-        timestoreDatasetName: config.timestore.datasetName ?? null,
-        timestoreTableName: config.timestore.tableName ?? null,
-        timestoreStorageTargetId: config.timestore.storageTargetId ?? null,
-        timestoreAuthToken: config.timestore.authToken ?? null
+        minute: '{{ event.payload.node.metadata.minute }}',
+        instrumentId:
+          "{{ event.payload.node.metadata.instrumentId | default: event.payload.node.metadata.instrument_id | default: 'unknown' }}",
+        maxFiles: '{{ trigger.metadata.maxFiles }}',
+        filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
+        filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
+        filestoreToken: '{{ trigger.metadata.filestore.token }}',
+        inboxPrefix: '{{ trigger.metadata.filestore.inboxPrefix }}',
+        stagingPrefix: '{{ trigger.metadata.filestore.stagingPrefix }}',
+        archivePrefix: '{{ trigger.metadata.filestore.archivePrefix }}',
+        filestorePrincipal:
+          '{{ trigger.metadata.filestore.principal | default: event.payload.principal }}',
+        commandPath: '{{ event.payload.path }}',
+        timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
+        timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}',
+        timestoreDatasetName: '{{ trigger.metadata.timestore.datasetName }}',
+        timestoreTableName: '{{ trigger.metadata.timestore.tableName }}',
+        timestoreStorageTargetId: '{{ trigger.metadata.timestore.storageTargetId }}',
+        timestoreAuthToken: '{{ trigger.metadata.timestore.authToken }}',
+        metastoreBaseUrl: '{{ trigger.metadata.metastore.baseUrl }}',
+        metastoreNamespace: '{{ trigger.metadata.metastore.namespace }}',
+        metastoreAuthToken: '{{ trigger.metadata.metastore.authToken }}',
+        calibrationsBaseUrl: '{{ trigger.metadata.calibrations.baseUrl }}',
+        calibrationsNamespace: '{{ trigger.metadata.calibrations.namespace }}',
+        calibrationsAuthToken: '{{ trigger.metadata.calibrations.authToken }}',
+        filestoreBackendKey: '{{ trigger.metadata.filestore.backendMountKey }}'
       },
+      runKeyTemplate:
+        "observatory-ingest-{{ parameters.instrumentId | default: 'unknown' | replace: ':', '-' }}-{{ parameters.minute | replace: ':', '-' }}",
+      idempotencyKeyExpression:
+        "{{ event.payload.node.metadata.minute }}-{{ event.payload.path | replace: '/', '_' | replace: ':', '-' }}",
       metadata: ingestMetadata
     },
     {

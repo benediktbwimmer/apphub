@@ -168,10 +168,35 @@ export function applyObservatoryWorkflowDefaults(
         if (parameters.seed === undefined) {
           parameters.seed = '{{ defaultParameters.seed }}';
         }
-        if (parameters.minute === undefined) {
-          parameters.minute = '{{ run.trigger.schedule.occurrence | slice: 0, 16 }}';
-        }
         scheduleObject.parameters = parameters;
+      }
+
+      const steps = Array.isArray(definition.steps) ? definition.steps : [];
+      if (steps.length > 0) {
+        const stepEntry = steps[0];
+        if (stepEntry && typeof stepEntry === 'object' && !Array.isArray(stepEntry)) {
+          const stepObject = stepEntry as JsonObject;
+          const parameters = ensureJsonObject(stepObject.parameters as JsonValue | undefined);
+          const defaultMinute =
+            '{{ parameters.minute | default: run.trigger.schedule.occurrence | slice: 0, 16 }}';
+          if (
+            typeof parameters.minute !== 'string' ||
+            parameters.minute.trim().length === 0 ||
+            parameters.minute.trim() === '{{ parameters.minute }}'
+          ) {
+            parameters.minute = defaultMinute;
+          }
+
+          if (
+            typeof parameters.seed !== 'string' ||
+            parameters.seed.trim().length === 0 ||
+            parameters.seed.trim() === '{{ parameters.seed }}'
+          ) {
+            parameters.seed = '{{ parameters.seed | default: 1337 }}';
+          }
+
+          stepObject.parameters = parameters;
+        }
       }
       break;
     case 'observatory-minute-ingest':
