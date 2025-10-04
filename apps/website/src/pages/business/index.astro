@@ -4,7 +4,7 @@ import { BusinessConstellationDiagram, BusinessObservatoryDiagram } from '@compo
 
 const title = 'Business value | Osiris AppHub';
 const description =
-  'Understand how AppHub modules accelerate operations programmes and how we partner with leadership teams to model use cases in weeks.';
+  'See how AppHub modules can accelerate operations programmes and learn how we plan to partner with leadership teams once the platform leaves its early prototype phase.';
 
 const reasons = [
   {
@@ -98,12 +98,19 @@ const observatoryHighlights = [
         <p class="page-hero__eyebrow">For leadership teams</p>
         <h1>Model any operations programme as an AppHub module.</h1>
         <p class="page-hero__intro">
-          AppHub is open source. We collaborate with business leaders to turn critical initiatives into modules that deploy in weeks—self-hosted or with our guidance.
+          AppHub is open source and currently an early prototype. We are outlining how we will partner with business leaders once the platform is production ready.
         </p>
         <div class="page-hero__actions">
           <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Schedule a strategy workshop</a>
           <a class="button button--secondary" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">View on GitHub</a>
           <a class="button button--ghost" href="/adoption">Explore adoption services</a>
+        </div>
+        <div class="page-hero__notice">
+          <strong>Planning in progress:</strong>
+          <span>
+            Adoption services are not yet available. We are looking for contributors across the platform, operations playbooks, and this website to help shape the launch—email
+            <a href="mailto:osirisapphub@gmail.com">osirisapphub@gmail.com</a> if you would like to help.
+          </span>
         </div>
       </div>
       <figure>
@@ -131,7 +138,10 @@ const observatoryHighlights = [
 
   <section class="offerings" aria-labelledby="offerings-heading">
     <div class="container offerings__inner">
-      <h2 id="offerings-heading" class="section-heading">How we partner with you</h2>
+      <h2 id="offerings-heading" class="section-heading">How we plan to partner with you</h2>
+      <p class="offerings__intro">
+        These tracks are still being finalised—consider them a draft playbook while we build capacity for adoption services.
+      </p>
       <div class="cards-grid cards-grid--three">
         {offerings.map((item) => (
           <article>
@@ -170,7 +180,7 @@ const observatoryHighlights = [
 
   <section class="timeline" aria-labelledby="timeline-heading">
     <div class="container timeline__inner">
-      <h2 id="timeline-heading" class="section-heading">What the first six weeks look like</h2>
+      <h2 id="timeline-heading" class="section-heading">What the first six weeks could look like</h2>
       <ol>
         {engagementTimeline.map((item) => (
           <li>
@@ -180,7 +190,7 @@ const observatoryHighlights = [
         ))}
       </ol>
       <p class="timeline__note">
-        Combine internal teams with our strategists, solution engineers, and operator coaches—we meet you where you are on the open-source journey.
+        Combine internal teams with our strategists, solution engineers, and operator coaches once the programme launches—this draft timeline captures how we aim to support open-source adopters.
       </p>
     </div>
   </section>
@@ -264,6 +274,23 @@ const observatoryHighlights = [
     gap: var(--apphub-spacing-sm);
   }
 
+  .page-hero__notice {
+    margin-top: var(--apphub-spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--apphub-spacing-xxs);
+    padding: var(--apphub-spacing-sm);
+    border: 1px solid var(--apphub-color-border);
+    border-radius: var(--apphub-radius-lg);
+    background: var(--apphub-color-surface-muted);
+    color: var(--apphub-color-text);
+    font-size: var(--apphub-typography-font-size-sm);
+  }
+
+  .page-hero__notice a {
+    color: var(--apphub-color-accent-strong);
+  }
+
   .page-hero figure {
     margin: 0;
     display: grid;
@@ -303,6 +330,17 @@ const observatoryHighlights = [
   .timeline,
   .observatory {
     padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .offerings__inner {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  .offerings__intro {
+    margin: 0;
+    max-width: 65ch;
+    color: var(--apphub-color-text-muted);
   }
 
   .value__inner ul {

@@ -17,6 +17,7 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     {description ? <meta name="description" content={description} /> : null}
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -212,6 +213,12 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
         line-height: 1.15;
       }
 
+      .site-header__actions {
+        display: flex;
+        align-items: center;
+        gap: var(--apphub-spacing-xs);
+      }
+
       .site-header__cta {
         display: inline-flex;
         align-items: center;
@@ -222,12 +229,22 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
         background: var(--apphub-color-surface);
         color: var(--apphub-color-text);
         font-weight: var(--apphub-typography-font-weight-semibold);
+        transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
       }
 
       .site-header__cta:hover,
       .site-header__cta:focus-visible {
         border-color: var(--apphub-color-accent-strong);
         color: var(--apphub-color-accent-strong);
+      }
+
+      .site-header__cta--ghost {
+        background: transparent;
+      }
+
+      .site-header__cta--ghost:hover,
+      .site-header__cta--ghost:focus-visible {
+        background: color-mix(in srgb, var(--apphub-color-accent-strong) 12%, transparent);
       }
 
       main {
@@ -382,9 +399,19 @@ const pathname = (Astro.url.pathname.replace(/\/$/, '') || '/')
             })}
           </ul>
         </nav>
-        <a class="site-header__cta" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">
-          GitHub
-        </a>
+        <div class="site-header__actions">
+          <a
+            class="site-header__cta site-header__cta--ghost"
+            href="https://demo.osiris-apphub.com"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Live demo
+          </a>
+          <a class="site-header__cta" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">
+            GitHub
+          </a>
+        </div>
       </div>
     </header>
     <main id="main-content">
