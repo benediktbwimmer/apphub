@@ -7,4 +7,4 @@ services:
       - "${APPHUB_FRONTEND_PORT_EXTERNAL:-4173}:80"
   demo-bootstrap:
     environment:
-      OBSERVATORY_CORE_TOKEN: ${SERVICE_REGISTRY_TOKEN}
+      OBSERVATORY_CORE_TOKEN: ${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}
