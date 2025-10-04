@@ -4,6 +4,10 @@ import {
   CapabilityRequestError,
   createJobHandler,
   createMetastoreCapability,
+  enforceScratchOnlyWrites,
+  selectCoreWorkflows,
+  selectFilestore,
+  selectMetastore,
   inheritModuleSecrets,
   inheritModuleSettings,
   type CoreWorkflowsCapability,
@@ -14,11 +18,8 @@ import {
 } from '@apphub/module-sdk';
 import { z } from 'zod';
 
-import {
-  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
-  ensureResolvedBackendId,
-  uploadTextFile
-} from '../runtime/filestore';
+import { ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
+import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 import {
   buildPlanSummary,
   calibrationReprocessPlanSchema,
@@ -31,9 +32,7 @@ import {
   type CalibrationPlanRecordedCalibration,
   type CalibrationReprocessPlan
 } from '../runtime/plans';
-import { enforceScratchOnlyWrites } from '../runtime/scratchGuard';
 import { type ObservatoryModuleSecrets, type ObservatoryModuleSettings } from '../runtime/settings';
-import { selectCoreWorkflows, selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 enforceScratchOnlyWrites();
 
@@ -348,6 +347,7 @@ async function enqueuePlanPersistence(
     filestore,
     backendMountId,
     backendMountKey: backendMountKey ?? undefined,
+    defaultBackendKey: DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
     path: planPath,
     content: serialized,
     contentType: 'application/json; charset=utf-8',

@@ -1,10 +1,9 @@
-import { createService, type ServiceLifecycle } from '@apphub/module-sdk';
+import { createService, selectFilestore, type ServiceLifecycle } from '@apphub/module-sdk';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { FilestoreCapability, FilestoreDownloadStream } from '@apphub/module-sdk';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 import { defaultObservatorySettings } from '../runtime/settings';
-import { selectFilestore } from '../runtime/capabilities';
 
 function normalizePath(path: string): string {
   return path.replace(/^\/+/, '').replace(/\/+$/g, '');

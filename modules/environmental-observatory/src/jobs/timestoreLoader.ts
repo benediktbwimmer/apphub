@@ -6,13 +6,17 @@ import {
   createJobHandler,
   inheritModuleSettings,
   inheritModuleSecrets,
+  selectEventBus,
+  selectFilestore,
+  selectMetastore,
+  selectTimestore,
   sanitizeIdentifier,
   toTemporalKey,
   type FilestoreCapability,
   type JobContext,
   type MetastoreCapability
 } from '@apphub/module-sdk';
-import { ensureResolvedBackendId } from '../runtime/filestore';
+import { ensureResolvedBackendId } from '@apphub/module-sdk';
 import {
   applyCalibrationAdjustments,
   fetchCalibrationById,
@@ -23,7 +27,6 @@ import {
 } from '../runtime/calibrations';
 import { createObservatoryEventPublisher } from '../runtime/events';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
-import { selectEventBus, selectFilestore, selectMetastore, selectTimestore } from '../runtime/capabilities';
 
 const DEFAULT_SCHEMA_FIELDS = [
   { name: 'timestamp', type: 'timestamp' as const },

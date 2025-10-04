@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
-import path from 'node:path';
 import os from 'node:os';
+import path from 'node:path';
 
-type ScratchGuardOptions = {
+export interface ScratchGuardOptions {
   allowedPrefixes?: string[];
-};
+}
 
 function resolvePrefixes(options?: ScratchGuardOptions): string[] {
   const envPrefixes = process.env.APPHUB_SCRATCH_PREFIXES
@@ -28,11 +28,10 @@ function raise(targetPath: string, prefixes: string[]): never {
   throw new Error(message);
 }
 
-type FsPromisifiedMethod = (...args: any[]) => Promise<unknown>;
-
+type FsPromiseMethod = (...args: any[]) => Promise<unknown>;
 type FsMethod = (...args: any[]) => unknown;
 
-function wrapPromiseMethod<T extends FsPromisifiedMethod>(method: T, prefixes: string[]): T {
+function wrapPromiseMethod<T extends FsPromiseMethod>(method: T, prefixes: string[]): T {
   return (async (...args: Parameters<T>) => {
     const targetArg = args[0];
     if (typeof targetArg === 'string' || Buffer.isBuffer(targetArg) || targetArg instanceof URL) {
@@ -59,13 +58,13 @@ function wrapSyncMethod<T extends FsMethod>(method: T, prefixes: string[]): T {
 export function enforceScratchOnlyWrites(options?: ScratchGuardOptions): void {
   const prefixes = resolvePrefixes(options);
 
-  (fsPromises as unknown as Record<string, FsPromisifiedMethod>).writeFile = wrapPromiseMethod(fsPromises.writeFile.bind(fsPromises), prefixes);
-  (fsPromises as unknown as Record<string, FsPromisifiedMethod>).appendFile = wrapPromiseMethod(fsPromises.appendFile.bind(fsPromises), prefixes);
-  (fsPromises as unknown as Record<string, FsPromisifiedMethod>).mkdir = wrapPromiseMethod(fsPromises.mkdir.bind(fsPromises), prefixes);
-  (fsPromises as unknown as Record<string, FsPromisifiedMethod>).rm = wrapPromiseMethod(fsPromises.rm.bind(fsPromises), prefixes);
-  (fsPromises as unknown as Record<string, FsPromisifiedMethod>).rmdir = wrapPromiseMethod(fsPromises.rmdir.bind(fsPromises), prefixes);
-  (fsPromises as unknown as Record<string, FsPromisifiedMethod>).rename = wrapPromiseMethod(fsPromises.rename.bind(fsPromises), prefixes);
-  (fsPromises as unknown as Record<string, FsPromisifiedMethod>).copyFile = wrapPromiseMethod(fsPromises.copyFile.bind(fsPromises), prefixes);
+  (fsPromises as unknown as Record<string, FsPromiseMethod>).writeFile = wrapPromiseMethod(fsPromises.writeFile.bind(fsPromises), prefixes);
+  (fsPromises as unknown as Record<string, FsPromiseMethod>).appendFile = wrapPromiseMethod(fsPromises.appendFile.bind(fsPromises), prefixes);
+  (fsPromises as unknown as Record<string, FsPromiseMethod>).mkdir = wrapPromiseMethod(fsPromises.mkdir.bind(fsPromises), prefixes);
+  (fsPromises as unknown as Record<string, FsPromiseMethod>).rm = wrapPromiseMethod(fsPromises.rm.bind(fsPromises), prefixes);
+  (fsPromises as unknown as Record<string, FsPromiseMethod>).rmdir = wrapPromiseMethod(fsPromises.rmdir.bind(fsPromises), prefixes);
+  (fsPromises as unknown as Record<string, FsPromiseMethod>).rename = wrapPromiseMethod(fsPromises.rename.bind(fsPromises), prefixes);
+  (fsPromises as unknown as Record<string, FsPromiseMethod>).copyFile = wrapPromiseMethod(fsPromises.copyFile.bind(fsPromises), prefixes);
 
   (fs as unknown as Record<string, FsMethod>).writeFileSync = wrapSyncMethod(fs.writeFileSync.bind(fs), prefixes);
   (fs as unknown as Record<string, FsMethod>).appendFileSync = wrapSyncMethod(fs.appendFileSync.bind(fs), prefixes);
@@ -76,10 +75,7 @@ export function enforceScratchOnlyWrites(options?: ScratchGuardOptions): void {
   (fs as unknown as Record<string, FsMethod>).copyFileSync = wrapSyncMethod(fs.copyFileSync.bind(fs), prefixes);
 
   const originalCreateWriteStream = fs.createWriteStream.bind(fs);
-  fs.createWriteStream = ((
-    targetPath: fs.PathLike,
-    options?: Parameters<typeof fs.createWriteStream>[1]
-  ) => {
+  fs.createWriteStream = ((targetPath: fs.PathLike, options?: Parameters<typeof fs.createWriteStream>[1]) => {
     if (typeof targetPath === 'string' || targetPath instanceof URL) {
       if (!isAllowed(String(targetPath), prefixes)) {
         raise(String(targetPath), prefixes);

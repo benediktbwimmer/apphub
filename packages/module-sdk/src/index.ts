@@ -26,8 +26,23 @@ export {
   secretsRef,
   namedCapabilities,
   namedCapabilityOverrides,
-  requireCapabilities
+  requireCapabilities,
+  selectMetastore,
+  selectEventBus,
+  selectFilestore,
+  selectTimestore,
+  selectCoreWorkflows
 } from './runtime/capabilities';
+export { enforceScratchOnlyWrites, type ScratchGuardOptions } from './runtime/scratchGuard';
+export {
+  resolveBackendMountId,
+  ensureFilestoreHierarchy,
+  ensureResolvedBackendId,
+  uploadTextFile,
+  type FilestoreBackendLocator,
+  type EnsureResolvedBackendOptions,
+  type UploadTextFileOptions
+} from './runtime/filestore';
 export { defineModule, type ModuleDefinition, type ModuleDefinitionOf, type ModuleContextFromDefinition } from './module';
 export {
   serializeModuleDefinition,

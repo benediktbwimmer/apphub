@@ -1,25 +1,22 @@
 import {
   createJobHandler,
+  enforceScratchOnlyWrites,
   inheritModuleSettings,
   inheritModuleSecrets,
   sanitizeIdentifier,
+  selectFilestore,
+  selectMetastore,
   toTemporalKey,
   type FilestoreCapability,
   type JobContext
 } from '@apphub/module-sdk';
-import {
-  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
-  ensureFilestoreHierarchy,
-  ensureResolvedBackendId,
-  uploadTextFile
-} from '../runtime/filestore';
-import { enforceScratchOnlyWrites } from '../runtime/scratchGuard';
+import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
+import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 import {
   type GeneratorInstrumentProfile,
   type ObservatoryModuleSecrets,
   type ObservatoryModuleSettings
 } from '../runtime/settings';
-import { selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 enforceScratchOnlyWrites();
 
@@ -242,7 +239,8 @@ async function handler(context: GeneratorContext): Promise<GeneratorJobResult> {
     const result = await uploadTextFile({
       filestore,
       backendMountId,
-      backendMountKey: moduleSettings.filestore.backendKey,
+      backendMountKey: moduleSettings.filestore.backendKey ?? undefined,
+      defaultBackendKey: DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
       path: filestorePath,
       content,
       contentType: 'text/csv',

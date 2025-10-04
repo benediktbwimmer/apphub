@@ -2,6 +2,9 @@ import { Readable } from 'node:stream';
 
 import {
   createJobHandler,
+  selectEventBus,
+  selectFilestore,
+  selectMetastore,
   inheritModuleSettings,
   inheritModuleSecrets,
   type FilestoreCapability,
@@ -10,10 +13,8 @@ import {
 } from '@apphub/module-sdk';
 import { z } from 'zod';
 
-import {
-  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
-  ensureResolvedBackendId
-} from '../runtime/filestore';
+import { ensureResolvedBackendId } from '@apphub/module-sdk';
+import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 import {
   buildMetastoreRecordPayload,
   calibrationFileSchema,
@@ -21,7 +22,6 @@ import {
   normalizeCalibrationRecord
 } from '../runtime/calibrations';
 import { createObservatoryEventPublisher, toJsonRecord } from '../runtime/events';
-import { selectEventBus, selectFilestore, selectMetastore } from '../runtime/capabilities';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
 const parametersSchema = z

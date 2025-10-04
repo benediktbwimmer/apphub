@@ -502,3 +502,116 @@ export function requireCapabilities<
     }
   }
 }
+
+function isMetastoreCapability(candidate: unknown): candidate is MetastoreCapability {
+  return Boolean(candidate && typeof candidate === 'object' && typeof (candidate as MetastoreCapability).upsertRecord === 'function');
+}
+
+function isEventBusCapability(candidate: unknown): candidate is EventBusCapability {
+  return Boolean(candidate && typeof candidate === 'object' && typeof (candidate as EventBusCapability).publish === 'function');
+}
+
+function isFilestoreCapability(candidate: unknown): candidate is FilestoreCapability {
+  return Boolean(candidate && typeof candidate === 'object' && typeof (candidate as FilestoreCapability).ensureDirectory === 'function');
+}
+
+function isTimestoreCapability(candidate: unknown): candidate is TimestoreCapability {
+  return Boolean(candidate && typeof candidate === 'object' && typeof (candidate as TimestoreCapability).ingestRecords === 'function');
+}
+
+function isCoreWorkflowsCapability(candidate: unknown): candidate is CoreWorkflowsCapability {
+  return Boolean(candidate && typeof candidate === 'object' && typeof (candidate as CoreWorkflowsCapability).enqueueWorkflowRun === 'function');
+}
+
+function selectNamedCapability<TCapability>(
+  capability: TCapability | Record<string, TCapability> | undefined,
+  key: string,
+  predicate: (candidate: unknown) => candidate is TCapability,
+  fallbackKey?: string
+): TCapability | undefined {
+  if (!capability) {
+    return undefined;
+  }
+  if (predicate(capability)) {
+    return capability;
+  }
+  if (typeof capability === 'object') {
+    const map = capability as Record<string, unknown>;
+    if (key in map && predicate(map[key])) {
+      return map[key] as TCapability;
+    }
+    if (fallbackKey && fallbackKey in map && predicate(map[fallbackKey])) {
+      return map[fallbackKey] as TCapability;
+    }
+    for (const entry of Object.values(map)) {
+      if (predicate(entry)) {
+        return entry as TCapability;
+      }
+    }
+  }
+  return undefined;
+}
+
+function selectSingleCapability<TCapability>(
+  capability: TCapability | Record<string, TCapability> | undefined,
+  predicate: (candidate: unknown) => candidate is TCapability
+): TCapability | undefined {
+  if (!capability) {
+    return undefined;
+  }
+  if (predicate(capability)) {
+    return capability;
+  }
+  if (typeof capability === 'object') {
+    for (const entry of Object.values(capability as Record<string, unknown>)) {
+      if (predicate(entry)) {
+        return entry as TCapability;
+      }
+    }
+  }
+  return undefined;
+}
+
+export function selectMetastore(
+  capabilities: ModuleCapabilities,
+  key: string | undefined = undefined
+): MetastoreCapability | undefined {
+  return selectNamedCapability(
+    capabilities.metastore,
+    key ?? 'default',
+    isMetastoreCapability,
+    key ? undefined : 'default'
+  );
+}
+
+export function selectEventBus(
+  capabilities: ModuleCapabilities,
+  key: string | undefined = undefined
+): EventBusCapability | undefined {
+  return selectNamedCapability(
+    capabilities.events,
+    key ?? 'default',
+    isEventBusCapability,
+    key ? undefined : 'default'
+  );
+}
+
+export function selectFilestore(capabilities: ModuleCapabilities): FilestoreCapability | undefined {
+  return selectSingleCapability(capabilities.filestore, isFilestoreCapability);
+}
+
+export function selectTimestore(capabilities: ModuleCapabilities): TimestoreCapability | undefined {
+  return selectSingleCapability(capabilities.timestore, isTimestoreCapability);
+}
+
+export function selectCoreWorkflows(
+  capabilities: ModuleCapabilities,
+  key: string | undefined = undefined
+): CoreWorkflowsCapability | undefined {
+  return selectNamedCapability(
+    capabilities.coreWorkflows,
+    key ?? 'default',
+    isCoreWorkflowsCapability,
+    key ? undefined : 'default'
+  );
+}

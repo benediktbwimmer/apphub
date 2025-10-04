@@ -5,6 +5,9 @@ import {
   createCoreWorkflowsCapability,
   createJobHandler,
   createMetastoreCapability,
+  selectCoreWorkflows,
+  selectFilestore,
+  selectMetastore,
   inheritModuleSettings,
   inheritModuleSecrets,
   type CoreWorkflowsCapability,
@@ -14,11 +17,8 @@ import {
 } from '@apphub/module-sdk';
 import { z } from 'zod';
 
-import {
-  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
-  ensureResolvedBackendId,
-  uploadTextFile
-} from '../runtime/filestore';
+import { ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
+import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 import {
   buildPlanStorage,
   buildPlanSummary,
@@ -41,7 +41,6 @@ import {
 } from '../runtime/plans';
 import { toJsonRecord } from '../runtime/events';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
-import { selectCoreWorkflows, selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 const DEFAULT_PLAN_VERSION = 1;
 const MAX_LOOKBACK_MINUTES = 10_000;
@@ -673,6 +672,7 @@ async function materializePlanArtifact(
     filestore,
     backendMountId,
     backendMountKey: backendMountKey ?? undefined,
+    defaultBackendKey: DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
     path: planPath,
     content: serializedInitial,
     contentType: 'application/json; charset=utf-8',
@@ -702,6 +702,7 @@ async function materializePlanArtifact(
       filestore,
       backendMountId,
       backendMountKey: backendMountKey ?? undefined,
+      defaultBackendKey: DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
       path: planPath,
       content: serializedFinal,
       contentType: 'application/json; charset=utf-8',
