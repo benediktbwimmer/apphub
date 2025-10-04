@@ -35,6 +35,7 @@ This directory delivers an opinionated Kustomize overlay for spinning up AppHub 
 - **Stateful infrastructure**
   - *Postgres* (`StatefulSet`) with a 10Gi PVC and a bootstrap job that creates the `apphub` role, database, schemas (`metastore`, `filestore`, `timestore`), and common extensions (`uuid-ossp`, `pgcrypto`).
   - *Redis* (`StatefulSet`) with append-only files enabled and a 2Gi PVC for BullMQ state.
+  - *Redpanda* (`StatefulSet`, 3 replicas) exposing Kafka (9092) and admin (9644) endpoints for the streaming backbone. PVCs default to 10Gi per broker.
   - *MinIO* (single-replica `Deployment`) backed by a 5Gi PVC. A bootstrap job seeds buckets for example bundles, filestore content, and timestore partitions.
 - **Shared configuration**
   - `apphub-core-config` exposes cluster-friendly defaults for service discovery (`APPHUB_*_BASE_URL`), MinIO endpoints, bundle storage, auth bypass, and Kubernetes namespace wiring for core workers.
@@ -44,6 +45,7 @@ This directory delivers an opinionated Kustomize overlay for spinning up AppHub 
   - *Metastore API* with `/readyz` and `/healthz` probes enabled.
   - *Filestore API* and reconciliation worker, wired to Redis queues and MinIO-backed storage.
   - *Timestore API* with ingestion, partition build, and lifecycle workers running against the MinIO-backed S3 driver.
+  - *Flink* JobManager + TaskManagers for long-running streaming jobs, configured to persist checkpoints in `s3://apphub-flink-checkpoints`.
   - *Frontend* static site served by nginx.
 
 ## Deploy
@@ -94,6 +96,7 @@ The overlay publishes an ingress resource that serves:
    curl http://metastore.apphub.local/readyz
    curl http://filestore.apphub.local/readyz
    curl http://timestore.apphub.local/ready
+   curl http://core.apphub.local/health | jq '.features.streaming'
    open http://apphub.local
    ```
 
@@ -124,6 +127,13 @@ VITE_API_BASE_URL=http://core.apphub.local APPHUB_IMAGE_TAG=dev npm run docker:b
   kubectl exec -n apphub-system statefulset/apphub-redis -- redis-cli ping
   ```
 
+- **Redpanda**
+  ```bash
+  kubectl exec -n apphub-system statefulset/apphub-redpanda -- rpk cluster info
+  kubectl port-forward -n apphub-system svc/apphub-redpanda 9092:9092 9644:9644
+  ```
+  After port-forwarding, the admin API is available at `http://127.0.0.1:9644/v1/cluster/health` and the broker at `127.0.0.1:9092`.
+
 - **MinIO**
   ```bash
   kubectl port-forward -n apphub-system svc/apphub-minio 9000:9000 9001:9001
@@ -135,6 +145,8 @@ VITE_API_BASE_URL=http://core.apphub.local APPHUB_IMAGE_TAG=dev npm run docker:b
 - **Resource sizing** – Adjust CPU/memory requests or replica counts in the relevant Deployment manifests (e.g., `core/deployments.yaml`) before reapplying the overlay.
 - **Credentials** – Edit `secrets.yaml` to rotate local-only passwords or MinIO keys. Ensure dependent pods are restarted after changes (`kubectl rollout restart deployment -n apphub-system <name>`).
 - **Bucket/queue tweaks** – Update `minio/bootstrap-job.yaml` or the worker env vars inside the Deployment manifests when introducing new buckets or BullMQ queues.
+- **Streaming toggle** – Patch `configmap.yaml` and/or environment overrides so `APPHUB_STREAMING_ENABLED=1` and `APPHUB_STREAM_BROKER_URL=apphub-redpanda:9092` once the Redpanda StatefulSet reports healthy brokers.
+- **Flink** – Review `docs/flink.md` for the SQL sample job. Submit it via `kubectl exec deploy/apphub-flink-jobmanager -- ./bin/sql-client.sh -f /tmp/tumbling-window.sql` after copying the template into the pod and seeding data into `apphub.streaming.input`.
 
 ## Cleanup
 

@@ -40,6 +40,7 @@ spec:
               mc mb --ignore-existing apphub/apphub-job-bundles
               mc mb --ignore-existing apphub/apphub-filestore
               mc mb --ignore-existing apphub/apphub-timestore
+              mc mb --ignore-existing apphub/apphub-flink-checkpoints
 
               echo "Ensuring public-read policy for job bundles..."
               mc anonymous set download apphub/apphub-job-bundles || true

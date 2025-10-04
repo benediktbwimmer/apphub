@@ -31,7 +31,24 @@ export async function initializeIngestionConnectors(
     ? params.logger.child({ component: 'timestore.connectors' })
     : params.logger;
 
-  for (const streamingConfig of connectorsConfig.streaming) {
+  const streamingEnabled = params.config.features.streaming.enabled;
+  const streamingConfigs = streamingEnabled ? connectorsConfig.streaming : [];
+  const bulkConfigs = connectorsConfig.bulk;
+
+  if (!streamingEnabled && connectorsConfig.streaming.length > 0) {
+    baseLogger.warn(
+      {
+        configured: connectorsConfig.streaming.length
+      },
+      'Streaming connectors configured but APPHUB_STREAMING_ENABLED is disabled; skipping streaming connectors'
+    );
+  }
+
+  if (streamingConfigs.length === 0 && bulkConfigs.length === 0) {
+    return;
+  }
+
+  for (const streamingConfig of streamingConfigs) {
     const connector = new FileStreamingConnector(
       streamingConfig,
       baseLogger,
@@ -41,7 +58,7 @@ export async function initializeIngestionConnectors(
     connectors.push(connector);
   }
 
-  for (const bulkConfig of connectorsConfig.bulk) {
+  for (const bulkConfig of bulkConfigs) {
     const connector = new BulkFileLoader(
       bulkConfig,
       baseLogger,

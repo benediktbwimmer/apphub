@@ -2383,11 +2383,53 @@ const assetMarkStaleRequestSchema: OpenAPIV3.SchemaObject = {
   additionalProperties: false
 };
 
+const streamingStatusSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['enabled', 'state', 'brokerConfigured'],
+  properties: {
+    enabled: { type: 'boolean' },
+    state: { type: 'string', enum: ['disabled', 'ready', 'unconfigured'] },
+    reason: { type: 'string', nullable: true },
+    brokerConfigured: { type: 'boolean' }
+  }
+};
+
 const healthResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
-  required: ['status'],
+  required: ['status', 'features'],
   properties: {
-    status: { type: 'string', enum: ['ok'] }
+    status: { type: 'string', enum: ['ok'] },
+    warnings: {
+      type: 'array',
+      items: { type: 'string' },
+      default: []
+    },
+    features: {
+      type: 'object',
+      required: ['streaming'],
+      properties: {
+        streaming: streamingStatusSchema
+      }
+    }
+  }
+};
+
+const healthUnavailableResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['status', 'features'],
+  properties: {
+    status: { type: 'string', enum: ['unavailable'] },
+    warnings: {
+      type: 'array',
+      items: { type: 'string' }
+    },
+    features: {
+      type: 'object',
+      required: ['streaming'],
+      properties: {
+        streaming: streamingStatusSchema
+      }
+    }
   }
 };
 
@@ -2490,6 +2532,7 @@ const components: OpenAPIV3.ComponentsObject = {
     WorkflowGraphCacheStats: workflowGraphCacheStatsSchema,
     WorkflowGraphResponse: workflowGraphResponseSchema,
     HealthResponse: healthResponseSchema,
+    HealthUnavailableResponse: healthUnavailableResponseSchema,
     ErrorResponse: errorResponseSchema
   },
   securitySchemes: {

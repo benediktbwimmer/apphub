@@ -20,6 +20,9 @@ x-shared-env: &shared-env
   APPHUB_FILESTORE_BASE_URL: http://filestore:4300
   APPHUB_METASTORE_BASE_URL: http://metastore:4100
   APPHUB_TIMESTORE_BASE_URL: http://timestore:4200
+  APPHUB_STREAMING_ENABLED: ${APPHUB_STREAMING_ENABLED:-false}
+  APPHUB_STREAM_BROKER_URL: ${APPHUB_STREAM_BROKER_URL:-redpanda:9092}
+  APPHUB_FLINK_REST_URL: ${APPHUB_FLINK_REST_URL:-http://flink-jobmanager:8081}
   APPHUB_BUNDLE_STORAGE_BACKEND: s3
   APPHUB_BUNDLE_STORAGE_BUCKET: apphub-job-bundles
   APPHUB_BUNDLE_STORAGE_ENDPOINT: http://minio:9000
@@ -84,6 +87,109 @@ x-shared-env: &shared-env
     [{"subject":"demo-admin","token":"${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}","scopes":"*","kind":"user"},{"subject":"demo-service","token":"${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}","scopes":["jobs:write","jobs:run","jobs:read","job-bundles:write","job-bundles:read","workflows:write","workflows:run","workflows:read","filestore:read","filestore:write","filestore:admin","metastore:read","metastore:write","metastore:delete","metastore:admin","timestore:sql:read","timestore:sql:exec","runtime:write"],"kind":"service"},{"subject":"demo-viewer","token":"${APPHUB_DEMO_VIEWER_TOKEN:-demo-viewer-token}","scopes":["jobs:read","job-bundles:read","workflows:read","filestore:read","metastore:read","timestore:sql:read"],"kind":"user"}]
 
 services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --check=false
+      - --node-id
+      - "0"
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092
+      - --rpc-addr
+      - 0.0.0.0:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --pandaproxy-addr
+      - 0.0.0.0:8082
+      - --advertise-pandaproxy-addr
+      - redpanda:8082
+      - --dashboard-addr
+      - 0.0.0.0:9644
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - ${APPHUB_REDPANDA_PORT:-19092}:9092
+      - ${APPHUB_REDPANDA_ADMIN_PORT:-19644}:9644
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/redpanda
+        target: /var/lib/redpanda/data
+
+  redpanda-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    command: >-
+      bash -c "set -euo pipefail; \
+      sleep 2; \
+      rpk cluster info --brokers redpanda:9092 >/dev/null 2>&1; \
+      for topic in apphub.core.events apphub.ingestion.telemetry apphub.workflows.events apphub.streaming.input apphub.streaming.aggregates; do \
+        rpk topic create \"$topic\" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
+        rpk topic describe \"$topic\" --brokers redpanda:9092 >/dev/null 2>&1; \
+      done"
+    restart: "no"
+
+  flink-jobmanager:
+    image: flink:1.19.1-scala_2.12
+    restart: unless-stopped
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+        state.backend: filesystem
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        execution.checkpointing.interval: 1 min
+    ports:
+      - ${APPHUB_FLINK_UI_PORT:-8081}:8081
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/flink/checkpoints
+        target: /opt/flink/checkpoints
+      - type: bind
+        source: ../services/streaming/sample-jobs
+        target: /opt/apphub/sample-jobs:ro
+
+  flink-taskmanager:
+    image: flink:1.19.1-scala_2.12
+    restart: unless-stopped
+    depends_on:
+      flink-jobmanager:
+        condition: service_started
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+        state.backend: filesystem
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        execution.checkpointing.interval: 1 min
+    command: taskmanager
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/flink/checkpoints
+        target: /opt/flink/checkpoints
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -156,6 +262,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     environment:
       <<: *shared-env
       PORT: 4000
@@ -261,6 +369,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     environment:
       <<: *shared-env
       PORT: 4100
@@ -286,6 +396,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     environment:
       <<: *shared-env
       PORT: 4300
@@ -311,6 +423,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     environment:
       <<: *shared-env
       PORT: 4200

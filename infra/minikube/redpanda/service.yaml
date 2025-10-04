@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: apphub-redpanda
+  labels:
+    app.kubernetes.io/name: redpanda
+    app.kubernetes.io/part-of: apphub-streaming
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redpanda
+    app.kubernetes.io/part-of: apphub-streaming
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+    - name: admin
+      port: 9644
+      targetPort: 9644
+    - name: pandaproxy
+      port: 8082
+      targetPort: 8082
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apphub-redpanda-headless
+  labels:
+    app.kubernetes.io/name: redpanda
+    app.kubernetes.io/part-of: apphub-streaming
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: redpanda
+    app.kubernetes.io/part-of: apphub-streaming
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+    - name: rpc
+      port: 33145
+      targetPort: 33145

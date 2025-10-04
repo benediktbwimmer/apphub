@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apphub-flink-config
+  labels:
+    app.kubernetes.io/name: apphub-flink-config
+    app.kubernetes.io/part-of: apphub-streaming
+data:
+  flink-conf.yaml: |
+    jobmanager.rpc.address: apphub-flink-jobmanager
+    taskmanager.numberOfTaskSlots: 2
+    parallelism.default: 2
+    state.backend: filesystem
+    state.checkpoints.dir: s3://apphub-flink-checkpoints
+    execution.checkpointing.interval: 1 min
+    s3.endpoint: http://apphub-minio:9000
+    s3.path.style.access: true
+    s3.access-key: apphub
+    s3.secret-key: apphub123
+    metrics.reporters: prom
+    metrics.reporter.prom.class: org.apache.flink.metrics.prometheus.PrometheusReporter

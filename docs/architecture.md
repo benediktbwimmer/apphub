@@ -313,6 +313,15 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 - Repeated workflow failures trigger structured warnings and optional webhooks once `WORKFLOW_FAILURE_ALERT_THRESHOLD` is exceeded within the sliding window defined by `WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES`.
 - Alert payloads include workflow definition IDs, run keys, run IDs, failure counts, and triggers so incident responders can pivot quickly.
 
+## Feature Flags
+- `APPHUB_STREAMING_ENABLED` (default `false`) gates the streaming stack. With the flag disabled, Core and Timestore behave exactly as they do today while `/health` exposes the streaming feature as inactive. Enabling the flag requires `APPHUB_STREAM_BROKER_URL`; health endpoints return `503` when streaming is enabled but the broker is unreachable so operators can detect misconfiguration before traffic routes through the streaming path.
+
+## Streaming Backbone
+- Redpanda acts as the durable event log for high-volume streaming workloads (core domain events, ingestion telemetry, workflow envelopes). See `docs/redpanda.md` for provisioning details, topic defaults, and operational SLOs.
+- Flink executes long-lived aggregations and windowed analytics on top of the Redpanda streams. `docs/flink.md` covers cluster deployment, checkpointing, and the bundled sample job.
+- Redis remains the source of truth for BullMQ job queues, caching, and inline event fallbacks; Redpanda is additive rather than a drop-in replacement.
+- Local development and docker-compose stacks ship with a single-node Redpanda broker and topic bootstrapper. Minikube deploys a three-node StatefulSet with persistent volumes and exposes Kafka (9092) plus the admin API (9644).
+
 ## Deployment & Rollout Readiness
 - See `docs/workflow-rollout.md` for the staged rollout plan, rollback procedures, and environment-to-environment workflow migration guidance.
 

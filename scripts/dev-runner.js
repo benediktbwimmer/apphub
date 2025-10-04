@@ -47,7 +47,7 @@ const DEV_MINIO = {
   rootUser: process.env.APPHUB_DEV_MINIO_ROOT_USER ?? 'apphub',
   rootPassword: process.env.APPHUB_DEV_MINIO_ROOT_PASSWORD ?? 'apphub123',
   mcImage: process.env.APPHUB_DEV_MINIO_MC_IMAGE ?? 'minio/mc:latest',
-  buckets: (process.env.APPHUB_DEV_MINIO_BUCKETS ?? 'apphub-job-bundles,apphub-filestore,apphub-timestore')
+  buckets: (process.env.APPHUB_DEV_MINIO_BUCKETS ?? 'apphub-job-bundles,apphub-filestore,apphub-timestore,apphub-flink-checkpoints')
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
@@ -58,30 +58,32 @@ const DEFAULT_DATABASE_URL = `postgres://${DEV_POSTGRES.user}:${encodeURICompone
   DEV_POSTGRES.password
 )}@${DEV_POSTGRES.host}:${DEV_POSTGRES.port}/${DEV_POSTGRES.database}`;
 
-const DEV_CONTAINERS = [
-  {
-    name: DEV_POSTGRES.container,
-    image: DEV_POSTGRES.image,
-    volumes: [`${DEV_POSTGRES.volume}:/var/lib/postgresql/data`],
-    ports: [`${DEV_POSTGRES.port}:5432`],
-    env: {
-      POSTGRES_USER: DEV_POSTGRES.user,
-      POSTGRES_PASSWORD: DEV_POSTGRES.password,
-      POSTGRES_DB: DEV_POSTGRES.database
-    }
-  },
-  {
-    name: DEV_MINIO.container,
-    image: DEV_MINIO.image,
-    volumes: [`${DEV_MINIO.volume}:/data`],
-    ports: [`${DEV_MINIO.apiPort}:9000`, `${DEV_MINIO.consolePort}:9001`],
-    env: {
-      MINIO_ROOT_USER: DEV_MINIO.rootUser,
-      MINIO_ROOT_PASSWORD: DEV_MINIO.rootPassword
+function createBaseDevContainers() {
+  return [
+    {
+      name: DEV_POSTGRES.container,
+      image: DEV_POSTGRES.image,
+      volumes: [`${DEV_POSTGRES.volume}:/var/lib/postgresql/data`],
+      ports: [`${DEV_POSTGRES.port}:5432`],
+      env: {
+        POSTGRES_USER: DEV_POSTGRES.user,
+        POSTGRES_PASSWORD: DEV_POSTGRES.password,
+        POSTGRES_DB: DEV_POSTGRES.database
+      }
     },
-    args: ['server', '/data', '--address', ':9000', '--console-address', ':9001']
-  }
-];
+    {
+      name: DEV_MINIO.container,
+      image: DEV_MINIO.image,
+      volumes: [`${DEV_MINIO.volume}:/data`],
+      ports: [`${DEV_MINIO.apiPort}:9000`, `${DEV_MINIO.consolePort}:9001`],
+      env: {
+        MINIO_ROOT_USER: DEV_MINIO.rootUser,
+        MINIO_ROOT_PASSWORD: DEV_MINIO.rootPassword
+      },
+      args: ['server', '/data', '--address', ':9000', '--console-address', ':9001']
+    }
+  ];
+}
 
 const BASE_COMMANDS = [
   {
@@ -176,6 +178,71 @@ const isEnabledValue = (value) => {
   const normalized = value.trim().toLowerCase();
   return ENABLE_VALUES.has(normalized);
 };
+
+const STREAMING_ENABLED = isEnabledValue(process.env.APPHUB_STREAMING_ENABLED);
+
+const DEV_REDPANDA = {
+  container: process.env.APPHUB_DEV_REDPANDA_CONTAINER ?? 'apphub-dev-redpanda',
+  image: process.env.APPHUB_DEV_REDPANDA_IMAGE ?? 'docker.redpanda.com/redpandadata/redpanda:v24.2.3',
+  volume: process.env.APPHUB_DEV_REDPANDA_VOLUME ?? 'apphub-dev-redpanda',
+  kafkaPort: parsePort(process.env.APPHUB_DEV_REDPANDA_PORT, 19092),
+  adminPort: parsePort(process.env.APPHUB_DEV_REDPANDA_ADMIN_PORT, 19644),
+  replicationFactor: (() => {
+    const parsed = Number.parseInt(process.env.APPHUB_DEV_REDPANDA_REPLICATION ?? '1', 10);
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  })()
+};
+
+const DEV_CONTAINERS = createBaseDevContainers();
+
+if (STREAMING_ENABLED) {
+  DEV_CONTAINERS.push({
+    name: DEV_REDPANDA.container,
+    image: DEV_REDPANDA.image,
+    volumes: [`${DEV_REDPANDA.volume}:/var/lib/redpanda/data`],
+    ports: [`${DEV_REDPANDA.kafkaPort}:9092`, `${DEV_REDPANDA.adminPort}:9644`],
+    args: [
+      'start',
+      '--overprovisioned',
+      '--smp',
+      '1',
+      '--memory',
+      '1G',
+      '--reserve-memory',
+      '0M',
+      '--check=false',
+      '--node-id',
+      '0',
+      '--kafka-addr',
+      'PLAINTEXT://0.0.0.0:9092',
+      '--advertise-kafka-addr',
+      `PLAINTEXT://127.0.0.1:${DEV_REDPANDA.kafkaPort}`,
+      '--rpc-addr',
+      '0.0.0.0:33145',
+      '--advertise-rpc-addr',
+      '127.0.0.1:33145',
+      '--pandaproxy-addr',
+      '0.0.0.0:8082',
+      '--advertise-pandaproxy-addr',
+      '127.0.0.1:8082',
+      '--dashboard-addr',
+      '0.0.0.0:9644'
+    ]
+  });
+}
+
+if (STREAMING_ENABLED) {
+  console.log('[dev-runner] Streaming mode enabled. Start flink-jobmanager/taskmanager via docker compose to execute sample jobs.');
+}
+
+const STREAMING_TOPICS = [
+  { name: 'apphub.core.events', partitions: 6, retentionMs: 604_800_000 },
+  { name: 'apphub.ingestion.telemetry', partitions: 6, retentionMs: 259_200_000 },
+  { name: 'apphub.workflows.events', partitions: 6, retentionMs: 604_800_000 }
+];
+
+const STREAMING_SMOKE_TOPIC = STREAMING_TOPICS[0].name;
+const STREAMING_SMOKE_TIMEOUT_MS = 5_000;
 
 const parseDevModuleSpec = (raw) => {
   if (typeof raw !== 'string') {
@@ -307,6 +374,27 @@ function runDocker(args, options = {}) {
   return stdio === 'pipe' ? (result.stdout ?? '').toString().trim() : '';
 }
 
+function runDockerExec(container, args, options = {}) {
+  const stdio = options.stdio ?? 'pipe';
+  const spawnOptions = {
+    ...options,
+    stdio,
+    encoding: stdio === 'pipe' ? 'utf8' : undefined
+  };
+  const result = spawnSync('docker', ['exec', container, ...args], spawnOptions);
+  if (result.error) {
+    throw result.error;
+  }
+  if (typeof result.status === 'number' && result.status !== 0) {
+    const stderr = result.stderr ? result.stderr.toString() : '';
+    const stdout = result.stdout ? result.stdout.toString() : '';
+    throw new Error(
+      `docker exec ${container} ${args.join(' ')} failed: ${(stderr || stdout || '').trim()}`
+    );
+  }
+  return stdio === 'pipe' ? (result.stdout ?? '').toString().trim() : '';
+}
+
 function ensureDockerAvailable() {
   try {
     runDocker(['version', '--format', '{{.Server.Version}}'], { stdio: 'pipe' });
@@ -409,6 +497,95 @@ function ensureMinioBuckets() {
   }
 }
 
+async function verifyRedpandaRoundTrip(brokerUrl) {
+  const { Kafka } = require('kafkajs');
+  const kafka = new Kafka({ clientId: 'apphub-dev-smoke', brokers: [brokerUrl] });
+  const producer = kafka.producer();
+  const consumer = kafka.consumer({ groupId: `apphub-dev-smoke-${Date.now()}` });
+  const payload = `apphub-dev-smoke-${Date.now()}`;
+
+  try {
+    await producer.connect();
+    await consumer.connect();
+    await consumer.subscribe({ topic: STREAMING_SMOKE_TOPIC, fromBeginning: false });
+
+    let settled = false;
+    let settleResolve = () => {};
+    let settleReject = () => {};
+
+    const waitForMessage = new Promise((resolve, reject) => {
+      settleResolve = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      settleReject = (err) => {
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      };
+      setTimeout(() => {
+        settleReject(new Error('Timed out waiting for streaming round trip'));
+      }, STREAMING_SMOKE_TIMEOUT_MS);
+    });
+
+    consumer
+      .run({
+        eachMessage: async ({ message }) => {
+          const value = message.value ? message.value.toString('utf8') : '';
+          if (value === payload) {
+            settleResolve();
+          }
+        }
+      })
+      .catch((err) => settleReject(err));
+
+    await producer.send({
+      topic: STREAMING_SMOKE_TOPIC,
+      messages: [{ value: payload }]
+    });
+
+    await waitForMessage;
+  } finally {
+    await consumer.stop().catch(() => {});
+    await consumer.disconnect().catch(() => {});
+    await producer.disconnect().catch(() => {});
+  }
+}
+
+async function ensureRedpandaTopics() {
+  if (!containerRunning(DEV_REDPANDA.container)) {
+    console.warn(
+      `[dev-runner] Skipping Redpanda topic bootstrap; container ${DEV_REDPANDA.container} is not running.`
+    );
+    return;
+  }
+
+  for (const topic of STREAMING_TOPICS) {
+    const partitions = Math.max(1, topic.partitions ?? 6);
+    const retentionMs = Math.max(60_000, topic.retentionMs ?? 604_800_000);
+    const replicas = Math.max(1, DEV_REDPANDA.replicationFactor);
+    const createScript = `rpk topic create \"${topic.name}\" --brokers localhost:9092 --partitions ${partitions} --replicas ${replicas} --config retention.ms=${retentionMs} >/dev/null 2>&1 || rpk topic describe \"${topic.name}\" --brokers localhost:9092 >/dev/null 2>&1`;
+    try {
+      runDockerExec(DEV_REDPANDA.container, ['bash', '-c', createScript], { stdio: 'ignore' });
+    } catch (err) {
+      console.warn(
+        `[dev-runner] Failed to ensure topic ${topic.name}: ${err.message ?? err}`
+      );
+    }
+  }
+
+  try {
+    await verifyRedpandaRoundTrip(`127.0.0.1:${DEV_REDPANDA.kafkaPort}`);
+  } catch (err) {
+    console.warn(
+      `[dev-runner] Redpanda smoke test failed: ${err.message ?? err}. Streaming workloads may be unavailable.`
+    );
+  }
+}
+
 async function setupDevContainers() {
   if ((process.env.APPHUB_DEV_SKIP_CONTAINERS ?? '').trim() === '1') {
     console.log('[dev-runner] Skipping Docker-managed dependencies (APPHUB_DEV_SKIP_CONTAINERS=1).');
@@ -459,6 +636,11 @@ async function setupDevContainers() {
     await waitForPort(DEV_POSTGRES.host, DEV_POSTGRES.port, 20000, 'PostgreSQL');
     await waitForPort('127.0.0.1', DEV_MINIO.apiPort, 20000, 'MinIO');
     ensureMinioBuckets();
+
+    if (STREAMING_ENABLED) {
+      await waitForPort('127.0.0.1', DEV_REDPANDA.kafkaPort, 20000, 'Redpanda');
+      await ensureRedpandaTopics();
+    }
 
     return {
       async cleanup() {
@@ -516,6 +698,16 @@ async function main() {
     if (!baseEnv[alias]) {
       baseEnv[alias] = baseEnv.REDIS_URL;
     }
+  }
+  if (STREAMING_ENABLED) {
+    if (!baseEnv.APPHUB_STREAMING_ENABLED) {
+      baseEnv.APPHUB_STREAMING_ENABLED = 'true';
+    }
+    if (!baseEnv.APPHUB_STREAM_BROKER_URL || baseEnv.APPHUB_STREAM_BROKER_URL.trim() === '') {
+      baseEnv.APPHUB_STREAM_BROKER_URL = `127.0.0.1:${DEV_REDPANDA.kafkaPort}`;
+    }
+  } else if (!baseEnv.APPHUB_STREAMING_ENABLED) {
+    baseEnv.APPHUB_STREAMING_ENABLED = 'false';
   }
   if (!baseEnv.APPHUB_FILESTORE_BASE_URL) {
     baseEnv.APPHUB_FILESTORE_BASE_URL = 'http://127.0.0.1:4300';

@@ -19,6 +19,9 @@ data:
   APPHUB_METASTORE_BASE_URL: http://apphub-metastore:4100
   APPHUB_FILESTORE_BASE_URL: http://apphub-filestore:4300
   APPHUB_TIMESTORE_BASE_URL: http://apphub-timestore:4100
+  APPHUB_STREAMING_ENABLED: "false"
+  APPHUB_STREAM_BROKER_URL: apphub-redpanda:9092
+  APPHUB_FLINK_REST_URL: http://apphub-flink-jobmanager:8081
   APPHUB_K8S_NAMESPACE: apphub-system
   APPHUB_METRICS_ENABLED: "true"
   FILESTORE_EVENTS_MODE: redis

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
+import { registerStatusCommand } from './commands/status';
 import { registerWorkflowCommands } from './commands/workflows';
 
 export function createProgram(): Command {
@@ -11,6 +12,7 @@ export function createProgram(): Command {
     .description('AppHub developer tooling')
     .version('0.1.0');
 
+  registerStatusCommand(program);
   registerWorkflowCommands(program);
 
   return program;

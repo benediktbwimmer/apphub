@@ -7,6 +7,8 @@ import { computeRunMetrics } from '../observability/metrics';
 import { getPrometheusMetrics, getPrometheusContentType } from '../observability/queueTelemetry';
 import { subscribeToApphubEvents, type ApphubEvent } from '../events';
 import { enqueueWorkflowEvent } from '../queue';
+import type { FeatureFlags } from '../config/featureFlags';
+import { evaluateStreamingStatus } from '../streaming/status';
 import {
   serializeBuild,
   serializeLaunch,
@@ -185,7 +187,14 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
   }
 }
 
-export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
+type CoreRouteOptions = {
+  featureFlags: FeatureFlags;
+};
+
+export async function registerCoreRoutes(
+  app: FastifyInstance,
+  options: CoreRouteOptions
+): Promise<void> {
   const sockets = new Set<WebSocket>();
   const broadcast = (payload: OutboundEvent) => {
     const message = JSON.stringify({ ...payload, emittedAt: new Date().toISOString() });
@@ -305,23 +314,48 @@ export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: ['System'],
         summary: 'Readiness probe',
-        description: 'Returns a simple status payload when the API is healthy.',
+        description: 'Returns feature flag state and streaming readiness.',
         response: {
           200: {
-            description: 'The API is healthy.',
+            description: 'The API is healthy and streaming (if enabled) is ready.',
             content: {
               'application/json': {
                 schema: schemaRef('HealthResponse')
+              }
+            }
+          },
+          503: {
+            description: 'Streaming is enabled but not ready.',
+            content: {
+              'application/json': {
+                schema: schemaRef('HealthUnavailableResponse')
               }
             }
           }
         }
       }
     },
-    async () => ({
-      status: 'ok',
-      warnings: [] as string[]
-    })
+    async (_request, reply) => {
+      const streamingStatus = evaluateStreamingStatus(options.featureFlags);
+      if (streamingStatus.enabled && streamingStatus.state !== 'ready') {
+        reply.status(503);
+        return {
+          status: 'unavailable',
+          warnings: streamingStatus.reason ? [streamingStatus.reason] : [],
+          features: {
+            streaming: streamingStatus
+          }
+        };
+      }
+
+      return {
+        status: 'ok',
+        warnings: [],
+        features: {
+          streaming: streamingStatus
+        }
+      };
+    }
   );
 
   app.get('/metrics', async (request, reply) => {

@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: apphub-redpanda
+  labels:
+    app.kubernetes.io/name: redpanda
+    app.kubernetes.io/part-of: apphub-streaming
+spec:
+  serviceName: apphub-redpanda-headless
+  podManagementPolicy: Parallel
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redpanda
+      app.kubernetes.io/part-of: apphub-streaming
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redpanda
+        app.kubernetes.io/part-of: apphub-streaming
+    spec:
+      containers:
+        - name: redpanda
+          image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -c
+          args:
+            - |
+              set -euo pipefail
+              ordinal=${POD_NAME##*-}
+              if [[ "$ordinal" -eq 0 ]]; then
+                SEEDS=""
+              else
+                SEEDS="--seeds apphub-redpanda-0.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local:33145"
+              fi
+              redpanda start \
+                --overprovisioned \
+                --smp 1 \
+                --memory 2G \
+                --reserve-memory 0M \
+                --check=false \
+                --node-id "$ordinal" \
+                --kafka-addr PLAINTEXT://0.0.0.0:9092 \
+                --advertise-kafka-addr PLAINTEXT://apphub-redpanda-${ordinal}.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local:9092 \
+                --rpc-addr 0.0.0.0:33145 \
+                --advertise-rpc-addr apphub-redpanda-${ordinal}.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local:33145 \
+                --pandaproxy-addr 0.0.0.0:8082 \
+                --advertise-pandaproxy-addr apphub-redpanda-${ordinal}.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local:8082 \
+                --dashboard-addr 0.0.0.0:9644 \
+                $SEEDS
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - containerPort: 9092
+              name: kafka
+            - containerPort: 9644
+              name: admin
+            - containerPort: 8082
+              name: pandaproxy
+            - containerPort: 33145
+              name: rpc
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: 1
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /v1/cluster/health
+              port: admin
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v1/brokers
+              port: admin
+            initialDelaySeconds: 30
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: redpanda
+          app.kubernetes.io/part-of: apphub-streaming
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi

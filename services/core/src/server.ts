@@ -26,6 +26,7 @@ import { registerEventProxyRoutes } from './routes/eventProxy';
 import './queue';
 import { queueManager } from './queueManager';
 import { checkKubectlDiagnostics } from './kubernetes/toolingDiagnostics';
+import { getFeatureFlags } from './config/featureFlags';
 
 type SerializablePrimitive = string | number | boolean | null;
 
@@ -92,6 +93,8 @@ export async function buildServer() {
 
   await registerDefaultServices(app.log);
 
+  const featureFlags = getFeatureFlags();
+
   try {
     const diagnostics = await checkKubectlDiagnostics();
     if (diagnostics.status === 'ok') {
@@ -132,7 +135,7 @@ export async function buildServer() {
     registry.stop();
     stopAnalyticsSnapshots();
   });
-  await app.register(async (instance) => registerCoreRoutes(instance));
+  await app.register(async (instance) => registerCoreRoutes(instance, { featureFlags }));
   await app.register(async (instance) => registerAuthRoutes(instance));
   await app.register(async (instance) => registerJobRoutes(instance));
   await app.register(async (instance) => registerJobBundleRoutes(instance));
