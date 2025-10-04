@@ -14,7 +14,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@apphub/module-sdk": "file:../../packages/module-sdk"
+    "@apphub/module-sdk": "file:../../packages/module-sdk",
+    "tar": "^7.5.1"
   },
   "devDependencies": {
     "@apphub/observatory-support": "0.1.0",

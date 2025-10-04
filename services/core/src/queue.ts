@@ -10,8 +10,6 @@ import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 import { getJobRunById } from './db/jobs';
 import { getWorkflowRunById } from './db/workflows';
 import { type JobRunRecord, type JsonValue } from './db/types';
-import type { ExampleDescriptorReference } from '@apphub/example-bundler';
-import type { ExampleBundleJobData, ExampleBundleJobResult } from './exampleBundleWorker';
 import { ingestWorkflowEvent } from './workflowEvents';
 import {
   recordEventIngress,
@@ -27,7 +25,6 @@ import {
   EVENT_TRIGGER_JOB_NAME,
   EVENT_TRIGGER_QUEUE_NAME,
   EVENT_TRIGGER_RETRY_JOB_NAME,
-  EXAMPLE_BUNDLE_QUEUE_NAME,
   INGEST_QUEUE_NAME,
   LAUNCH_QUEUE_NAME,
   QUEUE_KEYS,
@@ -44,7 +41,6 @@ export {
   EVENT_TRIGGER_JOB_NAME,
   EVENT_TRIGGER_QUEUE_NAME,
   EVENT_TRIGGER_RETRY_JOB_NAME,
-  EXAMPLE_BUNDLE_QUEUE_NAME,
   INGEST_QUEUE_NAME,
   LAUNCH_QUEUE_NAME,
   QUEUE_KEYS,
@@ -109,18 +105,6 @@ queueManager.registerQueue({
   defaultJobOptions: {
     removeOnComplete: true,
     removeOnFail: 50
-  }
-});
-
-queueManager.registerQueue({
-  key: QUEUE_KEYS.exampleBundle,
-  queueName: EXAMPLE_BUNDLE_QUEUE_NAME,
-  defaultJobOptions: {
-    removeOnComplete: true,
-    removeOnFail: 25
-  },
-  workerLoader: async () => {
-    await import('./exampleBundleWorker');
   }
 });
 
@@ -569,7 +553,6 @@ const QUEUE_HEALTH_KEYS = [
   { key: QUEUE_KEYS.build, label: 'build' },
   { key: QUEUE_KEYS.launch, label: 'launch' },
   { key: QUEUE_KEYS.workflow, label: 'workflow' },
-  { key: QUEUE_KEYS.exampleBundle, label: 'exampleBundle' },
   { key: QUEUE_KEYS.event, label: 'event' },
   { key: QUEUE_KEYS.eventTrigger, label: 'eventTrigger' }
 ] as const;
@@ -759,59 +742,4 @@ export async function enqueueWorkflowRun(
       throw fallbackErr instanceof Error ? fallbackErr : new Error(fallbackMessage);
     }
   }
-}
-
-export type EnqueueExampleBundleResult = {
-  jobId: string;
-  slug: string;
-  mode: 'inline' | 'queued';
-  result?: ExampleBundleJobResult;
-};
-
-export async function enqueueExampleBundleJob(
-  slug: string,
-  options: {
-    force?: boolean;
-    skipBuild?: boolean;
-    minify?: boolean;
-    descriptor?: ExampleDescriptorReference | null;
-  } = {}
-): Promise<EnqueueExampleBundleResult> {
-  const inlineMode = queueManager.isInlineMode();
-  const trimmedSlug = slug.trim().toLowerCase();
-  if (!trimmedSlug) {
-    throw new Error('slug is required');
-  }
-
-  const payload: ExampleBundleJobData = {
-    slug: trimmedSlug,
-    force: options.force,
-    skipBuild: options.skipBuild,
-    minify: options.minify,
-    descriptor: options.descriptor ?? null
-  };
-
-  if (inlineMode) {
-    await queueManager.ensureWorker(QUEUE_KEYS.exampleBundle);
-    const jobId = buildJobId('inline', Date.now());
-    const module = await import('./exampleBundleWorker');
-    const result = await module.processExampleBundleJob(payload, jobId);
-    return {
-      jobId,
-      slug: trimmedSlug,
-      mode: 'inline',
-      result
-    } satisfies EnqueueExampleBundleResult;
-  }
-
-  const queue = queueManager.getQueue<ExampleBundleJobData>(QUEUE_KEYS.exampleBundle);
-  const job = await queue.add(trimmedSlug, payload, {
-    jobId: trimmedSlug
-  });
-
-  return {
-    jobId: String(job.id),
-    slug: trimmedSlug,
-    mode: 'queued'
-  } satisfies EnqueueExampleBundleResult;
 }

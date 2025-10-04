@@ -119,7 +119,7 @@ async function checkPostgres() {
 
 async function checkMinio() {
   step('Validating MinIO buckets');
-  const script = `set -euo pipefail\nmc alias set verify http://apphub-minio:9000 apphub apphub123 >/dev/null\nmc ls verify/apphub-example-bundles >/dev/null\nmc ls verify/apphub-filestore >/dev/null\nmc ls verify/apphub-timestore >/dev/null`;
+  const script = `set -euo pipefail\nmc alias set verify http://apphub-minio:9000 apphub apphub123 >/dev/null\nmc ls verify/apphub-job-bundles >/dev/null\nmc ls verify/apphub-filestore >/dev/null\nmc ls verify/apphub-timestore >/dev/null`;
   await run('kubectl', [
     'run',
     uniqueName('verify-minio'),

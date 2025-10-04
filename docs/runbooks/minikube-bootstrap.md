@@ -48,7 +48,7 @@ Health checks cover:
 - Pod readiness across the `apphub-system` namespace.
 - Redis `PING` response.
 - Postgres connectivity and schema availability.
-- MinIO buckets (`apphub-example-bundles`, `apphub-filestore`, `apphub-timestore`).
+- MinIO buckets (`apphub-job-bundles`, `apphub-filestore`, `apphub-timestore`).
 - HTTP probes for core, metastore, filestore, and timestore APIs.
 
 Pass `-- --check-ingress` to include an ingress host summary that echoes the `/etc/hosts` entry.

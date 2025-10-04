@@ -57,18 +57,6 @@
       "@apphub/observatory-support/*": [
         "packages/observatory-support/src/*"
       ],
-      "@apphub/examples": [
-        "packages/examples/src/index.ts"
-      ],
-      "@apphub/examples/*": [
-        "packages/examples/src/*"
-      ],
-      "@apphub/example-bundler": [
-        "packages/example-bundler/src/index.ts"
-      ],
-      "@apphub/example-bundler/*": [
-        "packages/example-bundler/src/*"
-      ],
       "@apphub/event-bus": [
         "packages/event-bus/src/index.ts"
       ],

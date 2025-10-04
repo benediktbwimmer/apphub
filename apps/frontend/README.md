@@ -27,7 +27,7 @@ const exampleSchema = z.object({ data: z.object({ value: z.string() }) });
 
 export async function fetchExample(fetcher: AuthorizedFetch) {
   const client = createApiClient(fetcher, { baseUrl: API_BASE_URL });
-  return client.get('/examples/endpoint', {
+  return client.get('/modules/catalog', {
     schema: exampleSchema.transform(({ data }) => data.value),
     errorMessage: 'Failed to load example payload'
   });

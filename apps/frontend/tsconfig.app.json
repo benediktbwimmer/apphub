@@ -34,7 +34,6 @@
   "references": [
     { "path": "../../packages/shared" },
     { "path": "../../packages/module-registry" },
-    { "path": "../../packages/examples" },
     { "path": "../../services/core" }
   ]
 }

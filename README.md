@@ -14,7 +14,7 @@ apphub/
 ├── packages/
 │   ├── shared/               # Shared types + registries consumed by multiple services
 │   ├── module-registry/      # Catalog + loader utilities for module metadata
-│   └── examples/             # Legacy example descriptors (kept for migration tooling)
+│   └── modules/              # Module bundles and resources
 ├── services/
 │   ├── core/              # Fastify API + background workers
 │   └── metastore/            # Flexible metadata storage + search service
@@ -93,9 +93,9 @@ The API listens on `http://localhost:4000` by default and serves:
 
 Metadata persists in PostgreSQL. By default the API connects to `postgres://apphub:apphub@127.0.0.1:5432/apphub`; set `DATABASE_URL` if you run Postgres elsewhere. Create the database before starting the service (for example, `createdb apphub && psql -d apphub -c "CREATE ROLE apphub WITH LOGIN PASSWORD 'apphub'; GRANT ALL PRIVILEGES ON DATABASE apphub TO apphub;"`).
 
-#### Example Bundle Storage
+#### Job Bundle Storage
 
-Example bundle packaging now stores status records in PostgreSQL and pushes bundle archives to an S3-compatible object store. Set the `APPHUB_BUNDLE_STORAGE_*` variables before starting the core service. For local smoke tests you can keep `APPHUB_BUNDLE_STORAGE_BACKEND=local`, but multi-replica setups (including minikube) should point to MinIO or AWS S3. See [`docs/example-bundle-storage.md`](docs/example-bundle-storage.md) for a configuration walkthrough and migration instructions.
+Job bundle packaging stores status records in PostgreSQL and pushes bundle archives to an S3-compatible object store. Set the `APPHUB_BUNDLE_STORAGE_*` variables before starting the core service. For local smoke tests you can keep `APPHUB_BUNDLE_STORAGE_BACKEND=local`, but multi-replica setups (including minikube) should point to MinIO or AWS S3. See [`docs/job-bundle-storage.md`](docs/job-bundle-storage.md) for a configuration walkthrough and migration instructions.
 
 ### Metastore Service
 
@@ -503,7 +503,7 @@ Every secret resolution is captured in the audit log with the requesting actor, 
 ### Service Configuration
 
 The core no longer reads service manifests or configuration modules from disk at startup. Instead, operators import manifests on
-command—typically from checked-in example repos—using the runtime APIs. Each import clones the referenced repository (or opens the
+command—typically from checked-in module repositories—using the runtime APIs. Each import clones the referenced repository (or opens the
 local path you supply), resolves the manifest graph, and applies the resulting services and service networks directly to the
 registry and SQLite store. Subsequent imports for the same module replace the previous definitions so you can iterate without
 restarts or environment tweaks.
@@ -524,7 +524,7 @@ curl -X POST http://127.0.0.1:4000/service-config/import \
 ```
 
 The response includes the module identifier, resolved commit SHA, and number of discovered services. The core no longer
-ingests manifests automatically on boot—invoke the import endpoints (or trigger the example loader in the UI) whenever you want to
+ingests manifests automatically on boot—invoke the import endpoints (or use the Import workspace in the UI) whenever you want to
 sync declarative definitions into the registry.
 
 ### Run Everything Locally
@@ -541,7 +541,7 @@ This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis
 - Core API on `http://127.0.0.1:4000`
 - Ingestion worker
 - Service orchestrator (`npm run dev:services`) that spawns the dev commands defined in the supplied manifest (defaults to the
-  environmental observatory example; pass manifest paths as CLI arguments to override)
+  environmental observatory module; pass manifest paths as CLI arguments to override)
 - Frontend on `http://localhost:5173`
 
 Ensure a PostgreSQL instance is reachable at the connection string in `DATABASE_URL` before launching the dev stack; the script does not start Postgres automatically.
@@ -613,7 +613,7 @@ npx tsx apps/cli/src/index.ts jobs test ./modules/environmental-observatory/dist
 npx tsx apps/cli/src/index.ts jobs publish ./modules/environmental-observatory/dist/bundles/observatory-data-generator --token dev-operator-token
 ```
 
-The CLI creates `apphub.bundle.json`, validates `manifest.json` against the registry schema, emits reproducible tarballs with SHA-256 signatures, and wires a local harness for executing handlers with sample payloads. See `docs/job-bundles.md` for a complete walkthrough. The example importer no longer relies on prebuilt archives—when you load an example bundle, the core API packages the sources on demand and streams the result directly into the registry. The first run may take longer while dependencies are installed inside each bundle directory; subsequent imports reuse the compiled output.
+The CLI creates `apphub.bundle.json`, validates `manifest.json` against the registry schema, emits reproducible tarballs with SHA-256 signatures, and wires a local harness for executing handlers with sample payloads. See `docs/job-bundles.md` for a complete walkthrough. Job imports package bundles on demand—when you upload a bundle, the core API stores the results in shared storage and updates the registry immediately. The first run may take longer while dependencies are installed inside each bundle directory; subsequent imports reuse the compiled output.
 
 ## Current Functionality
 

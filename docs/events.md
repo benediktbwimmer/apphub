@@ -126,7 +126,7 @@ The event trigger worker (`npm run event-triggers --workspace @apphub/core`) con
 ### Monitoring & Health
 
 - `GET /admin/event-health` surfaces queue depth, in-memory metrics (per-source lag, trigger success/failure counters), current rate-limit configuration, and paused sources/triggers.
-- `GET /admin/queue-health` enumerates all core BullMQ queues (ingest, build, launch, workflow, example bundle, ingress triggers) with live depth and latency readings; the data also feeds the Prometheus endpoint exposed at `/metrics/prometheus`.
+- `GET /admin/queue-health` enumerates all core BullMQ queues (ingest, build, launch, workflow, event ingress, event triggers) with live depth and latency readings; the data also feeds the Prometheus endpoint exposed at `/metrics/prometheus`.
 - Set `EVENT_SOURCE_RATE_LIMITS` with entries like `[{"source":"metastore.api","limit":200,"intervalMs":60000,"pauseMs":60000}]` to throttle noisy publishers; default is unlimited.
 - Trigger auto-pausing is controlled via `EVENT_TRIGGER_ERROR_THRESHOLD` (default `5` failures within `EVENT_TRIGGER_ERROR_WINDOW_MS`, default `300000`) and resumes after `EVENT_TRIGGER_PAUSE_MS` (default `300000`).
 

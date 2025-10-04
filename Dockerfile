@@ -9,15 +9,13 @@ COPY package.json package-lock.json ./
 COPY tsconfig.json tsconfig.json
 COPY tsconfig.base.json tsconfig.base.json
 
-COPY apps/frontend/package.json apps/frontend/package-lock.json apps/frontend/
+COPY apps/frontend/package.json apps/frontend/
 COPY apps/cli/package.json apps/cli/package-lock.json apps/cli/
-COPY services/core/package.json services/core/package-lock.json services/core/
+COPY services/core/package.json services/core/
 COPY services/metastore/package.json services/metastore/
 COPY services/timestore/package.json services/timestore/
 COPY services/filestore/package.json services/filestore/
 COPY packages/filestore-client/package.json packages/filestore-client/
-COPY packages/example-bundler/package.json packages/example-bundler/
-COPY packages/examples/package.json packages/examples/
 COPY packages/shared/package.json packages/shared/
 RUN --mount=type=cache,id=npm-${TARGETPLATFORM},target=/root/.npm npm ci
 RUN set -eux; \
@@ -66,8 +64,6 @@ RUN rm -rf services/timestore/node_modules && ln -s ../../node_modules services/
 RUN rm -rf services/filestore/node_modules && ln -s ../../node_modules services/filestore/node_modules
 RUN rm -rf apps/frontend/node_modules && ln -s ../../node_modules apps/frontend/node_modules
 RUN rm -rf apps/cli/node_modules && ln -s ../../node_modules apps/cli/node_modules
-RUN rm -rf packages/example-bundler/node_modules && ln -s ../../node_modules packages/example-bundler/node_modules
-RUN rm -rf packages/examples/node_modules && ln -s ../../node_modules packages/examples/node_modules
 RUN rm -rf packages/shared/node_modules && ln -s ../../node_modules packages/shared/node_modules
 RUN rm -rf packages/filestore-client/node_modules && ln -s ../../node_modules packages/filestore-client/node_modules
 
@@ -128,7 +124,6 @@ ENV NODE_ENV=production \
 COPY --from=builder /app/node_modules node_modules
 COPY --from=builder /app/packages packages
 COPY --from=builder /app/services/core/package.json services/core/package.json
-COPY --from=builder /app/services/core/package-lock.json services/core/package-lock.json
 COPY --from=builder /app/services/core/node_modules services/core/node_modules
 COPY --from=builder /app/services/core/dist services/core/dist
 COPY --from=builder /app/services/metastore/package.json services/metastore/package.json
@@ -141,7 +136,6 @@ COPY --from=builder /app/services/filestore/package.json services/filestore/pack
 COPY --from=builder /app/services/filestore/node_modules services/filestore/node_modules
 COPY --from=builder /app/services/filestore/dist services/filestore/dist
 COPY --from=builder /app/apps/cli apps/cli
-COPY --from=builder /app/examples examples
 COPY --from=builder /app/apps/frontend/dist apps/frontend/dist
 COPY scripts/postgres-start.sh scripts/postgres-start.sh
 RUN chmod +x scripts/postgres-start.sh
@@ -277,17 +271,6 @@ stderr_logfile_maxbytes=0
 command=node services/core/dist/buildWorker.js
 directory=/app
 priority=45
-autostart=true
-autorestart=true
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-
-[program:example-bundle-worker]
-command=node services/core/dist/exampleBundleWorker.js
-directory=/app
-priority=47
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout

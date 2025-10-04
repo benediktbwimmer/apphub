@@ -15,7 +15,6 @@
   "include": ["src/**/*.ts", "src/**/*.json"],
   "exclude": ["dist", "tests"],
   "references": [
-    { "path": "../../packages/example-bundler" },
     { "path": "../../packages/shared" }
   ]
 }

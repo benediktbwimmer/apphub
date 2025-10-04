@@ -16,10 +16,10 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 2. **Backfill manifests** – run the helper script from repo root:
 
    ```bash
-   npm run backfill:service-registry -- --path modules/environmental-observatory/dist --module github.com/apphub/examples/environmental-observatory-event-driven
+   npm run backfill:service-registry -- --path modules/environmental-observatory/dist --module github.com/apphub/modules/environmental-observatory/resources
    ```
 
-   - The script loads the example module (`service-manifests/service-manifest.json`) and writes through the new registry. Placeholders leverage the defaults baked into the example, so no extra flags are required.
+   - The script loads the module (`service-manifests/service-manifest.json`) and writes through the new registry. Placeholders leverage the defaults baked into the module, so no extra flags are required.
    - Add `--var KEY=VALUE` to override placeholders, or `--no-bootstrap` if bootstrap actions should run.
 
 3. **Verify import** – `psql` or API:
@@ -66,7 +66,7 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 | --- | --- |
 | `/services` hangs or 500s | Confirm Postgres reachable; check `service_manifests` indices exist (`\d service_manifests`). |
 | Health data stale | Verify Redis URL is not `inline` in multi-pod environments; missing invalidations keep caches hot forever. |
-| Backfill fails with placeholder errors | Re-run with explicit `--var KEY=VALUE` overrides. The event-driven example documents required keys in `service-manifests/README.md`. |
+| Backfill fails with placeholder errors | Re-run with explicit `--var KEY=VALUE` overrides. The event-driven module documents required keys in `service-manifests/README.md`. |
 | Duplicate manifests | Check for multiple imports of the same module from different git refs. Active rows are unique on `(module_id, module_version, service_slug)`; superseded rows are safe to keep. |
 
 ## Reference Commands
@@ -75,7 +75,7 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 # Diff active manifest payloads
 psql $DATABASE_URL -c "select module_id, service_slug, checksum from service_manifests where superseded_at is null order by module_id, service_slug;"
 
-# Inspect latest health snapshot for the gateway example
+# Inspect latest health snapshot for the gateway module
 psql $DATABASE_URL -c "select status, latency_ms, checked_at from service_health_snapshots where service_slug = 'observatory-dashboard' order by version desc limit 1;"
 ```
 

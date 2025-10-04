@@ -39,8 +39,7 @@ const TABS = [
     key: 'import',
     label: 'Import workspace',
     path: ROUTE_SEGMENTS.settingsImport,
-    description:
-      'Register services, apps, jobs, and workflows from manifests, bundles, or built-in examples.'
+    description: 'Register services, apps, jobs, and workflows from manifests or imported bundles.'
   },
   {
     key: 'ai-builder',

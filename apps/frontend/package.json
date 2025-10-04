@@ -13,7 +13,6 @@
     "test:ui": "playwright test"
   },
   "dependencies": {
-    "@apphub/examples": "0.1.0",
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-virtual": "^3.13.12",
     "ajv": "^8.17.1",

@@ -12,17 +12,11 @@
     "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
-    "ajv": "^8.17.1",
-    "ajv-formats": "^2.1.1",
     "commander": "^11.1.0",
-    "esbuild": "^0.21.5",
-    "fast-glob": "^3.3.2",
-    "tar": "^6.2.0",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
-    "@types/tar": "^6.1.13",
     "tsx": "^4.7.1",
     "typescript": "^5.3.3"
   }

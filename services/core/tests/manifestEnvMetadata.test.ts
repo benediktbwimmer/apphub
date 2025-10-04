@@ -10,9 +10,9 @@ async function run() {
   process.env.APPHUB_DISABLE_MODULE_BOOTSTRAP = '1';
 
   const preview = await previewServiceConfigImport({
-    path: 'examples/environmental-observatory/service-manifests',
-    configPath: 'service-config.json',
-    module: 'github.com/apphub/examples/environmental-observatory'
+    path: 'modules/environmental-observatory/resources',
+    configPath: 'config.json',
+    module: 'environmental-observatory'
   });
 
   assert(preview.entries.length > 0, 'service manifest entries should be discovered');
@@ -36,7 +36,7 @@ async function run() {
   assert(watchRoot, 'FILE_WATCH_ROOT should be present');
   assert.equal(
     watchRoot?.value,
-    'examples/environmental-observatory/data/inbox',
+    'modules/environmental-observatory/resources/data/inbox',
     'placeholder default should propagate into resolved env metadata'
   );
 
@@ -54,9 +54,9 @@ async function run() {
   assert.equal(placeholderPort, 5173, 'placeholder metadata should fall back to default port value');
 
   const previewWithRequire = await previewServiceConfigImport({
-    path: 'examples/environmental-observatory/service-manifests',
-    configPath: 'service-config.json',
-    module: 'github.com/apphub/examples/environmental-observatory',
+    path: 'modules/environmental-observatory/resources',
+    configPath: 'config.json',
+    module: 'environmental-observatory',
     requirePlaceholderValues: true
   });
   const optionalPlaceholder = previewWithRequire.placeholders.find(
@@ -79,9 +79,9 @@ async function run() {
       method: 'POST',
       url: '/service-networks/import',
       payload: {
-        path: 'examples/environmental-observatory/service-manifests',
-        configPath: 'service-config.json',
-        module: 'github.com/apphub/examples/environmental-observatory',
+        path: 'modules/environmental-observatory/resources',
+        configPath: 'config.json',
+        module: 'environmental-observatory',
         requirePlaceholderValues: true
       }
     });
@@ -104,9 +104,9 @@ async function run() {
       method: 'POST',
       url: '/service-networks/import',
       payload: {
-        path: 'examples/environmental-observatory/service-manifests',
-        configPath: 'service-config.json',
-        module: 'github.com/apphub/examples/environmental-observatory',
+        path: 'modules/environmental-observatory/resources',
+        configPath: 'config.json',
+        module: 'environmental-observatory',
         requirePlaceholderValues: false
       }
     });

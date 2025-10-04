@@ -9,7 +9,7 @@ import { runE2E } from '@apphub/test-helpers';
 import { KubectlMock } from '@apphub/kubectl-mock';
 import type { FastifyInstance } from 'fastify';
 
-const SERVICE_MODULE = 'github.com/apphub/examples/environmental-observatory';
+const SERVICE_MODULE = 'environmental-observatory';
 const REPOSITORY_ID = 'observatory-event-gateway';
 
 async function loadModule<T>(modulePath: string): Promise<any> {
@@ -150,7 +150,7 @@ runE2E(async ({ registerCleanup }) => {
     serviceRegistry.resetServiceManifestState();
 
     const repoRoot = path.resolve(__dirname, '../../..');
-    const dataDir = path.join(repoRoot, 'examples/environmental-observatory/data');
+    const dataDir = path.join(repoRoot, 'modules/environmental-observatory/resources/data');
     const inboxDir = path.join(dataDir, 'inbox');
     const stagingDir = path.join(dataDir, 'staging');
     const archiveDir = path.join(dataDir, 'archive');
@@ -161,7 +161,7 @@ runE2E(async ({ registerCleanup }) => {
       headers: { 'Content-Type': 'application/json' },
       payload: {
         path: repoRoot,
-        configPath: 'examples/environmental-observatory/service-manifests/service-config.json',
+        configPath: 'modules/environmental-observatory/resources/config.json',
         module: SERVICE_MODULE,
         variables: {
           FILE_WATCH_ROOT: inboxDir,
