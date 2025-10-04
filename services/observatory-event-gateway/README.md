@@ -7,8 +7,8 @@ The observatory event gateway bridges legacy filesystem drops into the AppHub Fi
 ```bash
 npm run dev:minio
 
-WATCH_ROOT=$(pwd)/modules/environmental-observatory/resources/data/inbox \
-WATCH_ARCHIVE_DIR=$(pwd)/modules/environmental-observatory/resources/data/archive \
+WATCH_ROOT=$(pwd)/examples/environmental-observatory/data/inbox \
+WATCH_ARCHIVE_DIR=$(pwd)/examples/environmental-observatory/data/archive \
 FILESTORE_BASE_URL=http://127.0.0.1:4300 \
 FILESTORE_BACKEND_ID=1 \
 FILESTORE_TARGET_PREFIX=datasets/observatory/inbox \

@@ -14,24 +14,6 @@ export {
 } from './core';
 export type { ModuleCatalogData, LoadCoreOptions } from './core';
 export {
-  createEventDrivenObservatoryConfig,
-  resolveContainerPath,
-  applyObservatoryWorkflowDefaults,
-  ensureObservatoryBackend,
-  ensureS3Bucket,
-  isObservatoryModule,
-  isObservatoryWorkflowSlug,
-  loadObservatoryConfig,
-  resolveGeneratedObservatoryConfigPath,
-  resolveObservatoryRepoRoot
-} from '@apphub/observatory-support';
-export type {
-  EventDrivenObservatoryConfig,
-  ObservatoryBootstrapLogger,
-  EnsureObservatoryBackendOptions,
-  S3BucketOptions
-} from '@apphub/observatory-support';
-export {
   extractWorkflowProvisioningPlan,
   resolveWorkflowProvisioningPlan
 } from './provisioning';
@@ -57,3 +39,5 @@ export type {
   ModuleDescriptorManifest
 } from './descriptors/schema';
 export type { WorkflowManifestReference } from './descriptors/loader';
+export { ensureS3Bucket } from './s3';
+export type { S3BucketOptions } from './s3';

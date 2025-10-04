@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import { registerStatusCommand } from './commands/status';
 import { registerWorkflowCommands } from './commands/workflows';
+import { registerModuleCommands } from './commands/modules';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -14,6 +15,7 @@ export function createProgram(): Command {
 
   registerStatusCommand(program);
   registerWorkflowCommands(program);
+  registerModuleCommands(program);
 
   return program;
 }

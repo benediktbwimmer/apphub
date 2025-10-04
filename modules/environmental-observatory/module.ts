@@ -1,8 +1,4 @@
-import { defineModule } from '@apphub/module-sdk';
-import type {
-  CapabilityValueReference,
-  CapabilityValueTemplate
-} from '@apphub/module-sdk';
+import { defineModule, namedCapabilities, secretsRef, settingsRef } from '@apphub/module-sdk';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from './src/runtime/settings';
 import { defaultObservatorySettings } from './src/runtime/settings';
 import { dataGeneratorJob } from './src/jobs/dataGenerator';
@@ -24,37 +20,6 @@ import {
   calibrationReprocessWorkflow
 } from './src/workflows';
 
-type RefOptions<T> = {
-  fallback?: CapabilityValueTemplate<T>;
-  optional?: boolean;
-};
-
-function settingsRef<T>(path: string, options: RefOptions<T> = {}): CapabilityValueReference<T> {
-  const reference: CapabilityValueReference<T> = {
-    $ref: `settings.${path}`
-  };
-  if (options.fallback !== undefined) {
-    reference.fallback = options.fallback;
-  }
-  if (options.optional) {
-    reference.optional = true;
-  }
-  return reference;
-}
-
-function secretsRef<T>(path: string, options: RefOptions<T> = {}): CapabilityValueReference<T> {
-  const reference: CapabilityValueReference<T> = {
-    $ref: `secrets.${path}`
-  };
-  if (options.fallback !== undefined) {
-    reference.fallback = options.fallback;
-  }
-  if (options.optional === undefined || options.optional) {
-    reference.optional = true;
-  }
-  return reference;
-}
-
 export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>({
   metadata: {
     name: 'environmental-observatory',
@@ -75,20 +40,37 @@ export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>
       backendMountId: settingsRef('filestore.backendId', { fallback: 1 }),
       token: secretsRef('filestoreToken')
     },
-    metastore: {
-      baseUrl: settingsRef('metastore.baseUrl'),
-      namespace: settingsRef('metastore.namespace'),
-      token: secretsRef('metastoreToken')
-    },
+    metastore: namedCapabilities({
+      reports: {
+        baseUrl: settingsRef('metastore.baseUrl'),
+        namespace: settingsRef('metastore.namespace'),
+        token: secretsRef('metastoreToken')
+      },
+      calibrations: {
+        baseUrl: settingsRef('calibrations.baseUrl', { fallback: settingsRef('metastore.baseUrl') }),
+        namespace: settingsRef('calibrations.namespace'),
+        token: secretsRef('calibrationsToken', {
+          optional: true,
+          fallback: secretsRef('metastoreToken')
+        })
+      }
+    }),
     timestore: {
       baseUrl: settingsRef('timestore.baseUrl'),
       token: secretsRef('timestoreToken')
     },
-    events: {
-      baseUrl: settingsRef('core.baseUrl'),
-      defaultSource: settingsRef('events.source'),
-      token: secretsRef('eventsToken')
-    },
+    events: namedCapabilities({
+      default: {
+        baseUrl: settingsRef('core.baseUrl'),
+        defaultSource: settingsRef('events.source'),
+        token: secretsRef('eventsToken')
+      },
+      audit: {
+        baseUrl: settingsRef('core.baseUrl'),
+        defaultSource: 'observatory.audit',
+        token: secretsRef('eventsToken', { optional: true })
+      }
+    }),
     coreHttp: {
       baseUrl: settingsRef('core.baseUrl'),
       token: secretsRef('coreApiToken')

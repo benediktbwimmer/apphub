@@ -5,7 +5,10 @@ import {
   createCoreWorkflowsCapability,
   createJobHandler,
   createMetastoreCapability,
+  inheritModuleSettings,
+  inheritModuleSecrets,
   type CoreWorkflowsCapability,
+  type FilestoreCapability,
   type JobContext,
   type MetastoreCapability
 } from '@apphub/module-sdk';
@@ -37,11 +40,8 @@ import {
   type CalibrationReprocessPlan
 } from '../runtime/plans';
 import { toJsonRecord } from '../runtime/events';
-import {
-  defaultObservatorySettings,
-  type ObservatoryModuleSecrets,
-  type ObservatoryModuleSettings
-} from '../runtime/settings';
+import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
+import { selectCoreWorkflows, selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 const DEFAULT_PLAN_VERSION = 1;
 const MAX_LOOKBACK_MINUTES = 10_000;
@@ -662,7 +662,7 @@ async function upsertPlanMetastoreRecord(
 
 async function materializePlanArtifact(
   plan: CalibrationReprocessPlan,
-  filestore: NonNullable<CalibrationPlannerContext['capabilities']['filestore']>,
+  filestore: FilestoreCapability,
   backendMountId: number,
   backendMountKey: string | null,
   planPath: string,
@@ -721,32 +721,33 @@ export const calibrationPlannerJob = createJobHandler<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
   CalibrationPlannerResult,
-  PlannerOverrides
+  PlannerOverrides,
+  ['filestore', 'coreWorkflows', 'metastore.calibrations']
 >({
   name: 'observatory-calibration-planner',
-  settings: {
-    defaults: defaultObservatorySettings
-  },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
+  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations'] as const,
   parameters: {
     resolve: (raw) => resolvePlannerOverrides(raw)
   },
   handler: async (context: CalibrationPlannerContext): Promise<CalibrationPlannerResult> => {
-    const filestore = context.capabilities.filestore;
-    if (!filestore) {
-      throw new Error('Filestore capability is required for the calibration planner job');
+    const filestoreCapabilityCandidate = selectFilestore(context.capabilities);
+    if (!filestoreCapabilityCandidate) {
+      throw new Error('Filestore capability is required for the calibration planner');
     }
+    const filestore: FilestoreCapability = filestoreCapabilityCandidate;
 
-    const coreBaseUrl = context.parameters.coreBaseUrl ?? context.settings.core.baseUrl;
-    if (!coreBaseUrl) {
-      throw new Error('Core base URL is not configured');
-    }
+    const baseCoreWorkflows = selectCoreWorkflows(context.capabilities);
+    const coreWorkflows = context.parameters.coreBaseUrl
+      ? createCoreWorkflowsCapability({
+          baseUrl: context.parameters.coreBaseUrl,
+          token: () => context.secrets.coreApiToken ?? null
+        })
+      : baseCoreWorkflows;
 
-    let coreWorkflows = context.capabilities.coreWorkflows;
     if (!coreWorkflows) {
-      coreWorkflows = createCoreWorkflowsCapability({
-        baseUrl: coreBaseUrl,
-        token: () => context.secrets.coreApiToken ?? null
-      });
+      throw new Error('Core workflows capability is required for the calibration planner');
     }
 
     const ingestWorkflowSlug =
@@ -762,6 +763,7 @@ export const calibrationPlannerJob = createJobHandler<
       context.parameters.metastoreNamespace ?? context.settings.reprocess.metastoreNamespace;
     const metastoreBaseUrl =
       (context.parameters.metastoreBaseUrl ?? context.settings.metastore.baseUrl)?.trim() || null;
+    const fallbackMetastore = selectMetastore(context.capabilities, 'calibrations');
     const principal = context.parameters.principal ?? context.settings.principals.calibrationPlanner;
 
     const backendParams = {
@@ -793,7 +795,7 @@ export const calibrationPlannerJob = createJobHandler<
     const calibrationEntries = buildCalibrationEntries(context.parameters, partitions, requestTimestamp, context);
     const summary = buildPlanSummary(calibrationEntries);
 
-    const includeMetastore = Boolean(metastoreBaseUrl);
+    const includeMetastore = Boolean(metastoreBaseUrl ?? fallbackMetastore);
     const plan: CalibrationReprocessPlan = {
       planId,
       planVersion: DEFAULT_PLAN_VERSION,
@@ -819,13 +821,13 @@ export const calibrationPlannerJob = createJobHandler<
       }
     } satisfies CalibrationReprocessPlan;
 
-    const metastoreCapability = includeMetastore
+    const metastoreCapability = metastoreBaseUrl
       ? createMetastoreCapability({
-          baseUrl: metastoreBaseUrl!,
+          baseUrl: metastoreBaseUrl,
           namespace: metastoreNamespace,
           token: () => context.secrets.metastoreToken ?? null
         })
-      : null;
+      : fallbackMetastore;
 
     const materializedPlan = await materializePlanArtifact(
       plan,

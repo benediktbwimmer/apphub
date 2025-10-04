@@ -1,31 +1,31 @@
-# End-to-End Smoke Tests & Benchmarks
+# Environmental Observatory End-to-End Test
 
-The repository ships a full-stack smoke test and lightweight benchmark harness that exercise the environmental observatory scenario via the published OpenAPI contracts.
+The repository ships a reusable end-to-end harness that stands up the complete AppHub stack, deploys the environmental observatory module, and exercises the full ingest → timestore → dashboard → report pipeline.
 
 ## Prerequisites
-- Docker Engine for launching Postgres, Redis, and MinIO
-- Node.js environment with workspace dependencies installed (`npm install`)
-- Local ports `5432`, `6379`, `9000`, `4000`, `4100`, `4200`, and `4300` available
+- Docker Engine (≥ 20.10) for Postgres, Redis, MinIO, and the AppHub services defined in `docker/observatory-e2e.compose.yml`
+- Node.js workspace with dependencies installed (`npm install`)
+- Local high ports `4400`, `4410`, `4420`, `4430`, and `9400` available
 
-Set `APPHUB_E2E_SKIP_STACK=1` if you want to reuse an already running container stack instead of letting the harness manage Docker Compose lifecycle.
-
-## Smoke Test
-```
+## Running the test
+```bash
 npm run e2e
 ```
-The runner:
-- Builds and starts the AppHub services alongside Postgres, Redis, and MinIO via `docker compose`
-- Materialises the observatory module configuration and deploys bundles/workflows with the generator schedule disabled
-- Drives the Core, Filestore, Metastore, and Timestore services through their OpenAPI endpoints to verify health and a generator workflow run
+The script:
+- Builds the observatory module so fresh bundles, deployment code, and manifests are available
+- Boots the Docker Compose stack unless `APPHUB_E2E_SKIP_STACK=1`
+- Deploys the module via `apphub module deploy`, materialising configuration in a temporary scratch directory
+- Triggers the synthetic generator workflow and waits for ingest, aggregation, and publication workflows to complete
+- Verifies Filestore/Timestore output and proxies health checks for the dashboard and admin services through the Core API
+- Captures container logs and fails if error-level entries are found. Logs are persisted to `logs/observatory-e2e.log` for inspection
 
-Services are published on high ports (`4400`, `4410`, `4420`, `4430`) so the smoke test can run alongside a local `npm run dev` session without fighting for the default development ports.
+### Useful environment variables
+- `APPHUB_E2E_SKIP_STACK=1` — reuse an existing stack instead of calling `docker compose up`
+- `APPHUB_E2E_OPERATOR_TOKEN` — override the default bearer token (`apphub-e2e-operator`)
+- `APPHUB_E2E_CORE_PORT`, `APPHUB_E2E_FILESTORE_PORT`, etc. — remap published ports if defaults conflict with your environment
 
-All processes are torn down automatically unless `APPHUB_E2E_SKIP_STACK=1` is set.
+### Cleaning up
+When the harness launches the stack it automatically runs `docker compose down --volumes` during teardown. If you bring your own stack, set `APPHUB_E2E_SKIP_STACK=1` so the harness leaves existing containers untouched.
 
-## Benchmark Suite
-```
-npm run bench
-```
-The benchmark harness reuses the same bootstrapping flow, warms the observatory pipeline with a manual generator run, and records latency statistics for a curated set of read-heavy API calls across services. Results are written to `benchmarks/observatory.json` with average, min/max, and p95 timings for each scenario.
-
-You can inspect console output for a quick summary or compare JSON snapshots between runs to watch for regressions.
+### Logs and artifacts
+Logs live in `logs/observatory-e2e.log`. Temporary configuration and data land under your system temp directory (`apphub-observatory-e2e-*`) and are removed automatically after the test finishes.

@@ -1,9 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createModuleCapabilities, mergeCapabilityOverrides, resolveModuleCapabilityConfig } from '../runtime/capabilities';
-import { createFilestoreCapability } from '../capabilities/filestore';
+import {
+  createModuleCapabilities,
+  mergeCapabilityOverrides,
+  resolveModuleCapabilityConfig,
+  settingsRef,
+  secretsRef,
+  requireCapabilities,
+  namedCapabilities,
+  namedCapabilityOverrides
+} from '../runtime/capabilities';
+import { createFilestoreCapability, type FilestoreCapabilityConfig } from '../capabilities/filestore';
 import { createMetastoreCapability } from '../capabilities/metastore';
-import { createEventBusCapability } from '../capabilities/eventBus';
+import { createEventBusCapability, type EventBusCapability, type EventBusCapabilityConfig } from '../capabilities/eventBus';
 import { createTimestoreCapability } from '../capabilities/timestore';
 import { createCoreWorkflowsCapability } from '../capabilities/coreWorkflows';
 import { CapabilityRequestError } from '../errors';
@@ -35,13 +44,13 @@ test('resolveModuleCapabilityConfig maps settings and secrets references', () =>
   const resolved = resolveModuleCapabilityConfig(
     {
       filestore: {
-        baseUrl: { $ref: 'settings.filestore.baseUrl' },
-        backendMountId: { $ref: 'settings.filestore.backendId', fallback: 1 }
+        baseUrl: settingsRef('filestore.baseUrl'),
+        backendMountId: settingsRef('filestore.backendId', { fallback: 1 })
       },
       events: {
-        baseUrl: { $ref: 'settings.core.baseUrl' },
-        defaultSource: { $ref: 'settings.events.source' },
-        token: { $ref: 'secrets.eventsToken', optional: true }
+        baseUrl: settingsRef('core.baseUrl'),
+        defaultSource: settingsRef('events.source'),
+        token: secretsRef('eventsToken', { optional: true })
       }
     },
     {
@@ -54,21 +63,23 @@ test('resolveModuleCapabilityConfig maps settings and secrets references', () =>
     }
   );
 
-  assert.equal(resolved.filestore?.baseUrl, 'https://filestore.local');
-  assert.equal(resolved.filestore?.backendMountId, 7);
-  assert.equal(resolved.events?.baseUrl, 'https://core.local');
-  assert.equal(resolved.events?.defaultSource, 'observatory.events');
-  assert.equal(resolved.events?.token, 'token-xyz');
+  const filestoreConfig = resolved.filestore as FilestoreCapabilityConfig | undefined;
+  const eventsConfig = resolved.events as EventBusCapabilityConfig | undefined;
+  assert.equal(filestoreConfig?.baseUrl, 'https://filestore.local');
+  assert.equal(filestoreConfig?.backendMountId, 7);
+  assert.equal(eventsConfig?.baseUrl, 'https://core.local');
+  assert.equal(eventsConfig?.defaultSource, 'observatory.events');
+  assert.equal(eventsConfig?.token, 'token-xyz');
 });
 
 test('resolveModuleCapabilityConfig applies fallbacks for missing references', () => {
   const resolved = resolveModuleCapabilityConfig(
     {
       filestore: {
-        backendMountId: { $ref: 'settings.filestore.backendId', fallback: 99 }
+        backendMountId: settingsRef('filestore.backendId', { fallback: 99 })
       },
       coreHttp: {
-        baseUrl: { $ref: 'settings.core.baseUrl' }
+        baseUrl: settingsRef('core.baseUrl')
       }
     },
     {
@@ -77,8 +88,87 @@ test('resolveModuleCapabilityConfig applies fallbacks for missing references', (
     }
   );
 
-  assert.equal(resolved.filestore?.backendMountId, 99);
-  assert.equal(resolved.coreHttp?.baseUrl, 'https://core.local');
+  const filestoreConfig = resolved.filestore as FilestoreCapabilityConfig | undefined;
+  const coreHttpConfig = resolved.coreHttp as { baseUrl: string } | undefined;
+  assert.equal(filestoreConfig?.backendMountId, 99);
+  assert.equal(coreHttpConfig?.baseUrl, 'https://core.local');
+});
+
+test('settingsRef and secretsRef enforce path and defaults', () => {
+  assert.throws(() => settingsRef('  '), /must not be empty/);
+
+  const ref = secretsRef(' api.token ');
+  assert.equal(ref.$ref, 'secrets.api.token');
+  assert.equal(ref.optional, true);
+
+  const requiredRef = secretsRef('key', { optional: false, fallback: 'fallback-value' });
+  assert.equal(requiredRef.optional, false);
+  assert.equal(requiredRef.fallback, 'fallback-value');
+});
+
+test('namedCapabilities materialize multiple capability instances', () => {
+  const config = resolveModuleCapabilityConfig(
+    {
+      events: namedCapabilities<EventBusCapabilityConfig>({
+        default: {
+          baseUrl: 'https://events.local'
+        },
+        audit: {
+          baseUrl: 'https://audit.local',
+          defaultSource: 'audit.events'
+        }
+      })
+    },
+    {
+      settings: {},
+      secrets: {}
+    }
+  );
+
+  const capabilities = createModuleCapabilities(config, {
+    events: namedCapabilityOverrides<EventBusCapability, EventBusCapabilityConfig>({
+      audit: (entryConfig, createDefault) =>
+        createDefault() ?? createEventBusCapability(entryConfig ?? { baseUrl: 'https://audit.local', defaultSource: 'audit.events' })
+    })
+  });
+
+  const eventsCapability = capabilities.events as Record<string, EventBusCapability>;
+  assert.ok(eventsCapability.default);
+  assert.ok(eventsCapability.audit);
+});
+
+test('requireCapabilities understands dotted selectors', () => {
+  assert.throws(
+    () => requireCapabilities({} as any, ['filestore'], 'job'),
+    /job requires capability "filestore"/
+  );
+
+  const fetchImpl = createFetchStub(200, {});
+  const resolved = resolveModuleCapabilityConfig(
+    {
+      filestore: {
+        baseUrl: 'https://filestore.local',
+        backendMountId: 1,
+        fetchImpl
+      },
+      events: namedCapabilities<EventBusCapabilityConfig>({
+        audit: {
+          baseUrl: 'https://events.local',
+          defaultSource: 'audit.events'
+        }
+      })
+    },
+    { settings: {}, secrets: {} }
+  );
+
+  const capabilities = createModuleCapabilities(resolved);
+
+  assert.doesNotThrow(() => requireCapabilities(capabilities, ['filestore'] as const));
+  assert.doesNotThrow(() => requireCapabilities(capabilities, ['events.audit'] as const));
+  assert.throws(
+    () => requireCapabilities(capabilities, ['events.audit.missing'] as const, 'job'),
+    /job requires capability "events.audit.missing"/i
+  );
 });
 
 test('createModuleCapabilities builds defaults and allows overrides', async () => {
@@ -89,17 +179,23 @@ test('createModuleCapabilities builds defaults and allows overrides', async () =
       result: { path: 'datasets/example/file.csv' }
     }
   });
-  const capabilities = createModuleCapabilities({
-    filestore: {
-      baseUrl: 'https://filestore.local',
-      backendMountId: 1,
-      fetchImpl
-    }
-  });
+  const capabilities = createModuleCapabilities(
+    resolveModuleCapabilityConfig(
+      {
+        filestore: {
+          baseUrl: 'https://filestore.local',
+          backendMountId: 1,
+          fetchImpl
+        }
+      },
+      { settings: {}, secrets: {} }
+    )
+  );
 
   assert.ok(capabilities.filestore, 'filestore capability is defined');
 
-  const uploadResult = await capabilities.filestore?.uploadFile({
+  const filestoreCapability = capabilities.filestore as ReturnType<typeof createFilestoreCapability> | undefined;
+  const uploadResult = await filestoreCapability?.uploadFile({
     path: 'datasets/example/file.csv',
     content: 'hello-world'
   });
@@ -110,13 +206,16 @@ test('createModuleCapabilities builds defaults and allows overrides', async () =
   assert.equal(uploadResult?.nodeId, 42);
 
   const overrideCapabilities = createModuleCapabilities(
-    {
-      filestore: {
-        baseUrl: 'https://filestore.local',
-        backendMountId: 1,
-        fetchImpl
-      }
-    },
+    resolveModuleCapabilityConfig(
+      {
+        filestore: {
+          baseUrl: 'https://filestore.local',
+          backendMountId: 1,
+          fetchImpl
+        }
+      },
+      { settings: {}, secrets: {} }
+    ),
     {
       filestore: null
     }
@@ -125,13 +224,16 @@ test('createModuleCapabilities builds defaults and allows overrides', async () =
 
   let factoryCalled = false;
   const functionalOverride = createModuleCapabilities(
-    {
-      filestore: {
-        baseUrl: 'https://filestore.local',
-        backendMountId: 2,
-        fetchImpl
-      }
-    },
+    resolveModuleCapabilityConfig(
+      {
+        filestore: {
+          baseUrl: 'https://filestore.local',
+          backendMountId: 2,
+          fetchImpl
+        }
+      },
+      { settings: {}, secrets: {} }
+    ),
     {
       filestore: (config, createDefault) => {
         factoryCalled = true;
@@ -141,7 +243,8 @@ test('createModuleCapabilities builds defaults and allows overrides', async () =
     }
   );
   assert.ok(factoryCalled, 'override factory invoked');
-  assert.ok(functionalOverride.filestore);
+  const functionalFilestore = functionalOverride.filestore as ReturnType<typeof createFilestoreCapability> | undefined;
+  assert.ok(functionalFilestore);
 });
 
 test('capability errors bubble as CapabilityRequestError', async () => {

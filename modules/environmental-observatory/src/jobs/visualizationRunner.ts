@@ -1,11 +1,20 @@
-import { createJobHandler, type JobContext } from '@apphub/module-sdk';
+import {
+  createJobHandler,
+  inheritModuleSecrets,
+  inheritModuleSettings,
+  sanitizeIdentifier,
+  toTemporalKey,
+  type FilestoreCapability,
+  type JobContext
+} from '@apphub/module-sdk';
 import { z } from 'zod';
 import {
   ensureFilestoreHierarchy,
   ensureResolvedBackendId,
   uploadTextFile
 } from '../runtime/filestore';
-import { defaultObservatorySettings, type ObservatoryModuleSecrets, type ObservatoryModuleSettings } from '../runtime/settings';
+import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
+import { selectFilestore, selectTimestore } from '../runtime/capabilities';
 
 const MAX_ROWS = 10_000;
 
@@ -318,23 +327,26 @@ export const visualizationRunnerJob = createJobHandler<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
   VisualizationResult,
-  VisualizationRunnerParameters
+  VisualizationRunnerParameters,
+  ['filestore', 'timestore']
 >({
   name: 'observatory-visualization-runner',
-  settings: {
-    defaults: defaultObservatorySettings
-  },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
+  requires: ['filestore', 'timestore'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
   handler: async (context: VisualizationRunnerContext): Promise<VisualizationResult> => {
-    const filestore = context.capabilities.filestore;
-    const timestore = context.capabilities.timestore;
-    if (!filestore) {
-      throw new Error('Filestore capability is required for the visualization runner job');
+    const filestoreCapabilityCandidate = selectFilestore(context.capabilities);
+    if (!filestoreCapabilityCandidate) {
+      throw new Error('Filestore capability is required for the visualization runner');
     }
+    const filestore: FilestoreCapability = filestoreCapabilityCandidate;
+
+    const timestore = selectTimestore(context.capabilities);
     if (!timestore) {
-      throw new Error('Timestore capability is required for the visualization runner job');
+      throw new Error('Timestore capability is required for the visualization runner');
     }
 
     const principal = context.settings.principals.visualizationRunner?.trim() || undefined;
@@ -356,7 +368,7 @@ export const visualizationRunnerJob = createJobHandler<
 
     const { startIso, endIso } = computeTimeRange(partitionWindow, lookbackMinutes);
 
-    const queryResult = await timestore.queryDataset({
+    const queryResult = (await timestore.queryDataset({
       datasetSlug,
       timeRange: { start: startIso, end: endIso },
       timestampColumn: 'timestamp',
@@ -374,13 +386,14 @@ export const visualizationRunnerJob = createJobHandler<
       filters: context.parameters.instrumentId
         ? { instrument_id: context.parameters.instrumentId }
         : undefined
-    });
+    })) as { rows?: Array<Record<string, unknown>> };
 
     const rows: ObservatoryRow[] = (queryResult.rows ?? []).flatMap((row) => {
       if (!row) {
         return [];
       }
-      const timestamp = ensureString((row as Record<string, unknown>).timestamp ?? '');
+      const record = row as Record<string, unknown>;
+      const timestamp = ensureString(record.timestamp ?? '');
       if (!timestamp) {
         return [];
       }
@@ -392,12 +405,12 @@ export const visualizationRunnerJob = createJobHandler<
       return [
         {
           timestamp: parsed.toISOString(),
-          instrument_id: ensureString((row as Record<string, unknown>).instrument_id ?? ''),
-          site: ensureString((row as Record<string, unknown>).site ?? ''),
-          temperature_c: Number((row as Record<string, unknown>).temperature_c ?? 0),
-          relative_humidity_pct: Number((row as Record<string, unknown>).relative_humidity_pct ?? 0),
-          pm2_5_ug_m3: Number((row as Record<string, unknown>).pm2_5_ug_m3 ?? 0),
-          battery_voltage: Number((row as Record<string, unknown>).battery_voltage ?? 0)
+          instrument_id: ensureString(record.instrument_id ?? ''),
+          site: ensureString(record.site ?? ''),
+          temperature_c: Number(record.temperature_c ?? 0),
+          relative_humidity_pct: Number(record.relative_humidity_pct ?? 0),
+          pm2_5_ug_m3: Number(record.pm2_5_ug_m3 ?? 0),
+          battery_voltage: Number(record.battery_voltage ?? 0)
         }
       ];
     });
@@ -427,10 +440,12 @@ export const visualizationRunnerJob = createJobHandler<
     const generatedAt = new Date().toISOString();
 
     const visualizationPrefix = context.settings.filestore.visualizationsPrefix.replace(/\/+$/g, '');
-    const datasetKey = (metrics.dataset ?? 'dataset').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'dataset';
-    const instrumentKey = (metrics.instrumentId ?? 'all').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'all';
-    const partitionKeySafe = partitionWindow.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'window';
-    const storagePrefix = `${visualizationPrefix}/${datasetKey}/${instrumentKey}/${partitionKeySafe}`;
+    const datasetSegment = sanitizeIdentifier(metrics.dataset ?? 'dataset') || 'dataset';
+    const instrumentSegment = sanitizeIdentifier(metrics.instrumentId ?? 'all') || 'all';
+    const partitionSegment = toTemporalKey(partitionWindow) || sanitizeIdentifier(partitionWindow) || 'window';
+    const storagePrefix = [visualizationPrefix, datasetSegment, instrumentSegment, partitionSegment]
+      .filter((segment) => segment.length > 0)
+      .join('/');
 
     await ensureFilestoreHierarchy(filestore, backendMountId, storagePrefix, principal);
 

@@ -1,17 +1,21 @@
 import type { ModuleDefinition } from './module';
 import type { ValueDescriptor } from './types';
-import type {
+import {
   JobTargetDefinition,
   ModuleTargetDefinition,
   ModuleTargetKind,
   WorkflowScheduleDefinition,
   WorkflowTargetDefinition,
-  WorkflowTriggerDefinition
+  WorkflowTriggerDefinition,
+  INHERIT_MODULE_SETTINGS,
+  INHERIT_MODULE_SECRETS
 } from './targets';
+import type { InheritModuleSettings, InheritModuleSecrets } from './targets';
 
 export interface ModuleManifestValueDescriptor {
   defaults?: unknown;
   hasResolve: boolean;
+  inherit?: boolean;
 }
 
 export interface ModuleManifestWorkflowDetails {
@@ -27,6 +31,7 @@ export interface ModuleManifestTarget {
   displayName?: string;
   description?: string;
   capabilityOverrides?: string[];
+  requiredCapabilities?: string[];
   fingerprint: string;
   settings?: ModuleManifestValueDescriptor;
   secrets?: ModuleManifestValueDescriptor;
@@ -59,16 +64,26 @@ function cloneJsonValue<T>(value: T, context: string): T {
 }
 
 function toValueDescriptorManifest(
-  descriptor: ValueDescriptor<unknown> | undefined,
+  descriptor: ValueDescriptor<unknown> | InheritModuleSettings | InheritModuleSecrets | undefined,
   context: string
 ): ModuleManifestValueDescriptor | undefined {
+  if (descriptor === INHERIT_MODULE_SETTINGS || descriptor === INHERIT_MODULE_SECRETS) {
+    return {
+      defaults: undefined,
+      hasResolve: false,
+      inherit: true
+    } satisfies ModuleManifestValueDescriptor;
+  }
   if (!descriptor) {
     return undefined;
   }
-
+  const valueDescriptor = descriptor as ValueDescriptor<unknown>;
   return {
-    defaults: descriptor.defaults !== undefined ? cloneJsonValue(descriptor.defaults, `${context} defaults`) : undefined,
-    hasResolve: typeof descriptor.resolve === 'function'
+    defaults:
+      valueDescriptor.defaults !== undefined
+        ? cloneJsonValue(valueDescriptor.defaults, `${context} defaults`)
+        : undefined,
+    hasResolve: typeof valueDescriptor.resolve === 'function'
   } satisfies ModuleManifestValueDescriptor;
 }
 
@@ -113,6 +128,9 @@ function buildTargetManifest<TSettings, TSecrets>(
     displayName: genericTarget.displayName,
     description: genericTarget.description,
     capabilityOverrides: normalizeCapabilityOverrides(genericTarget.capabilityOverrides),
+    requiredCapabilities: genericTarget.requires?.length
+      ? Array.from(new Set(genericTarget.requires.map(String))).sort()
+      : undefined,
     fingerprint: buildTargetFingerprint(moduleVersion, version, genericTarget.name),
     settings: toValueDescriptorManifest(
       genericTarget.settings,

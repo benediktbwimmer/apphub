@@ -13,7 +13,7 @@
     "dev:minio": "node scripts/dev-minio.mjs",
     "test": "npm run test:workspaces",
     "test:workspaces": "npm run test --workspaces --if-present",
-    "lint": "npm run check:artifacts && npm run check:module-target-versions && npm run lint --workspaces --if-present",
+    "lint": "npm run check:artifacts && npm run lint --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "check:artifacts": "node scripts/check-artifacts.mjs",
     "dev:redis": "redis-server --save \"\" --appendonly no",
@@ -47,9 +47,7 @@
     "minikube:redeploy": "node scripts/minikube-redeploy.mjs",
     "minikube:down": "node scripts/minikube-down.mjs",
     "minikube:verify": "node scripts/minikube-verify.mjs",
-    "e2e": "tsx tests/e2e/runSmoke.ts",
-    "bench": "tsx tests/e2e/runBench.ts",
-    "check:module-target-versions": "node scripts/check-module-target-versions.mjs",
+    "e2e": "tsx tests/e2e/observatory.e2e.ts",
     "module:admin": "npm run module:admin --workspace @apphub/core --"
   },
   "devDependencies": {

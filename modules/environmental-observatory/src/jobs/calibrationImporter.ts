@@ -2,7 +2,9 @@ import { Readable } from 'node:stream';
 
 import {
   createJobHandler,
-  createMetastoreCapability,
+  inheritModuleSettings,
+  inheritModuleSecrets,
+  type FilestoreCapability,
   type FilestoreDownloadStream,
   type JobContext
 } from '@apphub/module-sdk';
@@ -19,7 +21,8 @@ import {
   normalizeCalibrationRecord
 } from '../runtime/calibrations';
 import { createObservatoryEventPublisher, toJsonRecord } from '../runtime/events';
-import { defaultObservatorySettings, type ObservatoryModuleSecrets, type ObservatoryModuleSettings } from '../runtime/settings';
+import { selectEventBus, selectFilestore, selectMetastore } from '../runtime/capabilities';
+import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
 const parametersSchema = z
   .object({
@@ -81,35 +84,31 @@ export const calibrationImporterJob = createJobHandler<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
   CalibrationImporterResult,
-  CalibrationImporterParameters
+  CalibrationImporterParameters,
+  ['filestore', 'events.default', 'metastore.calibrations']
 >({
   name: 'observatory-calibration-importer',
-  settings: {
-    defaults: defaultObservatorySettings
-  },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
+  requires: ['filestore', 'events.default', 'metastore.calibrations'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
   handler: async (context: CalibrationImporterContext): Promise<CalibrationImporterResult> => {
-    const filestore = context.capabilities.filestore;
-    const eventsCapability = context.capabilities.events;
-    if (!filestore) {
+    const filestoreCapability = selectFilestore(context.capabilities);
+    if (!filestoreCapability) {
       throw new Error('Filestore capability is required for the calibration importer job');
     }
+    const filestore: FilestoreCapability = filestoreCapability;
+    const eventsCapability = selectEventBus(context.capabilities, 'default');
     if (!eventsCapability) {
       throw new Error('Event bus capability is required for the calibration importer job');
     }
 
-    const calibrationsBaseUrl = context.settings.calibrations.baseUrl ?? context.settings.metastore.baseUrl;
-    if (!calibrationsBaseUrl) {
-      throw new Error('Calibration metastore base URL is not configured');
+    const metastore = selectMetastore(context.capabilities, 'calibrations');
+    if (!metastore) {
+      throw new Error('Calibration metastore capability is not configured');
     }
-
-    const metastore = createMetastoreCapability({
-      baseUrl: calibrationsBaseUrl,
-      namespace: context.settings.calibrations.namespace,
-      token: () => context.secrets.calibrationsToken ?? context.secrets.metastoreToken ?? null
-    });
 
     const principal = context.settings.principals.calibrationImporter?.trim() || undefined;
     const backendContext = {

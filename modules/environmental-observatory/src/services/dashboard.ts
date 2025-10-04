@@ -1,9 +1,10 @@
 import { createService, type ServiceLifecycle } from '@apphub/module-sdk';
 import Fastify, { type FastifyInstance } from 'fastify';
 
-import type { FilestoreDownloadStream } from '@apphub/module-sdk';
+import type { FilestoreCapability, FilestoreDownloadStream } from '@apphub/module-sdk';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 import { defaultObservatorySettings } from '../runtime/settings';
+import { selectFilestore } from '../runtime/capabilities';
 
 function normalizePath(path: string): string {
   return path.replace(/^\/+/, '').replace(/\/+$/g, '');
@@ -112,11 +113,11 @@ export const dashboardService = createService<
     defaults: defaultObservatorySettings
   },
   handler: (context) => {
-    const filestoreCandidate = context.capabilities.filestore;
-    if (!filestoreCandidate) {
+    const filestoreCapabilityCandidate = selectFilestore(context.capabilities);
+    if (!filestoreCapabilityCandidate) {
       throw new Error('Filestore capability is required for the observatory dashboard service');
     }
-    const filestoreCapability = filestoreCandidate;
+    const filestoreCapability: FilestoreCapability = filestoreCapabilityCandidate;
 
     const backendMountIdValue = context.settings.filestore.backendId;
     if (!backendMountIdValue || backendMountIdValue <= 0) {

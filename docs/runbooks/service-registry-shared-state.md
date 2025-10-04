@@ -16,7 +16,7 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 2. **Backfill manifests** – run the helper script from repo root:
 
    ```bash
-   npm run backfill:service-registry -- --path modules/environmental-observatory/dist --module github.com/apphub/modules/environmental-observatory/resources
+   npm run backfill:service-registry -- --path modules/environmental-observatory/dist --module github.com/apphub/examples/environmental-observatory
    ```
 
    - The script loads the module (`service-manifests/service-manifest.json`) and writes through the new registry. Placeholders leverage the defaults baked into the module, so no extra flags are required.

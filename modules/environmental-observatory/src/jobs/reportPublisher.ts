@@ -1,4 +1,12 @@
-import { createJobHandler, type JobContext } from '@apphub/module-sdk';
+import {
+  createJobHandler,
+  inheritModuleSettings,
+  inheritModuleSecrets,
+  sanitizeIdentifier,
+  toTemporalKey,
+  type FilestoreCapability,
+  type JobContext
+} from '@apphub/module-sdk';
 import { z } from 'zod';
 import {
   DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
@@ -6,7 +14,8 @@ import {
   ensureResolvedBackendId,
   uploadTextFile
 } from '../runtime/filestore';
-import { defaultObservatorySettings, type ObservatoryModuleSecrets, type ObservatoryModuleSettings } from '../runtime/settings';
+import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
+import { selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 const visualizationArtifactSchema = z
   .object({
@@ -121,7 +130,7 @@ type ReportPublisherResult = {
 };
 
 function sanitizeRecordKey(key: string): string {
-  return key.replace(/[^a-zA-Z0-9._-]/g, '-');
+  return sanitizeIdentifier(key) || 'report';
 }
 
 function buildMarkdown(metrics: VisualizationMetrics, artifacts: VisualizationArtifact[]): string {
@@ -246,21 +255,23 @@ export const reportPublisherJob = createJobHandler<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
   ReportPublisherResult,
-  ReportPublisherParameters
+  ReportPublisherParameters,
+  ['filestore', 'metastore.reports']
 >({
   name: 'observatory-report-publisher',
-  settings: {
-    defaults: defaultObservatorySettings
-  },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
+  requires: ['filestore', 'metastore.reports'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
   handler: async (context: ReportPublisherContext): Promise<ReportPublisherResult> => {
-    const filestore = context.capabilities.filestore;
-    const metastore = context.capabilities.metastore;
-    if (!filestore) {
-      throw new Error('Filestore capability is required for the report publisher job');
+    const filestoreCapabilityCandidate = selectFilestore(context.capabilities);
+    if (!filestoreCapabilityCandidate) {
+      throw new Error('Filestore capability is required for the report publisher');
     }
+    const filestore: FilestoreCapability = filestoreCapabilityCandidate;
+    const metastore = selectMetastore(context.capabilities, 'reports');
 
     const principal = context.settings.principals.dashboardAggregator?.trim() || undefined;
     const backendMountId = await ensureResolvedBackendId(filestore, {
@@ -276,12 +287,11 @@ export const reportPublisherJob = createJobHandler<
     const plotsReferenced = buildPlotsReferenced(context.parameters.visualizationAsset.artifacts);
     const generatedAt = new Date().toISOString();
 
-    const instrumentSegment = (context.parameters.instrumentId ?? metrics.instrumentId ?? 'all')
-      .replace(/[^a-zA-Z0-9_-]/g, '-')
-      .replace(/-{2,}/g, '-')
-      .replace(/^-+|-+$/g, '') || 'all';
-    const partitionSafe = context.parameters.partitionKey.replace(/[:]/g, '-');
-    const storagePrefix = `${reportsPrefix}/${instrumentSegment}/${partitionSafe}`.replace(/\/+$/g, '');
+    const instrumentSegment =
+      sanitizeIdentifier(context.parameters.instrumentId ?? metrics.instrumentId ?? 'all') || 'all';
+    const partitionSegment =
+      toTemporalKey(context.parameters.partitionKey) || sanitizeIdentifier(context.parameters.partitionKey) || 'window';
+    const storagePrefix = `${reportsPrefix}/${instrumentSegment}/${partitionSegment}`.replace(/\/+$/g, '');
 
     await ensureFilestoreHierarchy(filestore, backendMountId, storagePrefix, principal);
 

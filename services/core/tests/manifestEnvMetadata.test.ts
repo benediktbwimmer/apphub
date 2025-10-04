@@ -10,7 +10,7 @@ async function run() {
   process.env.APPHUB_DISABLE_MODULE_BOOTSTRAP = '1';
 
   const preview = await previewServiceConfigImport({
-    path: 'modules/environmental-observatory/resources',
+    path: 'examples/environmental-observatory',
     configPath: 'config.json',
     module: 'environmental-observatory'
   });
@@ -36,7 +36,7 @@ async function run() {
   assert(watchRoot, 'FILE_WATCH_ROOT should be present');
   assert.equal(
     watchRoot?.value,
-    'modules/environmental-observatory/resources/data/inbox',
+    'examples/environmental-observatory/data/inbox',
     'placeholder default should propagate into resolved env metadata'
   );
 
@@ -54,7 +54,7 @@ async function run() {
   assert.equal(placeholderPort, 5173, 'placeholder metadata should fall back to default port value');
 
   const previewWithRequire = await previewServiceConfigImport({
-    path: 'modules/environmental-observatory/resources',
+    path: 'examples/environmental-observatory',
     configPath: 'config.json',
     module: 'environmental-observatory',
     requirePlaceholderValues: true
@@ -79,7 +79,7 @@ async function run() {
       method: 'POST',
       url: '/service-networks/import',
       payload: {
-        path: 'modules/environmental-observatory/resources',
+        path: 'examples/environmental-observatory',
         configPath: 'config.json',
         module: 'environmental-observatory',
         requirePlaceholderValues: true
@@ -104,7 +104,7 @@ async function run() {
       method: 'POST',
       url: '/service-networks/import',
       payload: {
-        path: 'modules/environmental-observatory/resources',
+        path: 'examples/environmental-observatory',
         configPath: 'config.json',
         module: 'environmental-observatory',
         requirePlaceholderValues: false

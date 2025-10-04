@@ -8,11 +8,26 @@ export type {
   CapabilityConfigTemplate,
   CapabilityValueTemplate,
   CapabilityValueReference,
+  CapabilityRefOptions,
   ModuleCapabilityOverrides,
   CapabilityOverride,
-  CapabilityOverrideFactory
+  CapabilityOverrideFactory,
+  NamedCapabilityConfig,
+  NamedCapabilityOverride,
+  CapabilityKey,
+  CapabilitySelector,
+  CapabilitiesWith
 } from './runtime/capabilities';
-export { createModuleCapabilities, mergeCapabilityOverrides, resolveModuleCapabilityConfig } from './runtime/capabilities';
+export {
+  createModuleCapabilities,
+  mergeCapabilityOverrides,
+  resolveModuleCapabilityConfig,
+  settingsRef,
+  secretsRef,
+  namedCapabilities,
+  namedCapabilityOverrides,
+  requireCapabilities
+} from './runtime/capabilities';
 export { defineModule, type ModuleDefinition, type ModuleDefinitionOf, type ModuleContextFromDefinition } from './module';
 export {
   serializeModuleDefinition,
@@ -46,8 +61,17 @@ export {
   type WorkflowTriggerThrottle,
   type WorkflowTargetDefinition
 } from './targets';
+export {
+  inheritModuleSettings,
+  inheritModuleSecrets,
+  INHERIT_MODULE_SETTINGS,
+  INHERIT_MODULE_SECRETS
+} from './targets';
 export type { ModuleLogger } from './logger';
 export { noopLogger, createConsoleLogger } from './logger';
+export * from './descriptors';
+export * from './templates';
+export * from './utils';
 export {
   createFilestoreCapability,
   createMetastoreCapability,

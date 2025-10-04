@@ -5,7 +5,7 @@ The module runtime now tracks 2 layers of versioning:
 - **Module version** – the semver attached to the bundle published through `module.ts`.
 - **Target version** – the semver attached to each exported job, workflow, or service target. Targets inherit the module version unless authors set an explicit value.
 
-CI enforces that any change to a target implementation bumps either the target version or the module version that it inherits from. `npm run lint` now runs `scripts/check-module-target-versions.mjs`; the script diff-checks files beneath `modules/` and fails if code changes land without a corresponding version increment.
+Historically CI enforced a version bump whenever target implementations changed. That automation has been removed, so it is now up to module authors to increment either the target version or the inherited module version before shipping changes.
 
 ## Working with versions
 

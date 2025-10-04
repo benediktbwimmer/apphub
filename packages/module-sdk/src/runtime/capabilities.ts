@@ -19,10 +19,59 @@ import {
   type CoreWorkflowsCapabilityConfig
 } from '../capabilities';
 
+const namedCapabilityConfigSymbol = Symbol('namedCapabilityConfig');
+const namedCapabilityOverrideSymbol = Symbol('namedCapabilityOverride');
+
 export interface CapabilityValueReference<T = unknown> {
   $ref: string;
   fallback?: CapabilityValueTemplate<T>;
   optional?: boolean;
+}
+
+export interface CapabilityRefOptions<T> {
+  fallback?: CapabilityValueTemplate<T>;
+  optional?: boolean;
+}
+
+function createCapabilityReference<T>(
+  scope: 'settings' | 'secrets',
+  path: string,
+  options: CapabilityRefOptions<T> = {}
+): CapabilityValueReference<T> {
+  const trimmedPath = path.trim();
+  if (!trimmedPath) {
+    throw new Error('Capability reference path must not be empty');
+  }
+
+  const reference: CapabilityValueReference<T> = {
+    $ref: `${scope}.${trimmedPath}`
+  };
+
+  if (options.fallback !== undefined) {
+    reference.fallback = options.fallback;
+  }
+
+  if (options.optional !== undefined) {
+    reference.optional = options.optional;
+  } else if (scope === 'secrets') {
+    reference.optional = true;
+  }
+
+  return reference;
+}
+
+export function settingsRef<T = unknown>(
+  path: string,
+  options: CapabilityRefOptions<T> = {}
+): CapabilityValueReference<T> {
+  return createCapabilityReference('settings', path, options);
+}
+
+export function secretsRef<T = unknown>(
+  path: string,
+  options: CapabilityRefOptions<T> = {}
+): CapabilityValueReference<T> {
+  return createCapabilityReference('secrets', path, options);
 }
 
 export type CapabilityValueTemplate<T> =
@@ -37,22 +86,60 @@ export type CapabilityConfigTemplate<TConfig> = {
   [K in keyof TConfig]?: CapabilityValueTemplate<TConfig[K]>;
 };
 
+export interface NamedCapabilityConfig<TConfig> {
+  readonly __kind: typeof namedCapabilityConfigSymbol;
+  readonly entries: Record<string, CapabilityConfigTemplate<TConfig>>;
+}
+
+export function namedCapabilities<TConfig>(
+  entries: Record<string, CapabilityConfigTemplate<TConfig>>
+): NamedCapabilityConfig<TConfig> {
+  if (!entries || typeof entries !== 'object') {
+    throw new Error('namedCapabilities requires an object map of capability configurations');
+  }
+  return Object.freeze({
+    __kind: namedCapabilityConfigSymbol,
+    entries: { ...entries }
+  });
+}
+
+type CapabilityConfigInput<TConfig> = CapabilityConfigTemplate<TConfig> | NamedCapabilityConfig<TConfig>;
+
+interface NamedResolvedCapabilityConfig<TConfig> {
+  readonly __kind: typeof namedCapabilityConfigSymbol;
+  readonly entries: Record<string, TConfig>;
+}
+
+type ResolvedCapabilityConfig<TConfig> = TConfig | NamedResolvedCapabilityConfig<TConfig>;
+
+function isNamedCapabilityConfig<TConfig>(
+  value: CapabilityConfigInput<TConfig> | null | undefined
+): value is NamedCapabilityConfig<TConfig> {
+  return Boolean(value && typeof value === 'object' && (value as NamedCapabilityConfig<TConfig>).__kind === namedCapabilityConfigSymbol);
+}
+
+function isNamedResolvedCapabilityConfig<TConfig>(
+  value: ResolvedCapabilityConfig<TConfig> | null | undefined
+): value is NamedResolvedCapabilityConfig<TConfig> {
+  return Boolean(value && typeof value === 'object' && (value as NamedResolvedCapabilityConfig<TConfig>).__kind === namedCapabilityConfigSymbol);
+}
+
 export interface ModuleCapabilityConfig {
-  filestore?: CapabilityConfigTemplate<FilestoreCapabilityConfig>;
-  metastore?: CapabilityConfigTemplate<MetastoreCapabilityConfig>;
-  timestore?: CapabilityConfigTemplate<TimestoreCapabilityConfig>;
-  events?: CapabilityConfigTemplate<EventBusCapabilityConfig>;
-  coreHttp?: CapabilityConfigTemplate<CoreHttpCapabilityConfig>;
-  coreWorkflows?: CapabilityConfigTemplate<CoreWorkflowsCapabilityConfig>;
+  filestore?: CapabilityConfigInput<FilestoreCapabilityConfig>;
+  metastore?: CapabilityConfigInput<MetastoreCapabilityConfig>;
+  timestore?: CapabilityConfigInput<TimestoreCapabilityConfig>;
+  events?: CapabilityConfigInput<EventBusCapabilityConfig>;
+  coreHttp?: CapabilityConfigInput<CoreHttpCapabilityConfig>;
+  coreWorkflows?: CapabilityConfigInput<CoreWorkflowsCapabilityConfig>;
 }
 
 export interface ResolvedModuleCapabilityConfig {
-  filestore?: FilestoreCapabilityConfig;
-  metastore?: MetastoreCapabilityConfig;
-  timestore?: TimestoreCapabilityConfig;
-  events?: EventBusCapabilityConfig;
-  coreHttp?: CoreHttpCapabilityConfig;
-  coreWorkflows?: CoreWorkflowsCapabilityConfig;
+  filestore?: ResolvedCapabilityConfig<FilestoreCapabilityConfig>;
+  metastore?: ResolvedCapabilityConfig<MetastoreCapabilityConfig>;
+  timestore?: ResolvedCapabilityConfig<TimestoreCapabilityConfig>;
+  events?: ResolvedCapabilityConfig<EventBusCapabilityConfig>;
+  coreHttp?: ResolvedCapabilityConfig<CoreHttpCapabilityConfig>;
+  coreWorkflows?: ResolvedCapabilityConfig<CoreWorkflowsCapabilityConfig>;
 }
 
 export type CapabilityOverrideFactory<TCapability, TConfig> = (
@@ -66,22 +153,49 @@ export type CapabilityOverride<TCapability, TConfig> =
   | null
   | undefined;
 
+export interface NamedCapabilityOverride<TCapability, TConfig> {
+  readonly __kind: typeof namedCapabilityOverrideSymbol;
+  readonly entries: Record<string, CapabilityOverride<TCapability, TConfig>>;
+}
+
+export function namedCapabilityOverrides<TCapability, TConfig>(
+  entries: Record<string, CapabilityOverride<TCapability, TConfig>>
+): NamedCapabilityOverride<TCapability, TConfig> {
+  if (!entries || typeof entries !== 'object') {
+    throw new Error('namedCapabilityOverrides requires an object map of overrides');
+  }
+  return Object.freeze({
+    __kind: namedCapabilityOverrideSymbol,
+    entries: { ...entries }
+  });
+}
+
+type CapabilityOverrideInput<TCapability, TConfig> =
+  | CapabilityOverride<TCapability, TConfig>
+  | NamedCapabilityOverride<TCapability, TConfig>;
+
+function isNamedCapabilityOverride<TCapability, TConfig>(
+  value: CapabilityOverrideInput<TCapability, TConfig> | null | undefined
+): value is NamedCapabilityOverride<TCapability, TConfig> {
+  return Boolean(value && typeof value === 'object' && (value as NamedCapabilityOverride<TCapability, TConfig>).__kind === namedCapabilityOverrideSymbol);
+}
+
 export interface ModuleCapabilityOverrides {
-  filestore?: CapabilityOverride<FilestoreCapability, FilestoreCapabilityConfig>;
-  metastore?: CapabilityOverride<MetastoreCapability, MetastoreCapabilityConfig>;
-  timestore?: CapabilityOverride<TimestoreCapability, TimestoreCapabilityConfig>;
-  events?: CapabilityOverride<EventBusCapability, EventBusCapabilityConfig>;
-  coreHttp?: CapabilityOverride<CoreHttpCapability, CoreHttpCapabilityConfig>;
-  coreWorkflows?: CapabilityOverride<CoreWorkflowsCapability, CoreWorkflowsCapabilityConfig>;
+  filestore?: CapabilityOverrideInput<FilestoreCapability, FilestoreCapabilityConfig>;
+  metastore?: CapabilityOverrideInput<MetastoreCapability, MetastoreCapabilityConfig>;
+  timestore?: CapabilityOverrideInput<TimestoreCapability, TimestoreCapabilityConfig>;
+  events?: CapabilityOverrideInput<EventBusCapability, EventBusCapabilityConfig>;
+  coreHttp?: CapabilityOverrideInput<CoreHttpCapability, CoreHttpCapabilityConfig>;
+  coreWorkflows?: CapabilityOverrideInput<CoreWorkflowsCapability, CoreWorkflowsCapabilityConfig>;
 }
 
 export interface ModuleCapabilities {
-  filestore?: FilestoreCapability;
-  metastore?: MetastoreCapability;
-  timestore?: TimestoreCapability;
-  events?: EventBusCapability;
-  coreHttp?: CoreHttpCapability;
-  coreWorkflows?: CoreWorkflowsCapability;
+  filestore?: FilestoreCapability | Record<string, FilestoreCapability>;
+  metastore?: MetastoreCapability | Record<string, MetastoreCapability>;
+  timestore?: TimestoreCapability | Record<string, TimestoreCapability>;
+  events?: EventBusCapability | Record<string, EventBusCapability>;
+  coreHttp?: CoreHttpCapability | Record<string, CoreHttpCapability>;
+  coreWorkflows?: CoreWorkflowsCapability | Record<string, CoreWorkflowsCapability>;
 }
 
 type ResolveContext = {
@@ -180,17 +294,29 @@ function resolveTemplate<T>(
 }
 
 function resolveCapabilitySection<TConfig>(
-  template: CapabilityConfigTemplate<TConfig> | null | undefined,
+  template: CapabilityConfigInput<TConfig> | null | undefined,
   context: ResolveContext,
   label: string
-): TConfig | undefined {
+): ResolvedCapabilityConfig<TConfig> | undefined {
   if (template === undefined || template === null) {
     return undefined;
   }
-  const resolved = resolveTemplate(template as CapabilityValueTemplate<TConfig>, context, label);
-  if (resolved === undefined) {
-    return undefined;
+
+  if (isNamedCapabilityConfig(template)) {
+    const entries: Record<string, TConfig> = {};
+    for (const [name, entry] of Object.entries(template.entries)) {
+      const resolved = resolveTemplate(entry as CapabilityValueTemplate<TConfig>, context, `${label}.${name}`);
+      if (resolved !== undefined) {
+        entries[name] = resolved;
+      }
+    }
+    return {
+      __kind: namedCapabilityConfigSymbol,
+      entries
+    } satisfies NamedResolvedCapabilityConfig<TConfig>;
   }
+
+  const resolved = resolveTemplate(template as CapabilityValueTemplate<TConfig>, context, label);
   return resolved;
 }
 
@@ -241,10 +367,23 @@ export function resolveModuleCapabilityConfig(
 }
 
 function resolveCapability<TCapability, TConfig>(
-  config: TConfig | undefined,
-  override: CapabilityOverride<TCapability, TConfig>,
+  config: ResolvedCapabilityConfig<TConfig> | undefined,
+  override: CapabilityOverrideInput<TCapability, TConfig> | undefined,
   factory: (config: TConfig) => TCapability
-): TCapability | undefined {
+): TCapability | Record<string, TCapability> | undefined {
+  if (isNamedResolvedCapabilityConfig(config)) {
+    const overrides = isNamedCapabilityOverride(override) ? override.entries : undefined;
+    const result: Record<string, TCapability> = {};
+    for (const [name, entryConfig] of Object.entries(config.entries)) {
+      const entryOverride = overrides ? overrides[name] : override;
+      const resolved = resolveCapability(entryConfig, entryOverride as CapabilityOverrideInput<TCapability, TConfig>, factory);
+      if (resolved) {
+        result[name] = resolved as TCapability;
+      }
+    }
+    return result;
+  }
+
   if (typeof override === 'function') {
     return (override as CapabilityOverrideFactory<TCapability, TConfig>)(config, () =>
       config ? factory(config) : undefined
@@ -253,7 +392,7 @@ function resolveCapability<TCapability, TConfig>(
   if (override === null) {
     return undefined;
   }
-  if (override !== undefined) {
+  if (override !== undefined && !isNamedCapabilityOverride(override)) {
     return override as TCapability;
   }
   if (!config) {
@@ -280,6 +419,23 @@ export function createModuleCapabilities(
   } satisfies ModuleCapabilities;
 }
 
+function mergeOverrideValue<TCapability, TConfig>(
+  current: CapabilityOverrideInput<TCapability, TConfig> | undefined,
+  incoming: CapabilityOverrideInput<TCapability, TConfig> | undefined
+): CapabilityOverrideInput<TCapability, TConfig> | undefined {
+  if (incoming === undefined) {
+    return current;
+  }
+  if (isNamedCapabilityOverride(incoming)) {
+    if (isNamedCapabilityOverride(current)) {
+      const mergedEntries = { ...current.entries, ...incoming.entries };
+      return namedCapabilityOverrides(mergedEntries);
+    }
+    return incoming;
+  }
+  return incoming;
+}
+
 export function mergeCapabilityOverrides(
   ...values: Array<ModuleCapabilityOverrides | undefined>
 ): ModuleCapabilityOverrides {
@@ -288,24 +444,61 @@ export function mergeCapabilityOverrides(
     if (!entry) {
       continue;
     }
-    if (entry.filestore !== undefined) {
-      merged.filestore = entry.filestore;
-    }
-    if (entry.metastore !== undefined) {
-      merged.metastore = entry.metastore;
-    }
-    if (entry.timestore !== undefined) {
-      merged.timestore = entry.timestore;
-    }
-    if (entry.events !== undefined) {
-      merged.events = entry.events;
-    }
-    if (entry.coreHttp !== undefined) {
-      merged.coreHttp = entry.coreHttp;
-    }
-    if (entry.coreWorkflows !== undefined) {
-      merged.coreWorkflows = entry.coreWorkflows;
-    }
+    merged.filestore = mergeOverrideValue(merged.filestore, entry.filestore);
+    merged.metastore = mergeOverrideValue(merged.metastore, entry.metastore);
+    merged.timestore = mergeOverrideValue(merged.timestore, entry.timestore);
+    merged.events = mergeOverrideValue(merged.events, entry.events);
+    merged.coreHttp = mergeOverrideValue(merged.coreHttp, entry.coreHttp);
+    merged.coreWorkflows = mergeOverrideValue(merged.coreWorkflows, entry.coreWorkflows);
   }
   return merged;
+}
+
+export type CapabilityKey = keyof ModuleCapabilities & string;
+export type CapabilitySelector = CapabilityKey | `${CapabilityKey}.${string}`;
+
+export type CapabilitiesWith<T extends CapabilityKey> = ModuleCapabilities & {
+  [K in T]-?: NonNullable<ModuleCapabilities[K]>;
+};
+
+function baseCapabilityFromSelector(selector: CapabilitySelector): CapabilityKey {
+  return selector.split('.')[0] as CapabilityKey;
+}
+
+type SelectorBase<S extends CapabilitySelector> = S extends `${infer Base}.${string}`
+  ? Extract<Base, CapabilityKey>
+  : Extract<S, CapabilityKey>;
+
+type SelectorBaseUnion<T extends readonly CapabilitySelector[]> = SelectorBase<T[number]>;
+
+export function requireCapabilities<
+  TCapabilities extends ModuleCapabilities,
+  TSelectors extends readonly CapabilitySelector[]
+>(
+  capabilities: TCapabilities,
+  required: TSelectors,
+  contextLabel = 'module'
+): asserts capabilities is TCapabilities & CapabilitiesWith<SelectorBaseUnion<TSelectors>> {
+  for (const selector of required) {
+    const [base, ...path] = selector.split('.');
+    const capability = (capabilities as Record<string, unknown>)[base];
+    if (!capability) {
+      throw new Error(`${contextLabel} requires capability "${selector}" but it was not configured.`);
+    }
+    if (path.length > 0) {
+      let current: unknown = capability;
+      for (const segment of path) {
+        if (!segment) {
+          continue;
+        }
+        if (current === null || current === undefined || typeof current !== 'object') {
+          throw new Error(`${contextLabel} requires capability "${selector}" but it was not configured.`);
+        }
+        current = (current as Record<string, unknown>)[segment];
+      }
+      if (current === undefined || current === null) {
+        throw new Error(`${contextLabel} requires capability "${selector}" but it was not configured.`);
+      }
+    }
+  }
 }

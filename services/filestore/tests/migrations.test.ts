@@ -116,7 +116,7 @@ test('triggers bump node version and touch timestamps', async () => {
        RETURNING id, version`,
       [
         mountId,
-        'modules/environmental-observatory/resources/README.md',
+        'examples/environmental-observatory/README.md',
         'README.md',
         4
       ]

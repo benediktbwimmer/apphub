@@ -1,17 +1,16 @@
-import { createWorkflow, type WorkflowDefinition } from '@apphub/module-sdk';
+import { createWorkflow, moduleSetting, type WorkflowDefinition } from '@apphub/module-sdk';
 
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
 const definition: WorkflowDefinition = {
   slug: 'observatory-calibration-reprocess',
   name: 'Observatory Calibration Reprocess',
-  version: 1,
-  description:
-    'Consumes calibration reprocessing plans, queues ingest reruns, and updates plan artifacts as runs complete.',
+  version: 2,
+  description: 'Execute calibration reprocessing plans and persist progress back to the plan artifact.',
   parametersSchema: {
     type: 'object',
     properties: {
-      planPath: { type: 'string', minLength: 1 },
+      planPath: { type: 'string' },
       planNodeId: { type: 'number', minimum: 1 },
       planId: { type: 'string' },
       mode: { type: 'string', enum: ['all', 'selected'] },
@@ -19,34 +18,14 @@ const definition: WorkflowDefinition = {
         type: 'array',
         items: { type: 'string', minLength: 1 }
       },
-      pollIntervalMs: { type: 'number', minimum: 250, maximum: 10_000 },
-      coreBaseUrl: { type: 'string', minLength: 1 },
-      coreApiToken: { type: 'string' },
-      filestoreBaseUrl: { type: 'string', minLength: 1 },
-      filestoreBackendId: { type: ['integer', 'null'], minimum: 1 },
-      filestoreToken: { type: 'string' },
-      filestorePrincipal: { type: 'string' },
-      metastoreBaseUrl: { type: 'string' },
-      metastoreNamespace: { type: 'string' },
-      metastoreAuthToken: { type: 'string' },
-      filestoreBackendKey: { type: 'string', minLength: 1 }
+      pollIntervalMs: { type: 'number', minimum: 250, maximum: 10_000 }
     },
-    required: ['coreBaseUrl', 'filestoreBaseUrl', 'filestoreBackendKey']
+    required: []
   },
   defaultParameters: {
     mode: 'all',
     selectedPartitions: [],
-    pollIntervalMs: 1500,
-    coreBaseUrl: 'http://127.0.0.1:4000',
-    coreApiToken: null,
-    filestoreBaseUrl: 'http://127.0.0.1:4300',
-    filestoreBackendId: 1,
-    filestoreToken: null,
-    filestorePrincipal: 'observatory-calibration-reprocessor',
-    metastoreBaseUrl: null,
-    metastoreNamespace: 'observatory.reprocess.plans',
-    metastoreAuthToken: null,
-    filestoreBackendKey: 'observatory-event-driven-s3'
+    pollIntervalMs: moduleSetting('reprocess.pollIntervalMs')
   },
   steps: [
     {
@@ -58,27 +37,10 @@ const definition: WorkflowDefinition = {
         planPath: '{{ parameters.planPath }}',
         planNodeId: '{{ parameters.planNodeId }}',
         planId: '{{ parameters.planId }}',
-        mode: '{{ parameters.mode }}',
-        selectedPartitions: '{{ parameters.selectedPartitions }}',
-        pollIntervalMs: '{{ parameters.pollIntervalMs }}',
-        coreBaseUrl: '{{ parameters.coreBaseUrl }}',
-        coreApiToken: '{{ parameters.coreApiToken }}',
-        filestoreBaseUrl: '{{ parameters.filestoreBaseUrl }}',
-        filestoreBackendId: '{{ parameters.filestoreBackendId }}',
-        filestoreToken: '{{ parameters.filestoreToken }}',
-        filestorePrincipal: '{{ parameters.filestorePrincipal }}',
-        metastoreBaseUrl: '{{ parameters.metastoreBaseUrl }}',
-        metastoreNamespace: '{{ parameters.metastoreNamespace }}',
-        metastoreAuthToken: '{{ parameters.metastoreAuthToken }}',
-        filestoreBackendKey: '{{ parameters.filestoreBackendKey }}'
-      },
-      produces: [
-        {
-          assetId: 'observatory.reprocess.plan',
-          partitioning: { type: 'dynamic' },
-          schema: { type: 'object', additionalProperties: true }
-        }
-      ]
+        mode: '{{ parameters.mode | default: defaultParameters.mode }}',
+        selectedPartitions: '{{ parameters.selectedPartitions | default: defaultParameters.selectedPartitions }}',
+        pollIntervalMs: '{{ parameters.pollIntervalMs | default: defaultParameters.pollIntervalMs }}'
+      }
     }
   ]
 };

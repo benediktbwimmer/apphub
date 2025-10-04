@@ -3,7 +3,9 @@ import { z } from 'zod';
 import type {
   JobDefinitionRecord,
   JobRunRecord,
-  JsonValue
+  JsonValue,
+  ModuleTargetBinding,
+  JobRetryPolicy
 } from '../db/types';
 import {
   createJobDefinition,
@@ -252,6 +254,7 @@ export type JobServicePythonSnippetPreviewInput = z.infer<typeof pythonSnippetPr
 export type JobServicePythonSnippetCreateInput = z.infer<typeof pythonSnippetCreateSchema>;
 
 function normalizeJobDefinitionPayload(payload: JobDefinitionCreateInput) {
+  const moduleBinding = normalizeModuleBinding(payload.moduleBinding);
   return {
     slug: payload.slug,
     name: payload.name,
@@ -263,8 +266,66 @@ function normalizeJobDefinitionPayload(payload: JobDefinitionCreateInput) {
     retryPolicy: payload.retryPolicy ?? null,
     parametersSchema: payload.parametersSchema ?? {},
     defaultParameters: payload.defaultParameters ?? {},
-    metadata: payload.metadata ?? null
+    metadata: payload.metadata ?? null,
+    moduleBinding
   } as const;
+}
+
+function normalizeModuleBinding(binding: unknown): ModuleTargetBinding | null {
+  if (!binding || typeof binding !== 'object') {
+    return null;
+  }
+  const record = binding as Record<string, unknown>;
+
+  const moduleIdValue = typeof record.moduleId === 'string' ? record.moduleId.trim() : '';
+  const moduleVersionValue = typeof record.moduleVersion === 'string' ? record.moduleVersion.trim() : '';
+  const targetNameValue = typeof record.targetName === 'string' ? record.targetName.trim() : '';
+  const targetVersionValue = typeof record.targetVersion === 'string' ? record.targetVersion.trim() : '';
+
+  if (!moduleIdValue || !moduleVersionValue || !targetNameValue || !targetVersionValue) {
+    return null;
+  }
+
+  const moduleArtifactIdValue =
+    typeof record.moduleArtifactId === 'string' && record.moduleArtifactId.trim().length > 0
+      ? record.moduleArtifactId.trim()
+      : null;
+  const targetFingerprintValue =
+    typeof record.targetFingerprint === 'string' && record.targetFingerprint.trim().length > 0
+      ? record.targetFingerprint.trim()
+      : null;
+
+  return {
+    moduleId: moduleIdValue,
+    moduleVersion: moduleVersionValue,
+    moduleArtifactId: moduleArtifactIdValue,
+    targetName: targetNameValue,
+    targetVersion: targetVersionValue,
+    targetFingerprint: targetFingerprintValue
+  } satisfies ModuleTargetBinding;
+}
+
+function normalizeRetryPolicy(policy: JobRetryPolicy | null | undefined): JobRetryPolicy | undefined {
+  if (!policy) {
+    return undefined;
+  }
+  const normalized: JobRetryPolicy = {};
+  if (policy.strategy) {
+    normalized.strategy = policy.strategy;
+  }
+  if (typeof policy.maxAttempts === 'number') {
+    normalized.maxAttempts = policy.maxAttempts;
+  }
+  if (typeof policy.initialDelayMs === 'number') {
+    normalized.initialDelayMs = policy.initialDelayMs;
+  }
+  if (typeof policy.maxDelayMs === 'number') {
+    normalized.maxDelayMs = policy.maxDelayMs;
+  }
+  if (policy.jitter) {
+    normalized.jitter = policy.jitter;
+  }
+  return normalized;
 }
 
 function normalizeJobRunPayload(job: JobDefinitionRecord, payload: JobRunRequestPayload) {
@@ -484,6 +545,16 @@ export class JobService {
     context: JobServiceContext
   ): Promise<JobDefinitionRecord> {
     const runtime = payload.runtime ?? 'node';
+    const normalizedBinding = normalizeModuleBinding(payload.moduleBinding);
+
+    if (runtime === 'module' && !normalizedBinding) {
+      throw new JobServiceError(
+        'missing_parameter',
+        400,
+        'moduleBinding is required when runtime is module',
+        'moduleBinding is required when runtime is module'
+      );
+    }
 
     if (runtime === 'docker' && !this.deps.isDockerRuntimeEnabled()) {
       throw new JobServiceError('docker_runtime_disabled', 400, 'Docker job runtime is disabled in this environment.');
@@ -504,7 +575,8 @@ export class JobService {
 
     const createPayload = normalizeJobDefinitionPayload({
       ...payload,
-      metadata: (normalizedMetadata ?? undefined) as JsonValue | undefined
+      metadata: (normalizedMetadata ?? undefined) as JsonValue | undefined,
+      moduleBinding: normalizedBinding ?? undefined
     });
 
     try {
@@ -529,6 +601,19 @@ export class JobService {
     }
 
     const targetRuntime = payload.runtime ?? existing.runtime;
+
+    const moduleBindingUpdate = normalizeModuleBinding(
+      payload.moduleBinding === undefined ? existing.moduleBinding : payload.moduleBinding
+    );
+
+    if (targetRuntime === 'module' && !moduleBindingUpdate) {
+      throw new JobServiceError(
+        'missing_parameter',
+        400,
+        'moduleBinding is required when runtime is module',
+        'moduleBinding is required when runtime is module'
+      );
+    }
 
     if (targetRuntime === 'docker' && !this.deps.isDockerRuntimeEnabled()) {
       throw new JobServiceError('docker_runtime_disabled', 400, 'Docker job runtime is disabled in this environment.');
@@ -559,16 +644,17 @@ export class JobService {
       version: payload.version ?? existing.version,
       runtime: targetRuntime,
       entryPoint: payload.entryPoint ?? existing.entryPoint,
-      timeoutMs: payload.timeoutMs ?? existing.timeoutMs ?? undefined,
-      retryPolicy: payload.retryPolicy ?? existing.retryPolicy ?? undefined,
-      parametersSchema: (payload.parametersSchema ?? existing.parametersSchema ?? undefined) as JsonValue | undefined,
-      defaultParameters: (payload.defaultParameters ?? existing.defaultParameters ?? undefined) as JsonValue | undefined,
-      outputSchema: (payload.outputSchema ?? existing.outputSchema ?? undefined) as JsonValue | undefined,
-      metadata: (normalizedMetadata ?? undefined) as JsonValue | undefined
+      timeoutMs: payload.timeoutMs ?? existing.timeoutMs ?? null,
+      retryPolicy: normalizeRetryPolicy(payload.retryPolicy ?? existing.retryPolicy ?? undefined) ?? undefined,
+      parametersSchema: (payload.parametersSchema ?? existing.parametersSchema ?? {}) as JsonValue,
+      defaultParameters: (payload.defaultParameters ?? existing.defaultParameters ?? {}) as JsonValue,
+      outputSchema: (payload.outputSchema ?? existing.outputSchema ?? {}) as JsonValue,
+      metadata: (normalizedMetadata ?? null) as JsonValue | null,
+      moduleBinding: moduleBindingUpdate ?? existing.moduleBinding ?? undefined
     };
 
     try {
-      return await this.deps.upsertJobDefinition(merged);
+      return await this.deps.upsertJobDefinition(merged as unknown as JobDefinitionCreateInput);
     } catch (err) {
       context.logger.error({ err, slug: existing.slug }, 'Failed to update job definition');
       throw new JobServiceError('unexpected_error', 500, 'Failed to update job definition', 'Failed to update job definition', err);

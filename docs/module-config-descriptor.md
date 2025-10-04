@@ -16,7 +16,7 @@ Descriptors accept the existing service-manifest payloads plus:
 ```jsonc
 {
   "$schema": "../../docs/schemas/example-config.schema.json",
-  "module": "github.com/apphub/modules/environmental-observatory/resources",
+  "module": "github.com/apphub/examples/environmental-observatory",
   "manifests": [
     { "path": "./service-manifests/service-manifest.json" }
   ],
