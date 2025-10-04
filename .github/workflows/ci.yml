@@ -23,10 +23,14 @@ jobs:
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
+      - name: Activate npm 10.9.0
+        run: |
+          corepack enable
+          corepack prepare npm@10.9.0 --activate
       - name: Install dependencies
-        run: npm ci
+        run: corepack npm ci
       - name: Run lint
-        run: npm run lint
+        run: corepack npm run lint
 
   build:
     runs-on: ubuntu-latest
@@ -39,10 +43,14 @@ jobs:
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
+      - name: Activate npm 10.9.0
+        run: |
+          corepack enable
+          corepack prepare npm@10.9.0 --activate
       - name: Install dependencies
-        run: npm ci
+        run: corepack npm ci
       - name: Run build
-        run: npm run build
+        run: corepack npm run build
 
   test:
     runs-on: ubuntu-latest
@@ -55,8 +63,12 @@ jobs:
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
+      - name: Activate npm 10.9.0
+        run: |
+          corepack enable
+          corepack prepare npm@10.9.0 --activate
       - name: Install dependencies
-        run: npm ci
+        run: corepack npm ci
       - name: Run tests
-        run: npm run build && npm run test
+        run: corepack npm run build && corepack npm run test
         shell: bash
