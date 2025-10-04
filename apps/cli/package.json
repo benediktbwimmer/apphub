@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsx watch src/index.ts",
+    "lint": "tsc --project tsconfig.json --noEmit",
     "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {

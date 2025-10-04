@@ -16007,6 +16007,397 @@
           }
         }
       },
+      "StreamingBrokerStatus": {
+        "type": "object",
+        "required": [
+          "configured",
+          "reachable",
+          "lastCheckedAt",
+          "error"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "reachable": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "lastCheckedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "StreamingBatcherConnectorStatus": {
+        "type": "object",
+        "required": [
+          "connectorId",
+          "datasetSlug",
+          "topic",
+          "groupId",
+          "state",
+          "bufferedWindows",
+          "bufferedRows",
+          "openWindows",
+          "lastMessageAt",
+          "lastFlushAt",
+          "lastEventTimestamp",
+          "lastError"
+        ],
+        "properties": {
+          "connectorId": {
+            "type": "string"
+          },
+          "datasetSlug": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "running",
+              "stopped",
+              "error"
+            ]
+          },
+          "bufferedWindows": {
+            "type": "integer"
+          },
+          "bufferedRows": {
+            "type": "integer"
+          },
+          "openWindows": {
+            "type": "integer"
+          },
+          "lastMessageAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastFlushAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastEventTimestamp": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastError": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "StreamingBatcherStatus": {
+        "type": "object",
+        "required": [
+          "configured",
+          "running",
+          "failing",
+          "state",
+          "connectors"
+        ],
+        "properties": {
+          "configured": {
+            "type": "integer"
+          },
+          "running": {
+            "type": "integer"
+          },
+          "failing": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "ready",
+              "degraded"
+            ]
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "connectorId",
+                "datasetSlug",
+                "topic",
+                "groupId",
+                "state",
+                "bufferedWindows",
+                "bufferedRows",
+                "openWindows",
+                "lastMessageAt",
+                "lastFlushAt",
+                "lastEventTimestamp",
+                "lastError"
+              ],
+              "properties": {
+                "connectorId": {
+                  "type": "string"
+                },
+                "datasetSlug": {
+                  "type": "string"
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "groupId": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "starting",
+                    "running",
+                    "stopped",
+                    "error"
+                  ]
+                },
+                "bufferedWindows": {
+                  "type": "integer"
+                },
+                "bufferedRows": {
+                  "type": "integer"
+                },
+                "openWindows": {
+                  "type": "integer"
+                },
+                "lastMessageAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "lastFlushAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "lastEventTimestamp": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "lastError": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "StreamingStatus": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "state",
+          "reason",
+          "broker",
+          "batchers",
+          "hotBuffer"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "ready",
+              "degraded",
+              "unconfigured"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "broker": {
+            "type": "object",
+            "required": [
+              "configured",
+              "reachable",
+              "lastCheckedAt",
+              "error"
+            ],
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "reachable": {
+                "type": "boolean",
+                "nullable": true
+              },
+              "lastCheckedAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "error": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "batchers": {
+            "type": "object",
+            "required": [
+              "configured",
+              "running",
+              "failing",
+              "state",
+              "connectors"
+            ],
+            "properties": {
+              "configured": {
+                "type": "integer"
+              },
+              "running": {
+                "type": "integer"
+              },
+              "failing": {
+                "type": "integer"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "ready",
+                  "degraded"
+                ]
+              },
+              "connectors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "connectorId",
+                    "datasetSlug",
+                    "topic",
+                    "groupId",
+                    "state",
+                    "bufferedWindows",
+                    "bufferedRows",
+                    "openWindows",
+                    "lastMessageAt",
+                    "lastFlushAt",
+                    "lastEventTimestamp",
+                    "lastError"
+                  ],
+                  "properties": {
+                    "connectorId": {
+                      "type": "string"
+                    },
+                    "datasetSlug": {
+                      "type": "string"
+                    },
+                    "topic": {
+                      "type": "string"
+                    },
+                    "groupId": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "starting",
+                        "running",
+                        "stopped",
+                        "error"
+                      ]
+                    },
+                    "bufferedWindows": {
+                      "type": "integer"
+                    },
+                    "bufferedRows": {
+                      "type": "integer"
+                    },
+                    "openWindows": {
+                      "type": "integer"
+                    },
+                    "lastMessageAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "lastFlushAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "lastEventTimestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "lastError": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "hotBuffer": {
+            "type": "object",
+            "required": [
+              "enabled",
+              "state",
+              "datasets",
+              "healthy",
+              "lastRefreshAt",
+              "lastIngestAt"
+            ],
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "ready",
+                  "unavailable"
+                ]
+              },
+              "datasets": {
+                "type": "integer"
+              },
+              "healthy": {
+                "type": "boolean"
+              },
+              "lastRefreshAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "lastIngestAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "required": [
@@ -16038,7 +16429,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -16049,6 +16443,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -16056,8 +16451,172 @@
                     "type": "string",
                     "nullable": true
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "error": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFlushAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastEventTimestamp": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "lastIngestAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      }
+                    }
                   }
                 }
               }
@@ -16095,7 +16654,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -16106,6 +16668,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -16113,8 +16676,623 @@
                     "type": "string",
                     "nullable": true
                   },
-                  "brokerConfigured": {
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "error": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFlushAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastEventTimestamp": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "lastIngestAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ReadyResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "features"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "features": {
+            "type": "object",
+            "required": [
+              "streaming"
+            ],
+            "properties": {
+              "streaming": {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "state",
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
+                ],
+                "properties": {
+                  "enabled": {
                     "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "disabled",
+                      "ready",
+                      "degraded",
+                      "unconfigured"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "error": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFlushAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastEventTimestamp": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "lastIngestAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ReadyUnavailableResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "features"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unavailable"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "features": {
+            "type": "object",
+            "required": [
+              "streaming"
+            ],
+            "properties": {
+              "streaming": {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "state",
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "disabled",
+                      "ready",
+                      "degraded",
+                      "unconfigured"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "error": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFlushAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastEventTimestamp": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "lastIngestAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      }
+                    }
                   }
                 }
               }
@@ -34233,6 +35411,443 @@
       "def-88": {
         "type": "object",
         "required": [
+          "configured",
+          "reachable",
+          "lastCheckedAt",
+          "error"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "reachable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "lastCheckedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "https://core.apphub/schemas/StreamingBrokerStatus.json"
+      },
+      "def-89": {
+        "type": "object",
+        "required": [
+          "connectorId",
+          "datasetSlug",
+          "topic",
+          "groupId",
+          "state",
+          "bufferedWindows",
+          "bufferedRows",
+          "openWindows",
+          "lastMessageAt",
+          "lastFlushAt",
+          "lastEventTimestamp",
+          "lastError"
+        ],
+        "properties": {
+          "connectorId": {
+            "type": "string"
+          },
+          "datasetSlug": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "running",
+              "stopped",
+              "error"
+            ]
+          },
+          "bufferedWindows": {
+            "type": "integer"
+          },
+          "bufferedRows": {
+            "type": "integer"
+          },
+          "openWindows": {
+            "type": "integer"
+          },
+          "lastMessageAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastFlushAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastEventTimestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "https://core.apphub/schemas/StreamingBatcherConnectorStatus.json"
+      },
+      "def-90": {
+        "type": "object",
+        "required": [
+          "configured",
+          "running",
+          "failing",
+          "state",
+          "connectors"
+        ],
+        "properties": {
+          "configured": {
+            "type": "integer"
+          },
+          "running": {
+            "type": "integer"
+          },
+          "failing": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "ready",
+              "degraded"
+            ]
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "connectorId",
+                "datasetSlug",
+                "topic",
+                "groupId",
+                "state",
+                "bufferedWindows",
+                "bufferedRows",
+                "openWindows",
+                "lastMessageAt",
+                "lastFlushAt",
+                "lastEventTimestamp",
+                "lastError"
+              ],
+              "properties": {
+                "connectorId": {
+                  "type": "string"
+                },
+                "datasetSlug": {
+                  "type": "string"
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "groupId": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "starting",
+                    "running",
+                    "stopped",
+                    "error"
+                  ]
+                },
+                "bufferedWindows": {
+                  "type": "integer"
+                },
+                "bufferedRows": {
+                  "type": "integer"
+                },
+                "openWindows": {
+                  "type": "integer"
+                },
+                "lastMessageAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "lastFlushAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "lastEventTimestamp": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "lastError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/StreamingBatcherStatus.json"
+      },
+      "def-91": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "state",
+          "reason",
+          "broker",
+          "batchers",
+          "hotBuffer"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "ready",
+              "degraded",
+              "unconfigured"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "broker": {
+            "type": "object",
+            "required": [
+              "configured",
+              "reachable",
+              "lastCheckedAt",
+              "error"
+            ],
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "reachable": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "lastCheckedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "batchers": {
+            "type": "object",
+            "required": [
+              "configured",
+              "running",
+              "failing",
+              "state",
+              "connectors"
+            ],
+            "properties": {
+              "configured": {
+                "type": "integer"
+              },
+              "running": {
+                "type": "integer"
+              },
+              "failing": {
+                "type": "integer"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "ready",
+                  "degraded"
+                ]
+              },
+              "connectors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "connectorId",
+                    "datasetSlug",
+                    "topic",
+                    "groupId",
+                    "state",
+                    "bufferedWindows",
+                    "bufferedRows",
+                    "openWindows",
+                    "lastMessageAt",
+                    "lastFlushAt",
+                    "lastEventTimestamp",
+                    "lastError"
+                  ],
+                  "properties": {
+                    "connectorId": {
+                      "type": "string"
+                    },
+                    "datasetSlug": {
+                      "type": "string"
+                    },
+                    "topic": {
+                      "type": "string"
+                    },
+                    "groupId": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "starting",
+                        "running",
+                        "stopped",
+                        "error"
+                      ]
+                    },
+                    "bufferedWindows": {
+                      "type": "integer"
+                    },
+                    "bufferedRows": {
+                      "type": "integer"
+                    },
+                    "openWindows": {
+                      "type": "integer"
+                    },
+                    "lastMessageAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastFlushAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastEventTimestamp": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastError": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "hotBuffer": {
+            "type": "object",
+            "required": [
+              "enabled",
+              "state",
+              "datasets",
+              "healthy",
+              "lastRefreshAt",
+              "lastIngestAt"
+            ],
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "ready",
+                  "unavailable"
+                ]
+              },
+              "datasets": {
+                "type": "integer"
+              },
+              "healthy": {
+                "type": "boolean"
+              },
+              "lastRefreshAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "lastIngestAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/StreamingStatus.json"
+      },
+      "def-92": {
+        "type": "object",
+        "required": [
           "status",
           "features"
         ],
@@ -34261,7 +35876,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -34272,6 +35890,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -34281,8 +35900,190 @@
                       "string"
                     ]
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastIngestAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      }
+                    }
                   }
                 }
               }
@@ -34291,7 +36092,7 @@
         },
         "title": "https://core.apphub/schemas/HealthResponse.json"
       },
-      "def-89": {
+      "def-93": {
         "type": "object",
         "required": [
           "status",
@@ -34321,7 +36122,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -34332,6 +36136,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -34341,8 +36146,190 @@
                       "string"
                     ]
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastIngestAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      }
+                    }
                   }
                 }
               }
@@ -34351,7 +36338,500 @@
         },
         "title": "https://core.apphub/schemas/HealthUnavailableResponse.json"
       },
-      "def-90": {
+      "def-94": {
+        "type": "object",
+        "required": [
+          "status",
+          "features"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "features": {
+            "type": "object",
+            "required": [
+              "streaming"
+            ],
+            "properties": {
+              "streaming": {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "state",
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "disabled",
+                      "ready",
+                      "degraded",
+                      "unconfigured"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastIngestAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/ReadyResponse.json"
+      },
+      "def-95": {
+        "type": "object",
+        "required": [
+          "status",
+          "features"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unavailable"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "features": {
+            "type": "object",
+            "required": [
+              "streaming"
+            ],
+            "properties": {
+              "streaming": {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "state",
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "disabled",
+                      "ready",
+                      "degraded",
+                      "unconfigured"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastIngestAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/ReadyUnavailableResponse.json"
+      },
+      "def-96": {
         "type": "object",
         "required": [
           "error"
@@ -34452,7 +36932,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-88"
+                  "$ref": "#/components/schemas/def-92"
                 }
               }
             }
@@ -34462,7 +36942,38 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-89"
+                  "$ref": "#/components/schemas/def-93"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "summary": "Readiness probe",
+        "tags": [
+          "System"
+        ],
+        "description": "Aggregates streaming readiness when the feature flag is enabled.",
+        "responses": {
+          "200": {
+            "description": "Core services are ready to receive traffic.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-94"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Streaming components are not ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-95"
                 }
               }
             }
@@ -34522,7 +37033,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34532,7 +37043,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34542,7 +37053,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34593,7 +37104,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34603,7 +37114,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34613,7 +37124,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34623,7 +37134,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34685,7 +37196,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34695,7 +37206,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34731,7 +37242,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34741,7 +37252,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34751,7 +37262,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34825,7 +37336,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34835,7 +37346,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34845,7 +37356,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34855,7 +37366,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34902,7 +37413,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34912,7 +37423,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34922,7 +37433,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34932,7 +37443,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -34942,7 +37453,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35005,7 +37516,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35015,7 +37526,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35025,7 +37536,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35035,7 +37546,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35045,7 +37556,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35076,7 +37587,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35168,7 +37679,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35178,7 +37689,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35188,7 +37699,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35244,7 +37755,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35254,7 +37765,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35264,7 +37775,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35274,7 +37785,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35284,7 +37795,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35294,7 +37805,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35388,7 +37899,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35398,7 +37909,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35408,7 +37919,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35473,7 +37984,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35483,7 +37994,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35493,7 +38004,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35503,7 +38014,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35560,7 +38071,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35570,7 +38081,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35580,7 +38091,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35590,7 +38101,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35705,7 +38216,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35715,7 +38226,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35725,7 +38236,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35735,7 +38246,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35776,7 +38287,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35786,7 +38297,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35796,7 +38307,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35852,7 +38363,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35862,7 +38373,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35872,7 +38383,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35882,7 +38393,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35892,7 +38403,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35902,7 +38413,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35912,7 +38423,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35922,7 +38433,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35978,7 +38489,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35988,7 +38499,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -35998,7 +38509,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36008,7 +38519,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36018,7 +38529,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36028,7 +38539,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36038,7 +38549,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36094,7 +38605,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36104,7 +38615,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36114,7 +38625,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36124,7 +38635,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36134,7 +38645,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36515,7 +39026,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36525,7 +39036,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36535,7 +39046,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36565,7 +39076,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36599,7 +39110,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36609,7 +39120,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36619,7 +39130,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36629,7 +39140,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36639,7 +39150,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36893,7 +39404,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36903,7 +39414,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37228,7 +39739,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37293,7 +39804,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37303,7 +39814,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37313,7 +39824,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37323,7 +39834,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37333,7 +39844,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37397,7 +39908,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37407,7 +39918,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37417,7 +39928,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37427,7 +39938,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37437,7 +39948,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37481,7 +39992,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37534,7 +40045,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37544,7 +40055,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37554,7 +40065,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37564,7 +40075,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37715,7 +40226,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37725,7 +40236,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37735,7 +40246,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37745,7 +40256,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37755,7 +40266,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -37765,7 +40276,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38456,7 +40967,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38494,7 +41005,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38536,7 +41047,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38546,7 +41057,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38788,7 +41299,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38798,7 +41309,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38808,7 +41319,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38851,7 +41362,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38861,7 +41372,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38871,7 +41382,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38881,7 +41392,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38928,7 +41439,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38938,7 +41449,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38948,7 +41459,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -38958,7 +41469,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39012,7 +41523,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39022,7 +41533,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39032,7 +41543,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39042,7 +41553,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39087,7 +41598,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39097,7 +41608,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39107,7 +41618,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39117,7 +41628,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39164,7 +41675,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39174,7 +41685,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39184,7 +41695,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39194,7 +41705,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39241,7 +41752,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39251,7 +41762,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39261,7 +41772,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39271,7 +41782,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39307,7 +41818,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39317,7 +41828,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39360,7 +41871,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39370,7 +41881,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39380,7 +41891,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39390,7 +41901,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39437,7 +41948,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39447,7 +41958,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39457,7 +41968,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39467,7 +41978,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39521,7 +42032,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39531,7 +42042,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39541,7 +42052,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39551,7 +42062,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39561,7 +42072,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39606,7 +42117,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39616,7 +42127,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39626,7 +42137,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39636,7 +42147,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39683,7 +42194,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39693,7 +42204,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39703,7 +42214,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39713,7 +42224,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39760,7 +42271,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39770,7 +42281,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39780,7 +42291,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -39790,7 +42301,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-90"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }

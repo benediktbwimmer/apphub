@@ -51,6 +51,7 @@ const documentedRoutes = new Set<`${string}:${string}`>([
   'POST:/auth/api-keys',
   'DELETE:/auth/api-keys/:id',
   'GET:/health',
+  'GET:/readyz',
   'GET:/apps',
   'POST:/apps',
   'GET:/apps/:id',

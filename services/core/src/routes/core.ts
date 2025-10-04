@@ -336,8 +336,9 @@ export async function registerCoreRoutes(
       }
     },
     async (_request, reply) => {
-      const streamingStatus = evaluateStreamingStatus(options.featureFlags);
-      if (streamingStatus.enabled && streamingStatus.state !== 'ready') {
+      const streamingStatus = await evaluateStreamingStatus(options.featureFlags);
+      const streamingReady = !streamingStatus.enabled || streamingStatus.state === 'ready';
+      if (!streamingReady) {
         reply.status(503);
         return {
           status: 'unavailable',
@@ -350,7 +351,58 @@ export async function registerCoreRoutes(
 
       return {
         status: 'ok',
-        warnings: [],
+        warnings: streamingStatus.reason ? [streamingStatus.reason] : [],
+        features: {
+          streaming: streamingStatus
+        }
+      };
+    }
+  );
+
+  app.get(
+    '/readyz',
+    {
+      schema: {
+        tags: ['System'],
+        summary: 'Readiness probe',
+        description: 'Aggregates streaming readiness when the feature flag is enabled.',
+        response: {
+          200: {
+            description: 'Core services are ready to receive traffic.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ReadyResponse')
+              }
+            }
+          },
+          503: {
+            description: 'Streaming components are not ready.',
+            content: {
+              'application/json': {
+                schema: schemaRef('ReadyUnavailableResponse')
+              }
+            }
+          }
+        }
+      }
+    },
+    async (_request, reply) => {
+      const streamingStatus = await evaluateStreamingStatus(options.featureFlags);
+      const streamingReady = !streamingStatus.enabled || streamingStatus.state === 'ready';
+      if (!streamingReady) {
+        reply.status(503);
+        return {
+          status: 'unavailable',
+          warnings: streamingStatus.reason ? [streamingStatus.reason] : [],
+          features: {
+            streaming: streamingStatus
+          }
+        };
+      }
+      reply.status(200);
+      return {
+        status: 'ready',
+        warnings: streamingStatus.reason ? [streamingStatus.reason] : [],
         features: {
           streaming: streamingStatus
         }

@@ -2383,14 +2383,85 @@ const assetMarkStaleRequestSchema: OpenAPIV3.SchemaObject = {
   additionalProperties: false
 };
 
+const streamingBrokerStatusSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['configured', 'reachable', 'lastCheckedAt', 'error'],
+  properties: {
+    configured: { type: 'boolean' },
+    reachable: { type: 'boolean', nullable: true },
+    lastCheckedAt: nullable(stringSchema('date-time')),
+    error: nullable(stringSchema())
+  }
+};
+
+const streamingBatcherConnectorStatusSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'connectorId',
+    'datasetSlug',
+    'topic',
+    'groupId',
+    'state',
+    'bufferedWindows',
+    'bufferedRows',
+    'openWindows',
+    'lastMessageAt',
+    'lastFlushAt',
+    'lastEventTimestamp',
+    'lastError'
+  ],
+  properties: {
+    connectorId: stringSchema(),
+    datasetSlug: stringSchema(),
+    topic: stringSchema(),
+    groupId: stringSchema(),
+    state: { type: 'string', enum: ['starting', 'running', 'stopped', 'error'] },
+    bufferedWindows: integerSchema(),
+    bufferedRows: integerSchema(),
+    openWindows: integerSchema(),
+    lastMessageAt: nullable(stringSchema('date-time')),
+    lastFlushAt: nullable(stringSchema('date-time')),
+    lastEventTimestamp: nullable(stringSchema('date-time')),
+    lastError: nullable(stringSchema())
+  }
+};
+
+const streamingBatcherStatusSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['configured', 'running', 'failing', 'state', 'connectors'],
+  properties: {
+    configured: integerSchema(),
+    running: integerSchema(),
+    failing: integerSchema(),
+    state: { type: 'string', enum: ['disabled', 'ready', 'degraded'] },
+    connectors: {
+      type: 'array',
+      items: streamingBatcherConnectorStatusSchema
+    }
+  }
+};
+
 const streamingStatusSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
-  required: ['enabled', 'state', 'brokerConfigured'],
+  required: ['enabled', 'state', 'reason', 'broker', 'batchers', 'hotBuffer'],
   properties: {
     enabled: { type: 'boolean' },
-    state: { type: 'string', enum: ['disabled', 'ready', 'unconfigured'] },
-    reason: { type: 'string', nullable: true },
-    brokerConfigured: { type: 'boolean' }
+    state: { type: 'string', enum: ['disabled', 'ready', 'degraded', 'unconfigured'] },
+    reason: nullable(stringSchema()),
+    broker: streamingBrokerStatusSchema,
+    batchers: streamingBatcherStatusSchema,
+    hotBuffer: {
+      type: 'object',
+      required: ['enabled', 'state', 'datasets', 'healthy', 'lastRefreshAt', 'lastIngestAt'],
+      properties: {
+        enabled: { type: 'boolean' },
+        state: { type: 'string', enum: ['disabled', 'ready', 'unavailable'] },
+        datasets: integerSchema(),
+        healthy: { type: 'boolean' },
+        lastRefreshAt: nullable(stringSchema('date-time')),
+        lastIngestAt: nullable(stringSchema('date-time'))
+      }
+    }
   }
 };
 
@@ -2415,6 +2486,45 @@ const healthResponseSchema: OpenAPIV3.SchemaObject = {
 };
 
 const healthUnavailableResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['status', 'features'],
+  properties: {
+    status: { type: 'string', enum: ['unavailable'] },
+    warnings: {
+      type: 'array',
+      items: { type: 'string' }
+    },
+    features: {
+      type: 'object',
+      required: ['streaming'],
+      properties: {
+        streaming: streamingStatusSchema
+      }
+    }
+  }
+};
+
+const readyResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['status', 'features'],
+  properties: {
+    status: { type: 'string', enum: ['ready'] },
+    warnings: {
+      type: 'array',
+      items: { type: 'string' },
+      default: []
+    },
+    features: {
+      type: 'object',
+      required: ['streaming'],
+      properties: {
+        streaming: streamingStatusSchema
+      }
+    }
+  }
+};
+
+const readyUnavailableResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['status', 'features'],
   properties: {
@@ -2531,8 +2641,14 @@ const components: OpenAPIV3.ComponentsObject = {
     WorkflowGraphCacheMeta: workflowGraphCacheMetaSchema,
     WorkflowGraphCacheStats: workflowGraphCacheStatsSchema,
     WorkflowGraphResponse: workflowGraphResponseSchema,
+    StreamingBrokerStatus: streamingBrokerStatusSchema,
+    StreamingBatcherConnectorStatus: streamingBatcherConnectorStatusSchema,
+    StreamingBatcherStatus: streamingBatcherStatusSchema,
+    StreamingStatus: streamingStatusSchema,
     HealthResponse: healthResponseSchema,
     HealthUnavailableResponse: healthUnavailableResponseSchema,
+    ReadyResponse: readyResponseSchema,
+    ReadyUnavailableResponse: readyUnavailableResponseSchema,
     ErrorResponse: errorResponseSchema
   },
   securitySchemes: {

@@ -9,6 +9,7 @@ import { registerIngestionRoutes } from './routes/ingest';
 import { registerQueryRoutes } from './routes/query';
 import { registerAdminRoutes } from './routes/admin';
 import { registerSqlRoutes } from './routes/sql';
+import { registerStreamingRoutes } from './routes/streaming';
 import { ensureDefaultStorageTarget } from './service/bootstrap';
 import { closeLifecycleQueue, verifyLifecycleQueueConnection } from './lifecycle/queue';
 import { timestoreMetricsPlugin } from './observability/metricsPlugin';
@@ -62,6 +63,7 @@ async function start(): Promise<void> {
   await registerOpenApi(app);
 
   await registerHealthRoutes(app);
+  await registerStreamingRoutes(app);
   await registerDatasetRoutes(app, { includeSql: true });
   await app.register(async (instance) => {
     await registerDatasetRoutes(instance, { includeSql: false });

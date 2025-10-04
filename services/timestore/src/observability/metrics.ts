@@ -89,6 +89,31 @@ export interface StreamingBacklogMetricsInput {
   openWindows: number;
 }
 
+export type StreamingBatcherState = 'starting' | 'running' | 'stopped' | 'error';
+
+export interface StreamingBatcherMetric {
+  datasetSlug: string;
+  connectorId: string;
+  buffers: number;
+  state: StreamingBatcherState;
+}
+
+export type StreamingHotBufferDatasetState = 'ready' | 'unavailable' | 'disabled';
+
+export interface StreamingHotBufferDatasetMetric {
+  datasetSlug: string;
+  rows: number;
+  watermarkEpochSeconds: number | null;
+  latestEpochSeconds: number | null;
+  state: StreamingHotBufferDatasetState;
+  stalenessSeconds: number | null;
+}
+
+export interface StreamingHotBufferMetricsInput {
+  enabled: boolean;
+  datasets: StreamingHotBufferDatasetMetric[];
+}
+
 export type ManifestCacheHitSource = 'memory' | 'redis';
 export type ManifestCacheMissReason = 'disabled' | 'index' | 'entry' | 'stale' | 'error';
 export type ManifestCacheEvictionReason = 'invalidate' | 'rebuild';
@@ -146,6 +171,14 @@ interface MetricsState {
   streamingFlushRows: Histogram<string> | null;
   streamingBacklogSeconds: Gauge<string> | null;
   streamingOpenWindows: Gauge<string> | null;
+  streamingBatcherBuffers: Gauge<string> | null;
+  streamingBatcherState: Gauge<string> | null;
+  streamingHotBufferRows: Gauge<string> | null;
+  streamingHotBufferLatestTimestamp: Gauge<string> | null;
+  streamingHotBufferWatermark: Gauge<string> | null;
+  streamingHotBufferStalenessSeconds: Gauge<string> | null;
+  streamingHotBufferState: Gauge<string> | null;
+  streamingHotBufferDatasetsTotal: Gauge<string> | null;
 }
 
 const INGESTION_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10];
@@ -516,6 +549,77 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
       })
     : null;
 
+  const streamingBatcherBuffers = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_batcher_buffers`,
+        help: 'Active window buffers currently managed by the streaming micro-batcher',
+        labelNames: ['dataset', 'connector'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingBatcherState = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_batcher_state`,
+        help: 'State of streaming micro-batcher connectors (1 = active state)',
+        labelNames: ['dataset', 'connector', 'state'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingHotBufferRows = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_hot_buffer_rows`,
+        help: 'Rows retained inside the streaming hot buffer per dataset',
+        labelNames: ['dataset'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingHotBufferLatestTimestamp = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_hot_buffer_latest_timestamp`,
+        help: 'Latest streaming event timestamp observed by the hot buffer (epoch seconds)',
+        labelNames: ['dataset'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingHotBufferWatermark = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_hot_buffer_watermark`,
+        help: 'Sealed watermark timestamp propagated to the hot buffer (epoch seconds)',
+        labelNames: ['dataset'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingHotBufferStalenessSeconds = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_hot_buffer_staleness_seconds`,
+        help: 'Age of the newest streaming event retained in the hot buffer',
+        labelNames: ['dataset'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingHotBufferState = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_hot_buffer_state`,
+        help: 'Hot buffer readiness (1 = dataset is currently in the labelled state)',
+        labelNames: ['dataset', 'state'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingHotBufferDatasetsTotal = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_hot_buffer_datasets`,
+        help: 'Total datasets tracked by the hot buffer',
+        registers: registerMetrics
+      })
+    : null;
+
   if (enabled && options.collectDefaultMetrics) {
     collectDefaultMetrics({ register: registry, prefix });
   }
@@ -560,7 +664,15 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     streamingFlushDurationSeconds,
     streamingFlushRows,
     streamingBacklogSeconds,
-    streamingOpenWindows
+    streamingOpenWindows,
+    streamingBatcherBuffers,
+    streamingBatcherState,
+    streamingHotBufferRows,
+    streamingHotBufferLatestTimestamp,
+    streamingHotBufferWatermark,
+    streamingHotBufferStalenessSeconds,
+    streamingHotBufferState,
+    streamingHotBufferDatasetsTotal
   } satisfies MetricsState;
 
   return metricsState;
@@ -853,6 +965,95 @@ export function updateStreamingBacklog(input: StreamingBacklogMetricsInput): voi
   }
   if (state.streamingOpenWindows) {
     state.streamingOpenWindows.labels(input.datasetSlug, input.connectorId).set(openWindows);
+  }
+}
+
+const BATCHER_STATES: StreamingBatcherState[] = ['starting', 'running', 'stopped', 'error'];
+
+export function setStreamingBatcherMetrics(metrics: StreamingBatcherMetric[]): void {
+  const state = metricsState;
+  if (!state?.enabled) {
+    return;
+  }
+
+  if (state.streamingBatcherBuffers) {
+    state.streamingBatcherBuffers.reset();
+  }
+  if (state.streamingBatcherState) {
+    state.streamingBatcherState.reset();
+  }
+
+  for (const metric of metrics) {
+    const dataset = metric.datasetSlug;
+    const connector = metric.connectorId;
+    if (state.streamingBatcherBuffers) {
+      state.streamingBatcherBuffers.labels(dataset, connector).set(Math.max(metric.buffers, 0));
+    }
+    if (state.streamingBatcherState) {
+      for (const candidate of BATCHER_STATES) {
+        const value = metric.state === candidate ? 1 : 0;
+        state.streamingBatcherState.labels(dataset, connector, candidate).set(value);
+      }
+    }
+  }
+}
+
+const HOT_BUFFER_STATES: StreamingHotBufferDatasetState[] = ['ready', 'unavailable', 'disabled'];
+
+export function setStreamingHotBufferMetrics(snapshot: StreamingHotBufferMetricsInput): void {
+  const state = metricsState;
+  if (!state?.enabled) {
+    return;
+  }
+
+  if (state.streamingHotBufferRows) {
+    state.streamingHotBufferRows.reset();
+  }
+  if (state.streamingHotBufferLatestTimestamp) {
+    state.streamingHotBufferLatestTimestamp.reset();
+  }
+  if (state.streamingHotBufferWatermark) {
+    state.streamingHotBufferWatermark.reset();
+  }
+  if (state.streamingHotBufferStalenessSeconds) {
+    state.streamingHotBufferStalenessSeconds.reset();
+  }
+  if (state.streamingHotBufferState) {
+    state.streamingHotBufferState.reset();
+  }
+
+  if (state.streamingHotBufferDatasetsTotal) {
+    const datasetCount = snapshot.enabled ? snapshot.datasets.length : 0;
+    state.streamingHotBufferDatasetsTotal.set(datasetCount);
+  }
+
+  if (!snapshot.enabled) {
+    return;
+  }
+
+  for (const metric of snapshot.datasets) {
+    const dataset = metric.datasetSlug;
+    if (state.streamingHotBufferRows) {
+      state.streamingHotBufferRows.labels(dataset).set(Math.max(metric.rows, 0));
+    }
+    if (state.streamingHotBufferLatestTimestamp) {
+      const latestSeconds = metric.latestEpochSeconds ?? 0;
+      state.streamingHotBufferLatestTimestamp.labels(dataset).set(Math.max(latestSeconds, 0));
+    }
+    if (state.streamingHotBufferWatermark) {
+      const watermarkSeconds = metric.watermarkEpochSeconds ?? 0;
+      state.streamingHotBufferWatermark.labels(dataset).set(Math.max(watermarkSeconds, 0));
+    }
+    if (state.streamingHotBufferStalenessSeconds) {
+      const staleness = metric.stalenessSeconds ?? 0;
+      state.streamingHotBufferStalenessSeconds.labels(dataset).set(Math.max(staleness, 0));
+    }
+    if (state.streamingHotBufferState) {
+      for (const candidate of HOT_BUFFER_STATES) {
+        const value = metric.state === candidate ? 1 : 0;
+        state.streamingHotBufferState.labels(dataset, candidate).set(value);
+      }
+    }
   }
 }
 

@@ -99,6 +99,401 @@
           }
         }
       },
+      "StreamingBrokerStatus": {
+        "type": "object",
+        "required": [
+          "configured",
+          "reachable",
+          "lastCheckedAt",
+          "error"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "reachable": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "lastCheckedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "StreamingBatcherConnectorStatus": {
+        "type": "object",
+        "required": [
+          "connectorId",
+          "datasetSlug",
+          "topic",
+          "groupId",
+          "state",
+          "bufferedWindows",
+          "bufferedRows",
+          "openWindows",
+          "lastMessageAt",
+          "lastFlushAt",
+          "lastEventTimestamp",
+          "lastError"
+        ],
+        "properties": {
+          "connectorId": {
+            "type": "string"
+          },
+          "datasetSlug": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "running",
+              "stopped",
+              "error"
+            ]
+          },
+          "bufferedWindows": {
+            "type": "integer"
+          },
+          "bufferedRows": {
+            "type": "integer"
+          },
+          "openWindows": {
+            "type": "integer"
+          },
+          "lastMessageAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastFlushAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastEventTimestamp": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastError": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "StreamingBatcherStatus": {
+        "type": "object",
+        "required": [
+          "configured",
+          "running",
+          "failing",
+          "state",
+          "connectors"
+        ],
+        "properties": {
+          "configured": {
+            "type": "integer"
+          },
+          "running": {
+            "type": "integer"
+          },
+          "failing": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "ready",
+              "degraded"
+            ]
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "connectorId",
+                "datasetSlug",
+                "topic",
+                "groupId",
+                "state",
+                "bufferedWindows",
+                "bufferedRows",
+                "openWindows",
+                "lastMessageAt",
+                "lastFlushAt",
+                "lastEventTimestamp",
+                "lastError"
+              ],
+              "properties": {
+                "connectorId": {
+                  "type": "string"
+                },
+                "datasetSlug": {
+                  "type": "string"
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "groupId": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "starting",
+                    "running",
+                    "stopped",
+                    "error"
+                  ]
+                },
+                "bufferedWindows": {
+                  "type": "integer"
+                },
+                "bufferedRows": {
+                  "type": "integer"
+                },
+                "openWindows": {
+                  "type": "integer"
+                },
+                "lastMessageAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "lastFlushAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "lastEventTimestamp": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "lastError": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "StreamingStatus": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "state",
+          "reason",
+          "broker",
+          "batchers",
+          "hotBuffer"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "ready",
+              "degraded",
+              "unconfigured"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "broker": {
+            "type": "object",
+            "required": [
+              "configured",
+              "reachable",
+              "lastCheckedAt",
+              "error"
+            ],
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "reachable": {
+                "type": "boolean",
+                "nullable": true
+              },
+              "lastCheckedAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "error": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "batchers": {
+            "type": "object",
+            "required": [
+              "configured",
+              "running",
+              "failing",
+              "state",
+              "connectors"
+            ],
+            "properties": {
+              "configured": {
+                "type": "integer"
+              },
+              "running": {
+                "type": "integer"
+              },
+              "failing": {
+                "type": "integer"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "ready",
+                  "degraded"
+                ]
+              },
+              "connectors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "connectorId",
+                    "datasetSlug",
+                    "topic",
+                    "groupId",
+                    "state",
+                    "bufferedWindows",
+                    "bufferedRows",
+                    "openWindows",
+                    "lastMessageAt",
+                    "lastFlushAt",
+                    "lastEventTimestamp",
+                    "lastError"
+                  ],
+                  "properties": {
+                    "connectorId": {
+                      "type": "string"
+                    },
+                    "datasetSlug": {
+                      "type": "string"
+                    },
+                    "topic": {
+                      "type": "string"
+                    },
+                    "groupId": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "starting",
+                        "running",
+                        "stopped",
+                        "error"
+                      ]
+                    },
+                    "bufferedWindows": {
+                      "type": "integer"
+                    },
+                    "bufferedRows": {
+                      "type": "integer"
+                    },
+                    "openWindows": {
+                      "type": "integer"
+                    },
+                    "lastMessageAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "lastFlushAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "lastEventTimestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "lastError": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "hotBuffer": {
+            "allOf": [
+              {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "state",
+                  "datasets",
+                  "healthy",
+                  "lastRefreshAt",
+                  "lastIngestAt"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "disabled",
+                      "ready",
+                      "unavailable"
+                    ]
+                  },
+                  "datasets": {
+                    "type": "integer"
+                  },
+                  "healthy": {
+                    "type": "boolean"
+                  },
+                  "lastRefreshAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  },
+                  "lastIngestAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "required": [
@@ -148,7 +543,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -159,6 +557,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -166,8 +565,176 @@
                     "type": "string",
                     "nullable": true
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "error": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFlushAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastEventTimestamp": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "enabled",
+                          "state",
+                          "datasets",
+                          "healthy",
+                          "lastRefreshAt",
+                          "lastIngestAt"
+                        ],
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "disabled",
+                              "ready",
+                              "unavailable"
+                            ]
+                          },
+                          "datasets": {
+                            "type": "integer"
+                          },
+                          "healthy": {
+                            "type": "boolean"
+                          },
+                          "lastRefreshAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "lastIngestAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -223,7 +790,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -234,6 +804,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -241,8 +812,176 @@
                     "type": "string",
                     "nullable": true
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "error": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFlushAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastEventTimestamp": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "enabled",
+                          "state",
+                          "datasets",
+                          "healthy",
+                          "lastRefreshAt",
+                          "lastIngestAt"
+                        ],
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "disabled",
+                              "ready",
+                              "unavailable"
+                            ]
+                          },
+                          "datasets": {
+                            "type": "integer"
+                          },
+                          "healthy": {
+                            "type": "boolean"
+                          },
+                          "lastRefreshAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "lastIngestAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -275,7 +1014,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -286,6 +1028,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -293,8 +1036,176 @@
                     "type": "string",
                     "nullable": true
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "error": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFlushAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastEventTimestamp": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "enabled",
+                          "state",
+                          "datasets",
+                          "healthy",
+                          "lastRefreshAt",
+                          "lastIngestAt"
+                        ],
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "disabled",
+                              "ready",
+                              "unavailable"
+                            ]
+                          },
+                          "datasets": {
+                            "type": "integer"
+                          },
+                          "healthy": {
+                            "type": "boolean"
+                          },
+                          "lastRefreshAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "lastIngestAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -355,7 +1266,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -366,6 +1280,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -373,8 +1288,176 @@
                     "type": "string",
                     "nullable": true
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "error": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFlushAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastEventTimestamp": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "enabled",
+                          "state",
+                          "datasets",
+                          "healthy",
+                          "lastRefreshAt",
+                          "lastIngestAt"
+                        ],
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "disabled",
+                              "ready",
+                              "unavailable"
+                            ]
+                          },
+                          "datasets": {
+                            "type": "integer"
+                          },
+                          "healthy": {
+                            "type": "boolean"
+                          },
+                          "lastRefreshAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "lastIngestAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -3366,6 +4449,447 @@
       "def-4": {
         "type": "object",
         "required": [
+          "configured",
+          "reachable",
+          "lastCheckedAt",
+          "error"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "reachable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "lastCheckedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "https://timestore.apphub/schemas/StreamingBrokerStatus.json"
+      },
+      "def-5": {
+        "type": "object",
+        "required": [
+          "connectorId",
+          "datasetSlug",
+          "topic",
+          "groupId",
+          "state",
+          "bufferedWindows",
+          "bufferedRows",
+          "openWindows",
+          "lastMessageAt",
+          "lastFlushAt",
+          "lastEventTimestamp",
+          "lastError"
+        ],
+        "properties": {
+          "connectorId": {
+            "type": "string"
+          },
+          "datasetSlug": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "running",
+              "stopped",
+              "error"
+            ]
+          },
+          "bufferedWindows": {
+            "type": "integer"
+          },
+          "bufferedRows": {
+            "type": "integer"
+          },
+          "openWindows": {
+            "type": "integer"
+          },
+          "lastMessageAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastFlushAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastEventTimestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "https://timestore.apphub/schemas/StreamingBatcherConnectorStatus.json"
+      },
+      "def-6": {
+        "type": "object",
+        "required": [
+          "configured",
+          "running",
+          "failing",
+          "state",
+          "connectors"
+        ],
+        "properties": {
+          "configured": {
+            "type": "integer"
+          },
+          "running": {
+            "type": "integer"
+          },
+          "failing": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "ready",
+              "degraded"
+            ]
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "connectorId",
+                "datasetSlug",
+                "topic",
+                "groupId",
+                "state",
+                "bufferedWindows",
+                "bufferedRows",
+                "openWindows",
+                "lastMessageAt",
+                "lastFlushAt",
+                "lastEventTimestamp",
+                "lastError"
+              ],
+              "properties": {
+                "connectorId": {
+                  "type": "string"
+                },
+                "datasetSlug": {
+                  "type": "string"
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "groupId": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "starting",
+                    "running",
+                    "stopped",
+                    "error"
+                  ]
+                },
+                "bufferedWindows": {
+                  "type": "integer"
+                },
+                "bufferedRows": {
+                  "type": "integer"
+                },
+                "openWindows": {
+                  "type": "integer"
+                },
+                "lastMessageAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "lastFlushAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "lastEventTimestamp": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "lastError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "title": "https://timestore.apphub/schemas/StreamingBatcherStatus.json"
+      },
+      "def-7": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "state",
+          "reason",
+          "broker",
+          "batchers",
+          "hotBuffer"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "ready",
+              "degraded",
+              "unconfigured"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "broker": {
+            "type": "object",
+            "required": [
+              "configured",
+              "reachable",
+              "lastCheckedAt",
+              "error"
+            ],
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "reachable": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "lastCheckedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "batchers": {
+            "type": "object",
+            "required": [
+              "configured",
+              "running",
+              "failing",
+              "state",
+              "connectors"
+            ],
+            "properties": {
+              "configured": {
+                "type": "integer"
+              },
+              "running": {
+                "type": "integer"
+              },
+              "failing": {
+                "type": "integer"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "ready",
+                  "degraded"
+                ]
+              },
+              "connectors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "connectorId",
+                    "datasetSlug",
+                    "topic",
+                    "groupId",
+                    "state",
+                    "bufferedWindows",
+                    "bufferedRows",
+                    "openWindows",
+                    "lastMessageAt",
+                    "lastFlushAt",
+                    "lastEventTimestamp",
+                    "lastError"
+                  ],
+                  "properties": {
+                    "connectorId": {
+                      "type": "string"
+                    },
+                    "datasetSlug": {
+                      "type": "string"
+                    },
+                    "topic": {
+                      "type": "string"
+                    },
+                    "groupId": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "starting",
+                        "running",
+                        "stopped",
+                        "error"
+                      ]
+                    },
+                    "bufferedWindows": {
+                      "type": "integer"
+                    },
+                    "bufferedRows": {
+                      "type": "integer"
+                    },
+                    "openWindows": {
+                      "type": "integer"
+                    },
+                    "lastMessageAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastFlushAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastEventTimestamp": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastError": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "hotBuffer": {
+            "allOf": [
+              {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "state",
+                  "datasets",
+                  "healthy",
+                  "lastRefreshAt",
+                  "lastIngestAt"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "disabled",
+                      "ready",
+                      "unavailable"
+                    ]
+                  },
+                  "datasets": {
+                    "type": "integer"
+                  },
+                  "healthy": {
+                    "type": "boolean"
+                  },
+                  "lastRefreshAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "lastIngestAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "title": "https://timestore.apphub/schemas/StreamingStatus.json"
+      },
+      "def-8": {
+        "type": "object",
+        "required": [
           "status",
           "lifecycle",
           "features"
@@ -3414,7 +4938,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -3425,6 +4952,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -3434,8 +4962,194 @@
                       "string"
                     ]
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "enabled",
+                          "state",
+                          "datasets",
+                          "healthy",
+                          "lastRefreshAt",
+                          "lastIngestAt"
+                        ],
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "disabled",
+                              "ready",
+                              "unavailable"
+                            ]
+                          },
+                          "datasets": {
+                            "type": "integer"
+                          },
+                          "healthy": {
+                            "type": "boolean"
+                          },
+                          "lastRefreshAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "lastIngestAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -3444,7 +5158,7 @@
         },
         "title": "https://timestore.apphub/schemas/HealthResponse.json"
       },
-      "def-5": {
+      "def-9": {
         "type": "object",
         "required": [
           "status",
@@ -3494,7 +5208,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -3505,6 +5222,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -3514,8 +5232,194 @@
                       "string"
                     ]
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "enabled",
+                          "state",
+                          "datasets",
+                          "healthy",
+                          "lastRefreshAt",
+                          "lastIngestAt"
+                        ],
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "disabled",
+                              "ready",
+                              "unavailable"
+                            ]
+                          },
+                          "datasets": {
+                            "type": "integer"
+                          },
+                          "healthy": {
+                            "type": "boolean"
+                          },
+                          "lastRefreshAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "lastIngestAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -3524,7 +5428,7 @@
         },
         "title": "https://timestore.apphub/schemas/HealthUnavailableResponse.json"
       },
-      "def-6": {
+      "def-10": {
         "type": "object",
         "required": [
           "status",
@@ -3549,7 +5453,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -3560,6 +5467,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -3569,8 +5477,194 @@
                       "string"
                     ]
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "enabled",
+                          "state",
+                          "datasets",
+                          "healthy",
+                          "lastRefreshAt",
+                          "lastIngestAt"
+                        ],
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "disabled",
+                              "ready",
+                              "unavailable"
+                            ]
+                          },
+                          "datasets": {
+                            "type": "integer"
+                          },
+                          "healthy": {
+                            "type": "boolean"
+                          },
+                          "lastRefreshAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "lastIngestAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -3579,7 +5673,7 @@
         },
         "title": "https://timestore.apphub/schemas/ReadyResponse.json"
       },
-      "def-7": {
+      "def-11": {
         "type": "object",
         "required": [
           "status",
@@ -3634,7 +5728,10 @@
                 "required": [
                   "enabled",
                   "state",
-                  "brokerConfigured"
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
                 ],
                 "properties": {
                   "enabled": {
@@ -3645,6 +5742,7 @@
                     "enum": [
                       "disabled",
                       "ready",
+                      "degraded",
                       "unconfigured"
                     ]
                   },
@@ -3654,8 +5752,194 @@
                       "string"
                     ]
                   },
-                  "brokerConfigured": {
-                    "type": "boolean"
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "enabled",
+                          "state",
+                          "datasets",
+                          "healthy",
+                          "lastRefreshAt",
+                          "lastIngestAt"
+                        ],
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "disabled",
+                              "ready",
+                              "unavailable"
+                            ]
+                          },
+                          "datasets": {
+                            "type": "integer"
+                          },
+                          "healthy": {
+                            "type": "boolean"
+                          },
+                          "lastRefreshAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "lastIngestAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -3664,7 +5948,7 @@
         },
         "title": "https://timestore.apphub/schemas/ReadyUnavailableResponse.json"
       },
-      "def-8": {
+      "def-12": {
         "type": "object",
         "required": [
           "datasetSlug"
@@ -3678,7 +5962,7 @@
         },
         "title": "https://timestore.apphub/schemas/DatasetSlugParams.json"
       },
-      "def-9": {
+      "def-13": {
         "type": "object",
         "required": [
           "id",
@@ -3700,7 +5984,7 @@
         },
         "title": "https://timestore.apphub/schemas/IngestionActor.json"
       },
-      "def-10": {
+      "def-14": {
         "type": "object",
         "required": [
           "name",
@@ -3725,7 +6009,7 @@
         },
         "title": "https://timestore.apphub/schemas/IngestionFieldDefinition.json"
       },
-      "def-11": {
+      "def-15": {
         "type": "object",
         "required": [
           "fields"
@@ -3785,7 +6069,7 @@
         },
         "title": "https://timestore.apphub/schemas/IngestionSchema.json"
       },
-      "def-12": {
+      "def-16": {
         "type": "object",
         "required": [
           "key",
@@ -3831,7 +6115,7 @@
         },
         "title": "https://timestore.apphub/schemas/IngestionPartition.json"
       },
-      "def-13": {
+      "def-17": {
         "type": "object",
         "required": [
           "schema",
@@ -4039,7 +6323,7 @@
         },
         "title": "https://timestore.apphub/schemas/DatasetIngestionRequest.json"
       },
-      "def-14": {
+      "def-18": {
         "type": "object",
         "required": [
           "id",
@@ -4088,7 +6372,7 @@
         },
         "title": "https://timestore.apphub/schemas/StorageTarget.json"
       },
-      "def-15": {
+      "def-19": {
         "type": "object",
         "required": [
           "id",
@@ -4154,7 +6438,7 @@
         },
         "title": "https://timestore.apphub/schemas/Dataset.json"
       },
-      "def-16": {
+      "def-20": {
         "type": "object",
         "required": [
           "id",
@@ -4364,7 +6648,7 @@
         },
         "title": "https://timestore.apphub/schemas/DatasetManifest.json"
       },
-      "def-17": {
+      "def-21": {
         "type": "object",
         "required": [
           "id",
@@ -4470,7 +6754,7 @@
         },
         "title": "https://timestore.apphub/schemas/DatasetPartition.json"
       },
-      "def-18": {
+      "def-22": {
         "type": "object",
         "required": [
           "mode",
@@ -4810,7 +7094,7 @@
         },
         "title": "https://timestore.apphub/schemas/DatasetIngestionInlineResponse.json"
       },
-      "def-19": {
+      "def-23": {
         "type": "object",
         "required": [
           "mode",
@@ -4830,7 +7114,7 @@
         },
         "title": "https://timestore.apphub/schemas/DatasetIngestionQueuedResponse.json"
       },
-      "def-20": {
+      "def-24": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -4871,7 +7155,7 @@
         ],
         "title": "https://timestore.apphub/schemas/StringPartitionPredicate.json"
       },
-      "def-21": {
+      "def-25": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -4924,7 +7208,7 @@
         },
         "title": "https://timestore.apphub/schemas/NumberPartitionPredicate.json"
       },
-      "def-22": {
+      "def-26": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -4983,7 +7267,7 @@
         },
         "title": "https://timestore.apphub/schemas/TimestampPartitionPredicate.json"
       },
-      "def-23": {
+      "def-27": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -5012,7 +7296,7 @@
         },
         "title": "https://timestore.apphub/schemas/BooleanColumnPredicate.json"
       },
-      "def-24": {
+      "def-28": {
         "type": "array",
         "minItems": 1,
         "description": "Shorthand for an equality/inclusion check across string values.",
@@ -5021,7 +7305,7 @@
         },
         "title": "https://timestore.apphub/schemas/StringArrayPredicate.json"
       },
-      "def-25": {
+      "def-29": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -5384,7 +7668,7 @@
         },
         "title": "https://timestore.apphub/schemas/PartitionFilters.json"
       },
-      "def-26": {
+      "def-30": {
         "oneOf": [
           {
             "type": "object",
@@ -5501,7 +7785,7 @@
         ],
         "title": "https://timestore.apphub/schemas/DownsampleAggregation.json"
       },
-      "def-27": {
+      "def-31": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -5648,7 +7932,7 @@
         },
         "title": "https://timestore.apphub/schemas/DownsampleRequest.json"
       },
-      "def-28": {
+      "def-32": {
         "type": "object",
         "required": [
           "timeRange"
@@ -6212,7 +8496,7 @@
         },
         "title": "https://timestore.apphub/schemas/DatasetQueryRequest.json"
       },
-      "def-29": {
+      "def-33": {
         "type": "object",
         "required": [
           "rows",
@@ -6301,7 +8585,7 @@
         },
         "title": "https://timestore.apphub/schemas/DatasetQueryResponse.json"
       },
-      "def-30": {
+      "def-34": {
         "type": "object",
         "required": [
           "sql"
@@ -6351,7 +8635,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlQueryRequest.json"
       },
-      "def-31": {
+      "def-35": {
         "type": "object",
         "required": [
           "name",
@@ -6379,7 +8663,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSchemaColumn.json"
       },
-      "def-32": {
+      "def-36": {
         "type": "object",
         "required": [
           "name",
@@ -6437,7 +8721,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSchemaTable.json"
       },
-      "def-33": {
+      "def-37": {
         "type": "object",
         "required": [
           "fetchedAt",
@@ -6518,7 +8802,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSchemaResponse.json"
       },
-      "def-34": {
+      "def-38": {
         "type": "object",
         "required": [
           "rowCount",
@@ -6534,7 +8818,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlReadStatistics.json"
       },
-      "def-35": {
+      "def-39": {
         "type": "object",
         "required": [
           "executionId",
@@ -6644,7 +8928,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlReadResponse.json"
       },
-      "def-36": {
+      "def-40": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -6663,7 +8947,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryStats.json"
       },
-      "def-37": {
+      "def-41": {
         "type": "object",
         "required": [
           "id",
@@ -6723,7 +9007,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQuery.json"
       },
-      "def-38": {
+      "def-42": {
         "type": "object",
         "required": [
           "savedQueries"
@@ -6794,7 +9078,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryListResponse.json"
       },
-      "def-39": {
+      "def-43": {
         "type": "object",
         "required": [
           "savedQuery"
@@ -6862,7 +9146,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryResponse.json"
       },
-      "def-40": {
+      "def-44": {
         "type": "object",
         "required": [
           "id"
@@ -6875,7 +9159,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryParams.json"
       },
-      "def-41": {
+      "def-45": {
         "type": "object",
         "required": [
           "statement"
@@ -6916,7 +9200,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryUpsertRequest.json"
       },
-      "def-42": {
+      "def-46": {
         "type": "object",
         "required": [
           "command",
@@ -6969,7 +9253,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-4"
+                  "$ref": "#/components/schemas/def-8"
                 }
               }
             }
@@ -6979,7 +9263,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-5"
+                  "$ref": "#/components/schemas/def-9"
                 }
               }
             }
@@ -7000,7 +9284,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-6"
+                  "$ref": "#/components/schemas/def-10"
                 }
               }
             }
@@ -7010,7 +9294,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-7"
+                  "$ref": "#/components/schemas/def-11"
                 }
               }
             }
@@ -7029,7 +9313,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-13"
+                "$ref": "#/components/schemas/def-17"
               }
             }
           }
@@ -7052,7 +9336,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-19"
+                  "$ref": "#/components/schemas/def-23"
                 }
               }
             }
@@ -7062,7 +9346,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-18"
+                  "$ref": "#/components/schemas/def-22"
                 }
               }
             }
@@ -7072,7 +9356,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-19"
+                  "$ref": "#/components/schemas/def-23"
                 }
               }
             }
@@ -7141,7 +9425,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-28"
+                "$ref": "#/components/schemas/def-32"
               }
             }
           }
@@ -7164,7 +9448,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-29"
+                  "$ref": "#/components/schemas/def-33"
                 }
               }
             }
@@ -7235,7 +9519,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-33"
+                  "$ref": "#/components/schemas/def-37"
                 }
               }
             }
@@ -7284,7 +9568,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-30"
+                "$ref": "#/components/schemas/def-34"
               }
             }
           }
@@ -7295,7 +9579,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-35"
+                  "$ref": "#/components/schemas/def-39"
                 }
               },
               "text/csv": {
@@ -7377,7 +9661,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-38"
+                  "$ref": "#/components/schemas/def-42"
                 }
               }
             }
@@ -7438,7 +9722,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-39"
+                  "$ref": "#/components/schemas/def-43"
                 }
               }
             }
@@ -7494,7 +9778,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-41"
+                "$ref": "#/components/schemas/def-45"
               }
             }
           }
@@ -7516,7 +9800,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-39"
+                  "$ref": "#/components/schemas/def-43"
                 }
               }
             }
@@ -7644,7 +9928,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-30"
+                "$ref": "#/components/schemas/def-34"
               }
             }
           }
@@ -7655,7 +9939,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-42"
+                  "$ref": "#/components/schemas/def-46"
                 }
               },
               "text/csv": {
