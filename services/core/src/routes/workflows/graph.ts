@@ -4,7 +4,7 @@ import {
   initializeWorkflowTopologyGraphCache
 } from '../../workflows/workflowGraphCache';
 import { requireOperatorScopes } from '../shared/operatorAuth';
-import { WORKFLOW_READ_SCOPES } from '../shared/scopes';
+import { WORKFLOW_READ_SCOPES, WORKFLOW_WRITE_SCOPES } from '../shared/scopes';
 import { schemaRef } from '../../openapi/definitions';
 
 function jsonResponse(schemaName: string, description: string) {
@@ -34,12 +34,14 @@ export async function registerWorkflowGraphRoute(app: FastifyInstance): Promise<
         tags: ['Workflows'],
         summary: 'Retrieve workflow topology graph',
         description:
-          'Returns the cached workflow topology graph used by the operations console. Requires the workflows:read operator scope.',
+          'Returns the cached workflow topology graph used by the operations console. Requires the workflows:read or workflows:write operator scope.',
         security: [{ OperatorToken: [] }],
         response: {
           200: jsonResponse('WorkflowGraphResponse', 'Current workflow topology graph snapshot.'),
           401: errorResponse('The request lacked an operator token.'),
-          403: errorResponse('The supplied operator token did not include the workflows:read scope.'),
+          403: errorResponse(
+            'The supplied operator token did not include the workflows:read or workflows:write scope.'
+          ),
           500: errorResponse('The server failed to assemble the workflow topology graph.')
         }
       }
@@ -48,7 +50,8 @@ export async function registerWorkflowGraphRoute(app: FastifyInstance): Promise<
       const authResult = await requireOperatorScopes(request, reply, {
         action: 'workflows.graph.read',
         resource: 'workflows',
-        requiredScopes: WORKFLOW_READ_SCOPES
+        requiredScopes: [],
+        anyOfScopes: [WORKFLOW_READ_SCOPES, WORKFLOW_WRITE_SCOPES]
       });
 
       if (!authResult.ok) {

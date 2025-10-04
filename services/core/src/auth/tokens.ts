@@ -138,6 +138,7 @@ type AuthorizationOptions = {
   action: string;
   resource: string;
   requiredScopes: OperatorScope[];
+  anyOfScopes?: OperatorScope[][];
 };
 
 export type AuthorizationSuccess = {
@@ -325,16 +326,32 @@ function buildScopeSet(rawScopes: Iterable<string>): Set<OperatorScope> {
   return scopes;
 }
 
-function hasRequiredScopes(identity: OperatorIdentity, required: OperatorScope[]): boolean {
-  if (required.length === 0) {
-    return true;
-  }
+function hasRequiredScopes(
+  identity: OperatorIdentity,
+  required: OperatorScope[],
+  anyOfScopes?: OperatorScope[][]
+): boolean {
   for (const scope of required) {
     if (!identity.scopes.has(scope)) {
       return false;
     }
   }
-  return true;
+
+  if (!anyOfScopes || anyOfScopes.length === 0) {
+    return true;
+  }
+
+  return anyOfScopes.some((group) => {
+    if (group.length === 0) {
+      return true;
+    }
+    for (const scope of group) {
+      if (!identity.scopes.has(scope)) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 function getCookies(request: FastifyRequest): Record<string, string> {
@@ -509,14 +526,17 @@ export async function authorizeOperatorAction(
   if (config.sessionSecret && sessionCookieValue) {
     const sessionResult = await resolveSessionIdentity(request, sessionCookieValue, cookieName);
     if (sessionResult) {
-      if (!hasRequiredScopes(sessionResult.identity, options.requiredScopes)) {
+      if (!hasRequiredScopes(sessionResult.identity, options.requiredScopes, options.anyOfScopes)) {
         await logAuthorizationFailure({
           request,
           action: options.action,
           resource: options.resource,
           reason: 'insufficient_scope',
           tokenHash: sessionResult.identity.tokenHash,
-          detail: { requiredScopes: options.requiredScopes }
+          detail: {
+            requiredScopes: options.requiredScopes,
+            anyOfScopes: options.anyOfScopes ?? []
+          }
         });
         return {
           ok: false,
@@ -538,14 +558,17 @@ export async function authorizeOperatorAction(
   if (bearerToken) {
     const apiKeyIdentity = await resolveApiKeyIdentity(bearerToken);
     if (apiKeyIdentity) {
-      if (!hasRequiredScopes(apiKeyIdentity, options.requiredScopes)) {
+      if (!hasRequiredScopes(apiKeyIdentity, options.requiredScopes, options.anyOfScopes)) {
         await logAuthorizationFailure({
           request,
           action: options.action,
           resource: options.resource,
           reason: 'insufficient_scope',
           tokenHash: apiKeyIdentity.tokenHash,
-          detail: { requiredScopes: options.requiredScopes }
+          detail: {
+            requiredScopes: options.requiredScopes,
+            anyOfScopes: options.anyOfScopes ?? []
+          }
         });
         return {
           ok: false,
@@ -560,14 +583,17 @@ export async function authorizeOperatorAction(
     if (config.legacyTokensEnabled) {
       const legacyIdentity = findIdentityForToken(bearerToken);
       if (legacyIdentity) {
-        if (!hasRequiredScopes(legacyIdentity, options.requiredScopes)) {
+        if (!hasRequiredScopes(legacyIdentity, options.requiredScopes, options.anyOfScopes)) {
           await logAuthorizationFailure({
             request,
             action: options.action,
             resource: options.resource,
             reason: 'insufficient_scope',
             tokenHash: legacyIdentity.tokenHash,
-            detail: { requiredScopes: options.requiredScopes }
+            detail: {
+              requiredScopes: options.requiredScopes,
+              anyOfScopes: options.anyOfScopes ?? []
+            }
           });
           return {
             ok: false,

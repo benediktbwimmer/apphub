@@ -36349,7 +36349,7 @@
         "tags": [
           "Workflows"
         ],
-        "description": "Returns the cached workflow topology graph used by the operations console. Requires the workflows:read operator scope.",
+        "description": "Returns the cached workflow topology graph used by the operations console. Requires the workflows:read or workflows:write operator scope.",
         "security": [
           {
             "OperatorToken": []
@@ -36377,7 +36377,7 @@
             }
           },
           "403": {
-            "description": "The supplied operator token did not include the workflows:read scope.",
+            "description": "The supplied operator token did not include the workflows:read or workflows:write scope.",
             "content": {
               "application/json": {
                 "schema": {
