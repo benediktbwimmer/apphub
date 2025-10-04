@@ -172,9 +172,18 @@ function setupService(options?: SetupOptions) {
     service,
     events,
     published,
-    logger
+    logger,
+    searchRecords
   } as const;
 }
+
+test('searchRecords forwards full-text search term', async () => {
+  const ctx = setupService();
+  await ctx.service.searchRecords({ namespace: 'analytics', search: 'galaxy' });
+  const call = ctx.searchRecords.mock.calls.at(-1);
+  const options = call?.arguments?.[1] as { search?: string } | undefined;
+  assert.equal(options?.search, 'galaxy');
+});
 
 test('createRecord emits created events when record is newly inserted', async () => {
   const ctx = setupService();

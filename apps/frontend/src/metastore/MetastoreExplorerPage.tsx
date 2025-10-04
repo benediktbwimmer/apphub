@@ -1,5 +1,6 @@
 import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
@@ -65,12 +66,26 @@ const LIST_PROJECTION = [
   'deletedAt'
 ] as const;
 
-type AppliedQueryState = {
-  mode: 'builder' | 'advanced';
-  q?: string;
-  filter?: FilterNodeInput;
+type AppliedQueryBase = {
   preset?: string | null;
 };
+
+type AppliedQueryState =
+  | (AppliedQueryBase & {
+      mode: 'search';
+      search: string;
+    })
+  | (AppliedQueryBase & {
+      mode: 'builder';
+      q?: string;
+      filter?: FilterNodeInput;
+    })
+  | (AppliedQueryBase & {
+      mode: 'advanced';
+      filter?: FilterNodeInput;
+    });
+
+type ComposerMode = 'search' | 'builder';
 
 type QueryPreset = {
   value: string;
@@ -132,15 +147,36 @@ export default function MetastoreExplorerPage() {
     sanitizeClauses(decodeClausesFromUrl(searchParams.get('builder')))
   );
   const [builderPreset, setBuilderPreset] = useState<string | null>(() => searchParams.get('preset'));
+  const [composerMode, setComposerMode] = useState<ComposerMode>(() => {
+    const modeParam = searchParams.get('mode');
+    if (modeParam === 'search') {
+      return 'search';
+    }
+    if (modeParam === 'builder' || modeParam === 'advanced') {
+      return 'builder';
+    }
+    return 'search';
+  });
+  const [searchDraft, setSearchDraft] = useState(() => searchParams.get('search') ?? '');
   const [advancedDraft, setAdvancedDraft] = useState<string>(() => decodeDslFromUrl(searchParams.get('dsl')));
   const [advancedError, setAdvancedError] = useState<string | null>(null);
   const [appliedQuery, setAppliedQuery] = useState<AppliedQueryState>(() => {
-    const mode = searchParams.get('mode') === 'advanced' ? 'advanced' : 'builder';
-    const preset = searchParams.get('preset');
-    if (mode === 'advanced') {
+    const modeParam = searchParams.get('mode');
+    const preset = searchParams.get('preset') ?? null;
+    if (modeParam === 'search') {
+      const term = (searchParams.get('search') ?? '').trim();
+      if (term.length >= 2) {
+        return {
+          mode: 'search',
+          search: term,
+          preset
+        } satisfies AppliedQueryState;
+      }
+    }
+    if (modeParam === 'advanced') {
       const filter = parseFilterFromText(decodeDslFromUrl(searchParams.get('dsl')));
       return {
-        mode,
+        mode: 'advanced',
         filter,
         preset
       } satisfies AppliedQueryState;
@@ -259,6 +295,13 @@ export default function MetastoreExplorerPage() {
     setBuilderPreset(value === '' ? null : value);
   };
 
+  const handleComposerModeChange = (mode: ComposerMode) => {
+    setComposerMode(mode);
+    if (mode === 'search') {
+      setAdvancedError(null);
+    }
+  };
+
   const goToPage = (nextPage: number) => {
     const clamped = Math.max(Math.min(nextPage, totalPages - 1), 0);
     setPage(clamped);
@@ -277,6 +320,42 @@ export default function MetastoreExplorerPage() {
 
   const handleNextPage = () => {
     goToPage(Math.min(page + 1, totalPages - 1));
+  };
+
+  const applyFullTextSearch = useCallback(() => {
+    const trimmed = searchDraft.trim();
+    if (trimmed.length < 2) {
+      const message = 'Enter at least two characters to run a full-text search.';
+      showError('Full-text search requires more input', undefined, message);
+      return;
+    }
+    const next: AppliedQueryState = {
+      mode: 'search',
+      search: trimmed,
+      preset: builderPreset ?? null
+    };
+    setComposerMode('search');
+    setSearchDraft(trimmed);
+    setAppliedQuery(next);
+    setAdvancedError(null);
+    setPage(0);
+    updateUrlParams((params) => {
+      params.set('search', trimmed);
+      if (builderPreset) {
+        params.set('preset', builderPreset);
+      } else {
+        params.delete('preset');
+      }
+      params.set('mode', 'search');
+      params.delete('builder');
+      params.delete('dsl');
+      params.set('page', '0');
+    });
+  }, [searchDraft, showError, builderPreset, updateUrlParams]);
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    applyFullTextSearch();
   };
 
   const applyBuilder = useCallback(() => {
@@ -304,6 +383,7 @@ export default function MetastoreExplorerPage() {
       } else {
         params.delete('preset');
       }
+      params.delete('search');
       params.set('mode', 'builder');
       params.delete('dsl');
       params.set('page', '0');
@@ -349,10 +429,22 @@ export default function MetastoreExplorerPage() {
       } else {
         params.delete('builder');
       }
+      params.delete('search');
       params.set('mode', 'advanced');
       params.set('page', '0');
     });
   };
+
+  const clearFullTextSearch = useCallback(() => {
+    setSearchDraft('');
+    if (appliedQuery.mode === 'search') {
+      applyBuilder();
+      return;
+    }
+    updateUrlParams((params) => {
+      params.delete('search');
+    });
+  }, [appliedQuery.mode, applyBuilder, updateUrlParams]);
 
   const searchFetcher = useCallback(
     async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
@@ -361,26 +453,38 @@ export default function MetastoreExplorerPage() {
       }
 
       const normalizedNamespace = namespace.trim() || 'default';
-      const payload = await searchRecords(
-        authorizedFetch,
-        {
-          namespace: normalizedNamespace,
-          includeDeleted,
-          limit: PAGE_SIZE,
-          offset,
-          sort: [
-            {
-              field: 'updatedAt',
-              direction: 'desc'
-            }
-          ],
-          ...(appliedQuery.q ? { q: appliedQuery.q } : {}),
-          ...(appliedQuery.filter ? { filter: appliedQuery.filter } : {}),
-          ...(appliedQuery.preset ? { preset: appliedQuery.preset } : {}),
-          projection: [...LIST_PROJECTION]
-        },
-        { signal }
-      );
+      const requestBody: Record<string, unknown> = {
+        namespace: normalizedNamespace,
+        includeDeleted,
+        limit: PAGE_SIZE,
+        offset,
+        sort: [
+          {
+            field: 'updatedAt',
+            direction: 'desc'
+          }
+        ],
+        projection: [...LIST_PROJECTION]
+      };
+
+      if (appliedQuery.mode === 'search') {
+        requestBody.search = appliedQuery.search;
+      } else if (appliedQuery.mode === 'builder') {
+        if (appliedQuery.q) {
+          requestBody.q = appliedQuery.q;
+        }
+        if (appliedQuery.filter) {
+          requestBody.filter = appliedQuery.filter;
+        }
+      } else if (appliedQuery.filter) {
+        requestBody.filter = appliedQuery.filter;
+      }
+
+      if (appliedQuery.preset) {
+        requestBody.preset = appliedQuery.preset;
+      }
+
+      const payload = await searchRecords(authorizedFetch, requestBody, { signal });
 
       return payload;
     },
@@ -638,6 +742,12 @@ export default function MetastoreExplorerPage() {
   const schemaBlockingErrors =
     metadataMode === 'schema' && (metadataParseError !== null || Object.keys(schemaValidationErrors).length > 0);
   const activePreset = useMemo(() => METASTORE_PRESETS.find((preset) => preset.value === builderPreset) ?? null, [builderPreset]);
+  const appliedSearchSummary = useMemo(() => {
+    if (appliedQuery.mode !== 'search') {
+      return null;
+    }
+    return appliedQuery.search;
+  }, [appliedQuery]);
   const builderSummary = useMemo(() => {
     if (appliedQuery.mode !== 'builder') {
       return null;
@@ -703,85 +813,149 @@ export default function MetastoreExplorerPage() {
             )}
           </div>
         </div>
-        <div className={classNames(METASTORE_FORM_FIELD_CONTAINER_CLASSES, 'space-y-4')}>
-          <MetastoreQueryBuilder clauses={builderClauses} onChange={setBuilderClauses} />
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={applyBuilder} className={METASTORE_PRIMARY_BUTTON_CLASSES}>
-              Apply builder query
-            </button>
-            <button type="button" onClick={resetBuilder} className={METASTORE_SECONDARY_BUTTON_CLASSES}>
-              Reset builder
-            </button>
-            {appliedQuery.mode === 'advanced' && (
-              <span className={classNames(METASTORE_PILL_BADGE_NEUTRAL_CLASSES, 'border-accent text-accent')}>
-                Advanced mode active
-              </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleComposerModeChange('search')}
+            className={classNames(
+              composerMode === 'search'
+                ? METASTORE_PRIMARY_BUTTON_SMALL_CLASSES
+                : METASTORE_SECONDARY_BUTTON_SMALL_CLASSES
             )}
-          </div>
-          {builderSummary && appliedQuery.mode === 'builder' && (
-            <p className={classNames('whitespace-pre-wrap break-words', METASTORE_META_TEXT_CLASSES)}>{builderSummary}</p>
+          >
+            Full-text search
+          </button>
+          <button
+            type="button"
+            onClick={() => handleComposerModeChange('builder')}
+            className={classNames(
+              composerMode === 'builder'
+                ? METASTORE_PRIMARY_BUTTON_SMALL_CLASSES
+                : METASTORE_SECONDARY_BUTTON_SMALL_CLASSES
+            )}
+          >
+            Structured filters
+          </button>
+          {appliedSearchSummary && (
+            <span className={classNames('ml-auto max-w-full truncate text-right sm:max-w-xs', METASTORE_META_TEXT_CLASSES)}>
+              Active search: "{appliedSearchSummary}"
+            </span>
           )}
         </div>
-        <CollapsibleSection
-          title="Advanced DSL"
-          description="Edit the search JSON directly for complex filters."
-          defaultOpen={appliedQuery.mode === 'advanced'}
-          onToggle={(isOpen) => {
-            if (isOpen) {
-              if (!advancedDraft.trim() && appliedQuery.filter) {
-                setAdvancedDraft(JSON.stringify(appliedQuery.filter, null, 2));
-              }
-              setAdvancedError(null);
-            } else {
-              setAdvancedError(null);
-            }
-          }}
-          className={classNames(METASTORE_FORM_FIELD_CONTAINER_CLASSES, 'space-y-3 border-accent-soft bg-accent-soft/40')}
-          contentClassName="space-y-3"
-        >
-          <label className="flex flex-col gap-2">
-            <span className={METASTORE_SECTION_LABEL_CLASSES}>DSL JSON</span>
-            <textarea
-              rows={8}
-              value={advancedDraft}
-              onChange={(event) => setAdvancedDraft(event.target.value)}
-              className={classNames(METASTORE_TEXT_AREA_MONO_CLASSES, 'min-h-[192px]')}
-              placeholder={'{ "field": "metadata.status", "operator": "eq", "value": "active" }'}
-            />
-          </label>
-          {advancedError ? (
-            <p className={classNames(METASTORE_ERROR_TEXT_CLASSES, 'flex flex-wrap items-center gap-2')}>
-              {advancedError}
-              <a
-                href="https://docs.apphub.dev/metastore/search"
-                target="_blank"
-                rel="noreferrer"
-                className={METASTORE_LINK_ACCENT_CLASSES}
-              >
-                View documentation
-              </a>
-            </p>
-          ) : (
-            <p className={METASTORE_META_TEXT_CLASSES}>
-              Provide a filter tree matching the metastore search DSL. Apply to replace the builder query.
-            </p>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={applyAdvanced} className={METASTORE_PRIMARY_BUTTON_CLASSES}>
-              Apply DSL
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAdvancedDraft('');
-                setAdvancedError(null);
-              }}
-              className={METASTORE_SECONDARY_BUTTON_CLASSES}
-            >
-              Reset DSL
-            </button>
+        {composerMode === 'search' ? (
+          <div className={classNames(METASTORE_FORM_FIELD_CONTAINER_CLASSES, 'space-y-3')}>
+            <form onSubmit={handleSearchSubmit} className="flex flex-col gap-3">
+              <label className="flex flex-col gap-2">
+                <span className={METASTORE_SECTION_LABEL_CLASSES}>Full-text search</span>
+                <input
+                  type="search"
+                  value={searchDraft}
+                  onChange={(event) => setSearchDraft(event.target.value)}
+                  className={classNames(METASTORE_INPUT_FIELD_CLASSES, 'h-11')}
+                  placeholder="Search keys, owners, tags, and metadata"
+                  autoComplete="off"
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="submit" className={METASTORE_PRIMARY_BUTTON_CLASSES}>
+                  Run search
+                </button>
+                <button type="button" onClick={clearFullTextSearch} className={METASTORE_SECONDARY_BUTTON_CLASSES}>
+                  Clear search
+                </button>
+              </div>
+              <p className={METASTORE_META_TEXT_CLASSES}>
+                Enter at least two characters to query the full-text index across keys, owners, tags, and metadata.
+              </p>
+            </form>
           </div>
-        </CollapsibleSection>
+        ) : (
+          <div className="space-y-4">
+            <div className={classNames(METASTORE_FORM_FIELD_CONTAINER_CLASSES, 'space-y-4')}>
+              <MetastoreQueryBuilder clauses={builderClauses} onChange={setBuilderClauses} />
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={applyBuilder} className={METASTORE_PRIMARY_BUTTON_CLASSES}>
+                  Apply builder query
+                </button>
+                <button type="button" onClick={resetBuilder} className={METASTORE_SECONDARY_BUTTON_CLASSES}>
+                  Reset builder
+                </button>
+                {appliedQuery.mode === 'advanced' && (
+                  <span className={classNames(METASTORE_PILL_BADGE_NEUTRAL_CLASSES, 'border-accent text-accent')}>
+                    Advanced mode active
+                  </span>
+                )}
+              </div>
+              {builderSummary && appliedQuery.mode === 'builder' && (
+                <p className={classNames('whitespace-pre-wrap break-words', METASTORE_META_TEXT_CLASSES)}>{builderSummary}</p>
+              )}
+            </div>
+            <CollapsibleSection
+              title="Advanced DSL"
+              description="Edit the search JSON directly for complex filters."
+              defaultOpen={appliedQuery.mode === 'advanced'}
+              onToggle={(isOpen) => {
+                if (isOpen) {
+                  if (
+                    !advancedDraft.trim() &&
+                    (appliedQuery.mode === 'builder' || appliedQuery.mode === 'advanced') &&
+                    appliedQuery.filter
+                  ) {
+                    setAdvancedDraft(JSON.stringify(appliedQuery.filter, null, 2));
+                  }
+                  setAdvancedError(null);
+                } else {
+                  setAdvancedError(null);
+                }
+              }}
+              className={classNames(METASTORE_FORM_FIELD_CONTAINER_CLASSES, 'space-y-3 border-accent-soft bg-accent-soft/40')}
+              contentClassName="space-y-3"
+            >
+              <label className="flex flex-col gap-2">
+                <span className={METASTORE_SECTION_LABEL_CLASSES}>DSL JSON</span>
+                <textarea
+                  rows={8}
+                  value={advancedDraft}
+                  onChange={(event) => setAdvancedDraft(event.target.value)}
+                  className={classNames(METASTORE_TEXT_AREA_MONO_CLASSES, 'min-h-[192px]')}
+                  placeholder={'{ "field": "metadata.status", "operator": "eq", "value": "active" }'}
+                />
+              </label>
+              {advancedError ? (
+                <p className={classNames(METASTORE_ERROR_TEXT_CLASSES, 'flex flex-wrap items-center gap-2')}>
+                  {advancedError}
+                  <a
+                    href="https://docs.apphub.dev/metastore/search"
+                    target="_blank"
+                    rel="noreferrer"
+                    className={METASTORE_LINK_ACCENT_CLASSES}
+                  >
+                    View documentation
+                  </a>
+                </p>
+              ) : (
+                <p className={METASTORE_META_TEXT_CLASSES}>
+                  Provide a filter tree matching the metastore search DSL. Apply to replace the builder query.
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={applyAdvanced} className={METASTORE_PRIMARY_BUTTON_CLASSES}>
+                  Apply DSL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdvancedDraft('');
+                    setAdvancedError(null);
+                  }}
+                  className={METASTORE_SECONDARY_BUTTON_CLASSES}
+                >
+                  Reset DSL
+                </button>
+              </div>
+            </CollapsibleSection>
+          </div>
+        )}
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)] xl:grid-cols-[minmax(0,320px),minmax(0,1fr),minmax(280px,1fr)]">

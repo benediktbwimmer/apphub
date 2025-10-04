@@ -1,10 +1,17 @@
 import { act, render, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { searchRecordsMock, fetchRecordMock } = vi.hoisted(() => ({
   searchRecordsMock: vi.fn(),
   fetchRecordMock: vi.fn()
+}));
+
+const toastSpies = vi.hoisted(() => ({
+  showSuccess: vi.fn(),
+  showError: vi.fn(),
+  showInfo: vi.fn()
 }));
 
 const recordTableController = vi.hoisted(() => ({
@@ -27,11 +34,7 @@ vi.mock('../../auth/useAuthorizedFetch', () => ({
 }));
 
 vi.mock('../../components/toast', () => ({
-  useToastHelpers: () => ({
-    showSuccess: vi.fn(),
-    showError: vi.fn(),
-    showInfo: vi.fn()
-  })
+  useToastHelpers: () => toastSpies
 }));
 
 vi.mock('../useSchemaDefinition', () => ({
@@ -103,6 +106,9 @@ describe('MetastoreExplorerPage', () => {
     fetchRecordMock.mockReset();
     authorizedFetchStub.mockReset();
     recordTableController.onRetry = null;
+    toastSpies.showSuccess.mockReset();
+    toastSpies.showError.mockReset();
+    toastSpies.showInfo.mockReset();
   });
 
   afterEach(() => {
@@ -154,5 +160,109 @@ describe('MetastoreExplorerPage', () => {
 
     await waitFor(() => expect(searchRecordsMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(fetchRecordMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('submits a full-text search when query is applied', async () => {
+    searchRecordsMock.mockResolvedValue({
+      pagination: { total: 0, limit: 25, offset: 0 },
+      records: []
+    });
+
+    const user = userEvent.setup();
+
+    const { getByRole } = render(
+      <MemoryRouter initialEntries={[{ pathname: '/', search: '?namespace=default' }]}>
+        <Routes>
+          <Route path="/" element={<MetastoreExplorerPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(searchRecordsMock).toHaveBeenCalledTimes(1));
+
+    const searchInput = getByRole('searchbox', { name: /full-text search/i });
+    const runButton = getByRole('button', { name: /run search/i });
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'logs');
+    await user.click(runButton);
+
+    await waitFor(() => expect(searchRecordsMock).toHaveBeenCalledTimes(2));
+
+    const [, requestBody] = searchRecordsMock.mock.calls[1];
+    expect(requestBody).toMatchObject({
+      namespace: 'default',
+      search: 'logs'
+    });
+    expect(requestBody).not.toHaveProperty('q');
+    expect(requestBody).not.toHaveProperty('filter');
+  });
+
+  it('blocks short full-text search entries with feedback', async () => {
+    searchRecordsMock.mockResolvedValue({
+      pagination: { total: 0, limit: 25, offset: 0 },
+      records: []
+    });
+
+    const user = userEvent.setup();
+
+    const { getByRole } = render(
+      <MemoryRouter initialEntries={[{ pathname: '/', search: '?namespace=default' }]}>
+        <Routes>
+          <Route path="/" element={<MetastoreExplorerPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(searchRecordsMock).toHaveBeenCalledTimes(1));
+
+    const searchInput = getByRole('searchbox', { name: /full-text search/i });
+    const runButton = getByRole('button', { name: /run search/i });
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'x');
+    await user.click(runButton);
+
+    expect(searchRecordsMock).toHaveBeenCalledTimes(1);
+    expect(toastSpies.showError).toHaveBeenCalledWith(
+      'Full-text search requires more input',
+      undefined,
+      'Enter at least two characters to run a full-text search.'
+    );
+  });
+
+  it('clears full-text search and reapplies structured query', async () => {
+    searchRecordsMock.mockResolvedValue({
+      pagination: { total: 0, limit: 25, offset: 0 },
+      records: []
+    });
+
+    const user = userEvent.setup();
+
+    const { getByRole } = render(
+      <MemoryRouter initialEntries={[{ pathname: '/', search: '?namespace=default' }]}>
+        <Routes>
+          <Route path="/" element={<MetastoreExplorerPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(searchRecordsMock).toHaveBeenCalledTimes(1));
+
+    const searchInput = getByRole('searchbox', { name: /full-text search/i });
+    const runButton = getByRole('button', { name: /run search/i });
+    const clearButton = getByRole('button', { name: /clear search/i });
+
+    await user.type(searchInput, 'alerts');
+    await user.click(runButton);
+
+    await waitFor(() => expect(searchRecordsMock).toHaveBeenCalledTimes(2));
+
+    await user.click(clearButton);
+
+    await waitFor(() => expect(searchRecordsMock.mock.calls.length).toBeGreaterThanOrEqual(3));
+    const lastCall = searchRecordsMock.mock.calls.at(-1)!;
+    expect(lastCall[1]).not.toHaveProperty('search');
+    expect(lastCall[1]).not.toHaveProperty('q');
   });
 });

@@ -46,6 +46,7 @@ export type SearchParams = {
   offset?: number;
   sort?: SortField[];
   projection?: string[];
+  search?: string;
 };
 
 export type BulkOperationResult =
@@ -528,7 +529,8 @@ export function createRecordService(deps: RecordServiceDependencies = {}) {
         limit: params.limit,
         offset: params.offset,
         sort: params.sort,
-        projection: params.projection
+        projection: params.projection,
+        search: params.search
       })
     );
   }

@@ -352,7 +352,8 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
       limit: payload.limit,
       offset: payload.offset,
       sort: payload.sort,
-      projection: payload.projection
+      projection: payload.projection,
+      search: payload.search
     });
 
     const mode = payload.projection

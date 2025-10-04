@@ -431,6 +431,16 @@ export function buildSearchQuery(options: SearchOptions): {
     predicates.push(`(${buildFilter(builder, options.filter)})`);
   }
 
+  if (options.search) {
+    const searchTerm = options.search.trim();
+    if (searchTerm.length > 0) {
+      const placeholder = builder.add(searchTerm);
+      predicates.push(
+        `to_tsvector('simple', ${TABLE_NAME}.record_key || ' ' || COALESCE(${TABLE_NAME}.metadata::text, '')) @@ plainto_tsquery('simple', ${placeholder})`
+      );
+    }
+  }
+
   const whereClause = predicates.length > 0 ? `WHERE ${predicates.join(' AND ')}` : '';
   const orderClause = buildOrderBy(options.sort);
 
