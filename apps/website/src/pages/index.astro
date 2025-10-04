@@ -158,18 +158,19 @@ const observatoryTakeaways = [
             <strong>Heads-up:</strong> the unified UI is mid-polish and will keep changing rapidly—expect frequent visual and UX updates as we harden the experience.
           </p>
           <p>
-            <strong>Early access:</strong> AppHub is not production ready yet. We are in the final hardening sprint and expect to flip the production-ready switch within the next couple of weeks.
+            <strong>Early prototype:</strong> AppHub is pre-production and evolving in the open. We will announce production readiness once the community validates the full workflow.
           </p>
         </div>
         <div class="hero__actions">
           <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Book a module workshop</a>
           <a class="button button--secondary" href="/technical">Review the technical brief</a>
+          <a class="button button--ghost" href="https://demo.osiris-apphub.com" target="_blank" rel="noreferrer">Browse the live demo (read-only)</a>
           <a class="button button--ghost" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">View on GitHub</a>
         </div>
         <div class="hero__contributor">
           <strong>Join the crew:</strong>
           <span>
-            We are actively looking for open-source contributors and teammates for the Service Adoption team. If you want to shape onboarding playbooks or ship UI polish, email
+            We are actively looking for contributors across the stack—core services, SDKs, and this website. If you want to shape onboarding playbooks, harden the control plane, or ship UI polish, email
             <a href="mailto:osirisapphub@gmail.com">osirisapphub@gmail.com</a>.
           </span>
         </div>
@@ -326,7 +327,10 @@ const observatoryTakeaways = [
 
   <section class="services" aria-labelledby="services-heading">
     <div class="container services__inner">
-      <h2 id="services-heading" class="section-heading">What we offer today</h2>
+      <h2 id="services-heading" class="section-heading">Adoption services in the works</h2>
+      <p class="services__intro">
+        We are drafting these co-building tracks right now—adoption services are not yet available. Help us design and deliver them by contributing to the platform and playbooks.
+      </p>
       <div class="services__grid">
         {services.map((item) => (
           <article>
@@ -692,6 +696,12 @@ const observatoryTakeaways = [
   .services__inner {
     display: grid;
     gap: var(--apphub-spacing-xl);
+  }
+
+  .services__intro {
+    max-width: 65ch;
+    margin: 0 0 var(--apphub-spacing-md);
+    color: var(--apphub-color-text-muted);
   }
 
   .services__grid {
