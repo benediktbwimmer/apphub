@@ -154,6 +154,7 @@ function WorkflowsPageContent() {
 
   const [searchParams] = useSearchParams();
   const [manualRunDialogOpen, setManualRunDialogOpen] = useState(false);
+  const [acknowledgedManualRunId, setAcknowledgedManualRunId] = useState<string | null>(null);
 
   useEffect(() => {
     const slugParam = searchParams.get('slug');
@@ -176,11 +177,20 @@ function WorkflowsPageContent() {
     }
   }, [searchParams, runs, selectedRunId, setSelectedRunId]);
 
+  const lastTriggeredRunId = lastTriggeredRun?.id ?? null;
+
   useEffect(() => {
-    if (manualRunDialogOpen && lastTriggeredRun) {
-      setManualRunDialogOpen(false);
+    if (!manualRunDialogOpen || !lastTriggeredRunId) {
+      return;
     }
-  }, [manualRunDialogOpen, lastTriggeredRun]);
+
+    if (lastTriggeredRunId === acknowledgedManualRunId) {
+      return;
+    }
+
+    setManualRunDialogOpen(false);
+    setAcknowledgedManualRunId(lastTriggeredRunId);
+  }, [manualRunDialogOpen, lastTriggeredRunId, acknowledgedManualRunId]);
 
   const analytics = selectedSlug ? workflowAnalytics[selectedSlug] : undefined;
   const stats = analytics?.stats ?? null;
