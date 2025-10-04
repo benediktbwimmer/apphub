@@ -12,10 +12,38 @@ Redpanda backs AppHub's durable event log whenever `APPHUB_STREAMING_ENABLED=1`.
 | `apphub.core.events` | Authoritative stream of core domain events (apps, builds, launches) | 6 | 3 (1 in local/dev) | 7 days (`retention.ms=604800000`)
 | `apphub.ingestion.telemetry` | Ingestion metrics, partition build outcomes, and lifecycle traces | 6 | 3 (1 in local/dev) | 3 days (`259200000` ms)
 | `apphub.workflows.events` | Scheduler envelopes, trigger deliveries, and workflow step status | 6 | 3 (1 in local/dev) | 7 days (`604800000` ms)
+| `apphub.workflows.runs` | Workflow run lifecycle snapshots (`workflow.run.*` events) | 6 | 3 (1 in local/dev) | 7 days (`604800000` ms)
+| `apphub.jobs.runs` | Job run lifecycle events (`job.run.*`) with status transitions and metadata | 6 | 3 (1 in local/dev) | 7 days (`604800000` ms)
 | `apphub.streaming.input` | Raw windowed aggregation input used by the Flink sample job | 6 | 3 (1 in local/dev) | 7 days (`604800000` ms)
 | `apphub.streaming.aggregates` | Tumbling window output emitted by Flink and consumed by downstream services | 6 | 3 (1 in local/dev) | 7 days (`604800000` ms)
 
 Adjust retention via `rpk topic alter-config` as downstream storage needs evolve.
+
+## Feature Flags
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `APPHUB_STREAMING_ENABLED` | `false` | Boots Redpanda/Timestore streaming dependencies and enables runtime status checks. |
+| `APPHUB_STREAM_MIRROR_WORKFLOW_RUNS` | `false` | Mirror workflow run lifecycle changes into the workflow Redpanda topic. |
+| `APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS` | `false` | Mirror workflow event envelopes (step transitions, triggers) into Redpanda. |
+| `APPHUB_STREAM_MIRROR_JOB_RUNS` | `false` | Mirror job/build/launch lifecycle events for auditing. |
+| `APPHUB_STREAM_MIRROR_INGESTION` | `false` | Mirror ingestion telemetry and dataset ingest events for replay. |
+| `APPHUB_STREAM_MIRROR_CORE_EVENTS` | `false` | Mirror the general core domain event bus (repositories, services, assets). |
+
+Flip the per-producer mirrors alongside `APPHUB_STREAMING_ENABLED=1` once topics are provisioned and downstream ingestion (Flink/Timestore) is ready.
+
+Optional publisher controls:
+
+- `APPHUB_STREAM_CLIENT_ID` (default `apphub-core-stream`) customises the Kafka client id used for mirrored producers.
+- `APPHUB_STREAM_CONNECT_TIMEOUT_MS` (default `5000`) bounds producer connection attempts.
+- `APPHUB_STREAM_PUBLISH_TIMEOUT_MS` (default `10000`) bounds acknowledgement waits for mirrored messages.
+- `APPHUB_STREAM_TOPIC_WORKFLOW_RUNS` (default `apphub.workflows.runs`) controls where workflow run lifecycle mirrors are written.
+- `APPHUB_STREAM_TOPIC_WORKFLOW_EVENTS` (default `apphub.workflows.events`) overrides the workflow event mirror topic.
+- `APPHUB_STREAM_TOPIC_JOB_RUNS` (default `apphub.jobs.runs`) sets the topic for mirrored job run lifecycle events.
+- `APPHUB_STREAM_TOPIC_INGESTION` (default `apphub.ingestion.telemetry`) routes repository ingestion telemetry.
+- `APPHUB_STREAM_TOPIC_CORE_EVENTS` (default `apphub.core.events`) sets the topic for general core domain events (builds, launches, assets, services).
+
+Prometheus exports `apphub_stream_mirror_publish_total{result}` and `apphub_stream_mirror_publish_duration_ms{result}` from Core. Alert when `result="failure"` increases or duration p95 degrades.
 
 ## Local Development
 

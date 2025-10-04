@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { parseCronExpression, type ParserOptions } from '../workflows/cronParser';
 import type { PoolClient } from 'pg';
 import { emitApphubEvent } from '../events';
+import { mirrorWorkflowRunLifecycle } from '../streaming/workflowMirror';
 import {
   type WorkflowDefinitionCreateInput,
   type WorkflowDefinitionRecord,
@@ -533,9 +534,11 @@ function emitWorkflowRunEvents(run: WorkflowRunRecord | null, { forceUpdatedEven
   }
   if (forceUpdatedEvent) {
     emitApphubEvent({ type: 'workflow.run.updated', data: { run } });
+    mirrorWorkflowRunLifecycle('workflow.run.updated', run);
   }
   const statusEvent = `workflow.run.${run.status}` as const;
   emitApphubEvent({ type: statusEvent, data: { run } });
+  mirrorWorkflowRunLifecycle(statusEvent, run);
 }
 
 function extractStepAssetDeclarations(

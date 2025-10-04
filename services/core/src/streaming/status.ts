@@ -1,6 +1,7 @@
 import type { FeatureFlags } from '../config/featureFlags';
 import { getServiceBySlug } from '../db';
 import { fetchFromService } from '../clients/serviceClient';
+import { getMirrorDiagnostics, isKafkaPublisherConfigured } from './kafkaPublisher';
 
 export type StreamingOverallState = 'disabled' | 'ready' | 'degraded' | 'unconfigured';
 
@@ -50,6 +51,19 @@ export interface StreamingStatus {
   broker: StreamingBrokerStatus;
   batchers: StreamingBatcherStatusSummary;
   hotBuffer: StreamingHotBufferStatus;
+  mirrors?: FeatureFlags['streaming']['mirrors'];
+  publisher?: StreamingMirrorPublisherStatus;
+}
+
+export interface StreamingMirrorPublisherStatus {
+  configured: boolean;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  failureCount: number;
+  lastError: string | null;
+  broker: {
+    url: string | null;
+  };
 }
 
 function createFallbackStatus(
@@ -58,9 +72,11 @@ function createFallbackStatus(
     state: StreamingOverallState;
     reason: string | null;
     brokerConfigured: boolean;
+    mirrors: FeatureFlags['streaming']['mirrors'];
+    publisher?: StreamingMirrorPublisherStatus;
   }
 ): StreamingStatus {
-  const { enabled, state, reason, brokerConfigured } = options;
+  const { enabled, state, reason, brokerConfigured, mirrors, publisher } = options;
   const batcherState: StreamingBatcherStatusSummary['state'] = !enabled || !brokerConfigured
     ? 'disabled'
     : 'degraded';
@@ -100,7 +116,9 @@ function createFallbackStatus(
       state: batcherState,
       connectors: []
     },
-    hotBuffer
+    hotBuffer,
+    mirrors,
+    publisher
   } satisfies StreamingStatus;
 }
 
@@ -110,7 +128,9 @@ export async function evaluateStreamingStatus(flags: FeatureFlags): Promise<Stre
       enabled: false,
       state: 'disabled',
       reason: null,
-      brokerConfigured: false
+      brokerConfigured: false,
+      mirrors: flags.streaming.mirrors,
+      publisher: buildPublisherStatus()
     });
   }
 
@@ -122,7 +142,9 @@ export async function evaluateStreamingStatus(flags: FeatureFlags): Promise<Stre
       enabled: true,
       state: 'unconfigured',
       reason: 'APPHUB_STREAM_BROKER_URL is not set',
-      brokerConfigured: false
+      brokerConfigured: false,
+      mirrors: flags.streaming.mirrors,
+      publisher: buildPublisherStatus()
     });
   }
 
@@ -143,14 +165,64 @@ export async function evaluateStreamingStatus(flags: FeatureFlags): Promise<Stre
     }
 
     const payload = (await response.json()) as StreamingStatus;
-    return payload;
+    return {
+      ...payload,
+      mirrors: flags.streaming.mirrors,
+      publisher: buildPublisherStatus()
+    } satisfies StreamingStatus;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return createFallbackStatus({
       enabled: true,
       state: 'degraded',
       reason: `Failed to fetch streaming status: ${message}`,
-      brokerConfigured: true
+      brokerConfigured: true,
+      mirrors: flags.streaming.mirrors,
+      publisher: buildPublisherStatus()
     });
   }
+}
+
+function buildPublisherStatus(): StreamingMirrorPublisherStatus {
+  const diagnostics = getMirrorDiagnostics();
+  const brokerUrl = (process.env.APPHUB_STREAM_BROKER_URL ?? '').trim() || null;
+  const merged = mergeDiagnostics(diagnostics);
+
+  return {
+    configured: isKafkaPublisherConfigured(),
+    lastSuccessAt: merged.lastSuccessAt,
+    lastFailureAt: merged.lastFailureAt,
+    failureCount: merged.failureCount,
+    lastError: merged.lastError,
+    broker: {
+      url: brokerUrl
+    }
+  } satisfies StreamingMirrorPublisherStatus;
+}
+
+type MirrorDiagnosticsEntry = ReturnType<typeof getMirrorDiagnostics> extends Record<string, infer V> ? V : never;
+
+function mergeDiagnostics(entries: Record<string, MirrorDiagnosticsEntry>): {
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  failureCount: number;
+  lastError: string | null;
+} {
+  let lastSuccessAt: string | null = null;
+  let lastFailureAt: string | null = null;
+  let failureCount = 0;
+  let lastError: string | null = null;
+
+  for (const entry of Object.values(entries)) {
+    if (entry.lastSuccessAt && (!lastSuccessAt || entry.lastSuccessAt > lastSuccessAt)) {
+      lastSuccessAt = entry.lastSuccessAt;
+    }
+    if (entry.lastFailureAt && (!lastFailureAt || entry.lastFailureAt > lastFailureAt)) {
+      lastFailureAt = entry.lastFailureAt;
+      lastError = entry.lastError ?? lastError;
+    }
+    failureCount += entry.failureCount;
+  }
+
+  return { lastSuccessAt, lastFailureAt, failureCount, lastError };
 }

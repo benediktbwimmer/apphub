@@ -20,8 +20,18 @@ x-shared-env: &shared-env
   APPHUB_FILESTORE_BASE_URL: http://filestore:4300
   APPHUB_METASTORE_BASE_URL: http://metastore:4100
   APPHUB_TIMESTORE_BASE_URL: http://timestore:4200
-  APPHUB_STREAMING_ENABLED: ${APPHUB_STREAMING_ENABLED:-false}
+  APPHUB_STREAMING_ENABLED: ${APPHUB_STREAMING_ENABLED:-true}
   APPHUB_STREAM_BROKER_URL: ${APPHUB_STREAM_BROKER_URL:-redpanda:9092}
+  APPHUB_STREAM_MIRROR_WORKFLOW_RUNS: ${APPHUB_STREAM_MIRROR_WORKFLOW_RUNS:-true}
+  APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS: ${APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS:-true}
+  APPHUB_STREAM_MIRROR_JOB_RUNS: ${APPHUB_STREAM_MIRROR_JOB_RUNS:-true}
+  APPHUB_STREAM_MIRROR_INGESTION: ${APPHUB_STREAM_MIRROR_INGESTION:-true}
+  APPHUB_STREAM_MIRROR_CORE_EVENTS: ${APPHUB_STREAM_MIRROR_CORE_EVENTS:-true}
+  APPHUB_STREAM_TOPIC_WORKFLOW_RUNS: ${APPHUB_STREAM_TOPIC_WORKFLOW_RUNS:-apphub.workflows.runs}
+  APPHUB_STREAM_TOPIC_WORKFLOW_EVENTS: ${APPHUB_STREAM_TOPIC_WORKFLOW_EVENTS:-apphub.workflows.events}
+  APPHUB_STREAM_TOPIC_JOB_RUNS: ${APPHUB_STREAM_TOPIC_JOB_RUNS:-apphub.jobs.runs}
+  APPHUB_STREAM_TOPIC_INGESTION: ${APPHUB_STREAM_TOPIC_INGESTION:-apphub.ingestion.telemetry}
+  APPHUB_STREAM_TOPIC_CORE_EVENTS: ${APPHUB_STREAM_TOPIC_CORE_EVENTS:-apphub.core.events}
   APPHUB_FLINK_REST_URL: ${APPHUB_FLINK_REST_URL:-http://flink-jobmanager:8081}
   APPHUB_BUNDLE_STORAGE_BACKEND: s3
   APPHUB_BUNDLE_STORAGE_BUCKET: apphub-job-bundles
@@ -44,6 +54,9 @@ x-shared-env: &shared-env
   TIMESTORE_S3_FORCE_PATH_STYLE: "true"
   TIMESTORE_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-apphub}
   TIMESTORE_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-apphub123}
+  TIMESTORE_STREAMING_BUFFER_ENABLED: ${TIMESTORE_STREAMING_BUFFER_ENABLED:-true}
+  TIMESTORE_STREAMING_BUFFER_RETENTION_SECONDS: ${TIMESTORE_STREAMING_BUFFER_RETENTION_SECONDS:-300}
+  TIMESTORE_STREAMING_BATCHERS: ${TIMESTORE_STREAMING_BATCHERS:-""}
   AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-apphub}
   AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-apphub123}
   AWS_REGION: us-east-1
@@ -88,7 +101,7 @@ x-shared-env: &shared-env
 
 services:
   redpanda:
-    image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.12
     restart: unless-stopped
     command:
       - redpanda
@@ -115,8 +128,6 @@ services:
       - 0.0.0.0:8082
       - --advertise-pandaproxy-addr
       - redpanda:8082
-      - --dashboard-addr
-      - 0.0.0.0:9644
     healthcheck:
       test: ["CMD", "rpk", "cluster", "info"]
       interval: 10s
@@ -131,7 +142,7 @@ services:
         target: /var/lib/redpanda/data
 
   redpanda-init:
-    image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.12
     depends_on:
       redpanda:
         condition: service_healthy
@@ -139,10 +150,46 @@ services:
       bash -c "set -euo pipefail; \
       sleep 2; \
       rpk cluster info --brokers redpanda:9092 >/dev/null 2>&1; \
-      for topic in apphub.core.events apphub.ingestion.telemetry apphub.workflows.events apphub.streaming.input apphub.streaming.aggregates; do \
+      for topic in apphub.core.events apphub.ingestion.telemetry apphub.workflows.events apphub.workflows.runs apphub.jobs.runs apphub.streaming.input apphub.streaming.aggregates; do \
         rpk topic create \"$topic\" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
         rpk topic describe \"$topic\" --brokers redpanda:9092 >/dev/null 2>&1; \
       done"
+    restart: "no"
+
+  streaming-seed:
+    build:
+      <<: *build-config
+      target: streaming-runtime
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    environment:
+      APPHUB_STREAM_BROKER_URL: redpanda:9092
+      APPHUB_STREAM_INPUT_TOPIC: apphub.streaming.input
+    command: ["run", "seed:sample", "--workspace", "@apphub/streaming"]
+    restart: "no"
+
+  streaming-job-submit:
+    image: flink:1.19.1-scala_2.12
+    depends_on:
+      flink-jobmanager:
+        condition: service_started
+      streaming-seed:
+        condition: service_completed_successfully
+    environment:
+      APPHUB_STREAM_BROKER_URL: redpanda:9092
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/flink/checkpoints
+        target: /opt/flink/checkpoints
+      - type: bind
+        source: ../services/streaming/sample-jobs
+        target: /opt/apphub/sample-jobs:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      set -euo pipefail
+      sed "s|{{BROKER_BOOTSTRAP_SERVERS}}|${APPHUB_STREAM_BROKER_URL}|g" /opt/apphub/sample-jobs/tumbling-window.sql > /tmp/streaming-job.sql
+      ./bin/sql-client.sh -f /tmp/streaming-job.sql
     restart: "no"
 
   flink-jobmanager:
@@ -446,6 +493,8 @@ services:
     depends_on:
       timestore:
         condition: service_healthy
+      streaming-job-submit:
+        condition: service_completed_successfully
     environment:
       <<: *shared-env
     command: ["services/timestore/dist/workers/ingestionWorker.js"]

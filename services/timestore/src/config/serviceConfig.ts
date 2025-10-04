@@ -728,6 +728,191 @@ function parseStreamingBatchers(raw: string | undefined): StreamingBatcherConfig
   }
 }
 
+function resolveStreamTopic(env: NodeJS.ProcessEnv, key: string, fallback: string): string {
+  const value = env[key];
+  if (!value) {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+}
+
+function field(name: string, type: FieldDefinition['type']): FieldDefinition {
+  return { name, type } satisfies FieldDefinition;
+}
+
+function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcherConfig[] {
+  const workflowRunsTopic = resolveStreamTopic(env, 'APPHUB_STREAM_TOPIC_WORKFLOW_RUNS', 'apphub.workflows.runs');
+  const workflowEventsTopic = resolveStreamTopic(env, 'APPHUB_STREAM_TOPIC_WORKFLOW_EVENTS', 'apphub.workflows.events');
+  const jobRunsTopic = resolveStreamTopic(env, 'APPHUB_STREAM_TOPIC_JOB_RUNS', 'apphub.jobs.runs');
+  const ingestionTopic = resolveStreamTopic(env, 'APPHUB_STREAM_TOPIC_INGESTION', 'apphub.ingestion.telemetry');
+  const coreEventsTopic = resolveStreamTopic(env, 'APPHUB_STREAM_TOPIC_CORE_EVENTS', 'apphub.core.events');
+
+  const defaults: StreamingBatcherConfig[] = [
+    {
+      id: 'workflow-runs-stream',
+      topic: workflowRunsTopic,
+      groupId: 'timestore-stream-batcher-workflow-runs',
+      datasetSlug: 'workflow_runs_stream',
+      datasetName: 'Workflow Runs (Streaming)',
+      tableName: 'workflow_runs_stream',
+      schema: {
+        fields: [
+          field('source', 'string'),
+          field('emittedAt', 'timestamp'),
+          field('eventType', 'string'),
+          field('workflowDefinitionId', 'string'),
+          field('workflowRunId', 'string'),
+          field('status', 'string'),
+          field('runKey', 'string'),
+          field('triggeredBy', 'string'),
+          field('startedAt', 'timestamp'),
+          field('completedAt', 'timestamp'),
+          field('updatedAt', 'timestamp'),
+          field('durationMs', 'integer'),
+          field('payloadJson', 'string')
+        ]
+      },
+      timeField: 'emittedAt',
+      windowSeconds: 60,
+      maxRowsPerPartition: 1_000,
+      maxBatchLatencyMs: 30_000,
+      partitionKey: { dataset: 'workflow_runs_stream' },
+      partitionAttributes: { source: 'streaming' },
+      startFromEarliest: true
+    },
+    {
+      id: 'workflow-events-stream',
+      topic: workflowEventsTopic,
+      groupId: 'timestore-stream-batcher-workflow-events',
+      datasetSlug: 'workflow_events_stream',
+      datasetName: 'Workflow Events (Streaming)',
+      tableName: 'workflow_events_stream',
+      schema: {
+        fields: [
+          field('source', 'string'),
+          field('emittedAt', 'timestamp'),
+          field('eventType', 'string'),
+          field('eventSource', 'string'),
+          field('workflowEventId', 'string'),
+          field('occurredAt', 'timestamp'),
+          field('receivedAt', 'timestamp'),
+          field('correlationId', 'string'),
+          field('severity', 'string'),
+          field('workflowDefinitionId', 'string'),
+          field('workflowRunId', 'string'),
+          field('workflowRunStepId', 'string'),
+          field('jobRunId', 'string'),
+          field('jobSlug', 'string'),
+          field('workflowRunKey', 'string'),
+          field('derivedType', 'string'),
+          field('payloadJson', 'string'),
+          field('metadataJson', 'string'),
+          field('derivedPayloadJson', 'string'),
+          field('linksJson', 'string')
+        ]
+      },
+      timeField: 'emittedAt',
+      windowSeconds: 60,
+      maxRowsPerPartition: 1_000,
+      maxBatchLatencyMs: 30_000,
+      partitionKey: { dataset: 'workflow_events_stream' },
+      partitionAttributes: { source: 'streaming' },
+      startFromEarliest: true
+    },
+    {
+      id: 'job-runs-stream',
+      topic: jobRunsTopic,
+      groupId: 'timestore-stream-batcher-job-runs',
+      datasetSlug: 'job_runs_stream',
+      datasetName: 'Job Runs (Streaming)',
+      tableName: 'job_runs_stream',
+      schema: {
+        fields: [
+          field('source', 'string'),
+          field('emittedAt', 'timestamp'),
+          field('eventType', 'string'),
+          field('jobDefinitionId', 'string'),
+          field('jobRunId', 'string'),
+          field('status', 'string'),
+          field('attempt', 'integer'),
+          field('retryCount', 'integer'),
+          field('scheduledAt', 'timestamp'),
+          field('startedAt', 'timestamp'),
+          field('completedAt', 'timestamp'),
+          field('updatedAt', 'timestamp'),
+          field('durationMs', 'integer'),
+          field('failureReason', 'string'),
+          field('payloadJson', 'string')
+        ]
+      },
+      timeField: 'emittedAt',
+      windowSeconds: 60,
+      maxRowsPerPartition: 1_000,
+      maxBatchLatencyMs: 30_000,
+      partitionKey: { dataset: 'job_runs_stream' },
+      partitionAttributes: { source: 'streaming' },
+      startFromEarliest: true
+    },
+    {
+      id: 'ingestion-events-stream',
+      topic: ingestionTopic,
+      groupId: 'timestore-stream-batcher-ingestion-events',
+      datasetSlug: 'ingestion_events_stream',
+      datasetName: 'Ingestion Events (Streaming)',
+      tableName: 'ingestion_events_stream',
+      schema: {
+        fields: [
+          field('source', 'string'),
+          field('emittedAt', 'timestamp'),
+          field('eventType', 'string'),
+          field('ingestionId', 'integer'),
+          field('repositoryId', 'string'),
+          field('status', 'string'),
+          field('attempt', 'integer'),
+          field('commitSha', 'string'),
+          field('durationMs', 'integer'),
+          field('message', 'string'),
+          field('createdAt', 'timestamp'),
+          field('payloadJson', 'string')
+        ]
+      },
+      timeField: 'emittedAt',
+      windowSeconds: 60,
+      maxRowsPerPartition: 1_000,
+      maxBatchLatencyMs: 30_000,
+      partitionKey: { dataset: 'ingestion_events_stream' },
+      partitionAttributes: { source: 'streaming' },
+      startFromEarliest: true
+    },
+    {
+      id: 'core-events-stream',
+      topic: coreEventsTopic,
+      groupId: 'timestore-stream-batcher-core-events',
+      datasetSlug: 'core_events_stream',
+      datasetName: 'Core Events (Streaming)',
+      tableName: 'core_events_stream',
+      schema: {
+        fields: [
+          field('source', 'string'),
+          field('emittedAt', 'timestamp'),
+          field('eventType', 'string'),
+          field('payloadJson', 'string')
+        ]
+      },
+      timeField: 'emittedAt',
+      windowSeconds: 60,
+      maxRowsPerPartition: 1_000,
+      maxBatchLatencyMs: 30_000,
+      partitionKey: { dataset: 'core_events_stream' },
+      partitionAttributes: { source: 'streaming' },
+      startFromEarliest: true
+    }
+  ];
+
+  return defaults;
+}
+
 function parseConnectorBackpressure(raw: string | undefined): ConnectorBackpressureConfig {
   if (!raw) {
     return backpressureConfigSchema.parse({});
@@ -873,7 +1058,13 @@ export function loadServiceConfig(): ServiceConfig {
   const streamingFeatureEnabled = parseBoolean(env.APPHUB_STREAMING_ENABLED, false);
   const streamingConnectors = parseStreamingConnectors(env.TIMESTORE_STREAMING_CONNECTORS);
   const bulkConnectors = parseBulkConnectors(env.TIMESTORE_BULK_CONNECTORS);
-  const streamingBatchers = parseStreamingBatchers(env.TIMESTORE_STREAMING_BATCHERS);
+  const streamingBatchers = (() => {
+    const parsed = parseStreamingBatchers(env.TIMESTORE_STREAMING_BATCHERS);
+    if (parsed.length > 0) {
+      return parsed;
+    }
+    return buildDefaultStreamingBatchers(env);
+  })();
   const streamingBrokerUrlRaw = env.APPHUB_STREAM_BROKER_URL;
   const streamingBrokerUrl = streamingBrokerUrlRaw && streamingBrokerUrlRaw.trim().length > 0
     ? streamingBrokerUrlRaw.trim()

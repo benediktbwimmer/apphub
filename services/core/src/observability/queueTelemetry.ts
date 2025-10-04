@@ -69,3 +69,5 @@ export function getPrometheusMetrics(): Promise<string> {
 export function getPrometheusContentType(): string {
   return register.contentType;
 }
+
+export { register };

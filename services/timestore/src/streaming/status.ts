@@ -44,6 +44,7 @@ export interface StreamingStatus {
   broker: StreamingBrokerStatus;
   batchers: StreamingBatcherStatusSummary;
   hotBuffer: HotBufferStatus;
+  mirrors?: Record<string, boolean>;
 }
 
 function toIso(ms: number | null): string | null {

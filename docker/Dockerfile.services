@@ -65,6 +65,7 @@ RUN npm run build --workspace @apphub/core \
  && npm run build --workspace @apphub/timestore \
  && npm run build --workspace @apphub/filestore \
  && npm run build --workspace @apphub/filestore-client \
+ && npm run build --workspace @apphub/streaming \
  && npm run build --workspace @apphub/environmental-observatory-module
 
 RUN npm prune --omit=dev
@@ -111,6 +112,13 @@ RUN set -eux; \
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
+
+# Streaming helper runtime
+FROM runtime-base AS streaming-runtime
+COPY --from=builder /app/services/streaming ./services/streaming
+
+ENTRYPOINT ["npm"]
+CMD ["run", "seed:sample", "--workspace", "@apphub/streaming"]
 
 # Core runtime (API + workers share this image)
 FROM runtime-base AS core-runtime

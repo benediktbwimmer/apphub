@@ -18,6 +18,28 @@ This runbook codifies day-two procedures for AppHub's streaming stack (Redpanda,
 4. **Core** – once the above are green, start `npm run dev --workspace @apphub/core` and validate `/readyz` replies with status `ready`.
 5. **Smoke check** – run `npm run runSmoke --workspace @apphub/tests` or `apps/cli/bin/apphub status` to confirm streaming readiness.
 
+## Feature Toggles & Verification
+
+1. Ensure Redpanda topics exist: `rpk topic list | grep apphub.` should return `apphub.workflows.events`, `apphub.workflows.runs`, `apphub.jobs.runs`, `apphub.ingestion.telemetry`, and `apphub.core.events`.
+2. Flip producer mirrors via env vars / config:
+   - `APPHUB_STREAM_MIRROR_WORKFLOW_RUNS`
+   - `APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS`
+   - `APPHUB_STREAM_MIRROR_JOB_RUNS`
+   - `APPHUB_STREAM_MIRROR_INGESTION`
+   - `APPHUB_STREAM_MIRROR_CORE_EVENTS`
+3. Redeploy Core so the new flags take effect. On startup Core checks Kafka connectivity and logs warnings if the broker or topics are missing.
+4. Verify `/readyz` (or `apphub status`) shows the mirrors enabled and review the `publisher` block for recent success/failure timestamps.
+5. Confirm Timestore ingests mirrored datasets by querying:
+   ```bash
+   curl "$TIMESTORE_URL/streaming/status" | jq '.hotBuffer.datasets'
+   ```
+   and run ad-hoc queries against `workflow_runs_stream`, `workflow_events_stream`, `job_runs_stream`, `ingestion_events_stream`, `core_events_stream`.
+6. Run the developer validation script to exercise the pipeline end-to-end:
+   ```bash
+   npm run validate:streaming --workspace @apphub/core
+   ```
+   This publishes a synthetic workflow event through Core and waits for it to surface in Timestore.
+
 ## Failure Recovery
 
 ### Broker outage (Redpanda)
@@ -62,5 +84,8 @@ Track these signals to resize streaming components:
 - **Flush throughput** – `timestore_streaming_flush_duration_seconds` and `timestore_streaming_flush_rows` (increase batch parallelism or window size).
 - **Hot buffer footprint** – `timestore_streaming_hot_buffer_rows` and `timestore_streaming_hot_buffer_staleness_seconds` (tune `maxTotalRows`, `retentionSeconds`).
 - **Flink checkpoints** – `flink_jobmanager_job_last_checkpoint_duration` and `flink_jobmanager_checkpoint_failed_total` (scale TaskManagers or widen checkpoint interval).
+- **Mirror health** – `apphub_stream_mirror_publish_total{result="failure"}` and `apphub_stream_mirror_publish_duration_ms` (persistent failures indicate broker or schema issues). The `publisher` block in `/readyz` exposes the last success/failure timestamps; investigate if failures increase or the last success timestamp stalls.
+
+Dashboards should graph the mirror counters alongside batcher metrics so incidents involving Kafka mirrors are visible alongside ingest lag.
 
 Reassess quotas monthly or after onboarding a workload that emits >50k events/minute. Update `TIMESTORE_STREAMING_BATCHERS` window sizes and Redpanda retention accordingly.

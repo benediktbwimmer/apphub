@@ -1,9 +1,18 @@
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const FALSE_VALUES = new Set(['0', 'false', 'no', 'off']);
 
+export type StreamingMirrorFlags = {
+  workflowRuns: boolean;
+  workflowEvents: boolean;
+  jobRuns: boolean;
+  ingestion: boolean;
+  coreEvents: boolean;
+};
+
 export type FeatureFlags = {
   streaming: {
     enabled: boolean;
+    mirrors: StreamingMirrorFlags;
   };
 };
 
@@ -31,9 +40,17 @@ export function getFeatureFlags(): FeatureFlags {
     return cachedFlags;
   }
   const streamingEnabled = parseFlag(process.env.APPHUB_STREAMING_ENABLED, false);
+  const mirrorFlags: StreamingMirrorFlags = {
+    workflowRuns: parseFlag(process.env.APPHUB_STREAM_MIRROR_WORKFLOW_RUNS, false),
+    workflowEvents: parseFlag(process.env.APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS, false),
+    jobRuns: parseFlag(process.env.APPHUB_STREAM_MIRROR_JOB_RUNS, false),
+    ingestion: parseFlag(process.env.APPHUB_STREAM_MIRROR_INGESTION, false),
+    coreEvents: parseFlag(process.env.APPHUB_STREAM_MIRROR_CORE_EVENTS, false)
+  };
   cachedFlags = {
     streaming: {
-      enabled: streamingEnabled
+      enabled: streamingEnabled,
+      mirrors: mirrorFlags
     }
   };
   return cachedFlags;

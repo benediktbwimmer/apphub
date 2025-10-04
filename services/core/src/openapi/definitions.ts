@@ -2461,6 +2461,17 @@ const streamingStatusSchema: OpenAPIV3.SchemaObject = {
         lastRefreshAt: nullable(stringSchema('date-time')),
         lastIngestAt: nullable(stringSchema('date-time'))
       }
+    },
+    mirrors: {
+      type: 'object',
+      additionalProperties: { type: 'boolean' },
+      properties: {
+        workflowRuns: { type: 'boolean' },
+        workflowEvents: { type: 'boolean' },
+        jobRuns: { type: 'boolean' },
+        ingestion: { type: 'boolean' },
+        coreEvents: { type: 'boolean' }
+      }
     }
   }
 };

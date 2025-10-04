@@ -23,6 +23,7 @@
     "module:publish": "tsx src/scripts/publishModule.ts",
     "module:admin": "tsx src/scripts/moduleAdmin.ts",
     "module:services": "tsx src/moduleServices/runner.ts",
+    "validate:streaming": "tsx src/scripts/validateStreamingReplay.ts",
     "test:e2e": "tsx tests/liquidTemplateValidation.test.ts && tsx tests/moduleConfigDescriptor.test.ts && APPHUB_EVENTS_MODE=inline tsx tests/ingestion.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobs.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobRegistry.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/workflows.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobSandbox.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/adminNuke.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/eventTriggers.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/dockerImageImport.test.ts",
     "publish:ai-bundle": "tsx src/scripts/publishAiBundle.ts",
     "materializer": "tsx src/assetMaterializerWorker.ts"
@@ -48,6 +49,7 @@
     "bullmq": "^5.58.8",
     "cron-parser": "^4.9.0",
     "fastify": "^5.6.1",
+    "kafkajs": "^2.2.4",
     "ioredis": "^5.8.0",
     "jsonpath-plus": "^10.1.0",
     "liquidjs": "^10.13.0",
