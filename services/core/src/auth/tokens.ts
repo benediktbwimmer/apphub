@@ -29,7 +29,8 @@ type OperatorScope =
   | 'filestore:admin'
   | 'runtime:write'
   | 'timestore:sql:read'
-  | 'timestore:sql:exec';
+  | 'timestore:sql:exec'
+  | 'admin:danger-zone';
 
 const ALL_SCOPES: OperatorScope[] = [
   'jobs:read',
@@ -46,7 +47,8 @@ const ALL_SCOPES: OperatorScope[] = [
   'filestore:admin',
   'runtime:write',
   'timestore:sql:read',
-  'timestore:sql:exec'
+  'timestore:sql:exec',
+  'admin:danger-zone'
 ];
 
 export const OPERATOR_SCOPES: readonly OperatorScope[] = [...ALL_SCOPES];
@@ -66,7 +68,8 @@ const SCOPE_ALIASES: Record<OperatorScope, OperatorScope[]> = {
   'filestore:admin': ['filestore:write', 'filestore:read'],
   'runtime:write': [],
   'timestore:sql:read': [],
-  'timestore:sql:exec': ['timestore:sql:read']
+  'timestore:sql:exec': ['timestore:sql:read'],
+  'admin:danger-zone': []
 };
 
 type OperatorKind = 'user' | 'service';
@@ -288,6 +291,10 @@ function getTokenCache(): Map<string, TokenCacheEntry> {
     tokenCache = buildTokenCache();
   }
   return tokenCache;
+}
+
+export function resetOperatorTokenCache(): void {
+  tokenCache = null;
 }
 
 function extractBearerToken(input: unknown): string | null {

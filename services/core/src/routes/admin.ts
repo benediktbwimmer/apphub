@@ -48,7 +48,7 @@ import { getWorkflowEventById } from '../workflowEvents';
 import { buildWorkflowEventView } from '../workflowEventInsights';
 import { decodeWorkflowEventCursor, encodeWorkflowEventCursor } from '../workflowEventCursor';
 import { requireOperatorScopes } from './shared/operatorAuth';
-import { RUNTIME_SCALING_WRITE_SCOPES, WORKFLOW_RUN_SCOPES } from './shared/scopes';
+import { ADMIN_DANGER_SCOPES, RUNTIME_SCALING_WRITE_SCOPES, WORKFLOW_RUN_SCOPES } from './shared/scopes';
 import { getWorkflowSchedulerMetricsSnapshot } from '../workflowSchedulerMetrics';
 import { getWorkflowEventProducerSamplingSnapshot } from '../db/workflowEventSamples';
 import { replayWorkflowEventSampling } from '../eventSamplingReplay';
@@ -1165,6 +1165,16 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/admin/core/nuke/run-data', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'core.nuke.run-data',
+      resource: 'core',
+      requiredScopes: ADMIN_DANGER_SCOPES
+    });
+
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
     try {
       const counts = await nukeCoreRunData();
       request.log.warn(
@@ -1177,6 +1187,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         },
         'Core run data nuked'
       );
+      await authResult.auth.log('succeeded', {
+        operation: 'core.nuke.run-data',
+        counts
+      });
       reply.status(200);
       return {
         data: {
@@ -1187,12 +1201,26 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       };
     } catch (err) {
       request.log.error({ err }, 'Failed to nuke core run data');
+      await authResult.auth.log('failed', {
+        operation: 'core.nuke.run-data',
+        reason: err instanceof Error ? err.message : 'unknown_error'
+      });
       reply.status(500);
       return { error: 'Failed to nuke core run data' };
     }
   });
 
   app.post('/admin/core/nuke', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'core.nuke',
+      resource: 'core',
+      requiredScopes: ADMIN_DANGER_SCOPES
+    });
+
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
     try {
       const counts = await nukeCoreDatabase();
       resetServiceManifestState();
@@ -1214,6 +1242,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         },
         'Core database nuked'
       );
+      await authResult.auth.log('succeeded', {
+        operation: 'core.nuke',
+        counts
+      });
       reply.status(200);
       return {
         data: {
@@ -1226,12 +1258,26 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       };
     } catch (err) {
       request.log.error({ err }, 'Failed to nuke core database');
+      await authResult.auth.log('failed', {
+        operation: 'core.nuke',
+        reason: err instanceof Error ? err.message : 'unknown_error'
+      });
       reply.status(500);
       return { error: 'Failed to nuke core database' };
     }
   });
 
   app.post('/admin/core/nuke/everything', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'core.nuke.everything',
+      resource: 'core',
+      requiredScopes: ADMIN_DANGER_SCOPES
+    });
+
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
     try {
       const counts = await nukeCoreEverything();
       resetServiceManifestState();
@@ -1249,6 +1295,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         },
         'Entire core database nuked'
       );
+      await authResult.auth.log('succeeded', {
+        operation: 'core.nuke.everything',
+        totalRowsDeleted,
+        counts
+      });
       reply.status(200);
       return {
         data: {
@@ -1258,6 +1309,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       };
     } catch (err) {
       request.log.error({ err }, 'Failed to nuke entire core database');
+      await authResult.auth.log('failed', {
+        operation: 'core.nuke.everything',
+        reason: err instanceof Error ? err.message : 'unknown_error'
+      });
       reply.status(500);
       return { error: 'Failed to nuke entire core database' };
     }

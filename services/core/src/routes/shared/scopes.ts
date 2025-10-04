@@ -12,3 +12,4 @@ export const RUNTIME_SCALING_WRITE_SCOPES: OperatorScope[] = ['runtime:write'];
 export const OBSERVATORY_READ_SCOPES: OperatorScope[] = ['filestore:read'];
 export const OBSERVATORY_WRITE_SCOPES: OperatorScope[] = ['filestore:write'];
 export const OBSERVATORY_REPROCESS_SCOPES: OperatorScope[] = ['filestore:write', 'workflows:run'];
+export const ADMIN_DANGER_SCOPES: OperatorScope[] = ['admin:danger-zone'];
