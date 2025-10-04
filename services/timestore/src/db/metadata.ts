@@ -1374,6 +1374,43 @@ export async function getStreamingWatermark(
   });
 }
 
+export async function listStreamingWatermarks(): Promise<StreamingWatermarkRecord[]> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query(
+      `SELECT connector_id,
+              dataset_id,
+              dataset_slug,
+              sealed_through,
+              backlog_lag_ms,
+              records_processed,
+              updated_at
+         FROM streaming_watermarks`
+    );
+
+    return rows.map((row) => {
+      const record = row as {
+        connector_id: string;
+        dataset_id: string;
+        dataset_slug: string;
+        sealed_through: Date;
+        backlog_lag_ms: number;
+        records_processed: string | number;
+        updated_at: Date;
+      };
+
+      return {
+        connectorId: record.connector_id,
+        datasetId: record.dataset_id,
+        datasetSlug: record.dataset_slug,
+        sealedThrough: new Date(record.sealed_through).toISOString(),
+        backlogLagMs: Number(record.backlog_lag_ms ?? 0),
+        recordsProcessed: Number(record.records_processed ?? 0),
+        updatedAt: new Date(record.updated_at).toISOString()
+      } satisfies StreamingWatermarkRecord;
+    });
+  });
+}
+
 export interface DatasetAccessAuditCursor {
   createdAt: string;
   id: string;

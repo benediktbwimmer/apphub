@@ -71,7 +71,7 @@ export interface StreamingBatcherConfig {
   topic: string;
   groupId: string;
   datasetSlug: string;
-  datasetName?: string;
+  datasetName: string;
   tableName: string;
   schema: {
     fields: FieldDefinition[];
@@ -85,9 +85,19 @@ export interface StreamingBatcherConfig {
   startFromEarliest: boolean;
 }
 
+export interface StreamingHotBufferConfig {
+  enabled: boolean;
+  retentionSeconds: number;
+  maxRowsPerDataset: number;
+  maxTotalRows?: number;
+  refreshWatermarkMs: number;
+  fallbackMode: 'parquet_only' | 'error';
+}
+
 export interface StreamingRuntimeConfig {
   brokerUrl: string | null;
   batchers: StreamingBatcherConfig[];
+  hotBuffer: StreamingHotBufferConfig;
 }
 
 const retentionRuleSchema = z.object({
@@ -231,12 +241,13 @@ const streamingBatcherSchema = z
     const tableName = value.tableName
       ? value.tableName
       : value.datasetSlug.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 120);
+    const datasetName = value.datasetName ?? value.datasetSlug;
     return {
       id: value.id,
       topic: value.topic,
       groupId: value.groupId ?? `timestore-stream-batcher-${value.id}`,
       datasetSlug: value.datasetSlug,
-      datasetName: value.datasetName,
+      datasetName,
       tableName,
       schema: value.schema,
       timeField: value.timeField,
@@ -249,9 +260,33 @@ const streamingBatcherSchema = z
     } satisfies StreamingBatcherConfig;
   });
 
+const streamingHotBufferSchema = z
+  .object({
+    enabled: z.boolean(),
+    retentionSeconds: z.number().int().positive().default(300),
+    maxRowsPerDataset: z.number().int().positive().default(10_000),
+    maxTotalRows: z.number().int().positive().optional(),
+    refreshWatermarkMs: z.number().int().positive().default(5_000),
+    fallbackMode: z.enum(['parquet_only', 'error']).default('parquet_only')
+  })
+  .transform((value) => {
+    const normalized: StreamingHotBufferConfig = {
+      enabled: value.enabled,
+      retentionSeconds: value.retentionSeconds,
+      maxRowsPerDataset: value.maxRowsPerDataset,
+      refreshWatermarkMs: value.refreshWatermarkMs,
+      fallbackMode: value.fallbackMode
+    };
+    if (value.maxTotalRows !== undefined) {
+      normalized.maxTotalRows = value.maxTotalRows;
+    }
+    return normalized;
+  });
+
 const streamingRuntimeSchema = z.object({
   brokerUrl: z.string().min(1).nullable(),
-  batchers: z.array(streamingBatcherSchema)
+  batchers: z.array(streamingBatcherSchema),
+  hotBuffer: streamingHotBufferSchema
 });
 
 const bulkConnectorSchema = z
@@ -565,22 +600,22 @@ function resolvePartitionIndexColumns(env: {
   }
 
   const combinedNames = new Set<string>([
-    ...columns,
-    ...histogramColumns,
-    ...bloomColumns
+    ...Array.from(columns),
+    ...Array.from(histogramColumns),
+    ...Array.from(bloomColumns)
   ]);
   const results: PartitionIndexColumnConfig[] = [];
-  for (const name of combinedNames) {
+  combinedNames.forEach((name) => {
     const trimmed = name.trim();
     if (!trimmed) {
-      continue;
+      return;
     }
     results.push({
       name: trimmed,
       histogram: histogramColumns.has(trimmed),
       bloom: bloomColumns.has(trimmed)
     });
-  }
+  });
   return dedupePartitionIndexColumns(results);
 }
 
@@ -843,6 +878,20 @@ export function loadServiceConfig(): ServiceConfig {
   const streamingBrokerUrl = streamingBrokerUrlRaw && streamingBrokerUrlRaw.trim().length > 0
     ? streamingBrokerUrlRaw.trim()
     : null;
+  const streamingBufferEnabled = parseBoolean(env.TIMESTORE_STREAMING_BUFFER_ENABLED, streamingFeatureEnabled);
+  const streamingBufferRetentionSeconds = parseNumber(env.TIMESTORE_STREAMING_BUFFER_RETENTION_SECONDS, 120);
+  const streamingBufferMaxRowsPerDataset = parseNumber(env.TIMESTORE_STREAMING_BUFFER_MAX_ROWS_PER_DATASET, 10_000);
+  const streamingBufferMaxTotalRowsRaw = env.TIMESTORE_STREAMING_BUFFER_MAX_TOTAL_ROWS;
+  const streamingBufferMaxTotalRows = streamingBufferMaxTotalRowsRaw
+    ? Math.max(0, parseNumber(streamingBufferMaxTotalRowsRaw, 0))
+    : 0;
+  const streamingBufferRefreshMs = parseNumber(env.TIMESTORE_STREAMING_BUFFER_REFRESH_MS, 5_000);
+  const streamingBufferFallbackRaw = (env.TIMESTORE_STREAMING_BUFFER_FALLBACK || 'parquet_only')
+    .trim()
+    .toLowerCase();
+  const streamingBufferFallback: 'parquet_only' | 'error' = streamingBufferFallbackRaw === 'error'
+    ? 'error'
+    : 'parquet_only';
   const connectorBackpressure = parseConnectorBackpressure(env.TIMESTORE_CONNECTOR_BACKPRESSURE);
   const connectorsEnabled = parseBoolean(
     env.TIMESTORE_CONNECTORS_ENABLED,
@@ -937,7 +986,19 @@ export function loadServiceConfig(): ServiceConfig {
     },
     streaming: {
       brokerUrl: streamingBrokerUrl,
-      batchers: streamingBatchers
+      batchers: streamingBatchers as StreamingBatcherConfig[],
+      hotBuffer: {
+        enabled: streamingBufferEnabled,
+        retentionSeconds: streamingBufferRetentionSeconds > 0
+          ? streamingBufferRetentionSeconds
+          : 120,
+        maxRowsPerDataset: streamingBufferMaxRowsPerDataset > 0
+          ? streamingBufferMaxRowsPerDataset
+          : 10_000,
+        maxTotalRows: streamingBufferMaxTotalRows > 0 ? streamingBufferMaxTotalRows : undefined,
+        refreshWatermarkMs: streamingBufferRefreshMs > 0 ? streamingBufferRefreshMs : 5_000,
+        fallbackMode: streamingBufferFallback
+      }
     },
     partitionIndex: {
       columns: partitionIndexColumns,

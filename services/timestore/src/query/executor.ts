@@ -23,6 +23,7 @@ import type {
   TimestampPartitionKeyPredicate
 } from '../types/partitionFilters';
 import { assessPartitionAccessError } from './partitionDiagnostics';
+import { queryStreamingHotBuffer, getStreamingHotBufferStatus } from '../streaming/hotBuffer';
 
 interface QueryResultRow {
   [key: string]: unknown;
@@ -43,18 +44,32 @@ export interface QueryExecutionResult {
   columns: string[];
   mode: 'raw' | 'downsampled';
   warnings: string[];
+  streaming?: QueryStreamingMetadata;
+}
+
+export interface QueryStreamingMetadata {
+  enabled: boolean;
+  bufferState: 'disabled' | 'ready' | 'unavailable';
+  rows: number;
+  watermark: string | null;
+  latestTimestamp: string | null;
+  fresh: boolean;
 }
 
 export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
   const { backend } = plan.execution;
+  let baseResult: QueryExecutionResult;
   switch (backend.kind) {
     case 'duckdb_local':
-      return executeDuckDbPlan(plan);
+      baseResult = await executeDuckDbPlan(plan);
+      break;
     case 'duckdb_cluster':
-      return executeClusteredDuckDbPlan(plan, backend);
+      baseResult = await executeClusteredDuckDbPlan(plan, backend);
+      break;
     default:
       throw new Error(`Unsupported query execution backend: ${backend.kind}`);
   }
+  return applyStreamingOverlay(plan, baseResult);
 }
 
 async function executeClusteredDuckDbPlan(
@@ -135,6 +150,157 @@ function mergeClusterResults(results: QueryExecutionResult[], plan: QueryPlan): 
     mode: 'raw',
     warnings: dedupeWarnings(results.flatMap((result) => result.warnings ?? []))
   } satisfies QueryExecutionResult;
+}
+
+function applyStreamingOverlay(plan: QueryPlan, baseResult: QueryExecutionResult): QueryExecutionResult {
+  const config = loadServiceConfig();
+  const streamingEnabled = config.features.streaming.enabled && config.streaming.hotBuffer.enabled;
+  const status = getStreamingHotBufferStatus();
+  const warnings = [...baseResult.warnings];
+
+  const streamingMetadata: QueryStreamingMetadata = {
+    enabled: streamingEnabled,
+    bufferState: streamingEnabled ? status.state : 'disabled',
+    rows: 0,
+    watermark: null,
+    latestTimestamp: null,
+    fresh: streamingEnabled ? status.state === 'ready' : true
+  } satisfies QueryStreamingMetadata;
+
+  if (!streamingEnabled || status.state === 'disabled' || plan.mode !== 'raw') {
+    return {
+      ...baseResult,
+      warnings: dedupeWarnings(warnings),
+      streaming: streamingMetadata
+    } satisfies QueryExecutionResult;
+  }
+
+  const hotBufferResult = queryStreamingHotBuffer(plan.datasetSlug, {
+    rangeStart: plan.rangeStart,
+    rangeEnd: plan.rangeEnd,
+    limit: plan.limit,
+    timestampColumn: plan.timestampColumn
+  });
+
+  if (hotBufferResult.bufferState === 'unavailable') {
+    if (config.streaming.hotBuffer.fallbackMode === 'error') {
+      throw new Error('Streaming hot buffer is unavailable and fallback mode is set to error.');
+    }
+    warnings.push('Streaming hot buffer unavailable; served Parquet partitions only.');
+    return {
+      ...baseResult,
+      warnings: dedupeWarnings(warnings),
+      streaming: {
+        ...streamingMetadata,
+        bufferState: 'unavailable',
+        fresh: false
+      }
+    } satisfies QueryExecutionResult;
+  }
+
+  const streamingRows = hotBufferResult.rows ?? [];
+  if (streamingRows.length === 0) {
+    return {
+      ...baseResult,
+      warnings: dedupeWarnings(warnings),
+      streaming: {
+        ...streamingMetadata,
+        bufferState: hotBufferResult.bufferState,
+        watermark: hotBufferResult.watermark,
+        latestTimestamp: hotBufferResult.latestTimestamp,
+        fresh: determineFreshness(hotBufferResult.latestTimestamp, plan.rangeEnd)
+      }
+    } satisfies QueryExecutionResult;
+  }
+
+  const baseRows = [...baseResult.rows];
+  const combinedRows = [...baseRows, ...streamingRows];
+  const streamingRowSet = new Set(streamingRows);
+  combinedRows.sort((a, b) => compareRowsByTimestamp(a, b, plan.timestampColumn));
+
+  let limitedRows = combinedRows;
+  if (plan.limit && plan.limit > 0 && combinedRows.length > plan.limit) {
+    limitedRows = combinedRows.slice(0, plan.limit);
+  }
+
+  const streamingIncluded = limitedRows.reduce(
+    (count, row) => (streamingRowSet.has(row) ? count + 1 : count),
+    0
+  );
+  const unifiedColumns = mergeColumns(baseResult.columns, limitedRows);
+
+  return {
+    ...baseResult,
+    rows: limitedRows,
+    columns: unifiedColumns,
+    warnings: dedupeWarnings(warnings),
+    streaming: {
+      enabled: true,
+      bufferState: hotBufferResult.bufferState,
+      rows: streamingIncluded,
+      watermark: hotBufferResult.watermark,
+      latestTimestamp: hotBufferResult.latestTimestamp,
+      fresh: determineFreshness(hotBufferResult.latestTimestamp, plan.rangeEnd)
+    }
+  } satisfies QueryExecutionResult;
+}
+
+function determineFreshness(latestTimestamp: string | null, rangeEnd: Date): boolean {
+  if (!latestTimestamp) {
+    return false;
+  }
+  const parsed = Date.parse(latestTimestamp);
+  if (Number.isNaN(parsed)) {
+    return false;
+  }
+  return parsed >= rangeEnd.getTime();
+}
+
+function compareRowsByTimestamp(
+  left: QueryResultRow,
+  right: QueryResultRow,
+  column: string
+): number {
+  const leftValue = toTimestampMs(left[column]);
+  const rightValue = toTimestampMs(right[column]);
+  if (leftValue === null && rightValue === null) {
+    return 0;
+  }
+  if (leftValue === null) {
+    return 1;
+  }
+  if (rightValue === null) {
+    return -1;
+  }
+  return leftValue - rightValue;
+}
+
+function toTimestampMs(value: unknown): number | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.getTime();
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+function mergeColumns(baseColumns: string[], rows: QueryResultRow[]): string[] {
+  const seen = new Set(baseColumns);
+  const merged = [...baseColumns];
+  for (const row of rows) {
+    for (const column of Object.keys(row)) {
+      if (!seen.has(column)) {
+        seen.add(column);
+        merged.push(column);
+      }
+    }
+  }
+  return merged;
 }
 
 async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult> {

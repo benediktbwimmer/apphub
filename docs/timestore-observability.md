@@ -17,6 +17,11 @@ Metrics are exposed via the Fastify `/metrics` endpoint and follow the `timestor
 | `timestore_query_duration_seconds` | Histogram | `dataset`, `mode` | End-to-end query execution time. |
 | `timestore_query_row_count` | Histogram | `dataset`, `mode` | Result row volume for sizing dashboards. |
 | `timestore_query_remote_partitions_total` | Counter | `dataset`, `cache_enabled` | Remote partition fetches, useful for cache hit/miss ratios (compare with total queries). |
+| `timestore_streaming_records_total` | Counter | `dataset`, `connector` | Streaming records processed by the micro-batcher/hot buffer loop. |
+| `timestore_streaming_flush_duration_seconds` | Histogram | `dataset`, `connector`, `reason` | Latency for streaming window flushes (max-rows, timer, shutdown). |
+| `timestore_streaming_flush_rows` | Histogram | `dataset`, `connector` | Row volume emitted per streaming flush. |
+| `timestore_streaming_backlog_seconds` | Gauge | `dataset`, `connector` | Lag between the sealed partition watermark and the newest buffered streaming event. |
+| `timestore_streaming_open_windows` | Gauge | `dataset`, `connector` | Number of streaming windows still held in the in-memory hot buffer. |
 | `timestore_lifecycle_jobs_total` | Counter | `dataset`, `status` | Lifecycle job execution outcomes. |
 | `timestore_lifecycle_job_duration_seconds` | Histogram | `status` | Lifecycle execution latency. |
 | `timestore_lifecycle_operations_total` | Counter | `operation`, `status` | Compaction, retention, and parquet export summaries. |
@@ -32,6 +37,7 @@ Metrics are exposed via the Fastify `/metrics` endpoint and follow the `timestor
 - **Query latency**: alert on `histogram_quantile(0.95, rate(timestore_query_duration_seconds_bucket[5m])) > 2` seconds.
 - **Lifecycle failures**: page when `increase(timestore_lifecycle_jobs_total{status="failed"}[30m]) >= 1`.
 - **Remote partition spikes**: track ratio `rate(timestore_query_remote_partitions_total[5m]) / rate(timestore_query_requests_total[5m])` to catch cache regressions.
+- **Streaming freshness**: alert if `timestore_streaming_backlog_seconds` stays above 120s or `timestore_streaming_open_windows` grows unexpectedly—both indicate the hot buffer is falling behind the micro-batcher.
 
 ## Tracing
 

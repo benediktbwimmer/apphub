@@ -2665,6 +2665,51 @@
             "items": {
               "type": "string"
             }
+          },
+          "streaming": {
+            "type": "object",
+            "required": [
+              "enabled",
+              "bufferState",
+              "rows",
+              "fresh"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Indicates whether streaming integration was active for the query."
+              },
+              "bufferState": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "ready",
+                  "unavailable"
+                ],
+                "description": "State of the streaming hot buffer during query execution."
+              },
+              "rows": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Number of streaming rows merged into the response."
+              },
+              "watermark": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "latestTimestamp": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "fresh": {
+                "type": "boolean",
+                "description": "True when streaming data covers the requested range end."
+              }
+            },
+            "nullable": true
           }
         }
       },
@@ -6200,6 +6245,57 @@
             "description": "Non-fatal issues encountered while executing the query.",
             "items": {
               "type": "string"
+            }
+          },
+          "streaming": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "required": [
+              "enabled",
+              "bufferState",
+              "rows",
+              "fresh"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Indicates whether streaming integration was active for the query."
+              },
+              "bufferState": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "ready",
+                  "unavailable"
+                ],
+                "description": "State of the streaming hot buffer during query execution."
+              },
+              "rows": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Number of streaming rows merged into the response."
+              },
+              "watermark": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "format": "date-time"
+              },
+              "latestTimestamp": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "format": "date-time"
+              },
+              "fresh": {
+                "type": "boolean",
+                "description": "True when streaming data covers the requested range end."
+              }
             }
           }
         },

@@ -69,6 +69,8 @@ The repo ships a SQL-based demo that consumes events from Redpanda, performs a 1
 
 AppHub's timestore service includes a Redpanda-backed micro-batcher that consumes `apphub.streaming.aggregates`, groups records by dataset window, and publishes Parquet partitions via the standard ingestion pipeline. Configure batchers with `TIMESTORE_STREAMING_BATCHERS`—each descriptor specifies the dataset slug, schema, timestamp field, partition keys, and window duration. Once enabled, the worker updates watermarks (`streaming_watermarks` table) so hybrid queries can distinguish sealed intervals from hot streaming windows.
 
+With `TIMESTORE_STREAMING_BUFFER_ENABLED=1`, timestore also keeps a short-lived hot buffer of streaming rows. Queries that target a range newer than the latest sealed partition automatically merge Parquet results with buffered events, returning a `streaming` metadata block that advertises buffer health, watermark timestamp, and freshness.
+
 ## Checkpoints & Savepoints
 
 - **Compose / E2E** – Mounted volume `./docker/demo-data/flink/checkpoints` keeps checkpoints between restarts. Remove the directory to reset state.
