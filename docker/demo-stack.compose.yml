@@ -21,14 +21,14 @@ x-shared-env: &shared-env
   APPHUB_METASTORE_BASE_URL: http://metastore:4100
   APPHUB_TIMESTORE_BASE_URL: http://timestore:4200
   APPHUB_BUNDLE_STORAGE_BACKEND: s3
-  APPHUB_BUNDLE_STORAGE_BUCKET: apphub-example-bundles
+  APPHUB_BUNDLE_STORAGE_BUCKET: apphub-job-bundles
   APPHUB_BUNDLE_STORAGE_ENDPOINT: http://minio:9000
   APPHUB_BUNDLE_STORAGE_REGION: us-east-1
   APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE: "true"
   APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-apphub}
   APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-apphub123}
   APPHUB_JOB_BUNDLE_STORAGE_BACKEND: s3
-  APPHUB_JOB_BUNDLE_S3_BUCKET: apphub-example-bundles
+  APPHUB_JOB_BUNDLE_S3_BUCKET: apphub-job-bundles
   APPHUB_JOB_BUNDLE_S3_ENDPOINT: http://minio:9000
   APPHUB_JOB_BUNDLE_S3_REGION: us-east-1
   APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE: "true"
@@ -251,22 +251,6 @@ services:
         source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
         target: /var/lib/apphub/scratch
 
-  core-examples:
-    build:
-      <<: *build-config
-      target: core-runtime
-    restart: unless-stopped
-    depends_on:
-      core-api:
-        condition: service_healthy
-    environment:
-      <<: *shared-env
-    command: ["node", "services/core/dist/exampleBundleWorker.js"]
-    volumes:
-      - type: bind
-        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
-        target: /var/lib/apphub/scratch
-
   metastore:
     build:
       <<: *build-config
@@ -389,7 +373,7 @@ services:
     environment:
       <<: *shared-env
       LOG_LEVEL: info
-    command: ["tsx", "examples/environmental-observatory-event-driven/scripts/deploy.ts"]
+    command: ["tsx", "modules/environmental-observatory/scripts/deploy.ts"]
     volumes:
       - type: bind
         source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch

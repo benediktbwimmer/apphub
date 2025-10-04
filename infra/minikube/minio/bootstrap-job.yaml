@@ -37,11 +37,11 @@ spec:
               done
 
               echo "Creating required buckets (idempotent)..."
-              mc mb --ignore-existing apphub/apphub-example-bundles
+              mc mb --ignore-existing apphub/apphub-job-bundles
               mc mb --ignore-existing apphub/apphub-filestore
               mc mb --ignore-existing apphub/apphub-timestore
 
-              echo "Ensuring public-read policy for example bundles..."
-              mc anonymous set download apphub/apphub-example-bundles || true
+              echo "Ensuring public-read policy for job bundles..."
+              mc anonymous set download apphub/apphub-job-bundles || true
 
               echo "MinIO bootstrap complete."

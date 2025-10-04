@@ -20,12 +20,6 @@
   ],
   "references": [
     {
-      "path": "../../packages/examples"
-    },
-    {
-      "path": "../../packages/example-bundler"
-    },
-    {
       "path": "../../packages/shared"
     },
     {

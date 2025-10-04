@@ -114,7 +114,12 @@ test('triggers bump node version and touch timestamps', async () => {
       `INSERT INTO nodes (backend_mount_id, path, name, depth, kind)
        VALUES ($1, $2, $3, $4, 'file')
        RETURNING id, version`,
-      [mountId, 'examples/hello.txt', 'hello.txt', 2]
+      [
+        mountId,
+        'modules/environmental-observatory/resources/README.md',
+        'README.md',
+        4
+      ]
     );
 
     assert.equal(node.rowCount, 1);

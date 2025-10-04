@@ -1,0 +1,41 @@
+{
+  "services": [
+    {
+      "slug": "observatory-dashboard",
+      "displayName": "Observatory Dashboard",
+      "kind": "dashboard",
+      "baseUrl": "http://127.0.0.1:4311",
+      "healthEndpoint": "/healthz",
+      "devCommand": "npm run dev",
+      "workingDir": "modules/environmental-observatory/resources/services/observatory-dashboard",
+      "env": [
+        { "key": "HOST", "value": "0.0.0.0" },
+        { "key": "PORT", "value": "4311" },
+        {
+          "key": "OBSERVATORY_CONFIG_PATH",
+          "value": "${OBSERVATORY_CONFIG_PATH}"
+        },
+        {
+          "key": "OBSERVATORY_DATA_ROOT",
+          "value": "${OBSERVATORY_DATA_ROOT}"
+        },
+        { "key": "DASHBOARD_REFRESH_MS", "value": "10000" }
+      ]
+    },
+    {
+      "slug": "observatory-admin",
+      "displayName": "Observatory Admin",
+      "kind": "admin-ui",
+      "baseUrl": "http://127.0.0.1:4322",
+      "healthEndpoint": "/",
+      "devCommand": "npm run dev",
+      "workingDir": "modules/environmental-observatory/resources/services/observatory-admin",
+      "env": [
+        { "key": "HOST", "value": "0.0.0.0" },
+        { "key": "PORT", "value": "4322" },
+        { "key": "VITE_API_BASE_URL", "value": "http://127.0.0.1:4000" },
+        { "key": "VITE_API_TOKEN", "value": "${APPHUB_OPERATOR_TOKEN:-}" }
+      ]
+    }
+  ]
+}

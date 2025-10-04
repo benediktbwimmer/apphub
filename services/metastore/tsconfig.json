@@ -19,9 +19,6 @@
       "path": "../../packages/shared"
     },
     {
-      "path": "../../packages/examples"
-    },
-    {
       "path": "../../packages/event-bus"
     }
   ]

@@ -1,6 +1,5 @@
 import type { KeyboardEventHandler } from 'react';
 import type { WorkflowEventRecordView } from '@apphub/shared/coreEvents';
-import type { ExampleBundleStatus } from '../import/exampleBundles';
 import type { SavedSearch, SavedSearchCreateInput } from '../savedSearches/types';
 
 export type TagKV = {
@@ -270,7 +269,6 @@ export type CoreSocketEvent =
   | { type: 'job.run.failed'; data: { run: unknown } }
   | { type: 'job.run.canceled'; data: { run: unknown } }
   | { type: 'job.run.expired'; data: { run: unknown } }
-  | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
   | { type: 'workflow.analytics.snapshot'; data: unknown };
 
 export type SearchParseResult = {

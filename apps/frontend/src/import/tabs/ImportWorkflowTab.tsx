@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
 import {
   FormActions,
   FormButton,
@@ -17,37 +18,20 @@ import {
   type WorkflowCreateInput
 } from '../../workflows/api';
 import type { WorkflowDefinition } from '../../workflows/types';
-import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
-import type { WorkflowScenario } from '../examples';
 import {
   BODY_TEXT,
   CARD_SECTION,
-  CARD_SURFACE_ACTIVE,
+  HEADING_SECONDARY,
   LINK_ACCENT,
   POSITIVE_SURFACE,
   SECTION_LABEL,
-  SECONDARY_BUTTON,
-  STATUS_META,
+  STATUS_MESSAGE,
   TEXTAREA
 } from '../importTokens';
 
 const JSON_TEXTAREA = `${TEXTAREA} min-h-[320px] font-mono`;
 
 const WORKFLOW_DOC_URL = 'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#workflows';
-
-type DependencyStatus = {
-  status: 'idle' | 'checking' | 'valid' | 'invalid';
-  missing: string[];
-  message: string | null;
-  checkedAt: number | null;
-};
-
-const INITIAL_DEPENDENCY_STATUS: DependencyStatus = {
-  status: 'idle',
-  missing: [],
-  message: null,
-  checkedAt: null
-};
 
 function isJobStep(step: WorkflowCreateInput['steps'][number]): step is WorkflowCreateInput['steps'][number] & { jobSlug: string } {
   return Boolean(step && typeof (step as { jobSlug?: unknown }).jobSlug === 'string');
@@ -64,40 +48,26 @@ function extractJobSlugs(spec: WorkflowCreateInput | null): string[] {
   return Array.from(new Set(slugs));
 }
 
-type ImportWorkflowTabProps = {
-  scenario?: WorkflowScenario | null;
-  scenarioRequestToken?: number;
-  onScenarioCleared?: () => void;
-  scenarioOptions?: { id: string; title: string }[];
-  activeScenarioId?: string | null;
-  onScenarioSelected?: (id: string) => void;
-};
-
-export default function ImportWorkflowTab({
-  scenario,
-  scenarioRequestToken,
-  onScenarioCleared,
-  scenarioOptions,
-  activeScenarioId,
-  onScenarioSelected
-}: ImportWorkflowTabProps) {
+export default function ImportWorkflowTab() {
   const authorizedFetch = useAuthorizedFetch();
   const { pushToast } = useToasts();
   const { trackEvent } = useAnalytics();
   const [inputText, setInputText] = useState('');
   const [workflowSpec, setWorkflowSpec] = useState<WorkflowCreateInput | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
-  const [dependencyStatus, setDependencyStatus] = useState<DependencyStatus>(INITIAL_DEPENDENCY_STATUS);
+  const [dependencyStatus, setDependencyStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
+  const [missingDependencies, setMissingDependencies] = useState<string[]>([]);
+  const [dependencyMessage, setDependencyMessage] = useState<string | null>(null);
+  const [dependencyCheckedAt, setDependencyCheckedAt] = useState<number | null>(null);
   const [jobCore, setJobCore] = useState<JobDefinitionSummary[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<WorkflowDefinition | null>(null);
-  const lastScenarioToken = useRef<number | null>(null);
+  const lastValidatedPayload = useRef<string | null>(null);
 
   const requiredJobSlugs = useMemo(() => extractJobSlugs(workflowSpec), [workflowSpec]);
-  const hasValidatedDependencies = dependencyStatus.status === 'valid';
 
   const parseInput = useCallback(
     (raw: string) => {
@@ -122,6 +92,12 @@ export default function ImportWorkflowTab({
         }
         setWorkflowSpec(parsed);
         setParseError(null);
+        setDependencyStatus('idle');
+        setDependencyMessage(null);
+        setMissingDependencies([]);
+        setDependencyCheckedAt(null);
+        setImportResult(null);
+        setImportError(null);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Invalid workflow JSON payload.';
         setWorkflowSpec(null);
@@ -131,22 +107,6 @@ export default function ImportWorkflowTab({
     []
   );
 
-  useEffect(() => {
-    if (!scenario || typeof scenarioRequestToken === 'undefined') {
-      return;
-    }
-    if (lastScenarioToken.current === scenarioRequestToken) {
-      return;
-    }
-    lastScenarioToken.current = scenarioRequestToken;
-    const formatted = JSON.stringify(scenario.form, null, 2);
-    setInputText(formatted);
-    parseInput(formatted);
-    setDependencyStatus(INITIAL_DEPENDENCY_STATUS);
-    setImportResult(null);
-    setImportError(null);
-  }, [parseInput, scenario, scenarioRequestToken]);
-
   const fetchJobCore = useCallback(async () => {
     setJobsLoading(true);
     setJobsError(null);
@@ -155,7 +115,7 @@ export default function ImportWorkflowTab({
       setJobCore(jobs);
       return jobs;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load job core.';
+      const message = err instanceof Error ? err.message : 'Failed to load job catalog.';
       setJobsError(message);
       throw err;
     } finally {
@@ -163,256 +123,166 @@ export default function ImportWorkflowTab({
     }
   }, [authorizedFetch]);
 
-  const ensureJobCore = useCallback(async () => {
-    if (jobCore.length > 0) {
-      return jobCore;
-    }
-    return fetchJobCore();
-  }, [fetchJobCore, jobCore]);
-
-  const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
-    const { value } = event.target;
-    setInputText(value);
-    parseInput(value);
-    setDependencyStatus(INITIAL_DEPENDENCY_STATUS);
-    setImportResult(null);
-    setImportError(null);
-  };
-
-  const handleValidateDependencies = useCallback(async () => {
+  const validateDependencies = useCallback(async () => {
     if (!workflowSpec) {
-      setDependencyStatus({
-        status: 'invalid',
-        missing: [],
-        message: 'Resolve JSON parse errors before validating dependencies.',
-        checkedAt: Date.now()
-      });
       return;
     }
-    setDependencyStatus({ status: 'checking', missing: [], message: null, checkedAt: null });
+    setDependencyStatus('checking');
+    setDependencyMessage(null);
+    setMissingDependencies([]);
+
     try {
-      const jobs = await ensureJobCore();
-      const missing = requiredJobSlugs.filter((slug) => !jobs.some((job) => job.slug === slug));
-      if (missing.length > 0) {
-        setDependencyStatus({
-          status: 'invalid',
-          missing,
-          message: 'Register the missing job definitions before importing the workflow.',
-          checkedAt: Date.now()
-        });
-        return;
-      }
-      setDependencyStatus({
-        status: 'valid',
-        missing: [],
-        message: `All ${requiredJobSlugs.length || 0} job dependencies resolved.`,
-        checkedAt: Date.now()
-      });
-      trackEvent('workflow_import_dependencies_validated', {
-        workflowSlug: workflowSpec.slug,
-        jobDependencyCount: requiredJobSlugs.length
-      });
+      const jobs = jobCore.length > 0 ? jobCore : await fetchJobCore();
+      const available = new Set(jobs.map((job) => job.slug));
+      const missing = requiredJobSlugs.filter((slug) => !available.has(slug));
+      setMissingDependencies(missing);
+      setDependencyStatus(missing.length === 0 ? 'valid' : 'invalid');
+      setDependencyMessage(missing.length === 0 ? null : 'Register the missing jobs before enabling this workflow.');
+      setDependencyCheckedAt(Date.now());
+      lastValidatedPayload.current = JSON.stringify(workflowSpec);
     } catch (err) {
-      const message = err instanceof Error ? err.message : jobsError ?? 'Failed to load job core.';
-      setDependencyStatus({
-        status: 'invalid',
-        missing: [],
-        message,
-        checkedAt: Date.now()
-      });
+      setDependencyStatus('invalid');
+      setDependencyMessage((err as Error).message);
     }
-  }, [ensureJobCore, jobsError, requiredJobSlugs, trackEvent, workflowSpec]);
+  }, [fetchJobCore, jobCore, requiredJobSlugs, workflowSpec]);
 
-  const handleImport = async (event: FormEvent) => {
-    event.preventDefault();
+  const handleImport = useCallback(async () => {
     if (!workflowSpec) {
-      setImportError('Resolve JSON parse errors before importing.');
       return;
     }
-    if (!hasValidatedDependencies) {
-      setImportError('Validate dependencies and resolve missing jobs before importing.');
-      return;
-    }
-    setImportError(null);
-    setImportResult(null);
     setImporting(true);
+    setImportError(null);
     try {
-      const result = await createWorkflowDefinition(authorizedFetch, workflowSpec);
-      setImportResult(result);
+      const payload = await createWorkflowDefinition(authorizedFetch, workflowSpec);
+      setImportResult(payload);
+      trackEvent('import_workflow_definition.succeeded');
       pushToast({
         tone: 'success',
         title: 'Workflow imported',
-        description: `Created workflow ${result.slug}.`
-      });
-      trackEvent('workflow_import_created', {
-        workflowSlug: result.slug,
-        stepCount: result.steps.length,
-        triggerCount: result.triggers.length
+        description: `${payload.slug} is available in the catalog.`
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to import workflow.';
       setImportError(message);
+      trackEvent('import_workflow_definition.failed');
     } finally {
       setImporting(false);
     }
-  };
+  }, [authorizedFetch, pushToast, trackEvent, workflowSpec]);
 
-  const workflowSummary = useMemo(() => {
-    if (!workflowSpec) {
-      return null;
-    }
-    return {
-      slug: workflowSpec.slug,
-      name: workflowSpec.name,
-      version: workflowSpec.version ?? 1,
-      stepCount: workflowSpec.steps.length,
-      triggerCount: Array.isArray(workflowSpec.triggers) ? workflowSpec.triggers.length : 0
-    };
-  }, [workflowSpec]);
+  const handleTextChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.target.value;
+    setInputText(value);
+    parseInput(value);
+  };
 
   return (
     <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-      {scenario ? (
-        <div className={`${CARD_SECTION} ${CARD_SURFACE_ACTIVE} gap-2`}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className={`flex flex-col gap-1 ${BODY_TEXT}`}>
-              <span className={SECTION_LABEL}>Example scenario active</span>
-              <p>
-                Workflow payload sourced from <strong>{scenario.title}</strong>. Review the JSON, adjust parameters, and validate dependencies before importing.
-              </p>
-            </div>
-            {onScenarioCleared ? (
-              <button type="button" className={SECONDARY_BUTTON} onClick={onScenarioCleared}>
-                Reset
-              </button>
-            ) : null}
-          </div>
+      <FormSection aria-label="Workflow definition">
+        <div className={`${CARD_SECTION} gap-2`}>
+          <p className={BODY_TEXT}>
+            Paste a workflow definition JSON payload. Validate job dependencies before importing to ensure referenced job
+            slugs exist in the catalog.
+          </p>
+          <a className={LINK_ACCENT} href={WORKFLOW_DOC_URL} target="_blank" rel="noreferrer">
+            Review workflow requirements
+            <span aria-hidden="true">&rarr;</span>
+          </a>
         </div>
-      ) : null}
-
-      <ScenarioSwitcher options={scenarioOptions ?? []} activeId={activeScenarioId ?? null} onSelect={onScenarioSelected} />
-
-      <FormSection as="form" onSubmit={handleImport} aria-label="Import workflow definition">
-        <FormField
-          label="Workflow definition (JSON)"
-          hint={
-            <span className={STATUS_META}>
-              Use
-              {' '}
-              <a className={LINK_ACCENT} href={WORKFLOW_DOC_URL} target="_blank" rel="noreferrer">
-                the workflow guide
-              </a>
-              {' '}
-              for field reference.
-            </span>
-          }
-        >
-          <textarea value={inputText} onChange={handleInputChange} className={JSON_TEXTAREA} spellCheck={false} />
+        <FormField label="Workflow JSON" htmlFor="workflow-json">
+          <textarea
+            id="workflow-json"
+            className={JSON_TEXTAREA}
+            value={inputText}
+            onChange={handleTextChange}
+            placeholder='{"slug": "observatory-minute-ingest", "steps": [...]}'
+          />
         </FormField>
-
-        {parseError ? (
-          <FormFeedback tone="error">{parseError}</FormFeedback>
-        ) : null}
-
-        {dependencyStatus.status === 'checking' ? (
-          <FormFeedback tone="info">
-            <div className="flex items-center gap-2">
-              <Spinner size="sm" label="Checking job dependencies" />
-              <span>Checking job dependencies…</span>
-            </div>
-          </FormFeedback>
-        ) : null}
-
-        {dependencyStatus.status === 'valid' ? (
-          <FormFeedback tone="success">{dependencyStatus.message}</FormFeedback>
-        ) : null}
-
-        {dependencyStatus.status === 'invalid' && dependencyStatus.message ? (
-          <FormFeedback tone="error">
-            <div className="flex flex-col gap-2">
-              <span>{dependencyStatus.message}</span>
-              {dependencyStatus.missing.length > 0 ? (
-                <ul className={`list-disc space-y-1 pl-5 ${BODY_TEXT}`}>
-                  {dependencyStatus.missing.map((slug) => (
-                    <li key={slug}>{slug}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          </FormFeedback>
-        ) : null}
-
-        {jobsError && dependencyStatus.status === 'idle' ? (
-          <FormFeedback tone="error">{jobsError}</FormFeedback>
-        ) : null}
-
-        {importError ? <FormFeedback tone="error">{importError}</FormFeedback> : null}
-
+        {parseError ? <FormFeedback tone="error">{parseError}</FormFeedback> : null}
         <FormActions>
           <FormButton
             type="button"
             variant="secondary"
-            onClick={handleValidateDependencies}
-            disabled={jobsLoading || parseError !== null || importing}
+            onClick={() => {
+              setInputText('');
+              parseInput('');
+            }}
           >
-            {jobsLoading || dependencyStatus.status === 'checking' ? 'Validating…' : 'Check dependencies'}
+            Clear
           </FormButton>
-          <FormButton type="submit" disabled={!workflowSpec || importing || !hasValidatedDependencies}>
-            {importing ? 'Importing…' : 'Import workflow'}
+          <FormButton
+            type="button"
+            onClick={validateDependencies}
+            disabled={!workflowSpec || requiredJobSlugs.length === 0 || dependencyStatus === 'checking'}
+          >
+            {dependencyStatus === 'checking' ? 'Validating...' : 'Validate dependencies'}
+          </FormButton>
+          <FormButton
+            type="button"
+            disabled={!workflowSpec || importing || dependencyStatus === 'checking'}
+            onClick={handleImport}
+          >
+            {importing ? 'Importing...' : 'Import workflow'}
           </FormButton>
         </FormActions>
+        {dependencyStatus !== 'idle' ? (
+          <div className={`${CARD_SECTION} gap-2`}>
+            <span className={SECTION_LABEL}>Dependency status</span>
+            {dependencyStatus === 'checking' ? (
+              <div className="flex items-center gap-2 text-scale-sm text-secondary">
+                <Spinner size="xs" label="Validating" />
+                <span>Checking job dependencies...</span>
+              </div>
+            ) : dependencyStatus === 'valid' ? (
+              <p className={BODY_TEXT}>All referenced job slugs are registered.</p>
+            ) : (
+              <div className="flex flex-col gap-1 text-scale-sm text-secondary">
+                <p>{dependencyMessage ?? 'Unable to verify job dependencies.'}</p>
+                {missingDependencies.length > 0 ? (
+                  <p>Missing jobs: {missingDependencies.join(', ')}</p>
+                ) : null}
+              </div>
+            )}
+            {dependencyCheckedAt ? (
+              <p className={STATUS_MESSAGE}>Last checked {new Date(dependencyCheckedAt).toLocaleString()}</p>
+            ) : null}
+          </div>
+        ) : null}
+        {importError ? <FormFeedback tone="error">{importError}</FormFeedback> : null}
+        {jobsError ? <FormFeedback tone="error">{jobsError}</FormFeedback> : null}
       </FormSection>
 
-      <div className={`${CARD_SECTION} gap-4 text-scale-sm`}>
-        <div className="flex flex-col gap-2">
-          <span className={SECTION_LABEL}>Workflow preview</span>
-          {workflowSummary ? (
-            <ul className={`space-y-1 ${BODY_TEXT}`}>
-              <li>
-                <strong className="font-weight-semibold text-primary">Slug:</strong> {workflowSummary.slug}
-              </li>
-              <li>
-                <strong className="font-weight-semibold text-primary">Name:</strong> {workflowSummary.name}
-              </li>
-              <li>
-                <strong className="font-weight-semibold text-primary">Version:</strong> {workflowSummary.version}
-              </li>
-              <li>
-                <strong className="font-weight-semibold text-primary">Steps:</strong> {workflowSummary.stepCount}
-              </li>
-              <li>
-                <strong className="font-weight-semibold text-primary">Triggers:</strong> {workflowSummary.triggerCount}
-              </li>
-              <li>
-                <strong className="font-weight-semibold text-primary">Job dependencies:</strong>{' '}
-                {requiredJobSlugs.length > 0 ? requiredJobSlugs.join(', ') : 'None'}
-              </li>
-            </ul>
-          ) : (
-            <p className={BODY_TEXT}>Paste a workflow JSON payload to see a preview.</p>
-          )}
-        </div>
+      <div className="flex flex-col gap-4">
+        {jobsLoading ? (
+          <div className="flex items-center gap-2 text-scale-sm text-secondary">
+            <Spinner size="xs" label="Loading" />
+            <span>Loading job catalog...</span>
+          </div>
+        ) : null}
+
+        {workflowSpec ? (
+          <div className={`${CARD_SECTION} gap-2`}>
+            <span className={SECTION_LABEL}>Parsed payload</span>
+            <JsonSyntaxHighlighter value={JSON.stringify(workflowSpec, null, 2)} />
+          </div>
+        ) : null}
 
         {importResult ? (
           <div className={POSITIVE_SURFACE}>
-            <span className={SECTION_LABEL}>Workflow created</span>
-            <ul className="flex flex-col gap-1 text-scale-sm">
-              <li>
-                <strong>Slug:</strong> {importResult.slug}
-              </li>
-              <li>
-                <strong>Version:</strong> {importResult.version}
-              </li>
-              <li>
-                <strong>Steps:</strong> {importResult.steps.length}
-              </li>
-              <li>
-                <strong>Triggers:</strong> {importResult.triggers.length}
-              </li>
-              <li>
-                <strong>Created at:</strong> {new Date(importResult.createdAt).toLocaleString()}
-              </li>
-            </ul>
+            <div className="flex flex-col gap-1">
+              <span className={SECTION_LABEL}>Workflow imported</span>
+              <h3 className={HEADING_SECONDARY}>{importResult.slug}</h3>
+            </div>
+            <dl className="grid gap-2 sm:grid-cols-2">
+              <div>
+                <dt className={SECTION_LABEL}>Display name</dt>
+                <dd>{importResult.name}</dd>
+              </div>
+              <div>
+                <dt className={SECTION_LABEL}>Version</dt>
+                <dd>{importResult.version}</dd>
+              </div>
+            </dl>
           </div>
         ) : null}
       </div>

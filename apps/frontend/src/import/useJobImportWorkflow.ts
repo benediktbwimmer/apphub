@@ -9,7 +9,6 @@ export type JobImportFormState = {
   source: JobImportSource;
   reference: string;
   notes: string;
-  exampleSlug: string | null;
 };
 
 export type JobImportWarning = {
@@ -86,22 +85,19 @@ export type UseJobImportWorkflowResult = {
 const DEFAULT_FORM: JobImportFormState = {
   source: 'upload',
   reference: '',
-  notes: '',
-  exampleSlug: null
+  notes: ''
 };
 
 function buildPreviewRequestBody(
   form: JobImportFormState,
   archivePayload: EncodedFilePayload | null
 ): Record<string, unknown> {
-  const requestSource = form.exampleSlug ? 'example' : form.source;
-
   const body: Record<string, unknown> = {
-    source: requestSource,
+    source: form.source,
     notes: form.notes.trim() ? form.notes.trim() : undefined
   };
 
-  if (requestSource === 'upload') {
+  if (form.source === 'upload') {
     if (!archivePayload) {
       throw new Error('Bundle archive is required for uploads');
     }
@@ -109,19 +105,11 @@ function buildPreviewRequestBody(
     if (form.reference.trim()) {
       body.reference = form.reference.trim();
     }
-  } else if (requestSource === 'registry') {
+  } else if (form.source === 'registry') {
     if (!form.reference.trim()) {
       throw new Error('Registry reference (slug@version) is required');
     }
     body.reference = form.reference.trim();
-  } else if (requestSource === 'example') {
-    if (!form.exampleSlug) {
-      throw new Error('Example bundle slug is required');
-    }
-    body.slug = form.exampleSlug;
-    if (form.reference.trim()) {
-      body.reference = form.reference.trim();
-    }
   }
 
   return body;
@@ -160,16 +148,8 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
         const nextSource = value as JobImportSource;
         setForm((prev) => ({
           ...prev,
-          source: nextSource,
-          exampleSlug: nextSource === 'upload' ? prev.exampleSlug : null
+          source: nextSource
         }));
-        setArchiveState(null);
-        resetPreviewState();
-        return;
-      }
-
-      if (field === 'exampleSlug') {
-        setForm((prev) => ({ ...prev, exampleSlug: value as string | null }));
         setArchiveState(null);
         resetPreviewState();
         return;
@@ -187,9 +167,6 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
     (file: File | null) => {
       setArchiveState(file);
       lastEncodedArchive.current = null;
-      if (file) {
-        setForm((prev) => (prev.exampleSlug ? { ...prev, exampleSlug: null } : prev));
-      }
       resetPreviewState();
     },
     [resetPreviewState]
@@ -199,7 +176,7 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
     (nextForm: JobImportFormState) => {
       setForm(nextForm);
       resetPreviewState();
-      if (nextForm.source !== 'upload' || nextForm.exampleSlug) {
+      if (nextForm.source !== 'upload') {
         setArchiveState(null);
         lastEncodedArchive.current = null;
       }
@@ -217,7 +194,7 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
 
     try {
       let archivePayload: EncodedFilePayload | null = null;
-      if (form.source === 'upload' && !form.exampleSlug) {
+      if (form.source === 'upload') {
         if (!archive) {
           throw new Error('Bundle archive is required for uploads');
         }
@@ -279,7 +256,7 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
 
     try {
       let archivePayload: EncodedFilePayload | null = lastEncodedArchive.current;
-      if (form.source === 'upload' && !form.exampleSlug) {
+      if (form.source === 'upload') {
         if (!archivePayload) {
           if (!archive) {
             throw new Error('Bundle archive is required for uploads');

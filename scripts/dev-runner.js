@@ -47,7 +47,7 @@ const DEV_MINIO = {
   rootUser: process.env.APPHUB_DEV_MINIO_ROOT_USER ?? 'apphub',
   rootPassword: process.env.APPHUB_DEV_MINIO_ROOT_PASSWORD ?? 'apphub123',
   mcImage: process.env.APPHUB_DEV_MINIO_MC_IMAGE ?? 'minio/mc:latest',
-  buckets: (process.env.APPHUB_DEV_MINIO_BUCKETS ?? 'apphub-example-bundles,apphub-filestore,apphub-timestore')
+  buckets: (process.env.APPHUB_DEV_MINIO_BUCKETS ?? 'apphub-job-bundles,apphub-filestore,apphub-timestore')
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
@@ -543,7 +543,7 @@ async function main() {
 
   // Core bundle storage (example bundles + job bundles) now defaults to MinIO.
   ensureEnv('APPHUB_BUNDLE_STORAGE_BACKEND', 's3');
-  ensureEnv('APPHUB_BUNDLE_STORAGE_BUCKET', 'apphub-example-bundles');
+  ensureEnv('APPHUB_BUNDLE_STORAGE_BUCKET', 'apphub-job-bundles');
   ensureEnv('APPHUB_BUNDLE_STORAGE_ENDPOINT', MINIO_API_ENDPOINT);
   ensureEnv('APPHUB_BUNDLE_STORAGE_REGION', 'us-east-1');
   ensureEnv('APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE', 'true');
@@ -551,7 +551,7 @@ async function main() {
   ensureEnv('APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY', DEV_MINIO.rootPassword);
 
   ensureEnv('APPHUB_JOB_BUNDLE_STORAGE_BACKEND', 's3');
-  ensureEnv('APPHUB_JOB_BUNDLE_S3_BUCKET', 'apphub-example-bundles');
+  ensureEnv('APPHUB_JOB_BUNDLE_S3_BUCKET', 'apphub-job-bundles');
   ensureEnv('APPHUB_JOB_BUNDLE_S3_ENDPOINT', MINIO_API_ENDPOINT);
   ensureEnv('APPHUB_JOB_BUNDLE_S3_REGION', 'us-east-1');
   ensureEnv('APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE', 'true');

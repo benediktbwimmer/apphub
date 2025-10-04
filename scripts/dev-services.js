@@ -27,7 +27,7 @@ function waitForTermination() {
 
 function resolveManifestPaths() {
   const cliArgs = process.argv.slice(2).filter(Boolean);
-  const defaults = ['examples/environmental-observatory/service-manifests/service-manifest.json'];
+  const defaults = ['modules/environmental-observatory/resources/service-manifests/service-manifest.json'];
   const entries = cliArgs.length > 0 ? cliArgs : defaults;
   const seen = new Set();
   const deduped = [];

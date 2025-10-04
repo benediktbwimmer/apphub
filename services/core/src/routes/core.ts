@@ -1,6 +1,4 @@
 import { Buffer } from 'node:buffer';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import WebSocket, { type RawData } from 'ws';
 import { z } from 'zod';
@@ -24,7 +22,6 @@ import {
   type SerializedWorkflowRun
 } from './shared/serializers';
 import type { IngestionEvent } from '../db/index';
-import type { ExampleBundleStatus } from '../exampleBundles/statusStore';
 import {
   type AssetExpiredEventData,
   type AssetProducedEventData,
@@ -37,11 +34,6 @@ import {
 import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 import { buildWorkflowEventView } from '../workflowEventInsights';
 import { schemaRef } from '../openapi/definitions';
-
-const LEGACY_EXAMPLE_DATA_ROOT = path.resolve(__dirname, '..', '..', 'data', 'example-bundles');
-const LEGACY_STATUS_DIR = path.join(LEGACY_EXAMPLE_DATA_ROOT, 'status');
-const LEGACY_STATUS_FILE = path.join(LEGACY_EXAMPLE_DATA_ROOT, 'status.json');
-const LEGACY_ARTIFACTS_DIR = path.join(LEGACY_EXAMPLE_DATA_ROOT, 'artifacts');
 
 type WorkflowAnalyticsSnapshotData = Extract<
   ApphubEvent,
@@ -79,7 +71,6 @@ type OutboundEvent =
   | { type: 'workflow.definition.updated'; data: { workflow: SerializedWorkflowDefinition } }
   | { type: WorkflowRunEventType; data: { run: SerializedWorkflowRun } }
   | { type: 'workflow.analytics.snapshot'; data: WorkflowAnalyticsSnapshotData }
-  | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
   | { type: 'workflow.event.received'; data: { event: WorkflowEventRecordView } }
   | { type: 'asset.produced'; data: AssetProducedEventData }
   | { type: 'asset.expired'; data: AssetExpiredEventData }
@@ -166,11 +157,6 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
     case 'workflow.analytics.snapshot':
       return {
         type: 'workflow.analytics.snapshot',
-        data: event.data
-      };
-    case 'example.bundle.progress':
-      return {
-        type: 'example.bundle.progress',
         data: event.data
       };
     case 'workflow.event.received':
@@ -332,13 +318,10 @@ export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
         }
       }
     },
-    async () => {
-      const warnings = await detectLegacyExampleBundleData();
-      return {
-        status: warnings.length > 0 ? 'warn' : 'ok',
-        warnings
-      };
-    }
+    async () => ({
+      status: 'ok',
+      warnings: [] as string[]
+    })
   );
 
   app.get('/metrics', async (request, reply) => {
@@ -358,58 +341,4 @@ export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
     reply.header('Content-Type', getPrometheusContentType());
     reply.status(200).send(metrics);
   });
-}
-
-async function detectLegacyExampleBundleData(): Promise<string[]> {
-  const warnings: string[] = [];
-
-  if (await fileExists(LEGACY_STATUS_FILE) || (await directoryHasJsonFiles(LEGACY_STATUS_DIR))) {
-    warnings.push(
-      'Legacy example bundle status files detected under services/core/data/example-bundles. Run npm run migrate:example-bundles and remove leftover files.'
-    );
-  }
-
-  if (await directoryHasEntries(LEGACY_ARTIFACTS_DIR)) {
-    warnings.push(
-      'Legacy example bundle artifacts detected under services/core/data/example-bundles/artifacts. Remove them after migration to avoid drift.'
-    );
-  }
-
-  return warnings;
-}
-
-async function directoryHasJsonFiles(targetDir: string): Promise<boolean> {
-  try {
-    const entries = await fs.readdir(targetDir, { withFileTypes: true });
-    return entries.some((entry) => entry.isFile() && entry.name.endsWith('.json'));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return false;
-    }
-    throw err;
-  }
-}
-
-async function directoryHasEntries(targetDir: string): Promise<boolean> {
-  try {
-    const entries = await fs.readdir(targetDir, { withFileTypes: true });
-    return entries.some((entry) => !(entry.name.startsWith('.') && entry.isFile()));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return false;
-    }
-    throw err;
-  }
-}
-
-async function fileExists(targetPath: string): Promise<boolean> {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return false;
-    }
-    throw err;
-  }
 }

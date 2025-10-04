@@ -1,7 +1,8 @@
 import path from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
+import os from 'node:os';
 import { fetch } from 'undici';
-import { access } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import tar from 'tar';
 import {
   ensureS3Bucket,
   readModuleDescriptor,
@@ -14,16 +15,7 @@ import {
 import { materializeObservatoryConfig } from './lib/config';
 import { synchronizeObservatoryWorkflowsAndTriggers, type SyncLogger } from './lib/workflows';
 
-const DEFAULT_POLL_INTERVAL_MS = 2000;
-const DEFAULT_BUNDLE_TIMEOUT_MS = 5 * 60 * 1000;
-const OBSERVATORY_MODULE_ID = 'github.com/apphub/examples/environmental-observatory-event-driven';
-const OBSERVATORY_DESCRIPTOR_FALLBACK = path.join(
-  '..',
-  '..',
-  'examples',
-  'environmental-observatory-event-driven',
-  'config.json'
-);
+const OBSERVATORY_MODULE_ID = 'github.com/apphub/modules/environmental-observatory/resources';
 
 async function fileExists(candidate: string): Promise<boolean> {
   try {
@@ -42,18 +34,8 @@ async function resolveObservatoryDescriptor(
   if (await fileExists(primaryPath)) {
     return readModuleDescriptor(primaryPath);
   }
-
-  const fallbackPath = path.resolve(moduleRoot, OBSERVATORY_DESCRIPTOR_FALLBACK);
-  if (await fileExists(fallbackPath)) {
-    console.warn(
-      '[observatory-bootstrap] dist/config.json not found; falling back to examples descriptor',
-      { fallbackPath }
-    );
-    return readModuleDescriptor(fallbackPath);
-  }
-
   throw new Error(
-    `Observatory descriptor missing. Expected ${primaryPath} or ${fallbackPath}. Run module build or ensure examples are present.`
+    `Observatory descriptor missing at ${primaryPath}. Run module build before deployment.`
   );
 }
 
@@ -85,115 +67,114 @@ async function coreRequest<T>(
   return (await response.json()) as T;
 }
 
-type BundleStatus = {
-  state: 'queued' | 'running' | 'completed' | 'failed';
-  error: string | null;
-  message: string | null;
-};
-
-type BundleStatusResponse = {
+type JobImportPreviewResponse = {
   data: {
-    status: BundleStatus | null;
+    bundle: { slug: string; version: string };
+    warnings: Array<{ message: string }>;
+    errors: Array<{ message: string }>;
   };
 };
 
-async function waitForBundleCompletion(
-  baseUrl: string,
-  token: string,
+type JobImportConfirmResponse = {
+  data: {
+    job: { slug: string; version: string };
+  };
+};
+
+async function createBundleArchive(
+  jobDir: string,
   slug: string,
-  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
-): Promise<void> {
-  const pollInterval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_BUNDLE_TIMEOUT_MS;
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const response = await coreRequest<BundleStatusResponse>(
-      baseUrl,
-      token,
-      'GET',
-      `/job-imports/example/${slug}`
-    );
-    const status = response.data.status;
-    if (!status) {
-      await sleep(pollInterval);
-      continue;
-    }
-    if (status.state === 'completed') {
-      return;
-    }
-    if (status.state === 'failed') {
-      throw new Error(
-        `Packaging ${slug} failed: ${status.error ?? status.message ?? 'unknown error'}`
-      );
-    }
-    await sleep(pollInterval);
+  version: string | null
+): Promise<{ base64: string; filename: string }> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'observatory-bundle-'));
+  const archiveName = `${slug}-${version ?? 'latest'}.tgz`;
+  const archivePath = path.join(tempRoot, archiveName);
+  try {
+    await tar.create({ gzip: true, cwd: jobDir, file: archivePath }, ['.']);
+    const archive = await readFile(archivePath);
+    return {
+      base64: archive.toString('base64'),
+      filename: archiveName
+    };
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
   }
-
-  throw new Error(`Timed out waiting for bundle ${slug} to finish packaging`);
 }
 
-async function deployModuleBundles(
+async function publishModuleBundles(
   baseUrl: string,
   token: string,
-  descriptor: ModuleDescriptorFile
+  descriptor: ModuleDescriptorFile,
+  logger?: SyncLogger
 ): Promise<void> {
   const bundleManifests = resolveBundleManifests(descriptor);
-
   if (bundleManifests.length === 0) {
-    console.log('No bundle manifests declared in descriptor; skipping bundle deployment.');
+    console.log('No bundle manifests declared in descriptor; skipping job bundle deployment.');
     return;
   }
 
-  const slugs: string[] = [];
   for (const manifest of bundleManifests) {
-    const slug = await readBundleSlugFromConfig(manifest.absolutePath);
-    if (!slug) {
+    const bundleConfigSlug = await readBundleSlugFromConfig(manifest.absolutePath);
+    if (!bundleConfigSlug) {
       console.warn(`Skipping bundle manifest without slug: ${manifest.absolutePath}`);
       continue;
     }
-    slugs.push(slug.trim().toLowerCase());
-  }
 
-  if (slugs.length === 0) {
-    console.log('No bundle slugs discovered; skipping bundle deployment.');
-    return;
-  }
+    const slug = bundleConfigSlug.trim().toLowerCase();
+    const bundleDir = path.dirname(manifest.absolutePath);
+    const manifestPath = path.join(bundleDir, 'manifest.json');
+    const manifestContents = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      version?: unknown;
+    };
+    const version = typeof manifestContents.version === 'string' ? manifestContents.version.trim() : null;
 
-  console.log(`Deploying ${slugs.length} observatory job bundle(s)...`);
-  for (const slug of slugs) {
-    console.log(`  • Packaging ${slug}`);
+    const { base64, filename } = await createBundleArchive(bundleDir, slug, version);
     const payload = {
-      slug,
-      force: true,
-      descriptor: {
-        module: descriptor.descriptor.module ?? OBSERVATORY_MODULE_ID,
-        path: descriptor.directory
-      }
-    } as const;
+      source: 'upload' as const,
+      archive: {
+        data: base64,
+        filename,
+        contentType: 'application/gzip'
+      },
+      reference: version ? `${slug}@${version}` : `${slug}@latest`,
+      notes: 'Imported via observatory module deployment'
+    };
 
-    const response = await coreRequest<{ data: { mode: 'inline' | 'queued' } }>(
+    console.log(`Publishing job bundle ${slug}${version ? `@${version}` : ''}...`);
+    const preview = await coreRequest<JobImportPreviewResponse>(
       baseUrl,
       token,
       'POST',
-      '/job-imports/example',
+      '/job-imports/preview',
       payload
     );
 
-    if (response.data.mode === 'queued') {
-      await waitForBundleCompletion(baseUrl, token, slug);
+    if (preview.data.errors?.length) {
+      const messages = preview.data.errors.map((entry) => entry.message).join('; ');
+      throw new Error(`Bundle ${slug} failed preview validation: ${messages}`);
     }
 
-    await importExampleJob(baseUrl, token, slug);
-  }
-}
+    if (preview.data.warnings?.length) {
+      for (const warning of preview.data.warnings) {
+        console.warn(`Preview warning for ${slug}: ${warning.message}`);
+      }
+    }
 
-async function importExampleJob(baseUrl: string, token: string, slug: string): Promise<void> {
-  console.log(`  • Publishing ${slug}`);
-  await coreRequest(baseUrl, token, 'POST', '/job-imports', {
-    source: 'example',
-    slug
-  });
+    const confirm = await coreRequest<JobImportConfirmResponse>(
+      baseUrl,
+      token,
+      'POST',
+      '/job-imports',
+      payload
+    );
+
+    const publishedVersion = confirm.data.job.version;
+    console.log(`  • Imported ${confirm.data.job.slug}@${publishedVersion}`);
+    logger?.info?.('Published observatory job bundle', {
+      slug: confirm.data.job.slug,
+      version: publishedVersion
+    });
+  }
 }
 
 function deriveDataRoot(config: EventDrivenObservatoryConfig): string {
@@ -520,7 +501,7 @@ export async function deployEnvironmentalObservatoryModule(
 
   await ensureRequiredBuckets(config);
   await importServiceManifests(coreBaseUrl, serviceRegistryToken, descriptor, config, outputPath);
-  await deployModuleBundles(coreBaseUrl, coreToken, descriptor);
+  await publishModuleBundles(coreBaseUrl, coreToken, descriptor, options.logger);
   await synchronizeObservatoryWorkflowsAndTriggers({
     config,
     coreBaseUrl,

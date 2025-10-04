@@ -12,9 +12,6 @@ const frontendRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(frontendRoot, '..', '..');
 const coreSrcPath = resolve(workspaceRoot, 'services', 'core', 'src');
 const sharedSrcPath = resolve(workspaceRoot, 'packages', 'shared', 'src');
-const examplesSrcPath = resolve(workspaceRoot, 'packages', 'examples', 'src');
-const examplesBrowserEntryPath = resolve(examplesSrcPath, 'index.browser.ts');
-const examplesTypesPath = resolve(examplesSrcPath, 'types.ts');
 const moduleRegistrySrcPath = resolve(workspaceRoot, 'packages', 'module-registry', 'src');
 const designTokenSrcDir = resolve(workspaceRoot, 'packages', 'shared', 'src', 'designTokens');
 const designTokenDistDir = resolve(workspaceRoot, 'packages', 'shared', 'dist', 'designTokens');
@@ -115,9 +112,6 @@ const config: UserConfig & { test: VitestUserConfig['test'] } = {
     alias: [
       { find: '@apphub/core', replacement: coreSrcPath },
       { find: '@apphub/shared', replacement: sharedSrcPath },
-      { find: '@apphub/examples/types', replacement: examplesTypesPath },
-      { find: '@apphub/examples', replacement: examplesBrowserEntryPath },
-      { find: '@apphub/examples/', replacement: `${examplesSrcPath}/` },
       { find: /^@apphub\/module-registry$/, replacement: resolve(moduleRegistrySrcPath, 'index.browser.ts') },
       { find: '@apphub/module-registry/', replacement: `${moduleRegistrySrcPath}/` }
     ]

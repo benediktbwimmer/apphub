@@ -12,7 +12,7 @@ const rootUser = process.env.APPHUB_MINIO_ROOT_USER ?? 'apphub';
 const rootPassword = process.env.APPHUB_MINIO_ROOT_PASSWORD ?? 'apphub123';
 const apiPort = Number.parseInt(process.env.APPHUB_MINIO_PORT ?? '9000', 10) || 9000;
 const consolePort = Number.parseInt(process.env.APPHUB_MINIO_CONSOLE_PORT ?? '9001', 10) || 9001;
-const buckets = (process.env.APPHUB_MINIO_BUCKETS ?? 'apphub-example-bundles,apphub-filestore,apphub-timestore')
+const buckets = (process.env.APPHUB_MINIO_BUCKETS ?? 'apphub-job-bundles,apphub-filestore,apphub-timestore')
   .split(',')
   .map((value) => value.trim())
   .filter((value) => value.length > 0);
@@ -126,9 +126,9 @@ function ensureBuckets() {
   for (const bucket of buckets) {
     runMc('mb', '--ignore-existing', `local/${bucket}`);
   }
-  if (buckets.includes('apphub-example-bundles')) {
+  if (buckets.includes('apphub-job-bundles')) {
     try {
-      runMc('anonymous', 'set', 'download', 'local/apphub-example-bundles');
+      runMc('anonymous', 'set', 'download', 'local/apphub-job-bundles');
     } catch (error) {
       console.warn('[dev-minio] Failed to set anonymous policy (non-fatal):', error?.message ?? error);
     }

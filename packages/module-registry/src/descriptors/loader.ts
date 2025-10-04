@@ -66,7 +66,7 @@ export async function readBundleSlugFromConfig(bundleConfigPath: string): Promis
 
 export async function discoverLocalDescriptorConfigs(
   workspaceRoot: string,
-  patterns: string[] = ['examples/**/config.json']
+  patterns: string[] = ['modules/**/resources/config.json']
 ): Promise<string[]> {
   const cwd = path.resolve(workspaceRoot);
   const matches = await fg(patterns, {

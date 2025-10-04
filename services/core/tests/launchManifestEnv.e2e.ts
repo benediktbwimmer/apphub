@@ -9,7 +9,7 @@ import { runE2E } from '@apphub/test-helpers';
 import { KubectlMock } from '@apphub/kubectl-mock';
 import type { FastifyInstance } from 'fastify';
 
-const SERVICE_MODULE = 'github.com/apphub/examples/environmental-observatory';
+const SERVICE_MODULE = 'environmental-observatory';
 const REPOSITORY_ID = 'observatory-event-gateway';
 
 async function loadModule<T>(modulePath: string): Promise<any> {
@@ -156,11 +156,11 @@ runE2E(async ({ registerCleanup }) => {
       headers: { 'Content-Type': 'application/json' },
       payload: {
         path: repoRoot,
-        configPath: 'examples/environmental-observatory/service-manifests/service-config.json',
+        configPath: 'modules/environmental-observatory/resources/config.json',
         module: SERVICE_MODULE,
         variables: {
-          FILE_WATCH_ROOT: path.join(repoRoot, 'examples/environmental-observatory/data/inbox'),
-          FILE_WATCH_STAGING_DIR: path.join(repoRoot, 'examples/environmental-observatory/data/staging'),
+          FILE_WATCH_ROOT: path.join(repoRoot, 'modules/environmental-observatory/resources/data/inbox'),
+          FILE_WATCH_STAGING_DIR: path.join(repoRoot, 'modules/environmental-observatory/resources/data/staging'),
           TIMESTORE_BASE_URL: 'http://127.0.0.1:4200',
           TIMESTORE_DATASET_SLUG: 'observatory-timeseries',
           TIMESTORE_DATASET_NAME: 'Observatory Time Series',
@@ -224,7 +224,7 @@ runE2E(async ({ registerCleanup }) => {
     const envMap = new Map(finalLaunch!.env.map((entry) => [entry.key, entry.value]));
     assert.equal(envMap.get('PORT'), '4310');
     const fileWatchRoot = envMap.get('FILE_WATCH_ROOT') ?? '';
-    assert(fileWatchRoot.endsWith('examples/environmental-observatory/data/inbox'));
+    assert(fileWatchRoot.endsWith('modules/environmental-observatory/resources/data/inbox'));
     assert.equal(envMap.get('CORE_API_TOKEN'), 'dev-token');
     assert(envMap.size >= 5, 'expected multiple env vars to be applied');
   });

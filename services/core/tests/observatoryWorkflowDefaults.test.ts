@@ -91,10 +91,10 @@ async function run(): Promise<void> {
 
   const serviceConfigPath = path.resolve(
     process.cwd(),
-    'examples',
-    'environmental-observatory-event-driven',
-    'service-manifests',
-    'service-config.json'
+    'modules',
+    'environmental-observatory',
+    'resources',
+    'config.json'
   );
   const configContents = await readFile(serviceConfigPath, 'utf8');
   const serviceConfig = JSON.parse(configContents) as { bootstrap?: unknown; module: string };

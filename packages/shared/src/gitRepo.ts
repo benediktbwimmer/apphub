@@ -10,7 +10,7 @@ export type LocalRepoResolution = {
 export type LocalRepoOverrideOptions = {
   allowedRemotes?: string[];
   candidateRoots?: string[];
-  requireExamplesDir?: boolean;
+  requireModulesDir?: boolean;
 };
 
 const DEFAULT_REMOTE_ALLOWLIST = [
@@ -55,9 +55,9 @@ export function normalizeRepoRemote(repoUrl: string): string | null {
   }
 }
 
-async function directoryContainsExamples(dir: string): Promise<boolean> {
+async function directoryContainsModules(dir: string): Promise<boolean> {
   try {
-    const stats = await fs.stat(path.join(dir, 'examples'));
+    const stats = await fs.stat(path.join(dir, 'modules'));
     return stats.isDirectory();
   } catch {
     return false;
@@ -164,9 +164,9 @@ export async function resolveLocalRepoOverride(
         continue;
       }
 
-      if (options.requireExamplesDir !== false) {
-        const hasExamples = await directoryContainsExamples(candidate);
-        if (!hasExamples) {
+      if (options.requireModulesDir !== false) {
+        const hasModules = await directoryContainsModules(candidate);
+        if (!hasModules) {
           continue;
         }
       }
