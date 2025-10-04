@@ -201,7 +201,15 @@ export class StreamingBatchProcessor {
       }
       this.buffers.set(key, buffer);
       this.ensureRetryTimer(key, buffer);
-      throw error;
+      this.logger.warn(
+        {
+          err: error,
+          connectorId: this.config.id,
+          bufferKey: key,
+          flushReason: reason
+        },
+        'streaming batch flush failed; scheduled retry'
+      );
     }
   }
 
