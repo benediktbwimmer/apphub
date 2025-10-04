@@ -543,6 +543,49 @@ export async function listWorkflowDefinitions(fetcher: AuthorizedFetch): Promise
     .sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
+export type WorkflowDefinitionRunListMeta = {
+  limit: number;
+  offset: number;
+};
+
+export async function listWorkflowRunsForSlug(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  params: { limit?: number; offset?: number } = {}
+): Promise<{ runs: WorkflowRun[]; meta: WorkflowDefinitionRunListMeta }> {
+  const searchParams = new URLSearchParams();
+  if (typeof params.limit === 'number') {
+    searchParams.set('limit', String(params.limit));
+  }
+  if (typeof params.offset === 'number') {
+    searchParams.set('offset', String(params.offset));
+  }
+  const query = searchParams.toString();
+  const response = await requestJson(fetcher, `/workflows/${encodeURIComponent(slug)}/runs${query ? `?${query}` : ''}`, {
+    errorMessage: 'Failed to load workflow runs'
+  });
+
+  const payload = response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
+  const data = payload.data && typeof payload.data === 'object' ? (payload.data as Record<string, unknown>) : {};
+  const runsRaw = Array.isArray(data.runs) ? data.runs : [];
+  const runs = runsRaw
+    .map((entry) => normalizeWorkflowRun(entry))
+    .filter((run): run is WorkflowRun => Boolean(run));
+
+  const metaRecord = payload.meta && typeof payload.meta === 'object' ? (payload.meta as Record<string, unknown>) : {};
+  const limit = typeof metaRecord.limit === 'number' && Number.isFinite(metaRecord.limit)
+    ? metaRecord.limit
+    : params.limit ?? runs.length;
+  const offset = typeof metaRecord.offset === 'number' && Number.isFinite(metaRecord.offset)
+    ? metaRecord.offset
+    : params.offset ?? 0;
+
+  return {
+    runs,
+    meta: { limit, offset }
+  };
+}
+
 type WorkflowAnalyticsQuery = {
   range?: '24h' | '7d' | '30d';
   bucket?: '15m' | 'hour' | 'day';

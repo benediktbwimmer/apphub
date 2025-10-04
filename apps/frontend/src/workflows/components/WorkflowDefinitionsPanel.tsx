@@ -1,6 +1,7 @@
 import { Spinner } from '../../components';
 import { getStatusToneClasses } from '../../theme/statusTokens';
 import StatusBadge from './StatusBadge';
+import { formatTimestamp } from '../formatters';
 import type { WorkflowSummary } from '../normalizers';
 
 type WorkflowDefinitionsPanelProps = {
@@ -81,6 +82,7 @@ export default function WorkflowDefinitionsPanel({
           {summaries.map((summary) => {
             const workflow = summary.workflow;
             const isActive = workflow.slug === selectedSlug;
+            const lastRunTimestamp = summary.runtime?.completedAt ?? summary.runtime?.startedAt ?? null;
             return (
               <button
                 key={workflow.id}
@@ -93,6 +95,9 @@ export default function WorkflowDefinitionsPanel({
                   <StatusBadge status={summary.status} />
                 </div>
                 <span className={SUMMARY_SLUG_TEXT}>{workflow.slug}</span>
+                {lastRunTimestamp && (
+                  <span className={SUMMARY_META_TEXT}>Last run {formatTimestamp(lastRunTimestamp)}</span>
+                )}
                 {summary.repos.length > 0 && (
                   <span className={SUMMARY_META_TEXT}>{summary.repos.join(', ')}</span>
                 )}

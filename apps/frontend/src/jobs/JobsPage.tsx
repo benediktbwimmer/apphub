@@ -1,5 +1,6 @@
 import classNames from 'classnames';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { JobDefinitionSummary } from '../workflows/api';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { Spinner } from '../components';
@@ -41,6 +42,9 @@ const RUNTIME_OPTIONS: Array<{ key: RuntimeFilter; label: string }> = [
 ];
 
 export default function JobsPage() {
+  const [searchParams] = useSearchParams();
+  const initialJobSlug = searchParams.get('job');
+  const initialJobSlugRef = useRef<string | null>(initialJobSlug);
   const authorizedFetch = useAuthorizedFetch();
   const { pushToast } = useToasts();
 
@@ -51,7 +55,7 @@ export default function JobsPage() {
     refresh: refreshJobs
   } = useJobsList();
 
-  const [jobSearch, setJobSearch] = useState('');
+  const [jobSearch, setJobSearch] = useState(() => initialJobSlug ?? '');
   const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFilter>('all');
 
   const {
@@ -123,6 +127,17 @@ export default function JobsPage() {
       }
       return filteredJobs[0]?.slug ?? null;
     });
+  }, [filteredJobs]);
+
+  useEffect(() => {
+    if (!initialJobSlugRef.current) {
+      return;
+    }
+    const target = initialJobSlugRef.current;
+    if (target && filteredJobs.some((job) => job.slug === target)) {
+      setSelectedSlug(target);
+      initialJobSlugRef.current = null;
+    }
   }, [filteredJobs]);
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);

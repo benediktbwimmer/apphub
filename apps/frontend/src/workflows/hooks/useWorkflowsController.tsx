@@ -14,6 +14,7 @@ import {
 } from './useWorkflowEventTriggers';
 import { WorkflowBuilderProvider, useWorkflowBuilder } from './useWorkflowBuilderState';
 import { WorkflowTimelineProvider, useWorkflowTimeline } from './useWorkflowTimeline';
+import { WorkflowGraphProvider, useWorkflowGraph } from './useWorkflowGraph';
 
 export { INITIAL_FILTERS };
 
@@ -22,15 +23,17 @@ export function WorkflowsProviders({ children }: { children: ReactNode }) {
     <WorkflowAccessProvider>
       <WorkflowDefinitionsProvider>
         <WorkflowRunsProvider>
-          <WorkflowAnalyticsProvider>
-            <WorkflowAssetsProvider>
-              <WorkflowEventTriggersProvider>
-                <WorkflowTimelineProvider>
-                  <WorkflowBuilderProvider>{children}</WorkflowBuilderProvider>
-                </WorkflowTimelineProvider>
-              </WorkflowEventTriggersProvider>
-            </WorkflowAssetsProvider>
-          </WorkflowAnalyticsProvider>
+          <WorkflowGraphProvider>
+            <WorkflowAnalyticsProvider>
+              <WorkflowAssetsProvider>
+                <WorkflowEventTriggersProvider>
+                  <WorkflowTimelineProvider>
+                    <WorkflowBuilderProvider>{children}</WorkflowBuilderProvider>
+                  </WorkflowTimelineProvider>
+                </WorkflowEventTriggersProvider>
+              </WorkflowAssetsProvider>
+            </WorkflowAnalyticsProvider>
+          </WorkflowGraphProvider>
         </WorkflowRunsProvider>
       </WorkflowDefinitionsProvider>
     </WorkflowAccessProvider>
@@ -46,6 +49,7 @@ export function useWorkflowsController() {
   const triggers = useWorkflowEventTriggers();
   const builder = useWorkflowBuilder();
   const timeline = useWorkflowTimeline();
+  const graph = useWorkflowGraph();
 
   const handleRefresh = useCallback(() => {
     void definitions.loadWorkflows();
@@ -87,6 +91,7 @@ export function useWorkflowsController() {
     ...assets,
     ...triggers,
     ...timeline,
+    ...graph,
     ...builder,
     handleRefresh
   };

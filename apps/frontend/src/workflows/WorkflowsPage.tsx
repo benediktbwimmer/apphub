@@ -1,12 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import WorkflowsHeader from './components/WorkflowsHeader';
 import WorkflowDefinitionsPanel from './components/WorkflowDefinitionsPanel';
 import WorkflowDetailsCard from './components/WorkflowDetailsCard';
 import WorkflowRunHistory from './components/WorkflowRunHistory';
 import WorkflowRunDetails from './components/WorkflowRunDetails';
-import ManualRunPanel from './components/ManualRunPanel';
-import WorkflowGraph from './components/WorkflowGraph';
 import WorkflowFilters from './components/WorkflowFilters';
 import RunOutcomeChart from './components/RunOutcomeChart';
 import WorkflowRunTrends from './components/WorkflowRunTrends';
@@ -17,6 +15,8 @@ import WorkflowEventTimeline from './components/WorkflowEventTimeline';
 import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import WorkflowBuilderDialog from './builder/WorkflowBuilderDialog';
 import AiBuilderDialog from './ai/AiBuilderDialog';
+import ManualRunDialog from './components/ManualRunDialog';
+import WorkflowTopologyPreview from './components/WorkflowTopologyPreview';
 import { INITIAL_FILTERS, WorkflowsProviders, useWorkflowsController } from './hooks/useWorkflowsController';
 import type { WorkflowTriggerDeliveriesQuery } from './api';
 
@@ -153,6 +153,8 @@ function WorkflowsPageContent() {
   } = useWorkflowsController();
 
   const [searchParams] = useSearchParams();
+  const [manualRunDialogOpen, setManualRunDialogOpen] = useState(false);
+  const [acknowledgedManualRunId, setAcknowledgedManualRunId] = useState<string | null>(null);
 
   useEffect(() => {
     const slugParam = searchParams.get('slug');
@@ -174,6 +176,21 @@ function WorkflowsPageContent() {
       setSelectedRunId(match.id);
     }
   }, [searchParams, runs, selectedRunId, setSelectedRunId]);
+
+  const lastTriggeredRunId = lastTriggeredRun?.id ?? null;
+
+  useEffect(() => {
+    if (!manualRunDialogOpen || !lastTriggeredRunId) {
+      return;
+    }
+
+    if (lastTriggeredRunId === acknowledgedManualRunId) {
+      return;
+    }
+
+    setManualRunDialogOpen(false);
+    setAcknowledgedManualRunId(lastTriggeredRunId);
+  }, [manualRunDialogOpen, lastTriggeredRunId, acknowledgedManualRunId]);
 
   const analytics = selectedSlug ? workflowAnalytics[selectedSlug] : undefined;
   const stats = analytics?.stats ?? null;
@@ -219,6 +236,23 @@ function WorkflowsPageContent() {
     { value: '30d', label: 'Last 30 days' }
   ];
 
+  const manualRunAuthorized = Boolean(isAuthenticated && canRunWorkflowsScope);
+  const manualRunDisabledReason = !isAuthenticated
+    ? 'Sign in under Settings → API Access to run workflows.'
+    : !canRunWorkflowsScope
+      ? 'Your account does not have permission to launch workflows.'
+      : undefined;
+  const launchBlockedByServices =
+    workflowDetail && unreachableServiceSlugs.length > 0
+      ? `Cannot launch while the following services are unreachable: ${unreachableServiceSlugs.join(', ')}`
+      : undefined;
+  const canLaunchWorkflow = manualRunAuthorized && !launchBlockedByServices;
+  const launchDisabledReason = launchBlockedByServices ?? manualRunDisabledReason;
+
+  const handleOpenManualRunDialog = () => {
+    setManualRunDialogOpen(true);
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <WorkflowsHeader
@@ -263,24 +297,7 @@ function WorkflowsPageContent() {
         />
 
         <div className="flex flex-col gap-6">
-          <ManualRunPanel
-            workflow={workflowDetail}
-            onSubmit={handleManualRun}
-            pending={manualRunPending}
-            error={manualRunError}
-            authorized={canRunWorkflowsScope}
-            lastRun={lastTriggeredRun}
-            unreachableServices={unreachableServiceSlugs}
-          />
-
-          {workflowDetail && (
-            <WorkflowGraph
-              workflow={workflowDetail}
-              run={selectedRun}
-              steps={runSteps}
-              runtimeSummary={workflowRuntimeSummaries[workflowDetail.slug]}
-            />
-          )}
+          <WorkflowTopologyPreview workflow={workflowDetail} />
 
           <WorkflowDetailsCard
             workflow={workflowDetail}
@@ -288,6 +305,11 @@ function WorkflowsPageContent() {
             error={detailError}
             canEdit={canEditWorkflows}
             onEdit={handleOpenEditBuilder}
+            runtimeSummary={workflowDetail ? workflowRuntimeSummaries[workflowDetail.slug] : undefined}
+            onLaunch={handleOpenManualRunDialog}
+            canLaunch={canLaunchWorkflow}
+            launchDisabledReason={launchDisabledReason}
+            launchWarning={launchBlockedByServices}
           />
 
           <EventTriggersPanel
@@ -471,6 +493,18 @@ function WorkflowsPageContent() {
           />
         </WorkflowResourcesProvider>
       )}
+
+      <ManualRunDialog
+        open={manualRunDialogOpen}
+        workflow={workflowDetail}
+        onClose={() => setManualRunDialogOpen(false)}
+        onSubmit={handleManualRun}
+        pending={manualRunPending}
+        error={manualRunError}
+        authorized={manualRunAuthorized}
+        lastRun={lastTriggeredRun}
+        unreachableServices={unreachableServiceSlugs}
+      />
     </div>
   );
 }
