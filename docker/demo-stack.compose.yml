@@ -97,7 +97,7 @@ x-shared-env: &shared-env
   OBSERVATORY_INSTRUMENT_COUNT: "3"
   AWS_SDK_LOAD_CONFIG: "1"
   APPHUB_OPERATOR_TOKENS: >-
-    [{"subject":"demo-admin","token":"${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}","scopes":"*","kind":"user"},{"subject":"demo-service","token":"${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}","scopes":["jobs:write","jobs:run","jobs:read","job-bundles:write","job-bundles:read","workflows:write","workflows:run","workflows:read","filestore:read","filestore:write","filestore:admin","metastore:read","metastore:write","metastore:delete","metastore:admin","timestore:sql:read","timestore:sql:exec","runtime:write"],"kind":"service"},{"subject":"demo-viewer","token":"${APPHUB_DEMO_VIEWER_TOKEN:-demo-viewer-token}","scopes":["jobs:read","job-bundles:read","workflows:read","filestore:read","metastore:read","timestore:sql:read"],"kind":"user"}]
+    [{"subject":"demo-admin","token":"${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}","scopes":"*","kind":"user"},{"subject":"demo-service","token":"${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}","scopes":["jobs:write","jobs:run","jobs:read","job-bundles:write","job-bundles:read","workflows:write","workflows:run","workflows:read","filestore:read","filestore:write","filestore:admin","metastore:read","metastore:write","metastore:delete","metastore:admin","timestore:read","timestore:write","timestore:admin","timestore:metrics","timestore:sql:read","timestore:sql:exec","runtime:write"],"kind":"service"},{"subject":"demo-viewer","token":"${APPHUB_DEMO_VIEWER_TOKEN:-demo-viewer-token}","scopes":["jobs:read","jobs:run","job-bundles:read","workflows:read","workflows:run","filestore:read","metastore:read","timestore:read","timestore:sql:read","timestore:metrics"],"kind":"user"}]
 
 services:
   redpanda:

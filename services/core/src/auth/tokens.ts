@@ -23,13 +23,21 @@ type OperatorScope =
   | 'workflows:run'
   | 'job-bundles:write'
   | 'job-bundles:read'
+  | 'metastore:read'
+  | 'metastore:write'
+  | 'metastore:delete'
+  | 'metastore:admin'
   | 'auth:manage-api-keys'
   | 'filestore:read'
   | 'filestore:write'
   | 'filestore:admin'
   | 'runtime:write'
+  | 'timestore:read'
+  | 'timestore:write'
+  | 'timestore:admin'
   | 'timestore:sql:read'
   | 'timestore:sql:exec'
+  | 'timestore:metrics'
   | 'admin:danger-zone';
 
 const ALL_SCOPES: OperatorScope[] = [
@@ -41,13 +49,21 @@ const ALL_SCOPES: OperatorScope[] = [
   'workflows:run',
   'job-bundles:write',
   'job-bundles:read',
+  'metastore:read',
+  'metastore:write',
+  'metastore:delete',
+  'metastore:admin',
   'auth:manage-api-keys',
   'filestore:read',
   'filestore:write',
   'filestore:admin',
   'runtime:write',
+  'timestore:read',
+  'timestore:write',
+  'timestore:admin',
   'timestore:sql:read',
   'timestore:sql:exec',
+  'timestore:metrics',
   'admin:danger-zone'
 ];
 
@@ -62,13 +78,21 @@ const SCOPE_ALIASES: Record<OperatorScope, OperatorScope[]> = {
   'workflows:run': ['workflows:read'],
   'job-bundles:write': ['job-bundles:read'],
   'job-bundles:read': [],
+  'metastore:read': [],
+  'metastore:write': ['metastore:read'],
+  'metastore:delete': ['metastore:read'],
+  'metastore:admin': ['metastore:write', 'metastore:delete', 'metastore:read'],
   'auth:manage-api-keys': [],
   'filestore:read': [],
   'filestore:write': ['filestore:read'],
   'filestore:admin': ['filestore:write', 'filestore:read'],
   'runtime:write': [],
+  'timestore:read': [],
+  'timestore:write': ['timestore:read'],
+  'timestore:admin': ['timestore:write', 'timestore:read'],
   'timestore:sql:read': [],
   'timestore:sql:exec': ['timestore:sql:read'],
+  'timestore:metrics': [],
   'admin:danger-zone': []
 };
 

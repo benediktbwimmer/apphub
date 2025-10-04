@@ -19,7 +19,7 @@ import {
   type JsonValue
 } from '../shared/serializers';
 import { requireOperatorScopes } from '../shared/operatorAuth';
-import { WORKFLOW_WRITE_SCOPES } from '../shared/scopes';
+import { WORKFLOW_READ_SCOPES, WORKFLOW_WRITE_SCOPES } from '../shared/scopes';
 import {
   normalizeWorkflowEventTriggerCreate,
   normalizeWorkflowEventTriggerUpdate,
@@ -78,7 +78,8 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
     const authResult = await requireOperatorScopes(request, reply, {
       action: 'workflow-triggers.list',
       resource: 'workflows',
-      requiredScopes: WORKFLOW_WRITE_SCOPES
+      requiredScopes: [],
+      anyOfScopes: [WORKFLOW_READ_SCOPES, WORKFLOW_WRITE_SCOPES]
     });
     if (!authResult.ok) {
       return { error: authResult.error };
@@ -144,7 +145,8 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
     const authResult = await requireOperatorScopes(request, reply, {
       action: 'workflow-triggers.get',
       resource: 'workflows',
-      requiredScopes: WORKFLOW_WRITE_SCOPES
+      requiredScopes: [],
+      anyOfScopes: [WORKFLOW_READ_SCOPES, WORKFLOW_WRITE_SCOPES]
     });
     if (!authResult.ok) {
       return { error: authResult.error };
