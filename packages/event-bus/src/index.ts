@@ -99,8 +99,20 @@ export function createEventPublisher(options: EventPublisherOptions = {}): Event
   }
 
   const BullQueue = loadBullmqQueue<EventIngressJobData>();
-  const queue: BullQueueLike<EventIngressJobData> =
-    options.queue ?? new BullQueue(queueName, options.queueOptions);
+  const existingConnection = options.queueOptions?.connection;
+  const fallbackRedisUrl = normalizeStringValue(process.env.REDIS_URL);
+  const resolvedConnection = existingConnection ?? (fallbackRedisUrl ? parseRedisConnection(fallbackRedisUrl) : undefined);
+
+  const derivedQueueOptions = resolvedConnection
+    ? {
+        ...(options.queueOptions ?? {}),
+        connection: resolvedConnection
+      }
+    : options.queueOptions;
+
+  const queue: BullQueueLike<EventIngressJobData> = derivedQueueOptions
+    ? options.queue ?? new BullQueue(queueName, derivedQueueOptions)
+    : options.queue ?? new BullQueue(queueName, options.queueOptions);
   const jobName = options.jobName ?? DEFAULT_EVENT_JOB_NAME;
 
   const publish: EventPublisher<PublishEventOptions> = async (event, overrides) => {
@@ -143,6 +155,50 @@ function loadBullmqQueue<T>(): BullQueueCtor<T> {
     }
     throw new Error(message);
   }
+}
+
+function parseRedisConnection(connectionString: string): QueueOptions['connection'] | undefined {
+  const trimmed = connectionString.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'inline') {
+    return undefined;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(trimmed.includes('://') ? trimmed : `redis://${trimmed}`);
+  } catch (error) {
+    return undefined;
+  }
+
+  if (url.protocol !== 'redis:' && url.protocol !== 'rediss:') {
+    return undefined;
+  }
+
+  const connection: QueueOptions['connection'] = {
+    host: url.hostname,
+    port: url.port ? Number(url.port) : 6379
+  };
+
+  if (url.username) {
+    connection.username = decodeURIComponent(url.username);
+  }
+  if (url.password) {
+    connection.password = decodeURIComponent(url.password);
+  }
+
+  const pathname = url.pathname?.replace(/^\//, '') ?? '';
+  if (pathname) {
+    const db = Number(pathname);
+    if (!Number.isNaN(db)) {
+      connection.db = db;
+    }
+  }
+
+  if (url.protocol === 'rediss:') {
+    connection.tls = {};
+  }
+
+  return connection;
 }
 
 function attachErrorCause<T extends Error>(error: T, cause: unknown): T {
