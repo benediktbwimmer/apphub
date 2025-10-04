@@ -14,7 +14,7 @@ import {
 const DEFAULT_S3_REGION = 'us-east-1';
 const DEFAULT_ACCESS_KEY = 'apphub';
 const DEFAULT_SECRET_KEY = 'apphub123';
-const REQUIRED_BUCKETS = ['apphub-example-bundles', 'apphub-timestore', 'apphub-filestore'] as const;
+const REQUIRED_BUCKETS = ['apphub-job-bundles', 'apphub-timestore', 'apphub-filestore'] as const;
 
 type EnsureBucketsOptions = {
   endpoint?: string;

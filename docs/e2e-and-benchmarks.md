@@ -15,7 +15,7 @@ npm run e2e
 ```
 The runner:
 - Builds and starts the AppHub services alongside Postgres, Redis, and MinIO via `docker compose`
-- Materialises the observatory example configuration and deploys bundles/workflows with the generator schedule disabled
+- Materialises the observatory module configuration and deploys bundles/workflows with the generator schedule disabled
 - Drives the Core, Filestore, Metastore, and Timestore services through their OpenAPI endpoints to verify health and a generator workflow run
 
 Services are published on high ports (`4400`, `4410`, `4420`, `4430`) so the smoke test can run alongside a local `npm run dev` session without fighting for the default development ports.

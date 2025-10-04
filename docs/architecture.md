@@ -28,7 +28,7 @@ Services and apps collaborate but play distinct roles:
 
 ### Shared Service Registry State
 
-Service manifests, service networks, and health snapshots now persist in Postgres (`service_manifests`, `service_networks`, and `service_health_snapshots`). Each core replica keeps a short-lived in-memory cache for hot reads and subscribes to Redis invalidation events. Imports, backfills, and health pollers write through the shared store and publish an invalidation so sibling replicas refresh their caches. See `docs/runbooks/service-registry-shared-state.md` for rollout and operational guidance. The `examples/environmental-observatory-event-driven` module is the canonical smoke test for verifying shared state locally and in staging.
+Service manifests, service networks, and health snapshots now persist in Postgres (`service_manifests`, `service_networks`, and `service_health_snapshots`). Each core replica keeps a short-lived in-memory cache for hot reads and subscribes to Redis invalidation events. Imports, backfills, and health pollers write through the shared store and publish an invalidation so sibling replicas refresh their caches. See `docs/runbooks/service-registry-shared-state.md` for rollout and operational guidance. The `modules/environmental-observatory` bundle is the canonical smoke test for verifying shared state locally and in staging.
 | **Typical consumers** | Workflow service steps, operator dashboards, manifest sync tooling. | Launch previews, build retry UI, workflow jobs that consume container artifacts. |
 
 ```mermaid

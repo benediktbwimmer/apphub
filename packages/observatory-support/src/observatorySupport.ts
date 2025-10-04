@@ -15,7 +15,7 @@ import type { JsonObject, JsonValue, WorkflowDefinitionTemplate } from './types'
 
 export type EventDrivenObservatoryConfig = ReturnType<typeof createEventDrivenObservatoryConfig>['config'];
 
-const OBSERVATORY_MODULE_ID = 'github.com/apphub/examples/environmental-observatory-event-driven';
+const OBSERVATORY_MODULE_ID = 'github.com/apphub/modules/environmental-observatory/resources';
 const DEFAULT_OBSERVATORY_BACKEND_MOUNT_KEY = process.env.OBSERVATORY_FILESTORE_MOUNT_KEY
   ? process.env.OBSERVATORY_FILESTORE_MOUNT_KEY.trim()
   : 'observatory-event-driven-s3';

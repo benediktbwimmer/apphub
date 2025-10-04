@@ -24,7 +24,6 @@ import type {
   TimestorePartitionDeletedEventData
 } from '@apphub/shared/coreEvents';
 import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
-import type { ExampleBundleStatus } from './exampleBundles/statusStore';
 
 type WorkflowAnalyticsStatsEventPayload = {
   workflowId: string;
@@ -85,7 +84,6 @@ export type ApphubEvent =
   | { type: 'metastore.record.created'; data: MetastoreRecordEventData }
   | { type: 'metastore.record.updated'; data: MetastoreRecordEventData }
   | { type: 'metastore.record.deleted'; data: MetastoreRecordEventData }
-  | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
   | { type: 'workflow.event.received'; data: { event: WorkflowEventRecord } }
   | FilestoreEvent
   | { type: 'timestore.partition.created'; data: TimestorePartitionCreatedEventData }

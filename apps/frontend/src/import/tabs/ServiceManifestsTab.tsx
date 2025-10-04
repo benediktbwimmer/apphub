@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import {
   FormActions,
   FormButton,
-  FormFeedback,
   FormField,
+  FormFeedback,
   FormSection
 } from '../../components/form';
 import { useToasts } from '../../components/toast';
@@ -13,8 +13,6 @@ import {
   type ManifestPlaceholderOccurrence,
   type ManifestSourceType
 } from '../useImportServiceManifest';
-import type { ServiceManifestScenario } from '../examples';
-import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
 import {
   BODY_TEXT,
   CARD_SECTION,
@@ -23,7 +21,6 @@ import {
   INPUT,
   LINK_ACCENT,
   SECTION_LABEL,
-  SECONDARY_BUTTON,
   STATUS_META
 } from '../importTokens';
 
@@ -45,7 +42,7 @@ function describePlaceholderUsages(placeholder: ManifestPlaceholder) {
         case 'network':
           return `Network ${occurrence.networkId} · env ${envKey} (source: ${source})`;
         case 'network-service':
-          return `Network ${occurrence.networkId} → service ${occurrence.serviceSlug} · env ${envKey} (source: ${source})`;
+          return `Network ${occurrence.networkId} -> service ${occurrence.serviceSlug} · env ${envKey} (source: ${source})`;
         case 'app-launch':
           return `App ${occurrence.appId} (network ${occurrence.networkId}) · env ${envKey} (source: ${source})`;
         default:
@@ -57,65 +54,30 @@ function describePlaceholderUsages(placeholder: ManifestPlaceholder) {
 
 type ServiceManifestsTabProps = {
   onImported?: () => void;
-  scenario?: ServiceManifestScenario | null;
-  scenarioRequestToken?: number;
-  onScenarioCleared?: () => void;
-  scenarioOptions?: { id: string; title: string }[];
-  activeScenarioId?: string | null;
-  onScenarioSelected?: (id: string) => void;
 };
 
-export default function ServiceManifestsTab({
-  onImported,
-  scenario,
-  scenarioRequestToken,
-  onScenarioCleared,
-  scenarioOptions,
-  activeScenarioId,
-  onScenarioSelected
-}: ServiceManifestsTabProps) {
+export default function ServiceManifestsTab({ onImported }: ServiceManifestsTabProps) {
   const {
     form,
     updateField,
-    setForm,
     submitting,
+    reimporting,
     error,
-    errorVersion,
     result,
     resultVersion,
+    errorVersion,
     handleSubmit,
     resetResult,
     handleReimport,
     canReimport,
-    reimporting,
     placeholders,
     variables,
-    updateVariable,
-    setVariables
+    updateVariable
   } = useImportServiceManifest();
   const { pushToast } = useToasts();
   const summaryRef = useRef<HTMLDivElement | null>(null);
   const lastSuccessVersion = useRef(0);
   const lastErrorVersion = useRef(0);
-
-  useEffect(() => {
-    if (!scenario || typeof scenarioRequestToken === 'undefined') {
-      return;
-    }
-    const sourceType: ManifestSourceType =
-      scenario.form.sourceType === 'image' ? 'image' : 'git';
-    setForm({
-      sourceType,
-      repo: scenario.form.repo ?? '',
-      image: scenario.form.image ?? '',
-      ref: scenario.form.ref ?? '',
-      commit: scenario.form.commit ?? '',
-      configPath: scenario.form.configPath ?? '',
-      module: scenario.form.module ?? ''
-    });
-    resetResult();
-    setVariables(scenario.form.variables ?? {});
-  }, [scenario, scenarioRequestToken, resetResult, setForm, setVariables]);
 
   useEffect(() => {
     if (!result) {
@@ -137,7 +99,8 @@ export default function ServiceManifestsTab({
       description
     });
     lastSuccessVersion.current = resultVersion;
-  }, [pushToast, result, resultVersion]);
+    onImported?.();
+  }, [onImported, pushToast, result, resultVersion]);
 
   useEffect(() => {
     if (!error || errorVersion === lastErrorVersion.current) {
@@ -184,74 +147,25 @@ export default function ServiceManifestsTab({
               onClick={handleReimport}
               disabled={reimporting}
             >
-              {reimporting ? 'Re-running…' : 'Re-run import'}
-            </FormButton>
-          )}
-          {onImported && (
-            <FormButton
-              type="button"
-              size="sm"
-              onClick={() => {
-                onImported();
-              }}
-            >
-              View in core
+              {reimporting ? 'Re-running...' : 'Re-run import'}
             </FormButton>
           )}
         </div>
       </div>
     );
-  }, [canReimport, handleReimport, onImported, reimporting, resetResult, result]);
+  }, [canReimport, handleReimport, reimporting, resetResult, result]);
 
   return (
     <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-      {scenario ? (
-        <div className={`${CARD_SECTION} ${CARD_SURFACE_ACTIVE} gap-2`}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className={`flex flex-col gap-1 ${BODY_TEXT}`}>
-              <span className={SECTION_LABEL}>Example scenario active</span>
-              <p>
-                Fields prefilled from <strong>{scenario.title}</strong>. Adjust values or reset to start fresh.
-              </p>
-              {(scenario.requiresApps?.length || scenario.requiresServices?.length) && (
-                <ul className={`mt-1 space-y-1 ${STATUS_META}`}>
-                  {scenario.requiresApps?.length ? (
-                    <li>
-                      <strong>Requires apps:</strong> {scenario.requiresApps.join(', ')}
-                    </li>
-                  ) : null}
-                  {scenario.requiresServices?.length ? (
-                    <li>
-                      <strong>Requires services:</strong> {scenario.requiresServices.join(', ')}
-                    </li>
-                  ) : null}
-                </ul>
-              )}
-            </div>
-            {onScenarioCleared ? (
-              <button type="button" className={SECONDARY_BUTTON} onClick={onScenarioCleared}>
-                Reset
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-      <ScenarioSwitcher
-        options={scenarioOptions ?? []}
-        activeId={activeScenarioId ?? null}
-        onSelect={onScenarioSelected}
-      />
       <FormSection as="form" onSubmit={handleSubmit} aria-label="Import service manifest">
         <div className={`${CARD_SECTION} gap-2`}>
           <p className={BODY_TEXT}>
-            <strong>Services</strong> define long-lived endpoints and configuration imported from manifests. Supply either a
-            Git repository or a Docker image that contains your manifest bundle to register health URLs, environment
-            placeholders, and service networks. When you want AppHub to build a container from source, continue with the{' '}
-            <span className="font-weight-semibold text-primary">Apps</span> tab instead.
+            Provide either a Git repository or Docker image containing the manifest bundle to register services and networks.
+            When you want AppHub to build a container from source, continue with the <strong>Apps</strong> tab instead.
           </p>
           <a className={LINK_ACCENT} href={SERVICE_MANIFEST_DOC_URL} target="_blank" rel="noreferrer">
             Learn more about service manifests
-            <span aria-hidden="true">→</span>
+            <span aria-hidden="true">&rarr;</span>
           </a>
         </div>
         <FormField label="Manifest source" htmlFor="manifest-source">
@@ -358,10 +272,8 @@ export default function ServiceManifestsTab({
                     />
                     <div className={`mt-2 flex flex-col gap-1 ${STATUS_META}`}>
                       {placeholder.description ? <p>{placeholder.description}</p> : null}
-                      {usage ? <p>Used by {usage}</p> : null}
-                      {placeholder.defaultValue !== undefined && !placeholder.required ? (
-                        <p>Default: {placeholder.defaultValue}</p>
-                      ) : null}
+                      {placeholder.defaultValue ? <p>Default: {placeholder.defaultValue}</p> : null}
+                      {usage ? <p>{usage}</p> : null}
                     </div>
                   </FormField>
                 );
@@ -369,33 +281,22 @@ export default function ServiceManifestsTab({
             </div>
           </div>
         )}
+        {error ? <FormFeedback tone="error">{error}</FormFeedback> : null}
         <FormActions>
           <FormButton type="submit" disabled={submitting}>
-            {submitting ? 'Importing…' : 'Import service manifest'}
+            {submitting ? 'Importing...' : 'Import service manifest'}
           </FormButton>
+          {canReimport ? (
+            <FormButton type="button" variant="secondary" disabled={reimporting || submitting} onClick={handleReimport}>
+              {reimporting ? 'Re-running...' : 'Re-run import'}
+            </FormButton>
+          ) : null}
         </FormActions>
-        {error && (
-          <FormFeedback tone="error">
-            {typeof error === 'string' ? error : 'Import failed. Check the repository details and try again.'}
-          </FormFeedback>
-        )}
       </FormSection>
-      <FormSection>
-        <h2 className={HEADING_SECONDARY}>Import status</h2>
-        {!result && !error && (
-          <div className={`${CARD_SECTION} gap-2`}>
-            <p className={BODY_TEXT}>
-              AppHub validates repository access and manifest schema before applying changes. Provide a Git repository
-              to preview discovered services and service networks prior to committing the manifest.
-            </p>
-            <a className={LINK_ACCENT} href={SERVICE_MANIFEST_DOC_URL} target="_blank" rel="noreferrer">
-              Review service manifest guide
-              <span aria-hidden="true">→</span>
-            </a>
-          </div>
-        )}
+
+      <div className="flex flex-col gap-4">
         {importSummary}
-      </FormSection>
+      </div>
     </div>
   );
 }

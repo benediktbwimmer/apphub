@@ -3,12 +3,12 @@
 ## Overview
 ## Wizard Enhancements (Ticket 014)
 - The import workspace now presents a four-stage wizard that always begins with service manifests before advancing to apps, jobs, and workflows. Operators can jump between stages, but the wizard highlights remaining prerequisites so the happy path stays visible.
-- Selecting an example automatically resolves dependencies. For example, choosing a workflow queues the required services, apps, and job bundles in the earlier stages so forms are pre-populated and validations run in order.
-- Job bundle imports stream real-time packaging progress from the example bundler orchestrator (`example.bundle.progress` events). The dependency summary shows queued/packaging/completed states, inline log messages, and exposes a retry action when packaging fails.
-- Scenario picks and placeholder prompts persist in local storage so operators can resume partially-completed sessions without reloading examples.
+- Selecting a module catalog entry automatically resolves dependencies. For example, choosing a workflow queues the required services, apps, and job bundles in the earlier stages so forms are pre-populated and validations run in order.
+- Job bundle imports stream real-time packaging progress from the registry service. The dependency summary shows queued/packaging/completed states, inline log messages, and exposes a retry action when packaging fails.
+- Scenario picks and placeholder prompts persist in local storage so operators can resume partially-completed sessions without reloading the catalog.
 
 ### Troubleshooting
-- **Packaging stays in “queued”** – verify the example bundle worker is running and Redis is reachable. Use the retry action in the dependency panel to re-enqueue with `force=true`.
+- **Packaging stays in “queued”** – verify the core job bundle importer is running and Redis is reachable. Use the retry action in the dependency panel to re-enqueue with `force=true`.
 - **Placeholder modal appears** – some service manifests require environment-specific values (tokens, directories). Provide the values and the wizard will resume auto-importing the remaining dependencies.
 - **Status badge shows “Failed”** – review the inline error message (usually the tail of bundler logs). Click “Retry packaging” to trigger a rebuild after fixing the underlying issue.
 
@@ -182,4 +182,3 @@ The AppHub operator UI will consolidate all import functionality into a single "
 - **Security**: Shared API contract for signature verification; security team to provide signing certificate management guidelines before GA.
 - **Job Platform**: Coordinated with job runtime owners to ensure capability inventory endpoint and sandbox runner align with milestones from tickets 006–009.
 - **Design Systems**: UI/UX reviewed with design team to ensure tab styling matches system updates shipping in Q3.
-

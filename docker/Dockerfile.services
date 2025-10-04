@@ -10,17 +10,13 @@ COPY tsconfig.json tsconfig.json
 COPY tsconfig.base.json tsconfig.base.json
 
 COPY apps/frontend/package.json apps/frontend/
-COPY apps/frontend/package-lock.json apps/frontend/
 COPY apps/cli/package.json apps/cli/
 COPY apps/cli/package-lock.json apps/cli/
 COPY services/core/package.json services/core/
-COPY services/core/package-lock.json services/core/
 COPY services/metastore/package.json services/metastore/
 COPY services/timestore/package.json services/timestore/
 COPY services/filestore/package.json services/filestore/
 COPY packages/shared/package.json packages/shared/
-COPY packages/example-bundler/package.json packages/example-bundler/
-COPY packages/examples/package.json packages/examples/
 COPY packages/filestore-client/package.json packages/filestore-client/
 COPY packages/event-bus/package.json packages/event-bus/
 COPY packages/filestore-cli/package.json packages/filestore-cli/
@@ -120,7 +116,6 @@ COPY --from=builder /app/packages ./packages
 FROM runtime-base AS core-runtime
 COPY --from=builder /app/services/core ./services/core
 COPY --from=builder /app/apps/cli ./apps/cli
-COPY --from=builder /app/examples ./examples
 COPY --from=builder /app/modules ./modules
 
 RUN chmod +x /app/services/core/scripts/core-runtime-entrypoint.sh

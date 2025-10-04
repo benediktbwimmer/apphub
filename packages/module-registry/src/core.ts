@@ -37,8 +37,6 @@ export type LoadCoreOptions = {
 
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const MODULE_MANIFEST_FILENAME = path.join('dist', 'module.json');
-const SCENARIOS_FILENAME = path.join('examples', 'core', 'scenarios.json');
-
 let cache: CoreCache | null = null;
 
 function normalizeRepoRoot(repoRoot?: string): string {
@@ -46,16 +44,6 @@ function normalizeRepoRoot(repoRoot?: string): string {
     return DEFAULT_REPO_ROOT;
   }
   return path.resolve(repoRoot);
-}
-
-async function readJsonFile<T>(repoRoot: string, relativePath: string): Promise<T | null> {
-  try {
-    const absolutePath = path.resolve(repoRoot, relativePath);
-    const payload = await fs.readFile(absolutePath, 'utf8');
-    return JSON.parse(payload) as T;
-  } catch {
-    return null;
-  }
 }
 
 async function loadCore(options: LoadCoreOptions = {}): Promise<CoreCache> {
@@ -69,7 +57,7 @@ async function loadCore(options: LoadCoreOptions = {}): Promise<CoreCache> {
   const jobs: ModuleJobBundle[] = [];
   const workflows: ModuleWorkflow[] = [];
 
-  const scenarios = await loadScenarios(repoRoot);
+  const scenarios: ModuleScenario[] = [];
 
   for (const entry of modules) {
     const moduleDir = path.resolve(repoRoot, entry.workspacePath);
@@ -250,53 +238,6 @@ function resolveWorkflowDefinition(
     return null;
   }
   return definition as WorkflowDefinitionTemplate;
-}
-
-async function loadScenarios(repoRoot: string): Promise<ModuleScenario[]> {
-  const payload = await readJsonFile<{ scenarios?: ModuleScenario[] }>(repoRoot, SCENARIOS_FILENAME);
-  if (!payload?.scenarios) {
-    return [];
-  }
-  return payload.scenarios.map((scenario) => rewriteScenarioPaths(scenario));
-}
-
-function rewriteScenarioPaths<T>(value: T): T {
-  const replacements: Array<[string | RegExp, string]> = [
-    ['examples/environmental-observatory-event-driven', 'modules/environmental-observatory'],
-    ['examples/environmental-observatory', 'modules/environmental-observatory'],
-    ['github.com/apphub/examples/environmental-observatory-event-driven', 'environmental-observatory']
-  ];
-
-  const applyReplacements = (input: string): string => {
-    let result = input;
-    for (const [pattern, replacement] of replacements) {
-      if (typeof pattern === 'string') {
-        result = result.split(pattern).join(replacement);
-      } else {
-        result = result.replace(pattern, replacement);
-      }
-    }
-    return result;
-  };
-
-  const transform = (input: unknown): unknown => {
-    if (typeof input === 'string') {
-      return applyReplacements(input);
-    }
-    if (Array.isArray(input)) {
-      return input.map((entry) => transform(entry));
-    }
-    if (input && typeof input === 'object') {
-      const entries = Object.entries(input as Record<string, unknown>).map(([key, val]) => [
-        key,
-        transform(val)
-      ]);
-      return Object.fromEntries(entries);
-    }
-    return input;
-  };
-
-  return transform(value) as T;
 }
 
 function isModuleJobSlugValue(value: string): value is ModuleJobSlug {

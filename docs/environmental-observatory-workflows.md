@@ -1,22 +1,22 @@
 # Environmental Observatory Instrument Network
 
-The environmental observatory scenario models a network of field instruments that stream minute-by-minute CSV measurements into an inbox directory. A set of AppHub workflows ingest the raw readings, persist them into Timestore, render updated plots, publish refreshed status pages, and optionally register report metadata in the Metastore whenever upstream assets change. The example leans on workflow asset lineage plus auto-materialization so downstream documents stay current without manual intervention.
+The environmental observatory scenario models a network of field instruments that stream minute-by-minute CSV measurements into an inbox directory. A set of AppHub workflows ingest the raw readings, persist them into Timestore, render updated plots, publish refreshed status pages, and optionally register report metadata in the Metastore whenever upstream assets change. The module leans on workflow asset lineage plus auto-materialization so downstream documents stay current without manual intervention.
 
 The event-driven flavour now partitions Timestore manifests per instrument and propagates the instrument id through trigger parameters, enabling publication workflows to run for each sensor independently while sharing the same DAG.
 
 > **Module-first tooling**
 >
 > The observatory jobs, workflows, and services now ship through the `modules/environmental-observatory` workspace. The Import
-> wizard pulls catalog data from `/modules/catalog`, while the legacy assets under `examples/environmental-observatory-event-driven/`
+> wizard pulls catalog data from `/modules/catalog`, while the legacy assets under `modules/environmental-observatory/resources/`
 > remain available for bootstrap scripts, sample data, and troubleshooting utilities.
 
 > **Event-driven variant**
 >
-> In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `examples/environmental-observatory-event-driven/`. CSV uploads flow through Filestore, the inbox normalizer emits `observatory.minute.raw-uploaded`, downstream publication reacts to `observatory.minute.partition-ready`, and a dashboard aggregation workflow listens for `timestore.partition.created` (with a guarded fallback on the ingest signal) before publishing `observatory.dashboard.updated` after querying Timestore for fleet-wide stats. See the [README](../examples/environmental-observatory-event-driven/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the upgraded services).
+> In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `modules/environmental-observatory/resources/`. CSV uploads flow through Filestore, the inbox normalizer emits `observatory.minute.raw-uploaded`, downstream publication reacts to `observatory.minute.partition-ready`, and a dashboard aggregation workflow listens for `timestore.partition.created` (with a guarded fallback on the ingest signal) before publishing `observatory.dashboard.updated` after querying Timestore for fleet-wide stats. See the [README](../modules/environmental-observatory/resources/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the upgraded services).
 
 ## Event-driven benchmark status (2025-09-29)
 
-- The `environmentalObservatoryEventDrivenBenchmark.e2e.ts` harness now provisions dedicated Dockerized MinIO and Redis instances, packages example bundles inline, and wires cleanup on `SIGINT/SIGTERM` so the scenario runs from a single command.
+- The `environmentalObservatoryEventDrivenBenchmark.e2e.ts` harness now provisions dedicated Dockerized MinIO and Redis instances, wires cleanup on `SIGINT/SIGTERM`, and exercises the module workflows end-to-end.
 - Embedded Postgres plus core/filestore/metastore/timestore test servers start successfully and the data generator uploads 10 instrument CSVs to MinIO with matching metastore records.
 - Inbox normalizer emits `observatory.minute.raw-uploaded` events into the core queue, trigger deliveries are created, but the `observatory-minute-ingest` workflow never launches; the benchmark currently fails waiting for that run.
 - Suspect area: core event trigger processing when queues run against the external Redis container. The next session should inspect the event ingress queue and trigger delivery retries to confirm whether events are enqueued but not drained, or if a rendering error drops the job before launch.
@@ -191,7 +191,7 @@ npm run build --workspace @apphub/environmental-observatory-module
    The gateway streams new inbox files into the `apphub-filestore` bucket (via Filestore) before launching the ingest workflow. Adjust `FILESTORE_BACKEND_ID` if you provisioned a different mount via `npm run obs:event:config`.
 5. Launch the dashboard alongside the gateway so the latest `status.html` is always visible:
    ```bash
-   cd examples/environmental-observatory-event-driven/services/observatory-dashboard
+   cd modules/environmental-observatory/resources/services/observatory-dashboard
    npm install
 
    PORT=4311 \
