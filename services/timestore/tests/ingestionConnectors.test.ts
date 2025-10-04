@@ -72,6 +72,7 @@ before(async () => {
   process.env.TIMESTORE_PARTITION_HISTOGRAM_COLUMNS = '';
   process.env.TIMESTORE_PARTITION_BLOOM_COLUMNS = '';
   process.env.TIMESTORE_PARTITION_INDEX_CONFIG = '';
+  process.env.APPHUB_STREAMING_ENABLED = 'true';
   process.env.TIMESTORE_CONNECTORS_ENABLED = 'false';
   process.env.TIMESTORE_STREAMING_CONNECTORS = '[]';
   process.env.TIMESTORE_BULK_CONNECTORS = '[]';
@@ -107,6 +108,7 @@ after(async () => {
   if (bulkDir) {
     await rm(bulkDir, { recursive: true, force: true });
   }
+  process.env.APPHUB_STREAMING_ENABLED = 'false';
 });
 
 function buildStreamingEvent(options: {

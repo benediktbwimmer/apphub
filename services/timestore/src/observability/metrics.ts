@@ -68,6 +68,27 @@ export interface SchemaMigrationMetricsInput {
   partitions?: number;
 }
 
+export interface StreamingRecordMetricsInput {
+  datasetSlug: string;
+  connectorId: string;
+  count?: number;
+}
+
+export interface StreamingFlushMetricsInput {
+  datasetSlug: string;
+  connectorId: string;
+  rows: number;
+  durationSeconds?: number;
+  reason: 'max_rows' | 'timer' | 'shutdown' | 'manual';
+}
+
+export interface StreamingBacklogMetricsInput {
+  datasetSlug: string;
+  connectorId: string;
+  lagSeconds: number;
+  openWindows: number;
+}
+
 export type ManifestCacheHitSource = 'memory' | 'redis';
 export type ManifestCacheMissReason = 'disabled' | 'index' | 'entry' | 'stale' | 'error';
 export type ManifestCacheEvictionReason = 'invalidate' | 'rebuild';
@@ -120,6 +141,11 @@ interface MetricsState {
   schemaMigrationRunsTotal: Counter<string> | null;
   schemaMigrationDurationSeconds: Histogram<string> | null;
   schemaMigrationPartitions: Histogram<string> | null;
+  streamingRecordsTotal: Counter<string> | null;
+  streamingFlushDurationSeconds: Histogram<string> | null;
+  streamingFlushRows: Histogram<string> | null;
+  streamingBacklogSeconds: Gauge<string> | null;
+  streamingOpenWindows: Gauge<string> | null;
 }
 
 const INGESTION_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10];
@@ -128,6 +154,8 @@ const QUERY_ROWS_BUCKETS = [1, 10, 100, 1_000, 10_000, 100_000];
 const LIFECYCLE_BUCKETS = [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
 const HTTP_BUCKETS = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5];
 const SCHEMA_MIGRATION_PARTITION_BUCKETS = [1, 5, 10, 25, 50, 100, 250, 500, 1_000];
+const STREAMING_FLUSH_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30];
+const STREAMING_ROWS_BUCKETS = [1, 10, 50, 100, 250, 500, 1_000, 5_000, 10_000];
 
 let metricsState: MetricsState | null = null;
 
@@ -441,6 +469,53 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
       })
     : null;
 
+  const streamingRecordsTotal = enabled
+    ? new Counter({
+        name: `${prefix}streaming_records_total`,
+        help: 'Streaming records processed grouped by dataset and connector',
+        labelNames: ['dataset', 'connector'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingFlushDurationSeconds = enabled
+    ? new Histogram({
+        name: `${prefix}streaming_flush_duration_seconds`,
+        help: 'Streaming micro-batcher flush durations grouped by dataset, connector, and reason',
+        labelNames: ['dataset', 'connector', 'reason'],
+        buckets: STREAMING_FLUSH_BUCKETS,
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingFlushRows = enabled
+    ? new Histogram({
+        name: `${prefix}streaming_flush_rows`,
+        help: 'Rows emitted per streaming micro-batcher flush grouped by dataset and connector',
+        labelNames: ['dataset', 'connector'],
+        buckets: STREAMING_ROWS_BUCKETS,
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingBacklogSeconds = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_backlog_seconds`,
+        help: 'Lag between current time and the latest sealed streaming window',
+        labelNames: ['dataset', 'connector'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const streamingOpenWindows = enabled
+    ? new Gauge({
+        name: `${prefix}streaming_open_windows`,
+        help: 'Open streaming windows awaiting flush grouped by dataset and connector',
+        labelNames: ['dataset', 'connector'],
+        registers: registerMetrics
+      })
+    : null;
+
   if (enabled && options.collectDefaultMetrics) {
     collectDefaultMetrics({ register: registry, prefix });
   }
@@ -480,7 +555,12 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     runtimeCacheStalenessSeconds,
     schemaMigrationRunsTotal,
     schemaMigrationDurationSeconds,
-    schemaMigrationPartitions
+    schemaMigrationPartitions,
+    streamingRecordsTotal,
+    streamingFlushDurationSeconds,
+    streamingFlushRows,
+    streamingBacklogSeconds,
+    streamingOpenWindows
   } satisfies MetricsState;
 
   return metricsState;
@@ -731,6 +811,48 @@ export function observeSchemaMigration(input: SchemaMigrationMetricsInput): void
   }
   if (typeof input.partitions === 'number' && state.schemaMigrationPartitions) {
     state.schemaMigrationPartitions.labels(input.datasetSlug).observe(Math.max(input.partitions, 0));
+  }
+}
+
+export function observeStreamingRecords(input: StreamingRecordMetricsInput): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.streamingRecordsTotal) {
+    return;
+  }
+  const count = typeof input.count === 'number' ? input.count : 1;
+  if (count <= 0) {
+    return;
+  }
+  state.streamingRecordsTotal.labels(input.datasetSlug, input.connectorId).inc(count);
+}
+
+export function observeStreamingFlush(input: StreamingFlushMetricsInput): void {
+  const state = metricsState;
+  if (!state?.enabled) {
+    return;
+  }
+  if (state.streamingFlushRows) {
+    state.streamingFlushRows.labels(input.datasetSlug, input.connectorId).observe(Math.max(input.rows, 0));
+  }
+  if (typeof input.durationSeconds === 'number' && state.streamingFlushDurationSeconds) {
+    state.streamingFlushDurationSeconds
+      .labels(input.datasetSlug, input.connectorId, input.reason)
+      .observe(Math.max(input.durationSeconds, 0));
+  }
+}
+
+export function updateStreamingBacklog(input: StreamingBacklogMetricsInput): void {
+  const state = metricsState;
+  if (!state?.enabled) {
+    return;
+  }
+  const lagSeconds = Math.max(input.lagSeconds, 0);
+  const openWindows = Math.max(input.openWindows, 0);
+  if (state.streamingBacklogSeconds) {
+    state.streamingBacklogSeconds.labels(input.datasetSlug, input.connectorId).set(lagSeconds);
+  }
+  if (state.streamingOpenWindows) {
+    state.streamingOpenWindows.labels(input.datasetSlug, input.connectorId).set(openWindows);
   }
 }
 

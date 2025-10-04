@@ -120,6 +120,25 @@ export interface DatasetManifestRecord {
   publishedAt: string | null;
 }
 
+export interface StreamingWatermarkRecord {
+  connectorId: string;
+  datasetId: string;
+  datasetSlug: string;
+  sealedThrough: string;
+  backlogLagMs: number;
+  recordsProcessed: number;
+  updatedAt: string;
+}
+
+export interface UpsertStreamingWatermarkInput {
+  connectorId: string;
+  datasetId: string;
+  datasetSlug: string;
+  sealedThrough: Date;
+  backlogLagMs: number;
+  recordsProcessedDelta?: number;
+}
+
 export interface DatasetPartitionRecord {
   id: string;
   datasetId: string;
@@ -1271,6 +1290,124 @@ export async function recordDatasetAccessEvent(
       ]
     );
     return mapDatasetAccessAudit(rows[0]);
+  });
+}
+
+export async function upsertStreamingWatermark(input: UpsertStreamingWatermarkInput): Promise<void> {
+  const recordsDelta = Number.isFinite(input.recordsProcessedDelta ?? NaN)
+    ? Math.max(0, Math.floor(input.recordsProcessedDelta ?? 0))
+    : 0;
+  const backlogLag = Math.max(0, Math.floor(input.backlogLagMs));
+
+  await withConnection(async (client) => {
+    await client.query(
+      `INSERT INTO streaming_watermarks (
+         connector_id,
+         dataset_id,
+         dataset_slug,
+         sealed_through,
+         backlog_lag_ms,
+         records_processed
+       )
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (connector_id, dataset_id)
+       DO UPDATE SET
+         dataset_slug = EXCLUDED.dataset_slug,
+         sealed_through = GREATEST(streaming_watermarks.sealed_through, EXCLUDED.sealed_through),
+         backlog_lag_ms = EXCLUDED.backlog_lag_ms,
+         records_processed = streaming_watermarks.records_processed + EXCLUDED.records_processed,
+         updated_at = NOW();`,
+      [
+        input.connectorId,
+        input.datasetId,
+        input.datasetSlug,
+        input.sealedThrough.toISOString(),
+        backlogLag,
+        recordsDelta
+      ]
+    );
+  });
+}
+
+export async function getStreamingWatermark(
+  datasetId: string,
+  connectorId: string
+): Promise<StreamingWatermarkRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query(
+      `SELECT connector_id,
+              dataset_id,
+              dataset_slug,
+              sealed_through,
+              backlog_lag_ms,
+              records_processed,
+              updated_at
+         FROM streaming_watermarks
+        WHERE dataset_id = $1
+          AND connector_id = $2`,
+      [datasetId, connectorId]
+    );
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    const row = rows[0] as {
+      connector_id: string;
+      dataset_id: string;
+      dataset_slug: string;
+      sealed_through: Date;
+      backlog_lag_ms: number;
+      records_processed: string | number;
+      updated_at: Date;
+    };
+
+    return {
+      connectorId: row.connector_id,
+      datasetId: row.dataset_id,
+      datasetSlug: row.dataset_slug,
+      sealedThrough: new Date(row.sealed_through).toISOString(),
+      backlogLagMs: Number(row.backlog_lag_ms ?? 0),
+      recordsProcessed: Number(row.records_processed ?? 0),
+      updatedAt: new Date(row.updated_at).toISOString()
+    } satisfies StreamingWatermarkRecord;
+  });
+}
+
+export async function listStreamingWatermarks(): Promise<StreamingWatermarkRecord[]> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query(
+      `SELECT connector_id,
+              dataset_id,
+              dataset_slug,
+              sealed_through,
+              backlog_lag_ms,
+              records_processed,
+              updated_at
+         FROM streaming_watermarks`
+    );
+
+    return rows.map((row) => {
+      const record = row as {
+        connector_id: string;
+        dataset_id: string;
+        dataset_slug: string;
+        sealed_through: Date;
+        backlog_lag_ms: number;
+        records_processed: string | number;
+        updated_at: Date;
+      };
+
+      return {
+        connectorId: record.connector_id,
+        datasetId: record.dataset_id,
+        datasetSlug: record.dataset_slug,
+        sealedThrough: new Date(record.sealed_through).toISOString(),
+        backlogLagMs: Number(record.backlog_lag_ms ?? 0),
+        recordsProcessed: Number(record.records_processed ?? 0),
+        updatedAt: new Date(record.updated_at).toISOString()
+      } satisfies StreamingWatermarkRecord;
+    });
   });
 }
 

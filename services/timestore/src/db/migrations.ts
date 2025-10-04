@@ -316,6 +316,23 @@ const migrations: Migration[] = [
          ON dataset_partitions(dataset_id, ingestion_signature)
          WHERE ingestion_signature IS NOT NULL;`
     ]
+  },
+  {
+    id: '013_timestore_streaming_watermarks',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS streaming_watermarks (
+         connector_id TEXT NOT NULL,
+         dataset_id TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+         dataset_slug TEXT NOT NULL,
+         sealed_through TIMESTAMPTZ NOT NULL,
+         backlog_lag_ms BIGINT NOT NULL DEFAULT 0,
+         records_processed BIGINT NOT NULL DEFAULT 0,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (connector_id, dataset_id)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_streaming_watermarks_dataset
+         ON streaming_watermarks(dataset_id);`
+    ]
   }
 ];
 

@@ -67,6 +67,13 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_INGEST_CONCURRENCY` | Worker concurrency when processing ingestion jobs. | `2` |
 | `TIMESTORE_CONNECTORS_ENABLED` | Toggle streaming/bulk ingestion connectors managed by the API node. | `false` |
 | `TIMESTORE_STREAMING_CONNECTORS` | JSON array describing streaming connectors (file driver supported). | `[]` |
+| `TIMESTORE_STREAMING_BATCHERS` | JSON array describing streaming micro-batcher definitions that consume Redpanda topics. | `[]` |
+| `TIMESTORE_STREAMING_BUFFER_ENABLED` | Toggle the in-memory streaming hot buffer used for hybrid queries. | `false` |
+| `TIMESTORE_STREAMING_BUFFER_RETENTION_SECONDS` | Seconds of streaming data retained in the hot buffer per dataset. | `120` |
+| `TIMESTORE_STREAMING_BUFFER_MAX_ROWS_PER_DATASET` | Per-dataset row cap for buffered streaming events. | `10000` |
+| `TIMESTORE_STREAMING_BUFFER_MAX_TOTAL_ROWS` | Optional global row cap across all datasets (unset to disable). | _(unset)_ |
+| `TIMESTORE_STREAMING_BUFFER_REFRESH_MS` | Interval for refreshing sealed partition watermarks from metadata. | `5000` |
+| `TIMESTORE_STREAMING_BUFFER_FALLBACK` | Behaviour when the hot buffer is unavailable (`parquet_only` or `error`). | `parquet_only` |
 | `TIMESTORE_BULK_CONNECTORS` | JSON array describing bulk loaders (file driver supported). | `[]` |
 | `TIMESTORE_CONNECTOR_BACKPRESSURE` | JSON object with queue depth thresholds controlling connector pause/resume. | `{}` |
 | `TIMESTORE_PARTITION_BUILD_QUEUE_NAME` | BullMQ queue backing remote partition builds. | `timestore_partition_build_queue` |
@@ -90,9 +97,17 @@ When the service boots it ensures the configured Postgres schema exists, runs ti
 ### Streaming & Bulk Connectors
 - Enable connector workers by setting `TIMESTORE_CONNECTORS_ENABLED=true`. When disabled, connector definitions are ignored even if configured.
 - `TIMESTORE_STREAMING_CONNECTORS` expects a JSON array. The file driver consumes newline-delimited JSON envelopes that match the ingestion schema (`offset`, `idempotencyKey`, `ingestion`). Provide `checkpointPath` and optional `dlqPath` to persist offsets and capture failures.
+- Streaming micro-batchers are configured through `TIMESTORE_STREAMING_BATCHERS`. Each descriptor maps a Kafka/Redpanda topic to a dataset slug, schema, and time window so high-frequency events are aggregated before entering the ingestion pipeline.
+- The streaming hot buffer rides on the same topic definitions. When `TIMESTORE_STREAMING_BUFFER_ENABLED=1`, the service tails high-water offsets for each batcher, keeps recent events in memory, and merges them with sealed Parquet partitions at query time. The buffer automatically evicts rows once the micro-batcher advances the watermark (persisted in `streaming_watermarks`).
 - `TIMESTORE_BULK_CONNECTORS` tail directories for staged files (currently JSON). Each descriptor can override `chunkSize`, set `deleteAfterLoad`, or leave ingested files renamed with a `.processed` suffix.
 - Backpressure thresholds come from `TIMESTORE_CONNECTOR_BACKPRESSURE` (high/low watermarks + pause window); connectors pause polling when the ingestion queue depth crosses the configured limits.
 - Connector progress is tracked in JSON checkpoints so a restart resumes from the previous offset without reprocessing data.
+
+#### Streaming Hot Buffer
+- Enable via `TIMESTORE_STREAMING_BUFFER_ENABLED=1` alongside the micro-batcher. Configure per-dataset retention and memory limits with the knobs above.
+- Hybrid queries automatically call the buffer when the requested range overlaps the streaming window. The JSON response now includes a `streaming` block (`bufferState`, merged row count, watermark, `fresh` flag) so clients can surface freshness indicators.
+- Operators can monitor buffer health through the new metrics: `timestore_streaming_records_total`, `timestore_streaming_flush_duration_seconds`, `timestore_streaming_flush_rows`, `timestore_streaming_backlog_seconds`, and `timestore_streaming_open_windows`. Querying the `streaming_watermarks` table reveals the most recent sealed partition per dataset.
+- If the buffer becomes unavailable, set `TIMESTORE_STREAMING_BUFFER_FALLBACK=parquet_only` to continue serving sealed partitions (with a warning) or `error` to fail fast until the streaming tier recovers.
 
 ### Filestore Integration
 

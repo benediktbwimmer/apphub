@@ -704,6 +704,34 @@ const datasetQueryRequestSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const datasetQueryStreamingSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['enabled', 'bufferState', 'rows', 'fresh'],
+  additionalProperties: false,
+  properties: {
+    enabled: {
+      type: 'boolean',
+      description: 'Indicates whether streaming integration was active for the query.'
+    },
+    bufferState: {
+      type: 'string',
+      enum: ['disabled', 'ready', 'unavailable'],
+      description: 'State of the streaming hot buffer during query execution.'
+    },
+    rows: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Number of streaming rows merged into the response.'
+    },
+    watermark: nullable(stringSchema('date-time')),
+    latestTimestamp: nullable(stringSchema('date-time')),
+    fresh: {
+      type: 'boolean',
+      description: 'True when streaming data covers the requested range end.'
+    }
+  }
+};
+
 const datasetQueryResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['rows', 'columns', 'mode'],
@@ -727,7 +755,8 @@ const datasetQueryResponseSchema: OpenAPIV3.SchemaObject = {
       type: 'array',
       description: 'Non-fatal issues encountered while executing the query.',
       items: stringSchema()
-    }
+    },
+    streaming: nullable(datasetQueryStreamingSchema)
   }
 };
 
