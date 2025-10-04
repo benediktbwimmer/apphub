@@ -7,11 +7,13 @@ import { readJsonFile, writeJsonFile } from './json';
 import {
   createModuleContext,
   resolveModuleCapabilityConfig,
+  type ModuleCapabilities,
   type ModuleDefinition,
   type ModuleManifest,
+  type ModuleManifestValueDescriptor,
   type ModuleMetadata,
   type ResolvedModuleCapabilityConfig,
-  type ModuleCapabilities
+  type ValueDescriptor
 } from '@apphub/module-sdk';
 
 const DEFAULT_MANIFEST_LOCATIONS = ['dist/module.json', 'module.json'];
@@ -102,6 +104,21 @@ function cloneJson<T>(value: T | undefined): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function resolveDescriptorDefaults<TValue>(
+  manifestDescriptor: ModuleManifestValueDescriptor | undefined,
+  definitionDescriptor: ValueDescriptor<TValue> | undefined
+): TValue | undefined {
+  if (manifestDescriptor?.defaults !== undefined) {
+    return manifestDescriptor.defaults as TValue;
+  }
+
+  if (manifestDescriptor?.inherit) {
+    return undefined;
+  }
+
+  return definitionDescriptor?.defaults;
+}
+
 function resolveScratchDir(moduleName: string | undefined, explicit?: string): string {
   if (explicit) {
     return path.resolve(explicit);
@@ -118,12 +135,17 @@ export async function generateModuleConfig(
   const manifest = await loadModuleManifest(modulePath, options.manifestPath);
   const definition = await loadModuleDefinition(modulePath, options.definitionPath);
 
-  const settings = cloneJson<Record<string, unknown>>(
-    manifest.settings?.defaults as Record<string, unknown> | undefined
+  const settingsDefaults = resolveDescriptorDefaults<Record<string, unknown>>(
+    manifest.settings,
+    definition.settings as ValueDescriptor<Record<string, unknown>> | undefined
   );
-  const secrets = cloneJson<Record<string, unknown>>(
-    manifest.secrets?.defaults as Record<string, unknown> | undefined
+  const secretsDefaults = resolveDescriptorDefaults<Record<string, unknown>>(
+    manifest.secrets,
+    definition.secrets as ValueDescriptor<Record<string, unknown>> | undefined
   );
+
+  const settings = cloneJson<Record<string, unknown>>(settingsDefaults);
+  const secrets = cloneJson<Record<string, unknown>>(secretsDefaults);
 
   const scratchDir = resolveScratchDir(manifest.metadata?.name, options.scratchDir);
   await ensureDir(scratchDir);
