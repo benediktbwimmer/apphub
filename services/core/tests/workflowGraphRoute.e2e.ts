@@ -16,7 +16,7 @@ process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
   {
     subject: 'workflow-graph-route-test',
     token: OPERATOR_TOKEN,
-    scopes: ['workflows:write']
+    scopes: ['workflows:read']
   }
 ]);
 process.env.SERVICE_REGISTRY_TOKEN = 'workflow-graph-test-token';
