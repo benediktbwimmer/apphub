@@ -80,6 +80,9 @@
       ],
       "@apphub/kubectl-mock/*": [
         "packages/kubectl-mock/src/*"
+      ],
+      "kafkajs": [
+        "types/kafkajs/index"
       ]
     }
   }
