@@ -12,6 +12,7 @@ import type { AuthIdentity } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 import { useToastHelpers } from '../components/toast';
 import {
   copyNode,
@@ -2866,13 +2867,15 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
               <div>
                 <div className="flex items-center justify-between">
                   <span className="text-scale-xs font-weight-medium text-muted">Advanced filters</span>
-                  <button
-                    type="button"
-                    onClick={handleResetFilters}
-                    className="text-scale-xs text-muted underline decoration-dotted underline-offset-2 hover:text-accent"
-                  >
-                    Reset all
-                  </button>
+                  {hasAdvancedFilters ? (
+                    <button
+                      type="button"
+                      onClick={handleResetFilters}
+                      className="text-scale-xs text-muted underline decoration-dotted underline-offset-2 hover:text-accent"
+                    >
+                      Reset all
+                    </button>
+                  ) : null}
                 </div>
                 {hasAdvancedFilters ? (
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -2893,12 +2896,19 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 )}
               </div>
 
-              <form
-                className="space-y-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  handleApplyQuery(queryDraft);
-                }}
+              <CollapsibleSection
+                title="Configure advanced filters"
+                description="Add metadata, size, time, and rollup constraints to refine the node list."
+                defaultOpen={hasAdvancedFilters}
+                contentClassName="space-y-4"
+              >
+
+                <form
+                  className="space-y-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handleApplyQuery(queryDraft);
+                  }}
               >
                 <label htmlFor="filestore-query" className="text-scale-xs font-weight-medium text-muted">
                   Search query
@@ -3130,6 +3140,8 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   </button>
                 </div>
               </form>
+
+              </CollapsibleSection>
             </div>
 
             <div className="space-y-3">

@@ -5,7 +5,7 @@ import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
 import { useToastHelpers } from '../components/toast';
-import { Spinner } from '../components';
+import { CollapsibleSection, Spinner } from '../components';
 import { RecordTable } from './components/RecordTable';
 import { NamespacePicker } from './components/NamespacePicker';
 import { searchRecords, fetchRecord, upsertRecord, patchRecord, deleteRecord, purgeRecord, bulkOperate } from './api';
@@ -134,7 +134,6 @@ export default function MetastoreExplorerPage() {
   const [builderPreset, setBuilderPreset] = useState<string | null>(() => searchParams.get('preset'));
   const [advancedDraft, setAdvancedDraft] = useState<string>(() => decodeDslFromUrl(searchParams.get('dsl')));
   const [advancedError, setAdvancedError] = useState<string | null>(null);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [appliedQuery, setAppliedQuery] = useState<AppliedQueryState>(() => {
     const mode = searchParams.get('mode') === 'advanced' ? 'advanced' : 'builder';
     const preset = searchParams.get('preset');
@@ -223,6 +222,12 @@ export default function MetastoreExplorerPage() {
     }
   }, [schemaHashDisplay]);
 
+  useEffect(() => {
+    if (appliedQuery.mode === 'advanced' && appliedQuery.filter && !advancedDraft.trim()) {
+      setAdvancedDraft(JSON.stringify(appliedQuery.filter, null, 2));
+    }
+  }, [appliedQuery, advancedDraft]);
+
   const handleNamespaceChange = (nextNamespace: string) => {
     const normalized = nextNamespace.trim() || 'default';
     setNamespace(normalized);
@@ -310,20 +315,6 @@ export default function MetastoreExplorerPage() {
     setBuilderPreset(null);
   };
 
-  const openAdvancedEditor = () => {
-    const current = advancedDraft.trim();
-    if (!current && appliedQuery.filter) {
-      setAdvancedDraft(JSON.stringify(appliedQuery.filter, null, 2));
-    }
-    setAdvancedError(null);
-    setAdvancedOpen(true);
-  };
-
-  const closeAdvancedEditor = () => {
-    setAdvancedOpen(false);
-    setAdvancedError(null);
-  };
-
   const applyAdvanced = () => {
     const parsed = parseFilterFromText(advancedDraft);
     if (!parsed && advancedDraft.trim()) {
@@ -339,7 +330,6 @@ export default function MetastoreExplorerPage() {
     };
     setAppliedQuery(next);
     setAdvancedError(null);
-    setAdvancedOpen(false);
     setPage(0);
     updateUrlParams((params) => {
       const encodedDsl = encodeDslForUrl(advancedDraft);
@@ -722,16 +712,6 @@ export default function MetastoreExplorerPage() {
             <button type="button" onClick={resetBuilder} className={METASTORE_SECONDARY_BUTTON_CLASSES}>
               Reset builder
             </button>
-            <button
-              type="button"
-              onClick={openAdvancedEditor}
-              className={classNames(
-                METASTORE_SECONDARY_BUTTON_CLASSES,
-                'border-accent text-accent hover:border-accent-soft hover:bg-accent-soft/60 hover:text-accent-strong'
-              )}
-            >
-              Advanced DSL
-            </button>
             {appliedQuery.mode === 'advanced' && (
               <span className={classNames(METASTORE_PILL_BADGE_NEUTRAL_CLASSES, 'border-accent text-accent')}>
                 Advanced mode active
@@ -742,50 +722,66 @@ export default function MetastoreExplorerPage() {
             <p className={classNames('whitespace-pre-wrap break-words', METASTORE_META_TEXT_CLASSES)}>{builderSummary}</p>
           )}
         </div>
-        {advancedOpen && (
-          <div
-            className={classNames(
-              METASTORE_FORM_FIELD_CONTAINER_CLASSES,
-              'space-y-3 border-accent-soft bg-accent-soft/40'
-            )}
-          >
-            <label className="flex flex-col gap-2">
-              <span className={METASTORE_SECTION_LABEL_CLASSES}>DSL JSON</span>
-              <textarea
-                rows={8}
-                value={advancedDraft}
-                onChange={(event) => setAdvancedDraft(event.target.value)}
-                className={classNames(METASTORE_TEXT_AREA_MONO_CLASSES, 'min-h-[192px]')}
-                placeholder={'{ "field": "metadata.status", "operator": "eq", "value": "active" }'}
-              />
-            </label>
-            {advancedError ? (
-              <p className={classNames(METASTORE_ERROR_TEXT_CLASSES, 'flex flex-wrap items-center gap-2')}>
-                {advancedError}
-                <a
-                  href="https://docs.apphub.dev/metastore/search"
-                  target="_blank"
-                  rel="noreferrer"
-                  className={METASTORE_LINK_ACCENT_CLASSES}
-                >
-                  View documentation
-                </a>
-              </p>
-            ) : (
-              <p className={METASTORE_META_TEXT_CLASSES}>
-                Provide a filter tree matching the metastore search DSL. Apply to replace the builder query.
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={applyAdvanced} className={METASTORE_PRIMARY_BUTTON_CLASSES}>
-                Apply DSL
-              </button>
-              <button type="button" onClick={closeAdvancedEditor} className={METASTORE_SECONDARY_BUTTON_CLASSES}>
-                Cancel
-              </button>
-            </div>
+        <CollapsibleSection
+          title="Advanced DSL"
+          description="Edit the search JSON directly for complex filters."
+          defaultOpen={appliedQuery.mode === 'advanced'}
+          onToggle={(isOpen) => {
+            if (isOpen) {
+              if (!advancedDraft.trim() && appliedQuery.filter) {
+                setAdvancedDraft(JSON.stringify(appliedQuery.filter, null, 2));
+              }
+              setAdvancedError(null);
+            } else {
+              setAdvancedError(null);
+            }
+          }}
+          className={classNames(METASTORE_FORM_FIELD_CONTAINER_CLASSES, 'space-y-3 border-accent-soft bg-accent-soft/40')}
+          contentClassName="space-y-3"
+        >
+          <label className="flex flex-col gap-2">
+            <span className={METASTORE_SECTION_LABEL_CLASSES}>DSL JSON</span>
+            <textarea
+              rows={8}
+              value={advancedDraft}
+              onChange={(event) => setAdvancedDraft(event.target.value)}
+              className={classNames(METASTORE_TEXT_AREA_MONO_CLASSES, 'min-h-[192px]')}
+              placeholder={'{ "field": "metadata.status", "operator": "eq", "value": "active" }'}
+            />
+          </label>
+          {advancedError ? (
+            <p className={classNames(METASTORE_ERROR_TEXT_CLASSES, 'flex flex-wrap items-center gap-2')}>
+              {advancedError}
+              <a
+                href="https://docs.apphub.dev/metastore/search"
+                target="_blank"
+                rel="noreferrer"
+                className={METASTORE_LINK_ACCENT_CLASSES}
+              >
+                View documentation
+              </a>
+            </p>
+          ) : (
+            <p className={METASTORE_META_TEXT_CLASSES}>
+              Provide a filter tree matching the metastore search DSL. Apply to replace the builder query.
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={applyAdvanced} className={METASTORE_PRIMARY_BUTTON_CLASSES}>
+              Apply DSL
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAdvancedDraft('');
+                setAdvancedError(null);
+              }}
+              className={METASTORE_SECONDARY_BUTTON_CLASSES}
+            >
+              Reset DSL
+            </button>
           </div>
-        )}
+        </CollapsibleSection>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)] xl:grid-cols-[minmax(0,320px),minmax(0,1fr),minmax(280px,1fr)]">
@@ -969,13 +965,12 @@ export default function MetastoreExplorerPage() {
                         />
                       </label>
                     </div>
-                    <section
-                      className={classNames(
-                        METASTORE_FORM_FIELD_CONTAINER_CLASSES,
-                        'space-y-3 text-scale-xs text-secondary'
-                      )}
+                    <CollapsibleSection
+                      title="Advanced patch options"
+                      description="Apply JSON payloads or tag operations to the selected record."
+                      className={classNames(METASTORE_FORM_FIELD_CONTAINER_CLASSES, 'text-scale-xs text-secondary')}
+                      contentClassName="space-y-3"
                     >
-                      <h4 className={METASTORE_SECTION_LABEL_CLASSES}>Patch payload (advanced)</h4>
                       <textarea
                         value={patchText}
                         onChange={(event) => setPatchText(event.target.value)}
@@ -997,7 +992,7 @@ export default function MetastoreExplorerPage() {
                         placeholder='{ "add": ["tag"] }'
                         className={classNames(METASTORE_TEXT_AREA_MONO_CLASSES, 'mt-2 min-h-[120px]')}
                       />
-                    </section>
+                    </CollapsibleSection>
                   </div>
                 </section>
 
