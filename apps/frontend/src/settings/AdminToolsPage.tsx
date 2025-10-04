@@ -2,6 +2,7 @@ import classNames from 'classnames';
 import { useCallback, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useAuth } from '../auth/useAuth';
 import { getStatusToneClasses } from '../theme/statusTokens';
 import {
   SETTINGS_DANGER_BUTTON_CLASSES,
@@ -14,12 +15,16 @@ import {
 
 export default function AdminToolsPage() {
   const authorizedFetch = useAuthorizedFetch();
+  const { identity, identityLoading } = useAuth();
   const [isNukingRunData, setIsNukingRunData] = useState(false);
   const [isNukingCore, setIsNukingCore] = useState(false);
   const [isNukingEverything, setIsNukingEverything] = useState(false);
   const [runDataError, setRunDataError] = useState<string | null>(null);
   const [coreError, setCoreError] = useState<string | null>(null);
   const [everythingError, setEverythingError] = useState<string | null>(null);
+
+  const hasDangerScope = identity?.scopes?.includes('admin:danger-zone') ?? false;
+  const canUseDangerZone = Boolean(identity?.authDisabled || hasDangerScope);
 
   const parseErrorMessage = useCallback((raw: string | null | undefined, fallback: string) => {
     if (!raw) {
@@ -44,7 +49,7 @@ export default function AdminToolsPage() {
   }, []);
 
   const handleNukeRunData = useCallback(async () => {
-    if (isNukingRunData || isNukingCore || isNukingEverything) {
+    if (!canUseDangerZone || isNukingRunData || isNukingCore || isNukingEverything) {
       return;
     }
 
@@ -72,10 +77,10 @@ export default function AdminToolsPage() {
     } finally {
       setIsNukingRunData(false);
     }
-  }, [authorizedFetch, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
+  }, [authorizedFetch, canUseDangerZone, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
 
   const handleNukeCore = useCallback(async () => {
-    if (isNukingCore || isNukingRunData || isNukingEverything) {
+    if (!canUseDangerZone || isNukingCore || isNukingRunData || isNukingEverything) {
       return;
     }
 
@@ -103,10 +108,10 @@ export default function AdminToolsPage() {
     } finally {
       setIsNukingCore(false);
     }
-  }, [authorizedFetch, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
+  }, [authorizedFetch, canUseDangerZone, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
 
   const handleNukeEverything = useCallback(async () => {
-    if (isNukingEverything || isNukingCore || isNukingRunData) {
+    if (!canUseDangerZone || isNukingEverything || isNukingCore || isNukingRunData) {
       return;
     }
 
@@ -134,9 +139,10 @@ export default function AdminToolsPage() {
     } finally {
       setIsNukingEverything(false);
     }
-  }, [authorizedFetch, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
+  }, [authorizedFetch, canUseDangerZone, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
 
   const isBusy = isNukingRunData || isNukingCore || isNukingEverything;
+  const controlsDisabled = isBusy || !canUseDangerZone;
 
   return (
     <div className="flex flex-col gap-6">
@@ -156,6 +162,11 @@ export default function AdminToolsPage() {
             Use these controls to delete run data (builds, launches, service network state) or wipe the entire
             core. There is no undo.
           </p>
+          {!identityLoading && !canUseDangerZone && (
+            <p className={SETTINGS_DANGER_META_TEXT_CLASSES}>
+              An operator token with the <code>admin:danger-zone</code> scope is required to access these controls.
+            </p>
+          )}
         </div>
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -166,7 +177,7 @@ export default function AdminToolsPage() {
               type="button"
               className={classNames(SETTINGS_DANGER_BUTTON_CLASSES, getStatusToneClasses('danger'))}
               onClick={handleNukeRunData}
-              disabled={isBusy}
+              disabled={controlsDisabled}
             >
               {isNukingRunData ? 'Nuking run data…' : 'Nuke run data'}
             </button>
@@ -185,7 +196,7 @@ export default function AdminToolsPage() {
               type="button"
               className={classNames(SETTINGS_DANGER_BUTTON_CLASSES, getStatusToneClasses('danger'))}
               onClick={handleNukeCore}
-              disabled={isBusy}
+              disabled={controlsDisabled}
             >
               {isNukingCore ? 'Nuking core…' : 'Nuke core'}
             </button>
@@ -204,7 +215,7 @@ export default function AdminToolsPage() {
               type="button"
               className={classNames(SETTINGS_DANGER_BUTTON_CLASSES, getStatusToneClasses('danger'))}
               onClick={handleNukeEverything}
-              disabled={isBusy}
+              disabled={controlsDisabled}
             >
               {isNukingEverything ? 'Nuking everything…' : 'Nuke everything'}
             </button>
