@@ -10,8 +10,9 @@ data "aws_ami" "al2023" {
 
 locals {
   env_base = templatefile("${path.module}/templates/env.base.tmpl", {
-    demo_fqdn  = local.demo_fqdn
-    aws_region = var.aws_region
+    demo_fqdn          = local.demo_fqdn
+    aws_region         = var.aws_region
+    enable_managed_dns = var.enable_managed_dns
   })
 
   caddyfile = templatefile("${path.module}/templates/Caddyfile.tmpl", {
@@ -26,16 +27,17 @@ locals {
   compose_override = file("${path.module}/config/docker-compose.override.yml")
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tmpl", {
-    aws_region       = var.aws_region
-    project_name     = local.project_name
-    demo_fqdn        = local.demo_fqdn
-    apphub_git_repo  = var.apphub_git_repo
-    apphub_git_ref   = var.apphub_git_ref
-    contact_email    = var.contact_email
-    env_base         = local.env_base
-    caddyfile        = local.caddyfile
-    cloudwatch_agent = local.cloudwatch_agent
-    compose_override = local.compose_override
+    aws_region         = var.aws_region
+    project_name       = local.project_name
+    demo_fqdn          = local.demo_fqdn
+    apphub_git_repo    = var.apphub_git_repo
+    apphub_git_ref     = var.apphub_git_ref
+    contact_email      = var.contact_email
+    env_base           = local.env_base
+    caddyfile          = local.caddyfile
+    cloudwatch_agent   = local.cloudwatch_agent
+    compose_override   = local.compose_override
+    enable_managed_dns = var.enable_managed_dns
   })
 }
 

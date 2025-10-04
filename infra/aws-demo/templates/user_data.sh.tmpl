@@ -11,7 +11,45 @@ exec &> >(tee -a /var/log/apphub-bootstrap.log)
 
 dnf -y upgrade
 
-dnf -y install docker git jq amazon-cloudwatch-agent nginx
+dnf -y install docker git jq amazon-cloudwatch-agent
+%{ if enable_managed_dns }
+dnf -y install libcap tar
+CADDY_VERSION="2.8.4"
+curl -fsSL "https://github.com/caddyserver/caddy/releases/download/v$${CADDY_VERSION}/caddy_$${CADDY_VERSION}_linux_amd64.tar.gz" -o /tmp/caddy.tar.gz
+tar -xzf /tmp/caddy.tar.gz -C /tmp caddy
+install -m 0755 /tmp/caddy /usr/local/bin/caddy
+rm -f /tmp/caddy /tmp/caddy.tar.gz
+setcap "cap_net_bind_service=+ep" /usr/local/bin/caddy
+id -u caddy >/dev/null 2>&1 || useradd --system --home /var/lib/caddy --shell /usr/sbin/nologin caddy
+install -d -m 0750 -o caddy -g caddy /var/lib/caddy
+install -d -m 0755 -o caddy -g caddy /etc/caddy
+install -d -m 0755 -o caddy -g caddy /var/log/caddy
+cat <<'CADDYSVC' >/etc/systemd/system/caddy.service
+[Unit]
+Description=Caddy web server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=caddy
+Group=caddy
+ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
+Restart=on-failure
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+LimitNPROC=512
+PrivateTmp=true
+ProtectSystem=full
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target
+CADDYSVC
+%{ else }
+dnf -y install nginx
+%{ endif }
 
 install -d -m 0755 /usr/libexec/docker/cli-plugins
 curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
@@ -47,47 +85,15 @@ aws ssm get-parameters \
 
 chown ec2-user:ec2-user /opt/apphub/.env
 chmod 600 /opt/apphub/.env
-
-cat <<'OVERRIDE' >/opt/apphub/docker-compose.override.yml
-${compose_override}
-OVERRIDE
-chown ec2-user:ec2-user /opt/apphub/docker-compose.override.yml
-
-if [ ! -d /opt/apphub/source ]; then
-  git clone "${apphub_git_repo}" /opt/apphub/source
-fi
-
-cd /opt/apphub/source
-git fetch --all --tags || true
-git checkout "${apphub_git_ref}"
-git pull --ff-only origin "${apphub_git_ref}" || true
-chown -R ec2-user:ec2-user /opt/apphub/source
-
-cat <<'SERVICEF' >/etc/systemd/system/apphub-demo.service
-[Unit]
-Description=AppHub demo stack
-After=docker.service network-online.target
-Requires=docker.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-User=ec2-user
-Group=ec2-user
-WorkingDirectory=/opt/apphub/source
-EnvironmentFile=/opt/apphub/.env
-ExecStart=/usr/bin/docker compose --project-directory /opt/apphub/source --file /opt/apphub/source/docker/demo-stack.compose.yml --file /opt/apphub/docker-compose.override.yml --env-file /opt/apphub/.env up -d --remove-orphans --build
-ExecStop=/usr/bin/docker compose --project-directory /opt/apphub/source --file /opt/apphub/source/docker/demo-stack.compose.yml --file /opt/apphub/docker-compose.override.yml --env-file /opt/apphub/.env down
-TimeoutStartSec=0
-
-[Install]
-WantedBy=multi-user.target
-SERVICEF
-
-systemctl daemon-reload
-systemctl enable apphub-demo.service
-systemctl start apphub-demo.service || true
-
+%{ if enable_managed_dns }
+install -d -m 0755 -o caddy -g caddy /var/log/caddy
+cat <<'CADDY' >/etc/caddy/Caddyfile
+${caddyfile}
+CADDY
+chown caddy:caddy /etc/caddy/Caddyfile
+systemctl enable caddy
+systemctl restart caddy
+%{ else }
 cat <<'NGINX' >/etc/nginx/conf.d/apphub.conf
 server {
     listen 80 default_server;
@@ -117,6 +123,46 @@ NGINX
 rm -f /etc/nginx/conf.d/default.conf || true
 systemctl enable nginx
 systemctl restart nginx
+%{ endif }
+cat <<'OVERRIDE' >/opt/apphub/docker-compose.override.yml
+${compose_override}
+OVERRIDE
+chown ec2-user:ec2-user /opt/apphub/docker-compose.override.yml
+
+if [ ! -d /opt/apphub/source ]; then
+  git clone "${apphub_git_repo}" /opt/apphub/source
+fi
+
+cd /opt/apphub/source
+git fetch --all --tags || true
+git checkout "${apphub_git_ref}"
+git pull --ff-only origin "${apphub_git_ref}" || true
+chown -R ec2-user:ec2-user /opt/apphub/source
+
+cat <<'SERVICEF' >/etc/systemd/system/apphub-demo.service
+[Unit]
+Description=AppHub demo stack
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/apphub/source
+EnvironmentFile=/opt/apphub/.env
+ExecStart=/usr/bin/docker compose --file docker/demo-stack.compose.yml --file /opt/apphub/docker-compose.override.yml --env-file /opt/apphub/.env up -d --remove-orphans --build
+ExecStop=/usr/bin/docker compose --file docker/demo-stack.compose.yml --file /opt/apphub/docker-compose.override.yml --env-file /opt/apphub/.env down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+SERVICEF
+
+systemctl daemon-reload
+systemctl enable apphub-demo.service
+systemctl start apphub-demo.service || true
 
 cat <<'CWAE' >/opt/apphub/cloudwatch-agent.json
 ${cloudwatch_agent}

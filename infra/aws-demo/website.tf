@@ -111,7 +111,7 @@ resource "aws_acm_certificate_validation" "website" {
   count                   = var.enable_managed_dns ? 1 : 0
   provider                = aws.us_east_1
   certificate_arn         = aws_acm_certificate.website[0].arn
-  validation_record_fqdns = [for record in aws_route53_record.certificate_validation : record.value.fqdn]
+  validation_record_fqdns = [for record in aws_route53_record.certificate_validation : record.fqdn]
 }
 
 resource "aws_cloudfront_distribution" "website" {

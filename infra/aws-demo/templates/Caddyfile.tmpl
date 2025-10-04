@@ -7,7 +7,7 @@ ${demo_fqdn} {
   encode zstd gzip
   log {
     output file /var/log/caddy/apphub-demo.log
-    format single_field common_log
+    format console
   }
 
   handle_path /api/* {
