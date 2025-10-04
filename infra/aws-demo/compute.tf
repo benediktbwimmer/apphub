@@ -41,6 +41,10 @@ locals {
   })
 }
 
+resource "terraform_data" "managed_dns_toggle" {
+  triggers_replace = [tostring(var.enable_managed_dns)]
+}
+
 resource "aws_instance" "demo" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.instance_type
@@ -62,7 +66,7 @@ resource "aws_instance" "demo" {
 
   lifecycle {
     ignore_changes       = [user_data, user_data_replace_on_change, user_data_base64]
-    replace_triggered_by = [var.enable_managed_dns]
+    replace_triggered_by = [terraform_data.managed_dns_toggle]
   }
 
   tags = merge(local.common_tags, {
