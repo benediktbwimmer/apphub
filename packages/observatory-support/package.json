@@ -1,8 +1,8 @@
 {
-  "name": "@apphub/examples",
+  "name": "@apphub/observatory-support",
   "version": "0.1.0",
   "private": true,
-  "description": "Runtime loaders and shared types for AppHub example core metadata.",
+  "description": "Shared helpers for the environmental observatory toolkit.",
   "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,10 +14,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@apphub/observatory-support": "0.1.0",
-    "fast-glob": "^3.3.2",
-    "pg": "^8.16.3",
-    "zod": "^3.25.76"
+    "@aws-sdk/client-s3": "^3.901.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3"
