@@ -17,6 +17,8 @@ This note captures potential services that could complement the existing AppHub 
 - **Integration**: Replace the core `resolveSecret` helper with a lightweight client that requests scoped tokens. Emit access logs to the event bus for compliance workflows.
 - **Open Questions**: Do we need envelope encryption at rest beyond what vault integrations provide? Can we enforce per-tenant quotas or per-step policies without adding latency to job startup?
 
+_Status: shipped in `services/secrets`. Refer to `docs/secrets-service.md` for the API surface and migration guide._
+
 ## Search & Recommendation API
 - **Why**: Core shoulders ingestion, orchestration, and search. Future ranking, personalization, or vector-based discovery will outgrow the Postgres FTS tables currently embedded in core.
 - **What**: Extract indexing, scoring, and search persistence into its own service. Allow experimentation with alternative backends (Meilisearch, Vespa, pgvector) without coupling rollouts to core deployments.

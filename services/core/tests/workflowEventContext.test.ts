@@ -149,7 +149,7 @@ test('sandbox runner propagates workflow event context to child jobs', async () 
       exportName: null,
       logger: () => {},
       update: async () => jobRun,
-      resolveSecret: () => null,
+      resolveSecret: async () => null,
       workflowEventContext
     });
 

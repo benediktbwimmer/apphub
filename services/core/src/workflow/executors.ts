@@ -148,7 +148,7 @@ export type StepExecutorDependencies = {
       actorType: string;
       metadata?: Record<string, JsonValue | string | number | boolean | null>;
     }
-  ) => { value: string | null };
+  ) => Promise<{ value: string | null }>;
   maskSecret: (value: string) => string;
   describeSecret: (ref: SecretReference) => string;
   createJobRunForSlug: (
@@ -1094,7 +1094,7 @@ async function prepareServiceRequest(
       if (!secretRef) {
         continue;
       }
-      const resolved = deps.resolveSecret(secretRef as SecretReference, {
+      const resolved = await deps.resolveSecret(secretRef as SecretReference, {
         actor: `workflow-run:${run.id}`,
         actorType: 'workflow',
         metadata: {

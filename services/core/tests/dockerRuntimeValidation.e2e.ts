@@ -640,7 +640,7 @@ runE2E(async ({ registerCleanup }) => {
     timeoutMs: 10000,
     logger,
     update,
-    resolveSecret: () => null
+    resolveSecret: async () => null
   });
 
   assert.equal(result.jobResult.status, 'succeeded');

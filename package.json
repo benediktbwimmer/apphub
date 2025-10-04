@@ -26,6 +26,7 @@
     "dev:services": "node scripts/dev-services.js",
     "dev:materializer": "npm run materializer --workspace @apphub/core",
     "dev:observatory": "node scripts/dev-load-observatory.mjs",
+    "dev:secrets": "npm run dev --workspace @apphub/secrets",
     "dev:metastore": "npm run dev --workspace @apphub/metastore",
     "dev:filestore": "npm run dev --workspace @apphub/filestore",
     "dev:filestore:reconcile": "npm run reconcile:watch --workspace @apphub/filestore",
