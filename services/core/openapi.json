@@ -634,9 +634,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "Repository": {
         "type": "object",
         "required": [
@@ -1165,9 +1164,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "RepositoryResponse": {
         "type": "object",
         "required": [
@@ -1355,9 +1353,8 @@
                 "nullable": true
               }
             }
-          }
         }
-      },
+            },
       "SavedCoreSearch": {
         "type": "object",
         "required": [
@@ -1559,9 +1556,8 @@
                 "format": "date-time"
               }
             }
-          }
         }
-      },
+            },
       "SavedCoreSearchListResponse": {
         "type": "object",
         "required": [
@@ -1668,9 +1664,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "SavedCoreSearchCreateRequest": {
         "type": "object",
         "required": [
@@ -2252,9 +2247,8 @@
                 "nullable": true
               }
             }
-          }
         }
-      },
+            },
       "EventSavedViewListResponse": {
         "type": "object",
         "required": [
@@ -2457,9 +2451,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "EventSavedViewCreateRequest": {
         "type": "object",
         "required": [
@@ -3542,9 +3535,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "ServiceResponse": {
         "type": "object",
         "required": [
@@ -3783,9 +3775,8 @@
                 "nullable": true
               }
             }
-          }
         }
-      },
+            },
       "ServiceRegistrationRequest": {
         "type": "object",
         "required": [
@@ -4429,9 +4420,8 @@
                 "format": "date-time"
               }
             }
-          }
         }
-      },
+            },
       "JobDefinitionListResponse": {
         "type": "object",
         "required": [
@@ -4580,9 +4570,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "JobRun": {
         "type": "object",
         "required": [
@@ -4825,9 +4814,8 @@
                 ]
               }
             }
-          }
         }
-      },
+            },
       "JobRunListResponse": {
         "type": "object",
         "required": [
@@ -5013,9 +5001,8 @@
                 "minimum": 0
               }
             }
-          }
         }
-      },
+            },
       "JobDetailResponse": {
         "type": "object",
         "required": [
@@ -5289,9 +5276,8 @@
                 "minimum": 0
               }
             }
-          }
         }
-      },
+            },
       "RuntimeReadiness": {
         "type": "object",
         "required": [
@@ -5368,9 +5354,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "JobSchemaPreview": {
         "type": "object",
         "required": [
@@ -5426,9 +5411,8 @@
                 "nullable": true
               }
             }
-          }
         }
-      },
+            },
       "JobBundleFile": {
         "type": "object",
         "required": [
@@ -5654,9 +5638,8 @@
                 "type": "string"
               }
             }
-          }
         }
-      },
+            },
       "BundleEditorResponse": {
         "type": "object",
         "required": [
@@ -6242,9 +6225,8 @@
                 "description": "Previously published bundle versions available for selection."
               }
             }
-          }
         }
-      },
+            },
       "AiBundleEditRequest": {
         "type": "object",
         "required": [
@@ -6775,9 +6757,8 @@
                 ]
               }
             }
-          }
         }
-      },
+            },
       "WorkflowFanOutStep": {
         "type": "object",
         "required": [
@@ -10531,9 +10512,8 @@
                 "format": "date-time"
               }
             }
-          }
         }
-      },
+            },
       "WorkflowDefinitionListResponse": {
         "type": "object",
         "required": [
@@ -11409,9 +11389,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "WorkflowRun": {
         "type": "object",
         "required": [
@@ -11767,9 +11746,8 @@
                 "minimum": 0
               }
             }
-          }
         }
-      },
+            },
       "ApiKey": {
         "type": "object",
         "required": [
@@ -11842,9 +11820,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "ApiKeyCreateResponse": {
         "type": "object",
         "required": [
@@ -11866,9 +11843,8 @@
                 "description": "Full API key token. This value is only returned once at creation time."
               }
             }
-          }
         }
-      },
+            },
       "PythonSnippetPreview": {
         "type": "object",
         "required": [
@@ -11913,9 +11889,8 @@
                 "$ref": "#/components/schemas/def-0"
               }
             }
-          }
         }
-      },
+            },
       "PythonSnippetCreateResponse": {
         "type": "object",
         "required": [
@@ -12133,9 +12108,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "AssetGraphProducer": {
         "type": "object",
         "required": [
@@ -12785,9 +12759,8 @@
             "items": {
               "type": "string"
             }
-          }
         }
-      },
+            },
       "AssetGraphEdge": {
         "type": "object",
         "required": [
@@ -13261,9 +13234,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "AssetMarkStaleRequest": {
         "type": "object",
         "properties": {
@@ -14569,9 +14541,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "WorkflowGraphCacheMeta": {
         "type": "object",
         "required": [
@@ -16004,9 +15975,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "StreamingBrokerStatus": {
         "type": "object",
         "required": [
@@ -16199,9 +16169,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "StreamingStatus": {
         "type": "object",
         "required": [
@@ -16393,6 +16362,29 @@
                 "type": "string",
                 "format": "date-time",
                 "nullable": true
+              }
+            }
+          },
+          "mirrors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "properties": {
+              "workflowRuns": {
+                "type": "boolean"
+              },
+              "workflowEvents": {
+                "type": "boolean"
+              },
+              "jobRuns": {
+                "type": "boolean"
+              },
+              "ingestion": {
+                "type": "boolean"
+              },
+              "coreEvents": {
+                "type": "boolean"
               }
             }
           }
@@ -16621,9 +16613,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "HealthUnavailableResponse": {
         "type": "object",
         "required": [
@@ -16847,9 +16838,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "ReadyResponse": {
         "type": "object",
         "required": [
@@ -17073,9 +17063,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "ReadyUnavailableResponse": {
         "type": "object",
         "required": [
@@ -17299,9 +17288,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "ErrorResponse": {
         "type": "object",
         "required": [
@@ -36910,9 +36898,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/v1/events": {
       "post": {
@@ -36950,9 +36937,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/readyz": {
       "get": {
@@ -36981,9 +36967,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/metrics": {
       "get": {
@@ -37061,9 +37046,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/auth/callback": {
       "get": {
@@ -37142,9 +37126,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/auth/logout": {
       "post": {
@@ -37168,9 +37151,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/auth/identity": {
       "get": {
@@ -37214,9 +37196,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/auth/api-keys": {
       "get": {
@@ -37270,9 +37251,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "post": {
         "summary": "Create API key",
         "tags": [
@@ -37374,9 +37354,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/auth/api-keys/{id}": {
       "delete": {
@@ -37461,9 +37440,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs": {
       "get": {
@@ -37481,9 +37459,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "post": {
         "summary": "Create a job definition",
         "tags": [
@@ -37564,9 +37541,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs/runtimes": {
       "get": {
@@ -37595,9 +37571,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/job-runs": {
       "get": {
@@ -37707,9 +37682,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs/{slug}": {
       "patch": {
@@ -37813,9 +37787,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "get": {
         "summary": "Get job definition with recent runs",
         "tags": [
@@ -37927,9 +37900,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs/schema-preview": {
       "post": {
@@ -38022,9 +37994,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs/python-snippet/preview": {
       "post": {
@@ -38109,9 +38080,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs/python-snippet": {
       "post": {
@@ -38254,9 +38224,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs/{slug}/bundle-editor": {
       "get": {
@@ -38315,9 +38284,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs/{slug}/bundle/ai-edit": {
       "post": {
@@ -38441,9 +38409,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs/{slug}/bundle/regenerate": {
       "post": {
@@ -38557,9 +38524,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/jobs/{slug}/run": {
       "post": {
@@ -38653,9 +38619,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/job-bundles": {
       "get": {
@@ -39054,9 +39019,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/workflows": {
       "get": {
@@ -39084,9 +39048,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "post": {
         "summary": "Create a workflow definition",
         "tags": [
@@ -39168,9 +39131,8 @@
                 "$ref": "https://core.apphub/schemas/WorkflowDefinitionCreateRequest.json"
               }
             }
-          }
         }
-      }
+            }
     },
     "/workflow-schedules": {
       "get": {
@@ -39422,9 +39384,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/workflow-schedules/{scheduleId}": {
       "patch": {
@@ -39747,9 +39708,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/workflows/{slug}/assets/{assetId}/stale": {
       "post": {
@@ -39852,9 +39812,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "delete": {
         "summary": "Clear stale asset status",
         "tags": [
@@ -39956,9 +39915,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/services": {
       "get": {
@@ -40000,9 +39958,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "post": {
         "summary": "Register or update a service",
         "tags": [
@@ -40083,9 +40040,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/services/{slug}/preview": {
       "get": {
@@ -40284,9 +40240,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/metastore": {
       "get": {
@@ -40975,9 +40930,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "post": {
         "summary": "Submit a repository for ingestion",
         "tags": [
@@ -41013,9 +40967,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/apps/{id}": {
       "get": {
@@ -41065,9 +41018,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/apps/{id}/history": {
       "get": {
@@ -41327,9 +41279,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "post": {
         "summary": "Create a saved core search",
         "tags": [
@@ -41400,9 +41351,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/saved-searches/{slug}": {
       "get": {
@@ -41477,9 +41427,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "patch": {
         "summary": "Update a saved core search",
         "tags": [
@@ -41561,9 +41510,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "delete": {
         "summary": "Delete a saved core search",
         "tags": [
@@ -41636,9 +41584,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/saved-searches/{slug}/apply": {
       "post": {
@@ -41713,9 +41660,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/saved-searches/{slug}/share": {
       "post": {
@@ -41790,9 +41736,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/events/saved-views": {
       "get": {
@@ -41836,9 +41781,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "post": {
         "summary": "Create a saved event view",
         "tags": [
@@ -41909,9 +41853,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/events/saved-views/{slug}": {
       "get": {
@@ -41986,9 +41929,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "patch": {
         "summary": "Update a saved event view",
         "tags": [
@@ -42080,9 +42022,8 @@
                 }
               }
             }
-          }
         }
-      },
+            },
       "delete": {
         "summary": "Delete a saved event view",
         "tags": [
@@ -42155,9 +42096,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/events/saved-views/{slug}/apply": {
       "post": {
@@ -42232,9 +42172,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/events/saved-views/{slug}/share": {
       "post": {
@@ -42309,9 +42248,8 @@
                 }
               }
             }
-          }
         }
-      }
+            }
     },
     "/admin/event-health": {
       "get": {

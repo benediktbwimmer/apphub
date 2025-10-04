@@ -27,6 +27,11 @@ import './queue';
 import { queueManager } from './queueManager';
 import { checkKubectlDiagnostics } from './kubernetes/toolingDiagnostics';
 import { getFeatureFlags } from './config/featureFlags';
+import {
+  configureKafkaPublisher,
+  isKafkaPublisherConfigured,
+  verifyKafkaConnectivity
+} from './streaming/kafkaPublisher';
 
 type SerializablePrimitive = string | number | boolean | null;
 
@@ -94,6 +99,7 @@ export async function buildServer() {
   await registerDefaultServices(app.log);
 
   const featureFlags = getFeatureFlags();
+  configureKafkaPublisher({ logger: app.log });
 
   try {
     const diagnostics = await checkKubectlDiagnostics();
@@ -124,8 +130,18 @@ export async function buildServer() {
   try {
     await queueManager.verifyConnectivity();
     await verifyEventBusConnectivity();
+    const mirrorsEnabled = Object.values(featureFlags.streaming.mirrors).some(Boolean);
+    if (featureFlags.streaming.enabled && mirrorsEnabled) {
+      if (isKafkaPublisherConfigured()) {
+        await verifyKafkaConnectivity().catch((err) => {
+          app.log.warn({ err }, 'Kafka streaming publisher unavailable during startup');
+        });
+      } else {
+        app.log.warn('Streaming mirrors enabled but APPHUB_STREAM_BROKER_URL is not configured');
+      }
+    }
   } catch (err) {
-    app.log.error({ err }, 'Redis connectivity check failed during startup');
+    app.log.error({ err }, 'Startup connectivity check failed');
     throw err;
   }
 
