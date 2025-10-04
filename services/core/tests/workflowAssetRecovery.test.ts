@@ -242,7 +242,7 @@ test('workflow orchestrator schedules asset recovery and defers retry', async ()
       stepState = { ...stepState, producedAssets: [] } satisfies WorkflowRunStepRecord;
     },
     persistStepAssets: async () => [],
-    resolveSecret: () => ({ value: null }),
+    resolveSecret: async () => ({ value: null }),
     maskSecret: (value) => value,
     describeSecret: () => 'secret',
     createJobRunForSlug: async () => createdJobRun,
@@ -333,7 +333,7 @@ test('workflow orchestrator defers execution while recovery request is running',
       stepState = { ...stepState, producedAssets: [] } satisfies WorkflowRunStepRecord;
     },
     persistStepAssets: async () => [],
-    resolveSecret: () => ({ value: null }),
+    resolveSecret: async () => ({ value: null }),
     maskSecret: (value) => value,
     describeSecret: () => 'secret',
     createJobRunForSlug: async () => {
@@ -446,7 +446,7 @@ test('workflow orchestrator resumes execution after recovery succeeds', async ()
       stepState = { ...stepState, producedAssets: [] } satisfies WorkflowRunStepRecord;
     },
     persistStepAssets: async () => [],
-    resolveSecret: () => ({ value: null }),
+    resolveSecret: async () => ({ value: null }),
     maskSecret: (value) => value,
     describeSecret: () => 'secret',
     createJobRunForSlug: async () => createdJobRun,

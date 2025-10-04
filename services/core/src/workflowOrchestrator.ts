@@ -1733,7 +1733,7 @@ async function prepareServiceRequest(
       if (!secretRef) {
         continue;
       }
-      const resolved = resolveSecret(secretRef as SecretReference, {
+      const resolved = await resolveSecret(secretRef as SecretReference, {
         actor: `workflow-run:${run.id}`,
         actorType: 'workflow',
         metadata: {

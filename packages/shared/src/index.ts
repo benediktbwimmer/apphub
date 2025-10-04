@@ -11,3 +11,5 @@ export * from './retries/config';
 export * from './workflowTopology';
 export * from './eventsExplorer';
 export * from './gitRepo';
+export * from './secretsClient';
+export * from './secretEvents';

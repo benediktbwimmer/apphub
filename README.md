@@ -482,14 +482,31 @@ no scopes are provided. A starter template lives at `services/core/config/operat
 APPHUB_OPERATOR_TOKENS='[{"subject":"platform-ops","token":"dev-ops-token","scopes":["jobs:write","jobs:run","workflows:write","workflows:run"]}]'
 ```
 
-Secrets referenced by workflow and job steps resolve through the secret store. Provide entries inline with
-`APPHUB_SECRET_STORE` or via `APPHUB_SECRET_STORE_PATH`. See `services/core/config/secretStore.example.json` for a sample layout:
+Secrets referenced by workflow and job steps resolve through the managed secrets service
+(`services/secrets`). Start it locally with `npm run dev --workspace @apphub/secrets` and configure
+core with a bearer token:
 
 ```bash
+SECRETS_SERVICE_URL=http://127.0.0.1:4010
+SECRETS_SERVICE_ADMIN_TOKEN='replace-with-admin-token'
+APPHUB_SECRETS_SUBJECT=apphub.core
+```
+
+Admin tokens live in `SECRETS_SERVICE_ADMIN_TOKENS` (or the corresponding `*_PATH`) inside the
+service and define which secret keys each caller may mint scoped tokens for. Rotations occur
+without restarting core—update the backing store, call `POST /v1/secrets/refresh`, and new values
+propagate automatically. The service emits `secret.token.*` and `secret.access` events for auditing.
+
+During migrations you can fall back to the legacy inline store by setting `APPHUB_SECRETS_MODE=inline`
+and providing `APPHUB_SECRET_STORE` or `APPHUB_SECRET_STORE_PATH` just like earlier releases:
+
+```bash
+APPHUB_SECRETS_MODE=inline
 APPHUB_SECRET_STORE='{"TEST_SERVICE_TOKEN":{"value":"workflow-secret-token","version":"v1"}}'
 ```
 
-Every secret resolution is captured in the audit log with the requesting actor, workflow run, and step metadata.
+Every secret resolution is captured in the database audit log with the requesting actor, workflow run,
+and step metadata.
 
 ### Metrics & Observability
 

@@ -303,7 +303,7 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 - Job handlers gain a `resolveSecret` helper that records audit entries whenever runtime secrets are fetched.
 
 ## Secret Management
-- Workflow service steps and job handlers resolve runtime credentials through a pluggable secret store (inline JSON or file-backed) rather than raw environment access.
+- Workflow service steps and job handlers resolve runtime credentials through the managed secrets service (with optional inline fallback) rather than raw environment access.
 - Secrets support optional version hints; mismatches and missing keys are surfaced as orchestration errors and captured in audit logs.
 - Secret access metadata (workflow run, step ID, job run) is persisted, enabling compliance reviews and least-privilege validation.
 

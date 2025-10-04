@@ -154,7 +154,7 @@ export type JobRunContext = {
   }): Promise<JobRunRecord>;
   heartbeat(): Promise<JobRunRecord>;
   logger: (message: string, meta?: Record<string, unknown>) => void;
-  resolveSecret(reference: SecretReference): string | null;
+  resolveSecret(reference: SecretReference): Promise<string | null>;
 };
 
 export type JobResult = {
@@ -344,8 +344,8 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     logger(message, meta) {
       log(definition.slug, message, meta);
     },
-    resolveSecret(reference) {
-      const result = resolveSecret(reference, {
+    async resolveSecret(reference) {
+      const result = await resolveSecret(reference, {
         actor: `job-run:${runId}`,
         actorType: 'job',
         metadata: {
