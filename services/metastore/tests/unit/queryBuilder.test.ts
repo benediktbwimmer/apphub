@@ -33,3 +33,12 @@ test('omits metadata column for summary projections', () => {
   assert.match(selectClause, /metastore_records\.record_key/);
   assert.match(selectClause, /metastore_records\.updated_at/);
 });
+
+test('adds full-text predicate when search term is provided', () => {
+  const query = buildSearchQuery({ namespace: 'analytics', search: 'galaxy' });
+  assert.match(
+    query.text,
+    /to_tsvector\('simple', metastore_records\.record_key \|\| ' ' \|\| COALESCE\(metastore_records\.metadata::text, ''\)\) @@ plainto_tsquery\('simple', \$\d+\)/
+  );
+  assert.equal(query.values[1], 'galaxy');
+});

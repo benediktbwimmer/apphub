@@ -18,6 +18,7 @@ type PollingResourceFn = (options: UsePollingResourceOptions<unknown>) => UsePol
 
 const mocks = vi.hoisted(() => {
   const listBackendMountsMock = vi.fn<ListBackendMountsMock>();
+  const listNodesMock = vi.fn();
   const subscribeToFilestoreEventsMock = vi.fn<
     (authorizedFetch: unknown, handler: unknown, options?: Record<string, unknown>) => {
       close: () => void;
@@ -48,6 +49,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     listBackendMountsMock,
+    listNodesMock,
     subscribeToFilestoreEventsMock,
     trackEventMock,
     pollingResourceMock,
@@ -97,6 +99,8 @@ const writableIdentity: AuthIdentity = {
   email: 'tester@example.com',
   roles: []
 };
+
+const originalAnchorClick = HTMLAnchorElement.prototype.click;
 
 function buildMountList(mounts: FilestoreBackendMount[]): FilestoreBackendMountList {
   return {
@@ -197,6 +201,20 @@ function setupPollingResourcesForNode(node: FilestoreNode) {
     refetch: vi.fn(async () => {}),
     stop: vi.fn()
   };
+  mocks.listNodesMock.mockResolvedValue({
+    nodes: [node],
+    pagination: { total: 1, limit: 200, offset: 0, nextOffset: null },
+    filters: {
+      backendMountId: node.backendMountId,
+      path: null,
+      depth: 1,
+      states: [],
+      kinds: [],
+      search: null,
+      driftOnly: false,
+      advanced: null
+    }
+  });
   const sampleJob = {
     id: 100,
     jobKey: `reconcile:${node.backendMountId}:${node.path}`,
@@ -283,7 +301,7 @@ vi.mock('../api', () => ({
   fetchReconciliationJob: mocks.fetchReconciliationJobMock,
   fetchNodeByPath: mocks.fetchNodeByPathMock,
   listBackendMounts: mocks.listBackendMountsMock,
-  listNodes: vi.fn(),
+  listNodes: mocks.listNodesMock,
   listReconciliationJobs: mocks.listReconciliationJobsMock,
   createDirectory: mocks.createDirectoryMock,
   uploadFile: mocks.uploadFileMock,
@@ -314,6 +332,21 @@ describe('FilestoreExplorerPage mount discovery', () => {
     localStorage.clear();
     mocks.listBackendMountsMock.mockReset();
     mocks.listBackendMountsMock.mockResolvedValue(buildMountList([]));
+    mocks.listNodesMock.mockReset();
+    mocks.listNodesMock.mockResolvedValue({
+      nodes: [],
+      pagination: { total: 0, limit: 200, offset: 0, nextOffset: null },
+      filters: {
+        backendMountId: null,
+        path: null,
+        depth: 1,
+        states: [],
+        kinds: [],
+        search: null,
+        driftOnly: false,
+        advanced: null
+      }
+    });
     mocks.enqueueReconciliationMock.mockReset();
     mocks.enqueueReconciliationMock.mockResolvedValue(undefined);
     mocks.listWorkflowDefinitionsMock.mockReset();
@@ -359,6 +392,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
     (URL as unknown as { createObjectURL: ReturnType<typeof vi.fn> }).createObjectURL = vi.fn(() => 'blob:mock');
     (URL as unknown as { revokeObjectURL: ReturnType<typeof vi.fn> }).revokeObjectURL = vi.fn();
     window.open = vi.fn();
+    HTMLAnchorElement.prototype.click = vi.fn();
     Object.values(toastHelpersMock).forEach((fn) => fn.mockClear?.());
   });
 
@@ -474,6 +508,9 @@ describe('FilestoreExplorerPage mount discovery', () => {
 
     await screen.findByLabelText('Known mounts');
 
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await screen.findByPlaceholderText('key');
+
     fireEvent.change(screen.getByPlaceholderText('key'), { target: { value: 'owner' } });
     fireEvent.change(screen.getByPlaceholderText('value'), { target: { value: 'astro-ops' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
@@ -510,6 +547,104 @@ describe('FilestoreExplorerPage mount discovery', () => {
       expect(screen.getByText('No backend mounts detected.')).toBeInTheDocument();
     });
     expect(screen.queryByLabelText('Known mounts')).not.toBeInTheDocument();
+  });
+
+  it('shows browse navigation rails by default', async () => {
+    const node = buildNode();
+    setupPollingResourcesForNode(node);
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
+    mocks.listNodesMock.mockResolvedValueOnce({
+      nodes: [
+        buildNode({
+          id: 101,
+          path: 'datasets',
+          name: 'datasets',
+          kind: 'directory',
+          depth: 1,
+          parentId: null
+        })
+      ],
+      pagination: { total: 1, limit: 200, offset: 0, nextOffset: null },
+      filters: {
+        backendMountId: sampleMount.id,
+        path: null,
+        depth: 1,
+        states: [],
+        kinds: [],
+        search: null,
+        driftOnly: false,
+        advanced: null
+      }
+    });
+
+    renderExplorer();
+
+    await screen.findByLabelText('Known mounts');
+
+    await screen.findByText('Recent items');
+    await screen.findByText('Starred');
+    await screen.findByText('Directory tree');
+
+    await waitFor(() => expect(mocks.listNodesMock).toHaveBeenCalled());
+  });
+
+  it('renders recents from stored preferences in browse mode', async () => {
+    localStorage.setItem(
+      'apphub.filestore.recentNodes',
+      JSON.stringify([
+        {
+          backendMountId: sampleMount.id,
+          path: 'datasets/example-file',
+          kind: 'file',
+          displayName: 'example-file',
+          lastAccessed: Date.now()
+        }
+      ])
+    );
+    const node = buildNode();
+    setupPollingResourcesForNode(node);
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
+
+    renderExplorer();
+
+    await screen.findByLabelText('Known mounts');
+
+    const recentsHeader = screen.getByText('Recent items');
+    const recentsSection = recentsHeader.parentElement?.parentElement;
+    expect(recentsSection).not.toBeNull();
+    if (recentsSection) {
+      expect(within(recentsSection).getByText(/example-file/i)).toBeInTheDocument();
+    }
+  });
+
+  it('reveals advanced filters when switching to search view', async () => {
+    const node = buildNode();
+    setupPollingResourcesForNode(node);
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
+
+    renderExplorer();
+
+    await screen.findByLabelText('Known mounts');
+    expect(screen.queryByText('Advanced filters')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(await screen.findByText('Advanced filters')).toBeInTheDocument();
+  });
+
+  it('focuses the search input when using the keyboard shortcut', async () => {
+    const node = buildNode();
+    setupPollingResourcesForNode(node);
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
+
+    renderExplorer();
+
+    await screen.findByLabelText('Known mounts');
+
+    fireEvent.keyDown(window, { key: 'S', ctrlKey: true, shiftKey: true });
+
+    const searchInput = await screen.findByPlaceholderText('Search filestore (press /)');
+    await waitFor(() => expect(searchInput).toHaveFocus());
   });
 
   it('streams file downloads via inline endpoint', async () => {
@@ -557,7 +692,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
 
     renderExplorer();
 
-    const downloadButton = await screen.findByRole('button', { name: 'Download file' });
+    const downloadButton = await screen.findByRole('button', { name: 'Download' });
     fireEvent.click(downloadButton);
 
     await waitFor(() => {
@@ -599,7 +734,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
 
     renderExplorer();
 
-    const downloadButton = await screen.findByRole('button', { name: 'Open download link' });
+    const downloadButton = await screen.findByRole('button', { name: 'Open link' });
     fireEvent.click(downloadButton);
 
     await waitFor(() => {
@@ -893,4 +1028,8 @@ describe('FilestoreExplorerPage playbooks', () => {
     expect(workflowButton).toBeDisabled();
     await waitFor(() => expect(screen.getByText(/filestore-restore-missing-node workflow/i)).toBeInTheDocument());
   });
+});
+
+afterAll(() => {
+  HTMLAnchorElement.prototype.click = originalAnchorClick;
 });

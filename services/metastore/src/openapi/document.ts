@@ -665,6 +665,10 @@ export const openApiDocument: OpenAPIV3.Document = {
                     description:
                       'Lightweight query-string syntax (e.g. `key:foo owner=ops status:"in progress"`). Combined with other filters using AND semantics.'
                   },
+                  search: {
+                    type: 'string',
+                    description: 'Full-text search across record keys and serialized metadata.'
+                  },
                   preset: {
                     type: 'string',
                     description: 'Named server-defined filter preset. Requires appropriate scopes to use.'

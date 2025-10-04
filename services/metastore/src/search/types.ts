@@ -40,6 +40,7 @@ export type SearchOptions = {
   offset?: number;
   sort?: SortField[];
   projection?: string[];
+  search?: string;
 };
 
 export type SearchResult<T> = {

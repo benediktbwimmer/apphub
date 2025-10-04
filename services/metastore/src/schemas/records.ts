@@ -102,6 +102,7 @@ const searchSchema = z.object({
   namespace: namespaceSchema,
   filter: z.unknown().optional(),
   q: z.string().trim().min(1).max(512).optional(),
+  search: z.string().trim().min(2).max(512).optional(),
   preset: z.string().trim().min(1).max(64).optional(),
   includeDeleted: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).optional(),
@@ -237,6 +238,7 @@ export type ParsedSearchPayload = {
   sort?: SortField[];
   projection?: string[];
   summary?: boolean;
+  search?: string;
 };
 
 export function parseSearchPayload(payload: unknown): ParsedSearchPayload {
@@ -264,7 +266,8 @@ export function parseSearchPayload(payload: unknown): ParsedSearchPayload {
     preset: parsed.preset,
     sort,
     projection,
-    summary: summary ? true : undefined
+    summary: summary ? true : undefined,
+    search: parsed.search
   } satisfies ParsedSearchPayload;
 }
 

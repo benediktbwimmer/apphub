@@ -98,6 +98,13 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_metastore_record_idempotency_created
          ON metastore_record_idempotency(created_at);`
     ]
+  },
+  {
+    id: '005_metastore_full_text_search',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_metastore_records_search
+         ON metastore_records USING GIN (to_tsvector('simple', record_key || ' ' || COALESCE(metadata::text, '')));`
+    ]
   }
 ];
 
