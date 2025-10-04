@@ -21,7 +21,7 @@ x-shared-env: &shared-env
   APPHUB_METASTORE_BASE_URL: http://metastore:4100
   APPHUB_TIMESTORE_BASE_URL: http://timestore:4200
   APPHUB_STREAMING_ENABLED: ${APPHUB_STREAMING_ENABLED:-true}
-  APPHUB_STREAM_BROKER_URL: ${APPHUB_STREAM_BROKER_URL:-redpanda:9092}
+  APPHUB_STREAM_BROKER_URL: redpanda:9092
   APPHUB_STREAM_MIRROR_WORKFLOW_RUNS: ${APPHUB_STREAM_MIRROR_WORKFLOW_RUNS:-true}
   APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS: ${APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS:-true}
   APPHUB_STREAM_MIRROR_JOB_RUNS: ${APPHUB_STREAM_MIRROR_JOB_RUNS:-true}
@@ -151,8 +151,8 @@ services:
       sleep 2; \
       rpk cluster info --brokers redpanda:9092 >/dev/null 2>&1; \
       for topic in apphub.core.events apphub.ingestion.telemetry apphub.workflows.events apphub.workflows.runs apphub.jobs.runs apphub.streaming.input apphub.streaming.aggregates; do \
-        rpk topic create \"$topic\" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
-        rpk topic describe \"$topic\" --brokers redpanda:9092 >/dev/null 2>&1; \
+        rpk topic create \"$$topic\" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
+        rpk topic describe \"$$topic\" --brokers redpanda:9092 >/dev/null 2>&1; \
       done"
     restart: "no"
 
@@ -184,11 +184,12 @@ services:
         target: /opt/flink/checkpoints
       - type: bind
         source: ../services/streaming/sample-jobs
-        target: /opt/apphub/sample-jobs:ro
+        target: /opt/apphub/sample-jobs
+        read_only: true
     entrypoint: ["/bin/bash", "-c"]
     command: |
       set -euo pipefail
-      sed "s|{{BROKER_BOOTSTRAP_SERVERS}}|${APPHUB_STREAM_BROKER_URL}|g" /opt/apphub/sample-jobs/tumbling-window.sql > /tmp/streaming-job.sql
+      sed "s|{{BROKER_BOOTSTRAP_SERVERS}}|$$APPHUB_STREAM_BROKER_URL|g" /opt/apphub/sample-jobs/tumbling-window.sql > /tmp/streaming-job.sql
       ./bin/sql-client.sh -f /tmp/streaming-job.sql
     restart: "no"
 
@@ -215,7 +216,8 @@ services:
         target: /opt/flink/checkpoints
       - type: bind
         source: ../services/streaming/sample-jobs
-        target: /opt/apphub/sample-jobs:ro
+        target: /opt/apphub/sample-jobs
+        read_only: true
 
   flink-taskmanager:
     image: flink:1.19.1-scala_2.12
