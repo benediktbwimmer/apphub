@@ -450,8 +450,9 @@ describe('WorkflowsPage manual run flow', () => {
 
     const stepRow = await screen.findByText('First Step');
     expect(stepRow).toBeVisible();
-    const logLinks = screen.getAllByRole('link', { name: /view/i });
-    expect(logLinks.some((link) => link.getAttribute('href') === 'https://example.com/logs/1')).toBe(true);
+    const logLinks = await screen.findAllByRole('link', { name: /^view$/i });
+    const logHrefs = logLinks.map((link) => link.getAttribute('href'));
+    expect(logHrefs).toContain('https://example.com/logs/1');
     expect(screen.getAllByText(/operator@apphub.test/i).length).toBeGreaterThan(0);
 
     await waitFor(() => {

@@ -61,7 +61,8 @@ resource "aws_instance" "demo" {
   }
 
   lifecycle {
-    ignore_changes = [user_data, user_data_replace_on_change, user_data_base64]
+    ignore_changes       = [user_data, user_data_replace_on_change, user_data_base64]
+    replace_triggered_by = [var.enable_managed_dns]
   }
 
   tags = merge(local.common_tags, {
