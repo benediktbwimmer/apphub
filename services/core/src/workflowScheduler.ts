@@ -8,7 +8,8 @@ import type {
   WorkflowScheduleWindow,
   WorkflowScheduleRecord,
   WorkflowScheduleWithDefinition,
-  WorkflowAssetPartitioning
+  WorkflowAssetPartitioning,
+  JsonValue
 } from './db/types';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
@@ -25,6 +26,12 @@ import {
   recordWorkflowSchedulerLeaderEvent,
   recordWorkflowSchedulerScheduleEvent
 } from './workflowSchedulerMetrics';
+import {
+  resolveJsonTemplates,
+  type TemplateResolutionIssue,
+  type TemplateResolutionTracker,
+  type TemplateScope
+} from './workflow/context';
 
 const DEFAULT_INTERVAL_MS = Number(process.env.WORKFLOW_SCHEDULER_INTERVAL_MS ?? 5_000);
 const DEFAULT_BATCH_SIZE = Number(process.env.WORKFLOW_SCHEDULER_BATCH_SIZE ?? 10);
@@ -82,6 +89,48 @@ function parseScheduleDate(value?: string | null): Date | null {
     return null;
   }
   return parsed;
+}
+
+function cloneJsonValue(value: JsonValue): JsonValue {
+  if (value === null) {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => cloneJsonValue(entry as JsonValue)) as JsonValue;
+  }
+  if (typeof value === 'object') {
+    const result: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, JsonValue>)) {
+      result[key] = cloneJsonValue(entry);
+    }
+    return result;
+  }
+  return value;
+}
+
+function resolveScheduleParameterTemplates(
+  parameters: JsonValue,
+  triggerPayload: JsonValue
+): { value: JsonValue; issues: TemplateResolutionIssue[] } {
+  const issues: TemplateResolutionIssue[] = [];
+  const tracker: TemplateResolutionTracker = {
+    record(issue) {
+      issues.push(issue);
+    }
+  } satisfies TemplateResolutionTracker;
+  const scope: TemplateScope = {
+    shared: {},
+    steps: {},
+    run: {
+      id: '__schedule__',
+      parameters,
+      triggeredBy: 'schedule',
+      trigger: triggerPayload
+    },
+    parameters
+  } satisfies TemplateScope;
+  const resolved = resolveJsonTemplates(parameters, scope, tracker, '$.parameters');
+  return { value: resolved, issues };
 }
 
 function computeNextOccurrence(
@@ -305,8 +354,9 @@ async function materializeSchedule(
     const windowEndIso = nextCursor.toISOString();
     const windowStartIso = determineWindowStart(schedule, lastWindow, nextCursor);
 
-    const runParameters = schedule.parameters ?? definition.defaultParameters ?? {};
-    const triggerPayload = {
+    const scheduleParameterSource = (schedule.parameters ?? definition.defaultParameters ?? {}) as JsonValue;
+    const clonedParameters = cloneJsonValue(scheduleParameterSource);
+    const triggerPayload: JsonValue = {
       type: 'schedule',
       schedule: {
         id: schedule.id,
@@ -321,6 +371,19 @@ async function materializeSchedule(
         catchUp: catchupEnabled
       }
     };
+    const { value: evaluatedParameters, issues: scheduleParameterIssues } =
+      resolveScheduleParameterTemplates(clonedParameters, triggerPayload);
+    const runParameters = scheduleParameterIssues.length === 0 ? evaluatedParameters : clonedParameters;
+    if (scheduleParameterIssues.length > 0) {
+      log(
+        'Schedule parameter templates could not be fully resolved; using literal values',
+        {
+          scheduleId: schedule.id,
+          workflowId: definition.id,
+          issues: scheduleParameterIssues.map((issue) => `${issue.path}: {{ ${issue.expression} }}`)
+        }
+      );
+    }
 
     if (partitionSpecs.length > 0 && !referenceTimePartition) {
       log('Partitioned assets require explicit partition keys; skipping scheduled run', {
@@ -465,10 +528,6 @@ async function materializeSchedule(
     nextCursor = computeNextOccurrence(schedule, nextCursor, { inclusive: false });
   }
 
-  if (hadError && runsCreated === 0) {
-    return { runsCreated: 0, skipReason: skipReason ?? 'enqueue_failure' };
-  }
-
   const updates: {
     nextRunAt?: string | null;
     catchupCursor?: string | null;
@@ -496,6 +555,10 @@ async function materializeSchedule(
   }
 
   await deps.updateWorkflowScheduleRuntimeMetadata(schedule.id, updates);
+
+  if (hadError && runsCreated === 0) {
+    return { runsCreated: 0, skipReason: skipReason ?? 'enqueue_failure' };
+  }
 
   if (runsCreated > 0) {
     recordWorkflowSchedulerScheduleEvent('processed', {

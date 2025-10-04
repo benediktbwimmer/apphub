@@ -13,13 +13,5 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "types": ["node"]
   },
-  "include": ["src"],
-  "references": [
-    {
-      "path": "../module-sdk"
-    },
-    {
-      "path": "../observatory-support"
-    }
-  ]
+  "include": ["src"]
 }

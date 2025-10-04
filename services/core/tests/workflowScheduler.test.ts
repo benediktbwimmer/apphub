@@ -1,3 +1,4 @@
+import './setupTestEnv';
 import { describe, it, mock, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -371,6 +372,27 @@ describe('workflow scheduler materialization', () => {
         new Date(lastUpdate!.nextRunAt).getTime() - new Date(context.occurrences.at(-1)!).getTime() >= 29_000,
       'next run should follow the last processed occurrence'
     );
+  });
+
+  it('resolves schedule parameter templates using the trigger occurrence', async () => {
+    const occurrenceIso = alignToInterval(new Date(Date.now() - 30_000), 30_000).toISOString();
+    const expectedMinute = new Date(occurrenceIso).toISOString().slice(0, 16);
+
+    const context = createSchedulerContext({
+      schedule: {
+        parameters: {
+          minute: '{{ run.trigger.schedule.occurrence | slice: 0, 16 }}'
+        },
+        nextRunAt: occurrenceIso,
+        catchupCursor: occurrenceIso
+      },
+      shouldReturnSchedule: ({ invocation }) => invocation === 1
+    });
+
+    await context.runScheduler({ waitMs: 120 });
+
+    assert.equal(context.runs.length, 1, 'run should be created when schedule is due');
+    assert.deepEqual(context.runs[0].parameters, { minute: expectedMinute });
   });
 
   it('ignores inactive schedules', async () => {

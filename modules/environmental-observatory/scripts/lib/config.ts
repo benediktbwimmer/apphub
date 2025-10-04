@@ -4,7 +4,7 @@ import {
   createEventDrivenObservatoryConfig,
   ensureObservatoryBackend,
   type EventDrivenObservatoryConfig
-} from '@apphub/module-registry';
+} from '@apphub/observatory-support';
 import { FilestoreClient } from '@apphub/filestore-client';
 import { ensureFilestoreHierarchy, resolveBackendMountId } from './filestore';
 

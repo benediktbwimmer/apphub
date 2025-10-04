@@ -3,8 +3,10 @@ import path from 'node:path';
 import { fetch } from 'undici';
 import {
   applyObservatoryWorkflowDefaults,
+  type EventDrivenObservatoryConfig
+} from '@apphub/observatory-support';
+import {
   resolveWorkflowProvisioningPlan,
-  type EventDrivenObservatoryConfig,
   type WorkflowDefinitionTemplate,
   type WorkflowProvisioningSchedule
 } from '@apphub/module-registry';

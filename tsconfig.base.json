@@ -51,6 +51,12 @@
       "@apphub/module-registry/*": [
         "packages/module-registry/dist/*"
       ],
+      "@apphub/observatory-support": [
+        "packages/observatory-support/src/index.ts"
+      ],
+      "@apphub/observatory-support/*": [
+        "packages/observatory-support/src/*"
+      ],
       "@apphub/examples": [
         "packages/examples/src/index.ts"
       ],

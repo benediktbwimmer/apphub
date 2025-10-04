@@ -13,9 +13,9 @@ export {
   clearExampleCoreCache
 } from './core';
 export type { ExampleCoreData, LoadCoreOptions } from './core';
-export { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
-export { resolveContainerPath } from './containerPaths';
 export {
+  createEventDrivenObservatoryConfig,
+  resolveContainerPath,
   applyObservatoryWorkflowDefaults,
   ensureObservatoryBackend,
   isObservatoryModule,
@@ -23,12 +23,12 @@ export {
   loadObservatoryConfig,
   resolveGeneratedObservatoryConfigPath,
   resolveObservatoryRepoRoot
-} from './observatorySupport';
+} from '@apphub/observatory-support';
 export type {
   EventDrivenObservatoryConfig,
   ObservatoryBootstrapLogger,
   EnsureObservatoryBackendOptions
-} from './observatorySupport';
+} from '@apphub/observatory-support';
 export {
   extractWorkflowProvisioningPlan,
   resolveWorkflowProvisioningPlan
