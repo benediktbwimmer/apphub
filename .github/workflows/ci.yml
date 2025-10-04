@@ -29,9 +29,13 @@ jobs:
           corepack prepare npm@10.9.0 --activate
       - name: Install dependencies
         run: corepack npm ci
-      - name: Ensure rollup native binary
+      - name: Ensure native binaries
         if: runner.os == 'Linux'
-        run: corepack npm install --no-save @rollup/rollup-linux-x64-gnu
+        run: |
+          corepack npm install --no-save \
+            @rollup/rollup-linux-x64-gnu \
+            @tailwindcss/oxide-linux-x64-gnu \
+            lightningcss-linux-x64-gnu
       - name: Run lint
         run: corepack npm run lint
 
@@ -52,9 +56,13 @@ jobs:
           corepack prepare npm@10.9.0 --activate
       - name: Install dependencies
         run: corepack npm ci
-      - name: Ensure rollup native binary
+      - name: Ensure native binaries
         if: runner.os == 'Linux'
-        run: corepack npm install --no-save @rollup/rollup-linux-x64-gnu
+        run: |
+          corepack npm install --no-save \
+            @rollup/rollup-linux-x64-gnu \
+            @tailwindcss/oxide-linux-x64-gnu \
+            lightningcss-linux-x64-gnu
       - name: Run build
         run: corepack npm run build
 
@@ -75,9 +83,13 @@ jobs:
           corepack prepare npm@10.9.0 --activate
       - name: Install dependencies
         run: corepack npm ci
-      - name: Ensure rollup native binary
+      - name: Ensure native binaries
         if: runner.os == 'Linux'
-        run: corepack npm install --no-save @rollup/rollup-linux-x64-gnu
+        run: |
+          corepack npm install --no-save \
+            @rollup/rollup-linux-x64-gnu \
+            @tailwindcss/oxide-linux-x64-gnu \
+            lightningcss-linux-x64-gnu
       - name: Run tests
         run: corepack npm run build && corepack npm run test
         shell: bash
