@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
@@ -17,14 +16,13 @@ import type {
 import { DatasetList } from './components/DatasetList';
 import DatasetAdminPanel from './components/DatasetAdminPanel';
 import DatasetCreateDialog from './components/DatasetCreateDialog';
-import { Spinner } from '../components';
+import { CollapsibleSection, Spinner } from '../components';
 import { RetentionPanel } from './components/RetentionPanel';
 import { QueryConsole } from './components/QueryConsole';
 import { LifecycleControls } from './components/LifecycleControls';
 import { MetricsSummary } from './components/MetricsSummary';
 import DatasetHistoryPanel from './components/DatasetHistoryPanel';
 import { formatInstant } from './utils';
-import { ROUTE_PATHS } from '../routes/paths';
 import { useDatasetDetails } from './hooks/useDatasetDetails';
 import { useDatasetHistory } from './hooks/useDatasetHistory';
 import {
@@ -35,7 +33,6 @@ import {
   PANEL_SURFACE_LARGE,
   PRIMARY_BUTTON,
   PRIMARY_BUTTON_COMPACT,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_COMPACT,
   STATUS_BANNER_DANGER,
   STATUS_MESSAGE,
@@ -248,6 +245,8 @@ export default function TimestoreDatasetsPage() {
     [datasets, selectedDatasetId]
   );
 
+  const activeDatasetForAdmin = datasetDetail ?? selectedDatasetRecord;
+
   const datasetSlugForQuery = datasetDetail?.slug ?? selectedDatasetRecord?.slug ?? null;
 
   const schemaFields = useMemo(() => manifest?.manifest.schemaVersion?.fields ?? [], [manifest]);
@@ -361,19 +360,13 @@ export default function TimestoreDatasetsPage() {
               <p className={STATUS_MESSAGE}>
                 Browse cataloged datasets, inspect manifests, and review recent lifecycle activity.
               </p>
-              <div className="flex flex-wrap gap-2">
-                <Link
-                  to={ROUTE_PATHS.servicesTimestoreSql}
-                  className={`${SECONDARY_BUTTON} self-start`}
-                >
-                  Open SQL editor
-                </Link>
-                {hasAdminScope && (
+              {hasAdminScope ? (
+                <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={handleOpenCreateDialog} className={`${PRIMARY_BUTTON} self-start`}>
                     Create dataset
                   </button>
-                )}
-              </div>
+                </div>
+              ) : null}
             </div>
             <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleSubmitSearch}>
               <div className="flex flex-wrap items-center gap-2">
@@ -488,33 +481,83 @@ export default function TimestoreDatasetsPage() {
                           <dd className={`${STATUS_MESSAGE} text-primary`}>{formatInstant(datasetDetail.updatedAt)}</dd>
                         </div>
                       </dl>
-                      <DatasetAdminPanel
-                        dataset={datasetDetail}
-                        canEdit={hasAdminScope}
-                        onDatasetChange={handleDatasetChange}
-                        onRequireListRefresh={handleDatasetListRefresh}
-                      />
+                      <p className={STATUS_META}>
+                        Use the advanced controls below to update metadata, retention, and lifecycle settings.
+                      </p>
                     </div>
                   ) : (
                     <div className={STATUS_MESSAGE}>Select a dataset to view details.</div>
                   )}
                 </div>
 
-                <RetentionPanel
-                  datasetId={selectedDatasetId}
-                  retention={retention}
-                  loading={retentionLoading}
-                  error={retentionError}
-                  onRefresh={refreshRetention}
-                  canEdit={hasAdminScope}
-                />
+                <CollapsibleSection
+                  title="Advanced dataset controls"
+                  description="Configure metadata, retention, lifecycle automation, and metrics."
+                >
+                  <div className="flex flex-col gap-6">
+                    {activeDatasetForAdmin ? (
+                      <DatasetAdminPanel
+                        dataset={activeDatasetForAdmin}
+                        canEdit={hasAdminScope}
+                        onDatasetChange={handleDatasetChange}
+                        onRequireListRefresh={handleDatasetListRefresh}
+                      />
+                    ) : (
+                      <div className={CARD_SURFACE}>
+                        <p className={STATUS_MESSAGE}>Dataset metadata is still loading.</p>
+                      </div>
+                    )}
+                    <RetentionPanel
+                      datasetId={selectedDatasetId}
+                      retention={retention}
+                      loading={retentionLoading}
+                      error={retentionError}
+                      onRefresh={refreshRetention}
+                      canEdit={hasAdminScope}
+                    />
+                    {datasetSlugForQuery ? (
+                      <LifecycleControls
+                        datasetId={selectedDatasetId}
+                        datasetSlug={datasetSlugForQuery}
+                        jobs={lifecycleJobs}
+                        loading={lifecycleLoading}
+                        error={lifecycleErrorMessage}
+                        onRefresh={refreshLifecycle}
+                        canRun={hasAdminScope}
+                        panelId="timestore-lifecycle"
+                      />
+                    ) : (
+                      <div className={CARD_SURFACE}>
+                        <p className={STATUS_MESSAGE}>Dataset slug unavailable; lifecycle controls disabled.</p>
+                      </div>
+                    )}
+                    <MetricsSummary
+                      lifecycleMetrics={lifecycleMetrics}
+                      metricsText={metricsText}
+                      loading={metricsLoading}
+                      error={metricsErrorMessage}
+                      onRefresh={refreshMetrics}
+                    />
+                  </div>
+                </CollapsibleSection>
 
-                <QueryConsole
-                  datasetSlug={datasetSlugForQuery}
-                  defaultTimestampColumn={defaultTimestampColumn}
-                  schemaFields={schemaFields}
-                  canQuery={hasReadScope}
-                />
+                <CollapsibleSection
+                  title="Query dataset"
+                  description="Run time-window queries without leaving the datasets view."
+                >
+                  {hasReadScope ? (
+                    <QueryConsole
+                      datasetSlug={datasetSlugForQuery}
+                      defaultTimestampColumn={defaultTimestampColumn}
+                      schemaFields={schemaFields}
+                      canQuery={hasReadScope}
+                    />
+                  ) : (
+                    <div className={CARD_SURFACE}>
+                      <p className={STATUS_MESSAGE}>timestore:read scope is required to run queries.</p>
+                    </div>
+                  )}
+                </CollapsibleSection>
 
                 <div className={PANEL_ELEVATED}>
                   <header className="flex items-center justify-between gap-3">
@@ -616,30 +659,6 @@ export default function TimestoreDatasetsPage() {
                 onLoadMore={loadMoreHistory}
               />
 
-              {datasetSlugForQuery ? (
-                <LifecycleControls
-                  datasetId={selectedDatasetId}
-                  datasetSlug={datasetSlugForQuery}
-                  jobs={lifecycleJobs}
-                  loading={lifecycleLoading}
-                  error={lifecycleErrorMessage}
-                  onRefresh={refreshLifecycle}
-                  canRun={hasAdminScope}
-                  panelId="timestore-lifecycle"
-                />
-              ) : (
-                <div className={CARD_SURFACE}>
-                  <p className={STATUS_MESSAGE}>Dataset slug unavailable; lifecycle controls disabled.</p>
-                </div>
-              )}
-
-              <MetricsSummary
-                lifecycleMetrics={lifecycleMetrics}
-                metricsText={metricsText}
-                loading={metricsLoading}
-                error={metricsErrorMessage}
-                onRefresh={refreshMetrics}
-              />
               </>
             ) : (
               <div className={CARD_SURFACE}>
