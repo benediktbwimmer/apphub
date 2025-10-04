@@ -4,19 +4,17 @@ import {
   createJobHandler,
   inheritModuleSettings,
   inheritModuleSecrets,
+  selectEventBus,
+  selectFilestore,
+  selectTimestore,
   sanitizeIdentifier,
   type FilestoreCapability,
   type JobContext
 } from '@apphub/module-sdk';
-import {
-  ensureFilestoreHierarchy,
-  ensureResolvedBackendId,
-  uploadTextFile,
-  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
-} from '../runtime/filestore';
+import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
+import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 import { createObservatoryEventPublisher } from '../runtime/events';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
-import { selectEventBus, selectFilestore, selectTimestore } from '../runtime/capabilities';
 
 type SelectedTimestore = NonNullable<ReturnType<typeof selectTimestore>>;
 
@@ -613,7 +611,8 @@ export const dashboardAggregatorJob = createJobHandler<
       uploadTextFile({
         filestore,
         backendMountId,
-        backendMountKey: context.settings.filestore.backendKey ?? DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+        backendMountKey: context.settings.filestore.backendKey ?? undefined,
+        defaultBackendKey: DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
         path: dashboardJsonPath,
         content: JSON.stringify(dashboardData, null, 2),
         contentType: 'application/json',
@@ -628,7 +627,8 @@ export const dashboardAggregatorJob = createJobHandler<
       uploadTextFile({
         filestore,
         backendMountId,
-        backendMountKey: context.settings.filestore.backendKey ?? DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
+        backendMountKey: context.settings.filestore.backendKey ?? undefined,
+        defaultBackendKey: DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
         path: dashboardHtmlPath,
         content: buildDashboardHtml(dashboardData),
         contentType: 'text/html; charset=utf-8',

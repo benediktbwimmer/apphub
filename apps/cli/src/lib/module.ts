@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { pathToFileURL } from 'node:url';
 import { pathExists, ensureDir } from './fs';
 import { readJsonFile, writeJsonFile } from './json';
 import {
@@ -89,7 +88,7 @@ async function loadModuleManifest(modulePath: string, manifestPath?: string): Pr
 
 export async function loadModuleDefinition(modulePath: string, definitionPath?: string): Promise<ModuleDefinition> {
   const resolvedDefinitionPath = await resolveFromCandidates(modulePath, definitionPath, DEFAULT_DEFINITION_LOCATIONS);
-  const imported = await import(pathToFileURL(resolvedDefinitionPath).toString());
+  const imported = await import(resolvedDefinitionPath);
   const definition = (imported.default ?? imported) as ModuleDefinition | undefined;
   if (!definition || typeof definition !== 'object' || !('metadata' in definition)) {
     throw new Error(`Module definition did not export a ModuleDefinition from ${resolvedDefinitionPath}`);

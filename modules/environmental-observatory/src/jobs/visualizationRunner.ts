@@ -2,19 +2,16 @@ import {
   createJobHandler,
   inheritModuleSecrets,
   inheritModuleSettings,
+  selectFilestore,
+  selectTimestore,
   sanitizeIdentifier,
   toTemporalKey,
   type FilestoreCapability,
   type JobContext
 } from '@apphub/module-sdk';
 import { z } from 'zod';
-import {
-  ensureFilestoreHierarchy,
-  ensureResolvedBackendId,
-  uploadTextFile
-} from '../runtime/filestore';
+import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
-import { selectFilestore, selectTimestore } from '../runtime/capabilities';
 
 const MAX_ROWS = 10_000;
 

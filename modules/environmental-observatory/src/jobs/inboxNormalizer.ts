@@ -4,19 +4,20 @@ import { z } from 'zod';
 import {
   CapabilityRequestError,
   createJobHandler,
+  enforceScratchOnlyWrites,
   inheritModuleSettings,
   inheritModuleSecrets,
   sanitizeIdentifier,
+  selectEventBus,
+  selectFilestore,
+  selectMetastore,
   toTemporalKey,
-  type JobContext
+  type FilestoreCapability,
+  type JobContext,
+  type MetastoreCapability
 } from '@apphub/module-sdk';
-import type { FilestoreCapability, MetastoreCapability } from '@apphub/module-sdk';
-import {
-  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
-  ensureFilestoreHierarchy,
-  ensureResolvedBackendId
-} from '../runtime/filestore';
-import { enforceScratchOnlyWrites } from '../runtime/scratchGuard';
+import { ensureFilestoreHierarchy, ensureResolvedBackendId } from '@apphub/module-sdk';
+import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 import {
   applyCalibrationAdjustments,
   fetchCalibrationById,
@@ -30,7 +31,6 @@ import {
   toJsonRecord
 } from '../runtime/events';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
-import { selectEventBus, selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 enforceScratchOnlyWrites();
 

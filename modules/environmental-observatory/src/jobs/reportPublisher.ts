@@ -2,20 +2,17 @@ import {
   createJobHandler,
   inheritModuleSettings,
   inheritModuleSecrets,
+  selectFilestore,
+  selectMetastore,
   sanitizeIdentifier,
   toTemporalKey,
   type FilestoreCapability,
   type JobContext
 } from '@apphub/module-sdk';
 import { z } from 'zod';
-import {
-  DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
-  ensureFilestoreHierarchy,
-  ensureResolvedBackendId,
-  uploadTextFile
-} from '../runtime/filestore';
+import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
+import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
-import { selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 const visualizationArtifactSchema = z
   .object({
