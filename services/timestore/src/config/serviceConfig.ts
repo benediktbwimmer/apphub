@@ -349,7 +349,12 @@ const configSchema = z.object({
     tracing: tracingSchema
   }),
   filestore: filestoreSchema,
-  auditLog: auditLogSchema
+  auditLog: auditLogSchema,
+  features: z.object({
+    streaming: z.object({
+      enabled: z.boolean()
+    })
+  })
 });
 
 export type ServiceConfig = z.infer<typeof configSchema>;
@@ -745,6 +750,7 @@ export function loadServiceConfig(): ServiceConfig {
   const executionBackends = parseExecutionBackendList(env.TIMESTORE_QUERY_EXECUTION_BACKENDS);
   const executionConfig = normalizeExecutionConfig(executionBackends, executionDefaultBackend);
 
+  const streamingFeatureEnabled = parseBoolean(env.APPHUB_STREAMING_ENABLED, false);
   const streamingConnectors = parseStreamingConnectors(env.TIMESTORE_STREAMING_CONNECTORS);
   const bulkConnectors = parseBulkConnectors(env.TIMESTORE_BULK_CONNECTORS);
   const connectorBackpressure = parseConnectorBackpressure(env.TIMESTORE_CONNECTOR_BACKPRESSURE);
@@ -904,6 +910,11 @@ export function loadServiceConfig(): ServiceConfig {
       tableName: filestoreTableName,
       retryDelayMs: filestoreRetryMs > 0 ? filestoreRetryMs : 3_000,
       inline: filestoreInline
+    },
+    features: {
+      streaming: {
+        enabled: streamingFeatureEnabled
+      }
     }
   } satisfies ServiceConfig;
 

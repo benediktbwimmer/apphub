@@ -1,0 +1,4 @@
+dist/
+target/
+tsconfig.tsbuildinfo
+sample-jobs/*.generated.sql

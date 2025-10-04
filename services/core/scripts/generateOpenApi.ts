@@ -57,6 +57,9 @@ async function generateOpenApiSpec() {
     import('../src/routes/observatory')
   ]);
 
+  const { getFeatureFlags } = await import('../src/config/featureFlags');
+  const featureFlags = getFeatureFlags();
+
   await app.register(cors, {
     origin: true,
     credentials: true,
@@ -71,7 +74,7 @@ async function generateOpenApiSpec() {
 
   await registerOpenApi(app);
 
-  await app.register(async (instance) => registerCoreRoutes(instance));
+  await app.register(async (instance) => registerCoreRoutes(instance, { featureFlags }));
   await app.register(async (instance) => registerAuthRoutes(instance));
   await app.register(async (instance) => registerJobRoutes(instance));
   await app.register(async (instance) => registerJobBundleRoutes(instance));

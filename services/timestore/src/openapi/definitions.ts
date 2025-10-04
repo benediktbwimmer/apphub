@@ -47,40 +47,91 @@ const lifecycleQueueHealthSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['inline', 'ready', 'lastError'],
   properties: {
-    inline: { type: 'boolean', description: 'Indicates whether queue processing runs inline instead of Redis-backed.' },
-    ready: { type: 'boolean', description: 'True when the lifecycle queue connection is available.' },
-    lastError: nullable(stringSchema()),
+    inline: {
+      type: 'boolean',
+      description: 'Indicates whether queue processing runs inline instead of Redis-backed.'
+    },
+    ready: {
+      type: 'boolean',
+      description: 'True when the lifecycle queue connection is available.'
+    },
+    lastError: nullable(stringSchema())
+  }
+};
+
+const streamingStatusSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['enabled', 'state', 'brokerConfigured'],
+  properties: {
+    enabled: { type: 'boolean' },
+    state: { type: 'string', enum: ['disabled', 'ready', 'unconfigured'] },
+    reason: { type: 'string', nullable: true },
+    brokerConfigured: { type: 'boolean' }
   }
 };
 
 const healthResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
-  required: ['status', 'lifecycle'],
+  required: ['status', 'lifecycle', 'features'],
   properties: {
     status: {
       type: 'string',
       description: 'High-level health indicator for the service.',
       enum: ['ok', 'degraded']
     },
-    lifecycle: lifecycleQueueHealthSchema
+    lifecycle: lifecycleQueueHealthSchema,
+    features: {
+      type: 'object',
+      required: ['streaming'],
+      properties: {
+        streaming: streamingStatusSchema
+      }
+    }
+  }
+};
+
+const healthUnavailableResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['status', 'lifecycle', 'features'],
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['unavailable'],
+      description: 'Indicates the service cannot serve traffic.'
+    },
+    lifecycle: lifecycleQueueHealthSchema,
+    features: {
+      type: 'object',
+      required: ['streaming'],
+      properties: {
+        streaming: streamingStatusSchema
+      }
+    }
   }
 };
 
 const readyResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
-  required: ['status'],
+  required: ['status', 'features'],
   properties: {
     status: {
       type: 'string',
       enum: ['ready'],
       description: 'Indicates the service is ready to receive traffic.'
+    },
+    features: {
+      type: 'object',
+      required: ['streaming'],
+      properties: {
+        streaming: streamingStatusSchema
+      }
     }
   }
 };
 
 const readyUnavailableResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
-  required: ['status', 'reason', 'lifecycle'],
+  required: ['status', 'reason', 'lifecycle', 'features'],
   properties: {
     status: {
       type: 'string',
@@ -91,7 +142,14 @@ const readyUnavailableResponseSchema: OpenAPIV3.SchemaObject = {
       type: 'string',
       description: 'Detailed reason describing why the service is not ready.'
     },
-    lifecycle: lifecycleQueueHealthSchema
+    lifecycle: lifecycleQueueHealthSchema,
+    features: {
+      type: 'object',
+      required: ['streaming'],
+      properties: {
+        streaming: streamingStatusSchema
+      }
+    }
   }
 };
 
@@ -854,6 +912,7 @@ const components: OpenAPIV3.ComponentsObject = {
     ErrorResponse: errorResponseSchema,
     LifecycleQueueHealth: lifecycleQueueHealthSchema,
     HealthResponse: healthResponseSchema,
+    HealthUnavailableResponse: healthUnavailableResponseSchema,
     ReadyResponse: readyResponseSchema,
     ReadyUnavailableResponse: readyUnavailableResponseSchema,
     DatasetSlugParams: datasetSlugParamsSchema,

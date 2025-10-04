@@ -12,10 +12,16 @@ resources:
   - postgres/bootstrap-job.yaml
   - redis/statefulset.yaml
   - redis/service.yaml
+  - redpanda/service.yaml
+  - redpanda/statefulset.yaml
   - minio/deployment.yaml
   - minio/service.yaml
   - minio/pvc.yaml
   - minio/bootstrap-job.yaml
+  - flink/configmap.yaml
+  - flink/service.yaml
+  - flink/jobmanager-deployment.yaml
+  - flink/taskmanager-deployment.yaml
   - core/service.yaml
   - core/deployments.yaml
   - metastore/service.yaml

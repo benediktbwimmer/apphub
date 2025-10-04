@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-flink-taskmanager
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/component: taskmanager
+    app.kubernetes.io/part-of: apphub-streaming
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flink
+      app.kubernetes.io/component: taskmanager
+      app.kubernetes.io/part-of: apphub-streaming
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flink
+        app.kubernetes.io/component: taskmanager
+        app.kubernetes.io/part-of: apphub-streaming
+    spec:
+      containers:
+        - name: taskmanager
+          image: flink:1.19.1-scala_2.12
+          imagePullPolicy: IfNotPresent
+          command: ["/docker-entrypoint.sh", "taskmanager"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: apphub-minio-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apphub-minio-credentials
+                  key: MINIO_ROOT_PASSWORD
+            - name: FLINK_PROPERTIES
+              value: |
+                jobmanager.rpc.address: apphub-flink-jobmanager
+          volumeMounts:
+            - name: flink-config
+              mountPath: /opt/flink/conf/flink-conf.yaml
+              subPath: flink-conf.yaml
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: 1
+              memory: 4Gi
+      volumes:
+        - name: flink-config
+          configMap:
+            name: apphub-flink-config

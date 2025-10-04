@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { withConnection } from '../db/client';
 import { getLifecycleQueueHealth } from '../lifecycle/queue';
 import { schemaRef } from '../openapi/definitions';
+import { loadServiceConfig } from '../config/serviceConfig';
+import { evaluateStreamingStatus } from '../streaming/status';
 
 export async function registerHealthRoutes(app: FastifyInstance): Promise<void> {
   app.get(
@@ -19,14 +21,42 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
                 schema: schemaRef('HealthResponse')
               }
             }
+          },
+          503: {
+            description: 'Streaming is enabled but not ready.',
+            content: {
+              'application/json': {
+                schema: schemaRef('HealthUnavailableResponse')
+              }
+            }
           }
         }
       }
     },
-    async () => ({
-      status: getLifecycleQueueHealth().ready ? 'ok' : 'degraded',
-      lifecycle: getLifecycleQueueHealth()
-    })
+    async (_request, reply) => {
+      const config = loadServiceConfig();
+      const lifecycleHealth = getLifecycleQueueHealth();
+      const streamingStatus = evaluateStreamingStatus(config);
+
+      if (streamingStatus.enabled && streamingStatus.state !== 'ready') {
+        reply.status(503);
+        return {
+          status: 'unavailable',
+          lifecycle: lifecycleHealth,
+          features: {
+            streaming: streamingStatus
+          }
+        };
+      }
+
+      return {
+        status: lifecycleHealth.ready ? 'ok' : 'degraded',
+        lifecycle: lifecycleHealth,
+        features: {
+          streaming: streamingStatus
+        }
+      };
+    }
   );
 
   app.get(
@@ -57,20 +87,43 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
       }
     },
     async (_request: FastifyRequest, reply: FastifyReply) => {
+      const config = loadServiceConfig();
       const lifecycleHealth = getLifecycleQueueHealth();
+      const streamingStatus = evaluateStreamingStatus(config);
+
       if (!lifecycleHealth.inline && !lifecycleHealth.ready) {
         reply.status(503);
         return {
           status: 'unavailable',
           reason: lifecycleHealth.lastError ?? 'lifecycle queue not ready',
-          lifecycle: lifecycleHealth
+          lifecycle: lifecycleHealth,
+          features: {
+            streaming: streamingStatus
+          }
+        };
+      }
+
+      if (streamingStatus.enabled && streamingStatus.state !== 'ready') {
+        reply.status(503);
+        return {
+          status: 'unavailable',
+          reason: streamingStatus.reason ?? 'streaming dependencies are not ready',
+          lifecycle: lifecycleHealth,
+          features: {
+            streaming: streamingStatus
+          }
         };
       }
 
       await withConnection(async (client) => {
         await client.query('SELECT 1');
       });
-      return { status: 'ready' };
+      return {
+        status: 'ready',
+        features: {
+          streaming: streamingStatus
+        }
+      };
     }
   );
 }
