@@ -5,6 +5,10 @@ metadata:
   labels:
     app.kubernetes.io/name: redpanda
     app.kubernetes.io/part-of: apphub-streaming
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9644"
+    prometheus.io/path: "/metrics"
 spec:
   type: ClusterIP
   selector:

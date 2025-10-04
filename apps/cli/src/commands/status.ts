@@ -1,10 +1,54 @@
 import { Command } from 'commander';
 import { resolveCoreUrl } from '../lib/core';
 
+type StreamingOverallState = 'disabled' | 'ready' | 'degraded' | 'unconfigured';
+
+interface StreamingBrokerStatus {
+  configured: boolean;
+  reachable: boolean | null;
+  lastCheckedAt: string | null;
+  error: string | null;
+}
+
+interface StreamingBatcherConnectorStatus {
+  connectorId: string;
+  datasetSlug: string;
+  topic: string;
+  groupId: string;
+  state: 'starting' | 'running' | 'stopped' | 'error';
+  bufferedWindows: number;
+  bufferedRows: number;
+  openWindows: number;
+  lastMessageAt: string | null;
+  lastFlushAt: string | null;
+  lastEventTimestamp: string | null;
+  lastError: string | null;
+}
+
+interface StreamingBatcherStatusSummary {
+  configured: number;
+  running: number;
+  failing: number;
+  state: 'disabled' | 'ready' | 'degraded';
+  connectors: StreamingBatcherConnectorStatus[];
+}
+
+interface StreamingHotBufferStatus {
+  enabled: boolean;
+  state: 'disabled' | 'ready' | 'unavailable';
+  datasets: number;
+  healthy: boolean;
+  lastRefreshAt: string | null;
+  lastIngestAt: string | null;
+}
+
 interface StreamingStatus {
   enabled: boolean;
-  state: string;
-  reason?: string | null;
+  state: StreamingOverallState;
+  reason: string | null;
+  broker: StreamingBrokerStatus;
+  batchers: StreamingBatcherStatusSummary;
+  hotBuffer: StreamingHotBufferStatus;
 }
 
 interface HealthPayload {
@@ -68,6 +112,42 @@ function renderHealth(payload: HealthPayload | null, statusCode: number): void {
     console.log(`Streaming: ${stateLabel}`);
     if (streaming.reason) {
       console.log(`  reason: ${streaming.reason}`);
+    }
+
+    if (!streaming.broker.configured) {
+      console.log('  broker: not-configured');
+    } else {
+      const brokerState = streaming.broker.reachable === true
+        ? 'reachable'
+        : streaming.broker.reachable === false
+          ? 'unreachable'
+          : 'unknown';
+      console.log(`  broker: ${brokerState}`);
+    }
+
+    if (streaming.batchers.state === 'disabled') {
+      console.log('  batchers: disabled');
+    } else {
+      console.log(
+        `  batchers: ${streaming.batchers.running}/${Math.max(streaming.batchers.configured, streaming.batchers.connectors.length)} running`
+      );
+      const problematic = streaming.batchers.connectors.filter((connector) => connector.state !== 'running');
+      if (problematic.length > 0) {
+        console.log('    connectors:');
+        for (const connector of problematic) {
+          const info: string[] = [`state=${connector.state}`];
+          if (connector.lastError) {
+            info.push(`error=${connector.lastError}`);
+          }
+          console.log(`      - ${connector.connectorId} (${connector.datasetSlug}): ${info.join(', ')}`);
+        }
+      }
+    }
+
+    if (!streaming.hotBuffer.enabled) {
+      console.log('  hot-buffer: disabled');
+    } else {
+      console.log(`  hot-buffer: ${streaming.hotBuffer.state} (datasets=${streaming.hotBuffer.datasets})`);
     }
   }
 }

@@ -58,6 +58,12 @@ The `infra/minikube` overlay now includes a three-node `StatefulSet`:
 4. **Disaster recovery** – configure periodic snapshots (e.g., S3) of `/var/lib/redpanda/data`. The runbook recommends hourly incremental backups and demonstrates partition reassignment with `rpk cluster move-partitions`.
 5. **Upgrades** – roll nodes sequentially. Drain each pod (`kubectl exec ... -- rpk cluster maintenance enable`) before restart to avoid controller churn.
 
+## Metrics & Alerting
+
+- Kubernetes services ship with `prometheus.io/scrape` annotations targeting port 9644 so the platform Prometheus stack automatically ingests broker metrics.
+- Core streaming alerts rely on `vectorized_kafka_broker_partition_under_replicated`, `vectorized_kafka_recovery_partition_movement_recency`, and `timestore_streaming_backlog_seconds` to detect lag and durability regressions.
+- Local compose environments expose the admin API via `${APPHUB_REDPANDA_ADMIN_PORT:-19644}` for ad-hoc inspection or temporary Prometheus scrapes.
+
 ## Integration Summary
 
 - Core and Timestore read `APPHUB_STREAM_BROKER_URL` when `APPHUB_STREAMING_ENABLED=1`; health endpoints return `503` if the broker is misconfigured.

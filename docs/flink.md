@@ -89,7 +89,7 @@ curl -X POST "$APPHUB_FLINK_REST_URL/jobs/<jobId>/savepoints" \
 
 - **Scaling** – Increase `apphub-flink-taskmanager` replicas (or adjust task slots) to add compute capacity. For compose, start additional TaskManagers (`docker compose up -d flink-taskmanager`).
 - **Upgrades** – Rolling updates: drain TaskManagers first (`kubectl rollout restart deployment/apphub-flink-taskmanager`), then restart the JobManager. Validate checkpoint restore before promoting changes.
-- **Monitoring** – Scrape the JobManager Prometheus endpoint (`/metrics` on port 8081). Key metrics: `numRegisteredTaskManagers`, `checkpointing_duration`, `numRestarts`, and the Prometheus reporter configured in `flink-conf.yaml`.
+- **Monitoring** – Scrape the JobManager Prometheus endpoint (`/metrics` on port 8081). Kubernetes services expose `prometheus.io/scrape` annotations so the platform scraper discovers them automatically. Track `numRegisteredTaskManagers`, `flink_jobmanager_job_last_checkpoint_duration`, `flink_jobmanager_checkpoint_failed_total`, and the bundled reporter counters.
 - **Failure recovery** – If the JobManager restarts, the cluster automatically restores from the latest completed checkpoint. For catastrophic failures, restore a savepoint by passing `--fromSavepoint <path>` when submitting the job.
 - **Topic hygiene** – Redpanda bootstrap scripts create the input/output topics automatically; adjust the retention window via `rpk topic alter-config apphub.streaming.aggregates --set retention.ms=...` if downstream consumers need longer history.
 

@@ -6,6 +6,10 @@ metadata:
     app.kubernetes.io/name: flink
     app.kubernetes.io/component: jobmanager
     app.kubernetes.io/part-of: apphub-streaming
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8081"
+    prometheus.io/path: "/metrics"
 spec:
   type: ClusterIP
   selector:

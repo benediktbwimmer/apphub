@@ -53,6 +53,9 @@ export class StreamingBatchProcessor {
   private readonly buffers = new Map<string, WindowBuffer>();
   private readonly windowStates = new Map<string, WindowState>();
   private readonly datasetSlug: string;
+  private bufferedRowCount = 0;
+  private lastFlushAtMs: number | null = null;
+  private lastEventTimestampMs: number | null = null;
 
   constructor(
     private readonly config: StreamingBatcherConfig,
@@ -77,12 +80,22 @@ export class StreamingBatchProcessor {
     buffer.rows.push(parsed.row);
     buffer.lastUpdatedMs = this.now();
     observeStreamingRecords({ datasetSlug: this.datasetSlug, connectorId: this.config.id, count: 1 });
+    this.bufferedRowCount += 1;
+    this.lastEventTimestampMs = parsed.timestamp.getTime();
 
     if (buffer.rows.length >= this.config.maxRowsPerPartition) {
       await this.flushBuffer(buffer.key, 'max_rows');
     } else {
       this.ensureFlushTimer(buffer.key, buffer);
     }
+
+    const lagSeconds = Math.max(0, (this.now() - parsed.timestamp.getTime()) / 1_000);
+    updateStreamingBacklog({
+      datasetSlug: this.datasetSlug,
+      connectorId: this.config.id,
+      lagSeconds,
+      openWindows: this.getOpenWindowCount()
+    });
   }
 
   async flushAll(reason: FlushReason = 'manual'): Promise<void> {
@@ -179,6 +192,10 @@ export class StreamingBatchProcessor {
     }
 
     this.clearFlushTimer(buffer);
+    const rowsInBuffer = buffer.rows.length;
+    if (rowsInBuffer > 0) {
+      this.bufferedRowCount = Math.max(0, this.bufferedRowCount - rowsInBuffer);
+    }
     const state = this.windowStates.get(buffer.windowId);
     if (state && state.activeChunkIndex === buffer.chunkIndex) {
       state.activeChunkIndex = null;
@@ -192,6 +209,7 @@ export class StreamingBatchProcessor {
         state.flushingChunks.delete(buffer.chunkIndex);
         this.cleanupWindowState(buffer.windowId, state);
       }
+      this.lastFlushAtMs = this.now();
     } catch (error) {
       if (state) {
         state.flushingChunks.delete(buffer.chunkIndex);
@@ -200,6 +218,9 @@ export class StreamingBatchProcessor {
         }
       }
       this.buffers.set(key, buffer);
+      if (rowsInBuffer > 0) {
+        this.bufferedRowCount += rowsInBuffer;
+      }
       this.ensureRetryTimer(key, buffer);
       this.logger.warn(
         {
@@ -292,6 +313,22 @@ export class StreamingBatchProcessor {
       backlogLagMs: Math.round(lagSeconds * 1_000),
       recordsProcessedDelta: rows.length
     });
+  }
+
+  getDiagnostics(): {
+    bufferedWindows: number;
+    bufferedRows: number;
+    lastFlushAtMs: number | null;
+    lastEventTimestampMs: number | null;
+    openWindows: number;
+  } {
+    return {
+      bufferedWindows: this.buffers.size,
+      bufferedRows: this.bufferedRowCount,
+      lastFlushAtMs: this.lastFlushAtMs,
+      lastEventTimestampMs: this.lastEventTimestampMs,
+      openWindows: this.getOpenWindowCount()
+    };
   }
 
   private getOpenWindowCount(): number {

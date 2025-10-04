@@ -22,6 +22,12 @@ Metrics are exposed via the Fastify `/metrics` endpoint and follow the `timestor
 | `timestore_streaming_flush_rows` | Histogram | `dataset`, `connector` | Row volume emitted per streaming flush. |
 | `timestore_streaming_backlog_seconds` | Gauge | `dataset`, `connector` | Lag between the sealed partition watermark and the newest buffered streaming event. |
 | `timestore_streaming_open_windows` | Gauge | `dataset`, `connector` | Number of streaming windows still held in the in-memory hot buffer. |
+| `timestore_streaming_batcher_buffers` | Gauge | `dataset`, `connector` | Active window buffers managed by each streaming micro-batcher. |
+| `timestore_streaming_batcher_state` | Gauge | `dataset`, `connector`, `state` | Connector state matrix (1 when a connector is in the labelled state). |
+| `timestore_streaming_hot_buffer_rows` | Gauge | `dataset` | Rows currently retained in the streaming hot buffer. |
+| `timestore_streaming_hot_buffer_watermark` | Gauge | `dataset` | Latest sealed watermark propagated into the hot buffer (epoch seconds). |
+| `timestore_streaming_hot_buffer_latest_timestamp` | Gauge | `dataset` | Newest streaming event timestamp seen by the hot buffer (epoch seconds). |
+| `timestore_streaming_hot_buffer_staleness_seconds` | Gauge | `dataset` | Age of the freshest streaming event, used to detect stale buffers. |
 | `timestore_lifecycle_jobs_total` | Counter | `dataset`, `status` | Lifecycle job execution outcomes. |
 | `timestore_lifecycle_job_duration_seconds` | Histogram | `status` | Lifecycle execution latency. |
 | `timestore_lifecycle_operations_total` | Counter | `operation`, `status` | Compaction, retention, and parquet export summaries. |
@@ -38,6 +44,10 @@ Metrics are exposed via the Fastify `/metrics` endpoint and follow the `timestor
 - **Lifecycle failures**: page when `increase(timestore_lifecycle_jobs_total{status="failed"}[30m]) >= 1`.
 - **Remote partition spikes**: track ratio `rate(timestore_query_remote_partitions_total[5m]) / rate(timestore_query_requests_total[5m])` to catch cache regressions.
 - **Streaming freshness**: alert if `timestore_streaming_backlog_seconds` stays above 120s or `timestore_streaming_open_windows` grows unexpectedly—both indicate the hot buffer is falling behind the micro-batcher.
+- **Streaming topic lag**: `max_over_time(timestore_streaming_backlog_seconds[5m]) > 120` for 10 minutes (page `#apphub-ops`).
+- **Micro-batcher latency**: `histogram_quantile(0.95, rate(timestore_streaming_flush_duration_seconds_bucket[5m])) > 15` seconds for 10 minutes.
+- **Hot buffer staleness**: `max_over_time(timestore_streaming_hot_buffer_staleness_seconds[10m]) > 90` while `timestore_streaming_hot_buffer_rows > 0` (Slack warning).
+- **Flink checkpoints**: `increase(flink_jobmanager_checkpoint_failed_total[15m]) > 0` or `max_over_time(flink_jobmanager_job_last_checkpoint_duration[15m]) > 120` (page; include job ID).
 
 ## Tracing
 

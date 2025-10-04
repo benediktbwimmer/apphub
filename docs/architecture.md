@@ -322,6 +322,35 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 - Redis remains the source of truth for BullMQ job queues, caching, and inline event fallbacks; Redpanda is additive rather than a drop-in replacement.
 - Local development and docker-compose stacks ship with a single-node Redpanda broker and topic bootstrapper. Minikube deploys a three-node StatefulSet with persistent volumes and exposes Kafka (9092) plus the admin API (9644).
 
+### Hybrid Query Flow
+
+```
+core events → redpanda topics → flink window job ┐
+                                              ├─> timestore micro-batcher → parquet manifests
+raw streaming → redpanda aggregates ──────────┘
+                                             ↘
+                                              hot buffer overlays → /datasets/:slug/query
+```
+
+1. Core publishes high-volume telemetry to Redpanda (`apphub.streaming.input`).
+2. Flink materialises tumbling windows into `apphub.streaming.aggregates`, checkpointing to MinIO/S3.
+3. The timestore micro-batcher consumes aggregates, writes Parquet partitions, and advances dataset watermarks.
+4. The in-memory hot buffer tails the same topics to serve sub-minute results; hybrid queries merge buffered rows with sealed Parquet partitions.
+
+### Observability & Readiness
+
+- Timestore exposes `GET /streaming/status` plus `/metrics` counters (`timestore_streaming_*`).
+- Core aggregates the snapshot into `GET /readyz` so traffic routers can gate on streaming health once `APPHUB_STREAMING_ENABLED=1`.
+- Prometheus scrapes Redpanda (`:9644/metrics`) and Flink (`:8081/metrics`). Dashboards track topic lag, checkpoint cadence, and hot-buffer freshness.
+
+### Rollout Checklist
+
+1. Provision Redpanda and Flink (see `docs/redpanda.md` / `docs/flink.md`) and confirm `/streaming/status` reports `broker.reachable=true`.
+2. Configure `APPHUB_STREAM_BROKER_URL` and enable the feature flag in staging (`APPHUB_STREAMING_ENABLED=1`).
+3. Load sample streaming jobs (`npm run submit:sample --workspace @apphub/streaming`) and verify hybrid queries return buffered rows.
+4. Enable alerts for topic lag, flush latency, buffer staleness, and Flink checkpoint failures (reference `docs/timestore-observability.md`).
+5. Flip the feature flag in production once dashboards stay green for 24h and `/readyz` remains ready across deploys.
+
 ## Deployment & Rollout Readiness
 - See `docs/workflow-rollout.md` for the staged rollout plan, rollback procedures, and environment-to-environment workflow migration guidance.
 

@@ -38,10 +38,13 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
       const lifecycleHealth = getLifecycleQueueHealth();
       const streamingStatus = evaluateStreamingStatus(config);
 
-      if (streamingStatus.enabled && streamingStatus.state !== 'ready') {
-        reply.status(503);
+      const streamingReady = !streamingStatus.enabled || streamingStatus.state === 'ready';
+      const overallStatus = lifecycleHealth.ready && streamingReady ? 'ok' : 'degraded';
+
+      if (!streamingReady) {
+        reply.status(streamingStatus.state === 'degraded' ? 503 : 503);
         return {
-          status: 'unavailable',
+          status: streamingStatus.state === 'degraded' ? 'degraded' : 'unavailable',
           lifecycle: lifecycleHealth,
           features: {
             streaming: streamingStatus
@@ -50,7 +53,7 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
       }
 
       return {
-        status: lifecycleHealth.ready ? 'ok' : 'degraded',
+        status: overallStatus,
         lifecycle: lifecycleHealth,
         features: {
           streaming: streamingStatus
@@ -103,7 +106,9 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
         };
       }
 
-      if (streamingStatus.enabled && streamingStatus.state !== 'ready') {
+      const streamingReady = !streamingStatus.enabled || streamingStatus.state === 'ready';
+
+      if (!streamingReady) {
         reply.status(503);
         return {
           status: 'unavailable',
