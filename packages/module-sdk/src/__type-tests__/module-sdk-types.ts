@@ -9,7 +9,10 @@ import {
   createJobContext,
   type JobContext,
   type ModuleCapabilityOverrides,
-  type ServiceContext
+  type ServiceContext,
+  type FilestoreCapability,
+  inheritModuleSettings,
+  inheritModuleSecrets
 } from '..';
 
 type GeneratorSettings = {
@@ -33,6 +36,8 @@ const generatorJob = createJobHandler<GeneratorSettings, GeneratorSecrets, void,
       minute: '2023-01-01T00:00'
     }
   },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
   handler: async (
     context: JobContext<GeneratorSettings, GeneratorSecrets, GeneratorParameters>
   ) => {
@@ -42,7 +47,8 @@ const generatorJob = createJobHandler<GeneratorSettings, GeneratorSecrets, void,
 
     context.job.version.toUpperCase();
 
-    context.capabilities.filestore?.ensureDirectory({ path: 'datasets' });
+    const filestoreCapability = context.capabilities.filestore as FilestoreCapability | undefined;
+    await filestoreCapability?.ensureDirectory({ path: 'datasets' });
 
     context.parameters.minute.toUpperCase();
 
@@ -72,7 +78,8 @@ const dashboardService = createService<GeneratorSettings, GeneratorSecrets, { st
       }
     },
     handler: async (context: ServiceContext<GeneratorSettings, GeneratorSecrets>) => {
-      await context.capabilities.filestore?.ensureDirectory({ path: 'services' });
+      const filestoreCapability = context.capabilities.filestore as FilestoreCapability | undefined;
+      await filestoreCapability?.ensureDirectory({ path: 'services' });
       context.service.name.toUpperCase();
       context.service.version.toUpperCase();
       return {

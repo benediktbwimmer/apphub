@@ -5,7 +5,7 @@ import { backfillServiceRegistry, formatBackfillResult } from '../serviceRegistr
 function printUsage(): void {
   console.log(`Usage: backfill-service-registry [options]\n\n`);
   console.log('Options:');
-  console.log('  --path <dir>         Add a service manifest module directory (default: modules/environmental-observatory/resources)');
+  console.log('  --path <dir>         Add a service manifest module directory (default: examples/environmental-observatory)');
   console.log('  --module <id>        Override the expected module identifier');
   console.log('  --config <path>      Provide an explicit service config path for the last --path');
   console.log('  --var KEY=VALUE      Provide a placeholder override (can be specified multiple times)');
@@ -142,7 +142,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   if (targets.length === 0) {
     targets.push({
-      path: 'modules/environmental-observatory/resources',
+      path: 'examples/environmental-observatory',
       moduleId: 'environmental-observatory',
       variables: {}
     });

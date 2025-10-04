@@ -1,0 +1,125 @@
+# Environmental Observatory (Event-Driven)
+
+This variant of the observatory example uses **Filestore** uploads as the system of record, **workflow event triggers** to launch minute ingest automatically, and **Timestore/Metastore** to keep downstream plots and reports current. The original file-watcher driven walkthrough still lives in `examples/environmental-observatory`; this directory contains the new event-driven stack.
+
+## Module Overview
+
+The environmental observatory module simulates an end-to-end telemetry program that starts with raw sensor drops and ends with live dashboards. It is designed to exercise the shared services in the platform so operators can validate event-driven ingestion, storage, and publication patterns before rolling them out to production workloads.
+
+- **Primary outcome:** demonstrate how Filestore events can kick off ingestion pipelines, persist normalized data in Timestore, and surface curated insights through Metastore-backed dashboards.
+- **Rhythm:** minute-level sensor readings stream through the stack; calibration files arrive ad-hoc and retroactively adjust datasets and reports.
+- **Key audiences:** platform engineers wiring new workflows, data operators validating ingestion quality, and solution teams demoing observability features.
+
+### Component Inventory
+
+| Category | Component | Role |
+| --- | --- | --- |
+| Datasets | Filestore prefixes (`inbox`, `staging`, `archive`, `calibrations`) | Durable home for raw, normalized, and calibration artifacts |
+| Workflows | `observatory-minute-ingest`, `observatory-daily-publication`, `observatory-calibration-import`, `observatory-dashboard-aggregate` | Orchestrate ingest, reporting, calibration reconciliation, and dashboard refresh |
+| Jobs | Minute ingest loader, dashboard aggregator, calibration importer, synthetic data generator | Execute per-workflow tasks with access to shared config and service tokens |
+| Services | Dashboard UI, Admin UI | Surface live metrics and provide operator controls for calibration uploads and reprocessing |
+| Triggers | `observatory.minute.raw-uploaded`, `observatory.minute.partition-ready`, `timestore.partition.created` | Bridge Filestore/Timestore events into workflow invocations |
+| Shared Library | `shared/config.ts` | Loads resolved configuration for jobs, workflows, and services |
+
+### Data Flow Summary
+
+```mermaid
+flowchart TD
+  Upload[Sensor CSV Upload] -->|POST /filestore| FilestoreAPI
+  FilestoreAPI -->|journal| FilestoreJournal[(Filestore Journal)]
+  FilestoreJournal -->|event: filestore.command.completed| RawTrigger[observatory.minute.raw-uploaded]
+  RawTrigger --> MinuteIngest[Workflow: observatory-minute-ingest]
+  MinuteIngest -->|normalize + partition| Timestore[(Timestore Dataset)]
+  Timestore -->|event: timestore.partition.created| AggregateTrigger[observatory-dashboard-aggregate]
+  AggregateTrigger --> DashboardWF[Workflow: observatory-dashboard-aggregate]
+  DashboardWF --> FilestoreViz[(Filestore Visualization Prefix)]
+  MinuteIngest -->|emit observatory.minute.partition-ready| PublicationTrigger[observatory.minute.partition-ready]
+  PublicationTrigger --> PublicationWF[Workflow: observatory-daily-publication]
+  PublicationWF --> Metastore[(Metastore Records)]
+  PublicationWF --> FilestoreReports[(Filestore Reports Prefix)]
+  CalUploads[Calibration Upload] -->|POST /filestore| FilestoreAPI
+  FilestoreAPI --> CalTrigger[Workflow: observatory-calibration-import]
+  CalTrigger --> Metastore
+  CalTrigger -->|plan updates| PublicationWF
+```
+
+### Operational Highlights
+
+- Shared configuration is generated once and consumed by every job, workflow, and service to avoid drift between environments.
+- All workflows rely on queue-backed execution, enabling you to scale load by adding more worker processes without touching definitions.
+- Calibration imports write authoritative state into Metastore, which in turn lets dashboards and downstream automations react without direct Filestore queries.
+- Observability is end-to-end: Filestore and Timestore logs, workflow runs, and Metastore updates emit events that can be streamed into the dashboard for live status.
+
+- **Filestore first:** the data generator pushes CSVs through the Filestore API so every mutation is journaled; the inbox normalizer converts `filestore.command.completed` notifications into example-specific `observatory.minute.raw-uploaded` events once files are copied into the staging prefix.
+- **Workflow triggers:** core triggers consume the observatory events and launch the `observatory-minute-ingest` workflow with fully materialised parameters (paths, tokens, dataset slugs) captured from the shared config file.
+- **Per-instrument ingestion:** the timestore loader groups normalized rows by instrument and writes a dedicated partition (keyed by instrument + window) for each sensor, attaching the instrument id as partition attributes.
+- **Aggregate overview:** a second workflow reacts to `timestore.partition.created` (with a safeguard fallback on the ingest event), waits for the Timestore partition to materialize, runs the dashboard aggregator job, and publishes an interactive HTML overview backed by live Timestore queries.
+- **Timestore + Metastore:** once ingestion completes, the timestore loader emits `observatory.minute.partition-ready`; the publication workflow regenerates plots and status reports, optionally upserting metadata into the Metastore.
+- **Shared configuration:** operators resolve folder paths, tokens, and slugs once via `scripts/materializeConfig.ts`; both services and trigger definitions read the generated scratch config (default `${OBSERVATORY_DATA_ROOT}/config/observatory-config.json`).
+- **Calibration-ready:** the materializer now provisions Filestore prefixes for `datasets/observatory/calibrations` (and `.../calibrations/plans`) so operators can stage calibration files alongside raw uploads.
+- **Live visibility:** the revamped dashboard lets you browse per-instrument plots, reports, and the aggregate visualization from one place.
+
+## Directory Tour
+- `data/` – historical scratch layout kept for reference; jobs now stream directly to Filestore prefixes and avoid writing to these directories.
+- `jobs/` – updated Node bundles that talk to Filestore instead of the raw filesystem (now including the calibration importer).
+- `workflows/` – minute ingest, calibration import, and publication definitions with new Filestore/Timestore parameters.
+- `services/` – the static dashboard frontend and the standalone admin UI.
+- `scripts/` – helper utilities for generating the config file and provisioning workflow triggers.
+- `config.json` – example descriptor wiring placeholders, bootstrap actions, and manifest references.
+- `service-manifests/` – minimal manifest for the two services (they now read the shared config instead of embedding prompts).
+- `shared/` – TypeScript helper for loading the config JSON from any package.
+
+## Calibration Files
+- Materialization writes `filestore.calibrationsPrefix` (default `datasets/observatory/calibrations`) and `filestore.plansPrefix` (`datasets/observatory/calibrations/plans`) into the scratch config file.
+- Upload new calibration files to the calibrated prefix via the Filestore API/CLI; the script pre-creates the hierarchy so operators can drop JSON/CSV files without manual setup.
+- The `observatory-calibration-import` workflow listens for uploads under the calibration prefix, validates payloads, writes canonical records to the Metastore, and emits `observatory.calibration.updated` events.
+- Use descriptive names such as `instrument_alpha_20250101T0000.json` and include an effective timestamp in the payload to help future reprocessing flows.
+- Generated config exposes these prefixes for workflows, triggers, and services; downstream features will rely on them to locate calibration inputs and generated reprocessing plans.
+
+## Bootstrapping the Scenario
+1. Install dependencies if you have not yet (`npm install`).
+2. Generate the shared config. The bootstrap now targets the sandbox scratch root automatically (via `APPHUB_SCRATCH_ROOT`). Override `OBSERVATORY_DATA_ROOT` only if you want a different scratch directory:
+   ```bash
+   OBSERVATORY_DATA_ROOT="${APPHUB_SCRATCH_ROOT:-/tmp/apphub-scratch}/observatory" \
+   npx tsx examples/environmental-observatory/scripts/materializeConfig.ts
+   ```
+   The script writes the config into the scratch space, provisions the Filestore backend, and records the inbox/staging/archive/visualization/report/calibration prefixes so jobs can read/write exclusively through Filestore. Keep the generated file out of source control.
+3. Register the workflow event triggers:
+   ```bash
+   npx tsx examples/environmental-observatory/scripts/setupTriggers.ts
+   ```
+   The script reads the config file, talks to the core API (`core.baseUrl`, `core.apiToken`), and upserts three triggers:
+   - `observatory.minute.raw-uploaded` → `observatory-minute-ingest`
+   - `observatory.minute.partition-ready` → `observatory-daily-publication`
+   - `timestore.partition.created` → `observatory-dashboard-aggregate`
+4. Seed the data generator and publication workflows through the CLI or importer (`workflows/*.json`).
+5. Launch the dashboard service:
+   ```bash
+   cd examples/environmental-observatory/services/observatory-dashboard
+   npm run dev
+   ```
+6. Launch the admin surface if you want to drive calibration uploads or trigger reprocessing runs from the example UI:
+   ```bash
+   cd examples/environmental-observatory/services/observatory-admin
+   npm run dev
+   ```
+   The app defaults to `http://localhost:4000`; provide an operator token in the connection banner or via `VITE_API_TOKEN` to enable authenticated requests.
+7. Kick off the synthetic instruments manually (`observatory-minute-data-generator` workflow) or leave the trigger to respond as Filestore uploads arrive. The dashboard streams both the per-instrument reports and the aggregate visualization straight from Filestore once new data lands.
+   - Want more (or fewer) sensors? Set `OBSERVATORY_INSTRUMENT_COUNT` (alias `OBSERVATORY_GENERATOR_INSTRUMENT_COUNT`) before running `npm run obs:event:config`, or edit the generator schedule in the core UI afterwards. The value feeds the workflow’s `instrumentCount` parameter at runtime.
+
+## Related Scripts
+Convenience aliases (add to your global npm scripts if desired):
+```json
+{
+  "obs:event:config": "tsx examples/environmental-observatory/scripts/materializeConfig.ts",
+  "obs:event:triggers": "tsx examples/environmental-observatory/scripts/setupTriggers.ts",
+  "obs:event:plan": "tsx examples/environmental-observatory/scripts/runCalibrationPlan.ts",
+  "obs:event:reprocess": "tsx examples/environmental-observatory/scripts/runCalibrationReprocess.ts"
+}
+```
+Run them from the repo root (`npm run obs:event:config`). Use `npm run obs:event:plan -- --instrument sensor_alpha --effectiveAt 2029-12-31T23:00:00Z` to generate a reprocessing plan and `npm run obs:event:reprocess -- --plan-id <planId>` to launch the orchestration workflow once you have reviewed the plan.
+
+## Next Steps
+- Inspect/adjust the generated config file before committing to any environment.
+- Extend `scripts/setupTriggers.ts` if you add workflows that should respond to Filestore/Timestore events.
+- The original file-watcher example remains untouched; if you need a polling-based baseline, switch back to `examples/environmental-observatory`.

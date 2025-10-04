@@ -7,7 +7,10 @@ import {
   createService,
   createWorkflow,
   createWorkflowSchedule,
-  createWorkflowTrigger
+  createWorkflowTrigger,
+  inheritModuleSettings,
+  inheritModuleSecrets,
+  ServiceLifecycle
 } from '../targets';
 
 type ModuleSettings = {
@@ -19,7 +22,13 @@ type ModuleSecrets = {
 };
 
 test('serializeModuleDefinition captures targets and descriptors', () => {
-  const job = createJobHandler<ModuleSettings, ModuleSecrets, void, { limit: number }>({
+  const job = createJobHandler<
+    ModuleSettings,
+    ModuleSecrets,
+    void,
+    { limit: number },
+    ['filestore']
+  >({
     name: 'generator',
     version: '2.0.0',
     parameters: {
@@ -30,10 +39,18 @@ test('serializeModuleDefinition captures targets and descriptors', () => {
       filestore: null,
       metastore: null
     },
+    requires: ['filestore'] as const,
+    settings: inheritModuleSettings(),
+    secrets: inheritModuleSecrets(),
     handler: async () => undefined
   });
 
-  const service = createService<ModuleSettings, ModuleSecrets>({
+  const service = createService<
+    ModuleSettings,
+    ModuleSecrets,
+    ServiceLifecycle,
+    ['events', 'coreHttp']
+  >({
     name: 'dashboard',
     version: '1.0.1',
     registration: {
@@ -52,6 +69,7 @@ test('serializeModuleDefinition captures targets and descriptors', () => {
         spa: true
       }
     },
+    requires: ['events', 'coreHttp'] as const,
     handler: async () => ({
       async start() {
         return undefined;
@@ -116,6 +134,9 @@ test('serializeModuleDefinition captures targets and descriptors', () => {
   assert.equal(jobTarget?.fingerprint, '3.0.0:2.0.0:generator');
   assert.equal(jobTarget?.parameters?.hasResolve, true);
   assert.deepEqual(jobTarget?.capabilityOverrides, ['filestore', 'metastore']);
+  assert.deepEqual(jobTarget?.requiredCapabilities, ['filestore']);
+  assert.equal(jobTarget?.settings?.inherit, true);
+  assert.equal(jobTarget?.secrets?.inherit, true);
 
   const workflowTarget = manifest.targets.find((target) => target.kind === 'workflow');
   assert.ok(workflowTarget);
@@ -134,4 +155,5 @@ test('serializeModuleDefinition captures targets and descriptors', () => {
     (serviceTarget?.service?.registration as { tags?: string[] } | undefined)?.tags,
     ['observatory', 'dashboard']
   );
+  assert.deepEqual(serviceTarget?.requiredCapabilities, ['coreHttp', 'events']);
 });

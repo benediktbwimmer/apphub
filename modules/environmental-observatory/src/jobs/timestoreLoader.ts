@@ -4,7 +4,11 @@ import { z } from 'zod';
 import {
   CapabilityRequestError,
   createJobHandler,
-  createMetastoreCapability,
+  inheritModuleSettings,
+  inheritModuleSecrets,
+  sanitizeIdentifier,
+  toTemporalKey,
+  type FilestoreCapability,
   type JobContext,
   type MetastoreCapability
 } from '@apphub/module-sdk';
@@ -18,11 +22,8 @@ import {
   type CalibrationSnapshot
 } from '../runtime/calibrations';
 import { createObservatoryEventPublisher } from '../runtime/events';
-import {
-  defaultObservatorySettings,
-  type ObservatoryModuleSecrets,
-  type ObservatoryModuleSettings
-} from '../runtime/settings';
+import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
+import { selectEventBus, selectFilestore, selectMetastore, selectTimestore } from '../runtime/capabilities';
 
 const DEFAULT_SCHEMA_FIELDS = [
   { name: 'timestamp', type: 'timestamp' as const },
@@ -176,7 +177,7 @@ function toRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function deriveMinuteKey(minute: string): string {
-  return minute.replace(/[: ]/g, '-');
+  return toTemporalKey(minute);
 }
 
 function deriveCalibrationAsOf(minute: string): string {
@@ -196,12 +197,12 @@ function sanitizePartitionKey(key: Record<string, string>): string {
     .map(([field, value]) => ({ field, value }))
     .filter(({ field, value }) => field && value)
     .sort((a, b) => a.field.localeCompare(b.field))
-    .map(({ field, value }) => `${field}=${value}`)
+    .map(({ field, value }) => `${field}=${sanitizeIdentifier(value)}`)
     .join('|');
 }
 
 function buildPartitionKey(namespace: string, instrumentId: string, minute: string): Record<string, string> {
-  const normalizedInstrument = instrumentId && instrumentId.trim().length > 0 ? instrumentId.trim() : 'unknown';
+  const normalizedInstrument = sanitizeIdentifier(instrumentId?.trim() ?? 'unknown');
   return {
     dataset: namespace,
     instrument: normalizedInstrument,
@@ -466,13 +467,12 @@ function parseCsvContent(content: string): ObservatoryRow[] {
 }
 
 async function ingestableRowsFromCsv(
+  filestore: FilestoreCapability,
   context: TimestoreLoaderContext,
   backendMountId: number,
   source: RawAssetFile,
   principal: string | undefined
 ): Promise<{ rows: ObservatoryRow[]; minTimestamp: string; maxTimestamp: string; checksum: string }> {
-  const filestore = context.capabilities.filestore!;
-
   let nodeId = source.nodeId;
   if (!nodeId || nodeId <= 0) {
     try {
@@ -520,13 +520,13 @@ async function ingestableRowsFromCsv(
 }
 
 async function discoverRawAssetFromStaging(
+  filestore: FilestoreCapability,
   context: TimestoreLoaderContext,
   backendMountId: number,
   stagingPrefix: string,
   minute: string,
   principal: string | undefined
 ): Promise<RawAsset | null> {
-  const filestore = context.capabilities.filestore!;
   const normalizedPrefix = stagingPrefix.replace(/\/+$/g, '');
   const minuteKey = deriveMinuteKey(minute);
   const stagingMinutePrefix = `${normalizedPrefix}/${minuteKey}`;
@@ -727,22 +727,8 @@ function applyCalibration(
   }
 }
 
-function createCalibrationCapability(
-  settings: ObservatoryModuleSettings,
-  secrets: ObservatoryModuleSecrets
-): MetastoreCapability | null {
-  if (!settings.calibrations.baseUrl) {
-    return null;
-  }
-  return createMetastoreCapability({
-    baseUrl: settings.calibrations.baseUrl,
-    namespace: settings.calibrations.namespace,
-    token: () => secrets.calibrationsToken ?? secrets.metastoreToken ?? null
-  });
-}
-
 function buildCalibrationLookupConfig(
-  capability: MetastoreCapability | null,
+  capability: MetastoreCapability | undefined,
   principal: string | undefined,
   settings: ObservatoryModuleSettings
 ): CalibrationLookupConfig | null {
@@ -760,12 +746,13 @@ export const timestoreLoaderJob = createJobHandler<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
   TimestoreLoaderResult,
-  TimestoreLoaderParameters
+  TimestoreLoaderParameters,
+  ['filestore', 'timestore', 'events.default']
 >({
   name: 'observatory-timestore-loader',
-  settings: {
-    defaults: defaultObservatorySettings
-  },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
+  requires: ['filestore', 'timestore', 'events.default'] as const,
   parameters: {
     resolve: (raw) => {
       const candidate: Record<string, unknown> = { ...(raw ?? {}) };
@@ -807,11 +794,12 @@ export const timestoreLoaderJob = createJobHandler<
     }
   },
   handler: async (context: TimestoreLoaderContext): Promise<TimestoreLoaderResult> => {
-    const filestore = context.capabilities.filestore;
-    const timestore = context.capabilities.timestore;
+    const filestore = selectFilestore(context.capabilities);
     if (!filestore) {
       throw new Error('Filestore capability is required for the timestore loader job');
     }
+
+    const timestore = selectTimestore(context.capabilities);
     if (!timestore) {
       throw new Error('Timestore capability is required for the timestore loader job');
     }
@@ -844,6 +832,7 @@ export const timestoreLoaderJob = createJobHandler<
     let rawAsset = parseRawAsset(context.parameters.rawAsset);
     if (!rawAsset) {
       rawAsset = await discoverRawAssetFromStaging(
+        filestore,
         context,
         backendMountId,
         context.settings.filestore.stagingPrefix,
@@ -871,12 +860,8 @@ export const timestoreLoaderJob = createJobHandler<
       } satisfies TimestoreLoaderResult;
     }
 
-    const calibrationCapability = createCalibrationCapability(context.settings, context.secrets);
-    const calibrationConfig = buildCalibrationLookupConfig(
-      calibrationCapability,
-      principal,
-      context.settings
-    );
+    const calibrationCapability = selectMetastore(context.capabilities, 'calibrations');
+    const calibrationConfig = buildCalibrationLookupConfig(calibrationCapability, principal, context.settings);
     const calibrationCache = new Map<string, CachedCalibration>();
     const calibrationAsOf = deriveCalibrationAsOf(minute);
 
@@ -885,6 +870,7 @@ export const timestoreLoaderJob = createJobHandler<
 
     for (const source of rawAsset.files) {
       const { rows, minTimestamp, maxTimestamp } = await ingestableRowsFromCsv(
+        filestore,
         context,
         backendMountId,
         source,
@@ -925,8 +911,13 @@ export const timestoreLoaderJob = createJobHandler<
       throw new Error('No observatory readings discovered for timestore ingestion');
     }
 
+    const eventsCapability = selectEventBus(context.capabilities, 'default');
+    if (!eventsCapability) {
+      throw new Error('Event bus capability is required for timestore ingestion');
+    }
+
     const publisher = createObservatoryEventPublisher({
-      capability: context.capabilities.events,
+      capability: eventsCapability,
       source: context.settings.events.source || 'observatory.timestore-loader'
     });
 
@@ -939,7 +930,7 @@ export const timestoreLoaderJob = createJobHandler<
         const partitionKeyFields = buildPartitionKey(partitionNamespace, instrumentId, minute);
         const idempotentKeyForPartition = idempotencyKey ? `${idempotencyKey}:${instrumentId}` : undefined;
 
-        const ingestionResult = await timestore.ingestRecords({
+        const ingestionResult = (await timestore.ingestRecords({
           datasetSlug,
           datasetName,
           tableName,
@@ -962,7 +953,11 @@ export const timestoreLoaderJob = createJobHandler<
           rows: bucket.rows,
           idempotencyKey: idempotentKeyForPartition,
           principal
-        });
+        })) as {
+          dataset?: { id?: string | null } | null;
+          manifest?: { id?: string | null } | null;
+          mode: string;
+        };
 
         totalRows += bucket.rows.length;
 

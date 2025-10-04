@@ -7,20 +7,20 @@ The event-driven flavour now partitions Timestore manifests per instrument and p
 > **Module-first tooling**
 >
 > The observatory jobs, workflows, and services now ship through the `modules/environmental-observatory` workspace. The Import
-> wizard pulls catalog data from `/modules/catalog`, while the legacy assets under `modules/environmental-observatory/resources/`
+> wizard pulls catalog data from `/modules/catalog`, while the legacy assets under `examples/environmental-observatory/`
 > remain available for bootstrap scripts, sample data, and troubleshooting utilities.
 
 > **Event-driven variant**
 >
-> In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `modules/environmental-observatory/resources/`. CSV uploads flow through Filestore, the inbox normalizer emits `observatory.minute.raw-uploaded`, downstream publication reacts to `observatory.minute.partition-ready`, and a dashboard aggregation workflow listens for `timestore.partition.created` (with a guarded fallback on the ingest signal) before publishing `observatory.dashboard.updated` after querying Timestore for fleet-wide stats. See the [README](../modules/environmental-observatory/resources/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the upgraded services).
+> In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `examples/environmental-observatory/`. CSV uploads flow through Filestore, the inbox normalizer emits `observatory.minute.raw-uploaded`, downstream publication reacts to `observatory.minute.partition-ready`, and a dashboard aggregation workflow listens for `timestore.partition.created` (with a guarded fallback on the ingest signal) before publishing `observatory.dashboard.updated` after querying Timestore for fleet-wide stats. See the [README](../examples/environmental-observatory/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the upgraded services).
 
-## Event-driven benchmark status (2025-09-29)
+## End-to-end validation (2025-09-29)
 
-- The `environmentalObservatoryEventDrivenBenchmark.e2e.ts` harness now provisions dedicated Dockerized MinIO and Redis instances, wires cleanup on `SIGINT/SIGTERM`, and exercises the module workflows end-to-end.
-- Embedded Postgres plus core/filestore/metastore/timestore test servers start successfully and the data generator uploads 10 instrument CSVs to MinIO with matching metastore records.
-- Inbox normalizer emits `observatory.minute.raw-uploaded` events into the core queue, trigger deliveries are created, but the `observatory-minute-ingest` workflow never launches; the benchmark currently fails waiting for that run.
-- Suspect area: core event trigger processing when queues run against the external Redis container. The next session should inspect the event ingress queue and trigger delivery retries to confirm whether events are enqueued but not drained, or if a rendering error drops the job before launch.
-- To resume quickly: rerun `npx tsx tests/e2e/runBench.ts` (set `OBSERVATORY_BENCH_INSTRUMENTS=10`) and tail core logs for trigger processing around the first minute (look for `Trigger delivery not found for retry`).
+- Use `npm run e2e` to deploy the module into the Docker Compose stack (`docker/observatory-e2e.compose.yml`) and exercise the full ingest → timestore → dashboard → report pipeline.
+- The harness waits for the generator, ingest, aggregation, and publication workflows to succeed, then verifies published assets via the Core, Filestore, and Timestore APIs.
+- Container logs are captured to `logs/observatory-e2e.log`; the run fails if error-level entries appear so regressions surface automatically.
+
+
 
 
 ## Architecture overview
@@ -191,7 +191,7 @@ npm run build --workspace @apphub/environmental-observatory-module
    The gateway streams new inbox files into the `apphub-filestore` bucket (via Filestore) before launching the ingest workflow. Adjust `FILESTORE_BACKEND_ID` if you provisioned a different mount via `npm run obs:event:config`.
 5. Launch the dashboard alongside the gateway so the latest `status.html` is always visible:
    ```bash
-   cd modules/environmental-observatory/resources/services/observatory-dashboard
+   cd examples/environmental-observatory/services/observatory-dashboard
    npm install
 
    PORT=4311 \

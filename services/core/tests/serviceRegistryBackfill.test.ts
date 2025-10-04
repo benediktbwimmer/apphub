@@ -22,7 +22,7 @@ import {
 import { queueManager } from '../src/queueManager';
 
 const EVENT_MODULE_ID = 'environmental-observatory';
-const EVENT_MODULE_PATH = 'modules/environmental-observatory/resources';
+const EVENT_MODULE_PATH = 'examples/environmental-observatory';
 const DASHBOARD_SLUG = 'observatory-dashboard';
 
 let postgres: EmbeddedPostgres | null = null;

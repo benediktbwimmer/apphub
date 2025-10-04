@@ -47,8 +47,7 @@
     "minikube:redeploy": "node scripts/minikube-redeploy.mjs",
     "minikube:down": "node scripts/minikube-down.mjs",
     "minikube:verify": "node scripts/minikube-verify.mjs",
-    "e2e": "tsx tests/e2e/runSmoke.ts",
-    "bench": "tsx tests/e2e/runBench.ts",
+    "e2e": "tsx tests/e2e/observatory.e2e.ts",
     "check:module-target-versions": "node scripts/check-module-target-versions.mjs",
     "module:admin": "npm run module:admin --workspace @apphub/core --"
   },

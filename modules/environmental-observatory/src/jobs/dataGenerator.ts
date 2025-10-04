@@ -1,4 +1,12 @@
-import { createJobHandler, type JobContext } from '@apphub/module-sdk';
+import {
+  createJobHandler,
+  inheritModuleSettings,
+  inheritModuleSecrets,
+  sanitizeIdentifier,
+  toTemporalKey,
+  type FilestoreCapability,
+  type JobContext
+} from '@apphub/module-sdk';
 import {
   DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
   ensureFilestoreHierarchy,
@@ -7,11 +15,11 @@ import {
 } from '../runtime/filestore';
 import { enforceScratchOnlyWrites } from '../runtime/scratchGuard';
 import {
-  defaultObservatorySettings,
   type GeneratorInstrumentProfile,
   type ObservatoryModuleSecrets,
   type ObservatoryModuleSettings
 } from '../runtime/settings';
+import { selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 enforceScratchOnlyWrites();
 
@@ -54,7 +62,7 @@ const DEFAULT_PROFILES: GeneratorInstrumentProfile[] = [
   }
 ];
 
-type GeneratorContext = JobContext<ObservatoryModuleSettings, ObservatoryModuleSecrets>;
+type GeneratorContext = JobContext<ObservatoryModuleSettings, ObservatoryModuleSecrets, void>;
 
 function resolveMinute(settings: ObservatoryModuleSettings): string {
   const explicit = settings.generator.minute?.trim();
@@ -76,10 +84,6 @@ function createProfiles(settings: ObservatoryModuleSettings): GeneratorInstrumen
 
 function createSeed(baseSeed: number, index: number): number {
   return baseSeed + index + 1;
-}
-
-function sanitizeRecordKey(value: string): string {
-  return value ? value.replace(/[^0-9A-Za-z._-]+/g, '-').replace(/-+/g, '-').replace(/^[-.]+|[-.]+$/g, '') : '';
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -158,11 +162,11 @@ async function upsertIngestionRecord(
   recordKey: string,
   metadata: Record<string, unknown>
 ): Promise<void> {
-  const metastore = context.capabilities.metastore;
+  const metastore = selectMetastore(context.capabilities, 'reports');
   if (!metastore) {
     return;
   }
-  const key = sanitizeRecordKey(recordKey);
+  const key = sanitizeIdentifier(recordKey);
   if (!key) {
     return;
   }
@@ -180,14 +184,15 @@ async function upsertIngestionRecord(
 async function handler(context: GeneratorContext): Promise<GeneratorJobResult> {
   const moduleSettings = context.settings;
   const minute = resolveMinute(moduleSettings);
-  const minuteKey = minute.replace(/:/g, '-');
+  const minuteKey = toTemporalKey(minute);
   const profiles = createProfiles(moduleSettings);
   const rowsPerInstrument = Math.max(1, moduleSettings.generator.rowsPerInstrument);
   const intervalMinutes = Math.max(1, moduleSettings.generator.intervalMinutes);
-  const filestore = context.capabilities.filestore;
-  if (!filestore) {
+  const filestoreCapability = selectFilestore(context.capabilities);
+  if (!filestoreCapability) {
     throw new Error('Filestore capability is required for the data generator job');
   }
+  const filestore: FilestoreCapability = filestoreCapability;
   const principal = moduleSettings.principals.dataGenerator;
 
   const backendMountId = await ensureResolvedBackendId(filestore, {
@@ -288,10 +293,16 @@ async function handler(context: GeneratorContext): Promise<GeneratorJobResult> {
   } satisfies GeneratorJobResult;
 }
 
-export const dataGeneratorJob = createJobHandler<ObservatoryModuleSettings, ObservatoryModuleSecrets, GeneratorJobResult>({
+export const dataGeneratorJob = createJobHandler<
+  ObservatoryModuleSettings,
+  ObservatoryModuleSecrets,
+  GeneratorJobResult,
+  void,
+  ['filestore', 'metastore.reports']
+>({
   name: 'observatory-data-generator',
-  settings: {
-    defaults: defaultObservatorySettings
-  },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
+  requires: ['filestore', 'metastore.reports'] as const,
   handler
 });

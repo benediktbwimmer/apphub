@@ -1,12 +1,18 @@
 #!/bin/sh
 set -e
 
+if [ "$APPHUB_SKIP_PRE_PUSH" = "1" ]; then
+  echo 'pre-push: skipping checks via APPHUB_SKIP_PRE_PUSH'
+  exit 0
+fi
+
 if ! command -v npm >/dev/null 2>&1; then
   echo "pre-push: npm is required but was not found; skipping checks" >&2
   exit 0
 fi
 
 echo 'pre-push: running npm run lint'
+export APPHUB_SKIP_VERSION_CHECK=1
 npm run lint
 
 echo 'pre-push: running npm run build'

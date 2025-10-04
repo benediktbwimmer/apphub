@@ -111,6 +111,25 @@ export const jobRetryPolicySchema = z
   })
   .strict();
 
+const moduleTargetBindingSchema = z
+  .object({
+    moduleId: z.string().min(1),
+    moduleVersion: z.string().min(1),
+    moduleArtifactId: z.string().min(1).nullable().optional(),
+    targetName: z.string().min(1),
+    targetVersion: z.string().min(1),
+    targetFingerprint: z.string().min(1).nullable().optional()
+  })
+  .strict()
+  .transform((value) => ({
+    moduleId: value.moduleId,
+    moduleVersion: value.moduleVersion,
+    moduleArtifactId: value.moduleArtifactId ?? null,
+    targetName: value.targetName,
+    targetVersion: value.targetVersion,
+    targetFingerprint: value.targetFingerprint ?? null
+  }));
+
 export const jobDefinitionCreateSchema = z
   .object({
     slug: z
@@ -121,14 +140,15 @@ export const jobDefinitionCreateSchema = z
     name: z.string().min(1),
     version: z.number().int().min(1).optional(),
     type: z.enum(['batch', 'service-triggered', 'manual']),
-    runtime: z.enum(['node', 'python', 'docker']).default('node'),
+    runtime: z.enum(['node', 'python', 'docker', 'module']).default('node'),
     entryPoint: z.string().min(1),
     timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
     retryPolicy: jobRetryPolicySchema.optional(),
     parametersSchema: jsonObjectSchema.optional(),
     defaultParameters: jsonObjectSchema.optional(),
     outputSchema: jsonObjectSchema.optional(),
-    metadata: jsonValueSchema.optional()
+    metadata: jsonValueSchema.optional(),
+    moduleBinding: moduleTargetBindingSchema.optional()
   })
   .strict();
 
@@ -137,14 +157,15 @@ export const jobDefinitionUpdateSchema = z
     name: z.string().min(1).optional(),
     version: z.number().int().min(1).optional(),
     type: z.enum(['batch', 'service-triggered', 'manual']).optional(),
-    runtime: z.enum(['node', 'python', 'docker']).optional(),
+    runtime: z.enum(['node', 'python', 'docker', 'module']).optional(),
     entryPoint: z.string().min(1).optional(),
     timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
     retryPolicy: jobRetryPolicySchema.optional(),
     parametersSchema: jsonObjectSchema.optional(),
     defaultParameters: jsonObjectSchema.optional(),
     outputSchema: jsonObjectSchema.optional(),
-    metadata: jsonValueSchema.nullable().optional()
+    metadata: jsonValueSchema.nullable().optional(),
+    moduleBinding: moduleTargetBindingSchema.nullable().optional()
   })
   .strict()
   .refine((payload: Record<string, unknown>) => Object.keys(payload).length > 0, {

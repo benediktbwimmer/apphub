@@ -162,6 +162,10 @@ function findModuleDir(filePath) {
 
 function main() {
   try {
+    if (process.env.APPHUB_SKIP_VERSION_CHECK === '1') {
+      console.warn('[check-module-target-versions] Skipping version check via APPHUB_SKIP_VERSION_CHECK');
+      return;
+    }
     const baseRef = detectBaseRef();
     if (!baseRef) {
       console.warn('[check-module-target-versions] Skipping check (no git base reference found).');

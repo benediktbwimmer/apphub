@@ -15,5 +15,10 @@
   "include": [
     "module.ts",
     "src/**/*"
+  ],
+  "references": [
+    { "path": "../../packages/module-sdk" },
+    { "path": "../../packages/module-registry" },
+    { "path": "../../packages/filestore-client" }
   ]
 }

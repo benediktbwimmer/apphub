@@ -1,0 +1,254 @@
+name: apphub-observatory-e2e
+
+x-shared-env: &shared-env
+  NODE_ENV: development
+  HOST: 0.0.0.0
+  PORT: 4000
+  APPHUB_SESSION_SECRET: apphub-e2e-session
+  APPHUB_AUTH_DISABLED: "1"
+  APPHUB_ALLOW_INLINE_MODE: "false"
+  APPHUB_EVENTS_MODE: redis
+  APPHUB_BUILD_EXECUTION_MODE: stub
+  APPHUB_LAUNCH_EXECUTION_MODE: stub
+  APPHUB_METRICS_ENABLED: "true"
+  APPHUB_SCRATCH_ROOT: /tmp/apphub
+  APPHUB_CORE_URL: http://core-api:4000
+  SERVICE_REGISTRY_TOKEN: ${APPHUB_E2E_OPERATOR_TOKEN:-apphub-e2e-operator}
+  APPHUB_OPERATOR_TOKENS: >-
+    [{"subject":"apphub-e2e","token":"${APPHUB_E2E_OPERATOR_TOKEN:-apphub-e2e-operator}","scopes":["service-config:write","job-bundles:write","job-bundles:read","workflows:write","workflows:read","workflows:run","observatory:read","observatory:write","observatory:reprocess"]}]
+  DATABASE_URL: postgres://apphub:apphub@postgres:5432/apphub
+  FILESTORE_DATABASE_URL: postgres://apphub:apphub@postgres:5432/apphub
+  TIMESTORE_DATABASE_URL: postgres://apphub:apphub@postgres:5432/apphub
+  PGHOST: postgres
+  PGPORT: "5432"
+  PGUSER: apphub
+  PGPASSWORD: apphub
+  REDIS_URL: redis://redis:6379
+  APPHUB_DEV_REDIS_URL: redis://redis:6379
+  FILESTORE_REDIS_URL: redis://redis:6379
+  METASTORE_REDIS_URL: redis://redis:6379
+  TIMESTORE_REDIS_URL: redis://redis:6379
+  FILESTORE_EVENTS_MODE: redis
+  APPHUB_FILESTORE_BASE_URL: http://filestore:4300
+  APPHUB_METASTORE_BASE_URL: http://metastore:4100
+  APPHUB_TIMESTORE_BASE_URL: http://timestore:4200
+  APPHUB_BUNDLE_STORAGE_BACKEND: s3
+  APPHUB_BUNDLE_STORAGE_BUCKET: apphub-example-bundles
+  APPHUB_BUNDLE_STORAGE_ENDPOINT: http://minio:9000
+  APPHUB_BUNDLE_STORAGE_REGION: us-east-1
+  APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE: "true"
+  APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID: apphub
+  APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY: apphub123
+  APPHUB_JOB_BUNDLE_STORAGE_BACKEND: s3
+  APPHUB_JOB_BUNDLE_S3_BUCKET: apphub-example-bundles
+  APPHUB_JOB_BUNDLE_S3_ENDPOINT: http://minio:9000
+  APPHUB_JOB_BUNDLE_S3_REGION: us-east-1
+  APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE: "true"
+  APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID: apphub
+  APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY: apphub123
+  TIMESTORE_STORAGE_DRIVER: s3
+  TIMESTORE_S3_BUCKET: apphub-timestore
+  TIMESTORE_S3_ENDPOINT: http://minio:9000
+  TIMESTORE_S3_REGION: us-east-1
+  TIMESTORE_S3_FORCE_PATH_STYLE: "true"
+  TIMESTORE_S3_ACCESS_KEY_ID: apphub
+  TIMESTORE_S3_SECRET_ACCESS_KEY: apphub123
+  AWS_ACCESS_KEY_ID: apphub
+  AWS_SECRET_ACCESS_KEY: apphub123
+  AWS_REGION: us-east-1
+  OBSERVATORY_FILESTORE_BASE_URL: http://filestore:4300
+  OBSERVATORY_FILESTORE_TOKEN: ""
+  OBSERVATORY_FILESTORE_S3_BUCKET: apphub-filestore
+  OBSERVATORY_FILESTORE_S3_ENDPOINT: http://minio:9000
+  OBSERVATORY_FILESTORE_S3_REGION: us-east-1
+  OBSERVATORY_FILESTORE_S3_FORCE_PATH_STYLE: "true"
+  OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID: apphub
+  OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY: apphub123
+  OBSERVATORY_CORE_BASE_URL: http://core-api:4000
+  OBSERVATORY_CORE_TOKEN: ${APPHUB_E2E_OPERATOR_TOKEN:-apphub-e2e-operator}
+  OBSERVATORY_TIMESTORE_BASE_URL: http://timestore:4200
+  OBSERVATORY_TIMESTORE_DATASET_SLUG: observatory-timeseries
+  OBSERVATORY_TIMESTORE_DATASET_NAME: "Observatory Time Series"
+  OBSERVATORY_TIMESTORE_TABLE_NAME: observations
+  OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES: "720"
+  OBSERVATORY_INSTRUMENT_COUNT: "3"
+  OBSERVATORY_SKIP_GENERATOR_SCHEDULE: "1"
+  AWS_SDK_LOAD_CONFIG: "1"
+
+x-core-service: &core-service
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.services
+    target: core-runtime
+  image: apphub/core:e2e
+  depends_on:
+    - postgres
+    - redis
+    - minio
+  environment:
+    <<: *shared-env
+  restart: unless-stopped
+  volumes:
+    - ${APPHUB_E2E_REPO_ROOT}:${APPHUB_E2E_REPO_ROOT}:ro
+
+x-runtime-volume: &runtime-volume
+  - ${APPHUB_E2E_REPO_ROOT}:${APPHUB_E2E_REPO_ROOT}:ro
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: apphub
+      POSTGRES_PASSWORD: apphub
+      POSTGRES_DB: apphub
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apphub"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - "--save"
+      - ""
+      - "--appendonly"
+      - "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: apphub
+      MINIO_ROOT_PASSWORD: apphub123
+    command:
+      - server
+      - /data
+      - "--console-address"
+      - ":9001"
+    ports:
+      - "${APPHUB_E2E_MINIO_PORT:-9400}:9000"
+      - "${APPHUB_E2E_MINIO_CONSOLE_PORT:-9401}:9001"
+    volumes:
+      - minio-data:/data
+
+  core-api:
+    <<: *core-service
+    ports:
+      - "${APPHUB_E2E_CORE_PORT:-4400}:4000"
+    command: ["node", "services/core/dist/server.js"]
+
+  core-ingest:
+    <<: *core-service
+    command: ["node", "services/core/dist/ingestionWorker.js"]
+
+  core-workflows:
+    <<: *core-service
+    command: ["node", "services/core/dist/workflowWorker.js"]
+
+  core-events:
+    <<: *core-service
+    command: ["node", "services/core/dist/eventIngressWorker.js"]
+
+  core-event-triggers:
+    <<: *core-service
+    command: ["node", "services/core/dist/eventTriggerWorker.js"]
+
+  core-materializer:
+    <<: *core-service
+    command: ["node", "services/core/dist/assetMaterializerWorker.js"]
+
+  core-examples:
+    <<: *core-service
+    command: ["node", "services/core/dist/exampleBundleWorker.js"]
+
+  core-module-services:
+    <<: *core-service
+    command: ["node", "services/core/dist/moduleServices/runner.js"]
+
+  metastore:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.services
+      target: metastore-runtime
+    image: apphub/metastore:e2e
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      <<: *shared-env
+      PORT: 4100
+    restart: unless-stopped
+    ports:
+      - "${APPHUB_E2E_METASTORE_PORT:-4410}:4100"
+    volumes: *runtime-volume
+
+  filestore:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.services
+      target: filestore-runtime
+    image: apphub/filestore:e2e
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    environment:
+      <<: *shared-env
+      PORT: 4300
+    restart: unless-stopped
+    ports:
+      - "${APPHUB_E2E_FILESTORE_PORT:-4430}:4300"
+    volumes: *runtime-volume
+
+  timestore:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.services
+      target: timestore-runtime
+    image: apphub/timestore:e2e
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    environment:
+      <<: *shared-env
+      PORT: 4200
+    restart: unless-stopped
+    ports:
+      - "${APPHUB_E2E_TIMESTORE_PORT:-4420}:4200"
+    volumes: *runtime-volume
+
+  timestore-ingest:
+    image: apphub/timestore:e2e
+    depends_on:
+      - timestore
+    environment:
+      <<: *shared-env
+    restart: unless-stopped
+    command: ["services/timestore/dist/workers/ingestionWorker.js"]
+    volumes: *runtime-volume
+
+  timestore-partition:
+    image: apphub/timestore:e2e
+    depends_on:
+      - timestore
+    environment:
+      <<: *shared-env
+    restart: unless-stopped
+    command: ["services/timestore/dist/workers/partitionBuildWorker.js"]
+    volumes: *runtime-volume
+
+volumes:
+  minio-data:
+    driver: local

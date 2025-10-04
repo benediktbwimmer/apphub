@@ -1,47 +1,25 @@
-import { createWorkflow, createWorkflowTrigger, type WorkflowDefinition } from '@apphub/module-sdk';
+import {
+  createWorkflow,
+  createWorkflowTrigger,
+  moduleSetting,
+  type WorkflowDefinition
+} from '@apphub/module-sdk';
 
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
 const definition: WorkflowDefinition = {
   slug: 'observatory-calibration-import',
   name: 'Observatory Calibration Import',
-  version: 1,
-  description:
-    'Validates uploaded calibration files, persists canonical records in the Metastore, and emits calibration updates for downstream workflows.',
+  version: 2,
+  description: 'Persist uploaded calibration files and enqueue downstream reprocessing plans.',
   parametersSchema: {
     type: 'object',
     properties: {
-      filestoreBaseUrl: { type: 'string', minLength: 1 },
-      filestoreBackendId: { type: ['integer', 'null'], minimum: 1 },
-      filestoreToken: { type: 'string' },
-      filestorePrincipal: { type: 'string' },
       calibrationPath: { type: 'string', minLength: 1 },
       calibrationNodeId: { type: 'number', minimum: 1 },
-      calibrationsPrefix: { type: 'string', minLength: 1 },
-      plansPrefix: { type: 'string', minLength: 1 },
-      coreBaseUrl: { type: 'string', minLength: 1 },
-      coreApiToken: { type: 'string' },
-      checksum: { type: 'string' },
-      metastoreBaseUrl: { type: 'string', minLength: 1 },
-      metastoreNamespace: { type: 'string', minLength: 1 },
-      metastoreAuthToken: { type: 'string' },
-      filestoreBackendKey: { type: 'string', minLength: 1 }
+      checksum: { type: 'string' }
     },
-    required: ['filestoreBaseUrl', 'calibrationPath', 'metastoreBaseUrl', 'filestoreBackendKey']
-  },
-  defaultParameters: {
-    filestoreBaseUrl: 'http://127.0.0.1:4300',
-    filestoreBackendId: 1,
-    filestoreToken: null,
-    filestorePrincipal: 'observatory-calibration-importer',
-    metastoreBaseUrl: 'http://127.0.0.1:4100',
-    metastoreNamespace: 'observatory.calibrations',
-    metastoreAuthToken: null,
-    calibrationsPrefix: 'datasets/observatory/calibrations',
-    plansPrefix: 'datasets/observatory/calibrations/plans',
-    coreBaseUrl: 'http://127.0.0.1:4000',
-    coreApiToken: null,
-    filestoreBackendKey: 'observatory-event-driven-s3'
+    required: ['calibrationPath']
   },
   steps: [
     {
@@ -50,73 +28,18 @@ const definition: WorkflowDefinition = {
       type: 'job',
       jobSlug: 'observatory-calibration-importer',
       parameters: {
-        filestoreBaseUrl: '{{ parameters.filestoreBaseUrl }}',
-        filestoreBackendId: '{{ parameters.filestoreBackendId }}',
-        filestoreToken: '{{ parameters.filestoreToken }}',
-        filestorePrincipal: '{{ parameters.filestorePrincipal }}',
         calibrationPath: '{{ parameters.calibrationPath }}',
         calibrationNodeId: '{{ parameters.calibrationNodeId }}',
-        calibrationsPrefix: '{{ parameters.calibrationsPrefix }}',
-        checksum: '{{ parameters.checksum }}',
-        metastoreBaseUrl: '{{ parameters.metastoreBaseUrl }}',
-        metastoreNamespace: '{{ parameters.metastoreNamespace }}',
-        metastoreAuthToken: '{{ parameters.metastoreAuthToken }}',
-        filestoreBackendKey: '{{ parameters.filestoreBackendKey }}'
+        checksum: '{{ parameters.checksum }}'
       },
-      storeResultAs: 'importResult',
-      produces: [
-        {
-          assetId: 'observatory.calibration.instrument',
-          schema: {
-            type: 'object',
-            properties: {
-              calibrationId: { type: 'string' },
-              instrumentId: { type: 'string' },
-              effectiveAt: { type: 'string', format: 'date-time' },
-              createdAt: { type: 'string', format: 'date-time' },
-              revision: { type: ['number', 'null'] },
-              offsets: { type: 'object' },
-              scales: { type: 'object' },
-              notes: { type: ['string', 'null'] },
-              metadata: { type: 'object' },
-              sourcePath: { type: 'string' },
-              sourceChecksum: { type: 'string' },
-              metastoreNamespace: { type: 'string' },
-              metastoreRecordKey: { type: 'string' },
-              metastoreVersion: { type: ['number', 'null'] }
-            },
-            required: [
-              'calibrationId',
-              'instrumentId',
-              'effectiveAt',
-              'createdAt',
-              'offsets',
-              'metadata',
-              'sourcePath',
-              'sourceChecksum',
-              'metastoreNamespace',
-              'metastoreRecordKey'
-            ]
-          }
-        }
-      ]
+      storeResultAs: 'importResult'
     },
     {
       id: 'plan-reprocessing',
-      name: 'Build calibration reprocess plan',
+      name: 'Plan calibration reprocessing',
       type: 'job',
       jobSlug: 'observatory-calibration-planner',
       parameters: {
-        filestoreBaseUrl: '{{ parameters.filestoreBaseUrl }}',
-        filestoreBackendId: '{{ parameters.filestoreBackendId }}',
-        filestoreToken: '{{ parameters.filestoreToken }}',
-        filestorePrincipal: 'observatory-calibration-planner',
-        plansPrefix: '{{ parameters.plansPrefix }}',
-        coreBaseUrl: '{{ parameters.coreBaseUrl }}',
-        coreApiToken: '{{ parameters.coreApiToken }}',
-        metastoreBaseUrl: '{{ parameters.metastoreBaseUrl }}',
-        metastoreNamespace: '{{ parameters.metastoreNamespace }}',
-        metastoreAuthToken: '{{ parameters.metastoreAuthToken }}',
         calibrations: [
           {
             calibrationId: '{{ steps.import-calibration.result.calibrationId }}',
@@ -124,87 +47,29 @@ const definition: WorkflowDefinition = {
             effectiveAt: '{{ steps.import-calibration.result.effectiveAt }}',
             metastoreVersion: '{{ steps.import-calibration.result.metastoreVersion }}'
           }
-        ],
-        downstreamWorkflows: [
-          { workflowSlug: 'observatory-minute-ingest' },
-          { workflowSlug: 'observatory-daily-publication' },
-          { workflowSlug: 'observatory-dashboard-aggregate' }
-        ],
-        filestoreBackendKey: '{{ parameters.filestoreBackendKey }}'
-      },
-      storeResultAs: 'planResult',
-      produces: [
-        {
-          assetId: 'observatory.reprocess.plan',
-          partitioning: { type: 'dynamic' },
-          schema: {
-            type: 'object',
-            additionalProperties: true
-          }
-        }
-      ]
+        ]
+      }
     }
   ]
 };
 
 const triggers = [
   createWorkflowTrigger({
-    name: 'Observatory calibration upload',
-    description:
-      'Import calibration records whenever a calibration file is added to the observatory calibrations prefix.',
+    name: 'Import calibrations on upload',
+    description: 'Import a calibration whenever a file is uploaded under the calibrations prefix.',
     eventType: 'filestore.command.completed',
     eventSource: 'filestore.service',
     predicates: [
       { path: '$.payload.command', operator: 'equals', value: 'uploadFile' },
-      {
-        path: '$.payload.backendMountId',
-        operator: 'equals',
-        value: '{{ trigger.metadata.filestore.backendMountId }}'
-      }
+      { path: '$.payload.backendMountId', operator: 'equals', value: moduleSetting('filestore.backendId') }
     ],
     parameterTemplate: {
-      filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
-      filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
-      filestoreToken: '{{ trigger.metadata.filestore.token }}',
-      filestorePrincipal: '{{ trigger.metadata.filestore.principal }}',
       calibrationPath: '{{ event.payload.path }}',
       calibrationNodeId: '{{ event.payload.node.id }}',
-      calibrationsPrefix: '{{ trigger.metadata.calibrations.prefix }}',
-      plansPrefix: '{{ trigger.metadata.calibrations.plansPrefix }}',
-      coreBaseUrl: '{{ trigger.metadata.core.baseUrl }}',
-      coreApiToken: '{{ trigger.metadata.core.apiToken }}',
-      checksum: '{{ event.payload.node.checksum }}',
-      metastoreBaseUrl: '{{ trigger.metadata.metastore.baseUrl }}',
-      metastoreNamespace: '{{ trigger.metadata.metastore.namespace }}',
-      metastoreAuthToken: '{{ trigger.metadata.metastore.authToken }}',
-      filestoreBackendKey: '{{ trigger.metadata.filestore.backendMountKey }}'
+      checksum: '{{ event.payload.node.checksum }}'
     },
     idempotencyKeyExpression:
-      "observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: '/', '_' }}",
-    runKeyTemplate:
-      "observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: '/', '-' }}",
-    metadata: {
-      filestore: {
-        baseUrl: '{{ defaultParameters.filestoreBaseUrl }}',
-        backendMountId: '{{ defaultParameters.filestoreBackendId }}',
-        token: '{{ defaultParameters.filestoreToken }}',
-        principal: '{{ defaultParameters.filestorePrincipal }}',
-        backendMountKey: '{{ defaultParameters.filestoreBackendKey }}'
-      },
-      metastore: {
-        baseUrl: '{{ defaultParameters.metastoreBaseUrl }}',
-        namespace: '{{ defaultParameters.metastoreNamespace }}',
-        authToken: '{{ defaultParameters.metastoreAuthToken }}'
-      },
-      calibrations: {
-        prefix: '{{ trigger.metadata.calibrations.prefix }}',
-        plansPrefix: '{{ trigger.metadata.calibrations.plansPrefix }}'
-      },
-      core: {
-        baseUrl: '{{ defaultParameters.coreBaseUrl }}',
-        apiToken: '{{ defaultParameters.coreApiToken }}'
-      }
-    }
+      "observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: '/', '_' }}"
   })
 ];
 

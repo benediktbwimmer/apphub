@@ -1,212 +1,43 @@
-import { createWorkflow, createWorkflowSchedule, type WorkflowDefinition } from '@apphub/module-sdk';
+import {
+  createWorkflow,
+  createWorkflowSchedule,
+  moduleSetting,
+  type WorkflowDefinition
+} from '@apphub/module-sdk';
 
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
 const definition: WorkflowDefinition = {
   slug: 'observatory-minute-data-generator',
   name: 'Observatory Minute Data Generator',
-  version: 2,
-  description:
-    'Uploads synthetic minute-level CSV drops to Filestore to simulate instrument readings arriving in the inbox.',
+  version: 3,
+  description: 'Upload synthetic observatory CSV drops to keep the ingest pipeline exercised.',
   parametersSchema: {
     type: 'object',
     properties: {
-      minute: {
-        type: 'string',
-        pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$'
-      },
-      rowsPerInstrument: {
-        type: 'number',
-        minimum: 1,
-        maximum: 360
-      },
-      intervalMinutes: {
-        type: 'number',
-        minimum: 1,
-        maximum: 120
-      },
-      instrumentCount: {
-        type: 'number',
-        minimum: 1,
-        maximum: 50
-      },
-      seed: {
-        type: 'number'
-      },
-      filestoreBaseUrl: {
-        type: 'string',
-        minLength: 1
-      },
-      filestoreBackendId: {
-        type: ['integer', 'null'],
-        minimum: 1
-      },
-      filestoreToken: {
-        type: 'string'
-      },
-      inboxPrefix: {
-        type: 'string',
-        minLength: 1
-      },
-      stagingPrefix: {
-        type: 'string',
-        minLength: 1
-      },
-      archivePrefix: {
-        type: 'string',
-        minLength: 1
-      },
-      filestorePrincipal: {
-        type: 'string'
-      },
-      filestoreBackendKey: {
-        type: 'string',
-        minLength: 1
-      }
+      minute: { type: 'string' }
     },
-    required: [
-      'minute',
-      'filestoreBaseUrl',
-      'inboxPrefix',
-      'stagingPrefix',
-      'archivePrefix',
-      'filestoreBackendKey'
-    ]
-  },
-  defaultParameters: {
-    seed: 1337,
-    rowsPerInstrument: 6,
-    intervalMinutes: 10,
-    instrumentCount: 3,
-    filestoreBaseUrl: 'http://127.0.0.1:4300',
-    filestoreBackendId: 1,
-    inboxPrefix: 'datasets/observatory/inbox',
-    stagingPrefix: 'datasets/observatory/staging',
-    archivePrefix: 'datasets/observatory/archive',
-    filestorePrincipal: 'observatory-data-generator',
-    filestoreToken: null,
-    metastoreBaseUrl: null,
-    metastoreNamespace: 'observatory.ingest',
-    metastoreAuthToken: null,
-    filestoreBackendKey: 'observatory-event-driven-s3'
+    required: []
   },
   steps: [
     {
-      id: 'generate-synthetic-drop',
-      name: 'Generate synthetic instrument readings',
+      id: 'generate-drop',
+      name: 'Generate synthetic drop',
       type: 'job',
-      jobSlug: 'observatory-data-generator',
-      parameters: {
-        minute: '{{ parameters.minute | default: run.trigger.schedule.occurrence | slice: 0, 16 }}',
-        rowsPerInstrument: '{{ parameters.rowsPerInstrument }}',
-        intervalMinutes: '{{ parameters.intervalMinutes }}',
-        instrumentCount: '{{ parameters.instrumentCount }}',
-        seed: '{{ parameters.seed | default: 1337 }}',
-        filestoreBaseUrl: '{{ parameters.filestoreBaseUrl }}',
-        filestoreBackendId: '{{ parameters.filestoreBackendId }}',
-        filestoreToken: '{{ parameters.filestoreToken }}',
-        inboxPrefix: '{{ parameters.inboxPrefix }}',
-        stagingPrefix: '{{ parameters.stagingPrefix }}',
-        archivePrefix: '{{ parameters.archivePrefix }}',
-        principal: '{{ parameters.filestorePrincipal }}',
-        metastoreBaseUrl: '{{ parameters.metastoreBaseUrl }}',
-        metastoreNamespace: '{{ parameters.metastoreNamespace }}',
-        metastoreAuthToken: '{{ parameters.metastoreAuthToken }}',
-        filestoreBackendKey: '{{ parameters.filestoreBackendKey }}'
-      },
-      storeResultAs: 'syntheticDrop',
-      produces: [
-        {
-          assetId: 'observatory.inbox.synthetic',
-          partitioning: {
-            type: 'timeWindow',
-            granularity: 'minute',
-            format: 'YYYY-MM-DDTHH:mm',
-            lookbackWindows: 1440
-          },
-          schema: {
-            type: 'object',
-            properties: {
-              generatedAt: {
-                type: 'string',
-                format: 'date-time'
-              },
-              partitionKey: {
-                type: 'string'
-              },
-              filestoreInboxPrefix: {
-                type: 'string'
-              },
-              filestoreBackendId: {
-                type: 'number'
-              },
-              rowsGenerated: {
-                type: 'number'
-              },
-              instrumentCount: {
-                type: 'number'
-              },
-              files: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    relativePath: {
-                      type: 'string'
-                    },
-                    filestorePath: {
-                      type: 'string'
-                    },
-                    instrumentId: {
-                      type: 'string'
-                    },
-                    site: {
-                      type: 'string'
-                    },
-                    rows: {
-                      type: 'number'
-                    }
-                  },
-                  required: ['relativePath', 'filestorePath', 'instrumentId', 'rows']
-                }
-              }
-            },
-            required: ['generatedAt', 'partitionKey', 'filestoreInboxPrefix', 'filestoreBackendId', 'rowsGenerated', 'instrumentCount', 'files']
-          }
-        }
-      ]
+      jobSlug: 'observatory-data-generator'
     }
   ]
 };
 
 const schedules = [
   createWorkflowSchedule({
-    name: 'Observatory minute data generator',
-    description:
-      'Emit synthetic instrument drops every minute so downstream ingest and visualization workflows stay in sync.',
+    name: 'Observatory synthetic drops',
+    description: 'Emit synthetic instrument data every minute to drive sample ingest runs.',
     cron: '*/1 * * * *',
     timezone: 'UTC',
     parameterTemplate: {
-      rowsPerInstrument: '{{ defaultParameters.rowsPerInstrument }}',
-      intervalMinutes: '{{ defaultParameters.intervalMinutes }}',
-      instrumentCount: '{{ defaultParameters.instrumentCount }}',
-      seed: '{{ defaultParameters.seed }}',
-      filestoreBaseUrl: '{{ defaultParameters.filestoreBaseUrl }}',
-      filestoreBackendId: '{{ defaultParameters.filestoreBackendId }}',
-      filestoreToken: '{{ defaultParameters.filestoreToken }}',
-      inboxPrefix: '{{ defaultParameters.inboxPrefix }}',
-      stagingPrefix: '{{ defaultParameters.stagingPrefix }}',
-      archivePrefix: '{{ defaultParameters.archivePrefix }}',
-      filestorePrincipal: '{{ defaultParameters.filestorePrincipal }}',
-      metastoreBaseUrl: '{{ defaultParameters.metastoreBaseUrl }}',
-      metastoreNamespace: '{{ defaultParameters.metastoreNamespace }}',
-      metastoreAuthToken: '{{ defaultParameters.metastoreAuthToken }}',
-      filestoreBackendKey: '{{ defaultParameters.filestoreBackendKey }}'
-    },
-    metadata: {
-      catchUp: false
-    },
-    enabled: true
+      minute: '{{ run.trigger.schedule.occurrence | slice: 0, 16 }}'
+    }
   })
 ];
 

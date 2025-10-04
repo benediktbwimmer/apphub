@@ -175,7 +175,7 @@ async function upsertModuleWorkflows(
 }
 
 const serviceStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
-const serviceRegistrationSourceSchema = z.enum(['external']);
+const serviceRegistrationSourceSchema = z.enum(['external', 'module']);
 const serviceSourceFilterSchema = z.enum(['module', 'external']);
 
 function jsonResponse(schemaName: string, description: string) {

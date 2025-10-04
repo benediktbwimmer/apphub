@@ -1,18 +1,59 @@
 import type { ModuleContext } from './context';
-import type { ModuleCapabilityOverrides } from './runtime/capabilities';
+import {
+  requireCapabilities,
+  type CapabilitiesWith,
+  type CapabilityKey,
+  type CapabilitySelector,
+  type ModuleCapabilityOverrides
+} from './runtime/capabilities';
 import type { ValueDescriptor } from './types';
 
 export type ModuleTargetKind = 'job' | 'service' | 'workflow';
 
-export interface ModuleTargetBase<TSettings, TSecrets> {
+const inheritSettingsSymbol = Symbol('module-target-settings-inherit');
+const inheritSecretsSymbol = Symbol('module-target-secrets-inherit');
+
+export const INHERIT_MODULE_SETTINGS = inheritSettingsSymbol;
+export const INHERIT_MODULE_SECRETS = inheritSecretsSymbol;
+
+export type InheritModuleSettings = typeof inheritSettingsSymbol;
+export type InheritModuleSecrets = typeof inheritSecretsSymbol;
+
+export function inheritModuleSettings(): InheritModuleSettings {
+  return inheritSettingsSymbol;
+}
+
+export function inheritModuleSecrets(): InheritModuleSecrets {
+  return inheritSecretsSymbol;
+}
+
+type SelectorBase<S extends CapabilitySelector> = S extends `${infer Base}.${string}`
+  ? Extract<Base, CapabilityKey>
+  : Extract<S, CapabilityKey>;
+
+type SelectorBaseUnion<T extends readonly CapabilitySelector[]> = SelectorBase<T[number]>;
+
+export interface ModuleTargetBase<
+  TSettings,
+  TSecrets,
+  TRequired extends readonly CapabilitySelector[] = readonly CapabilitySelector[]
+> {
   name: string;
   version?: string;
   displayName?: string;
   description?: string;
   capabilityOverrides?: ModuleCapabilityOverrides;
-  settings?: ValueDescriptor<TSettings>;
-  secrets?: ValueDescriptor<TSecrets>;
+  requires?: TRequired;
+  settings?: ValueDescriptor<TSettings> | InheritModuleSettings;
+  secrets?: ValueDescriptor<TSecrets> | InheritModuleSecrets;
 }
+
+type CapabilityContext<
+  TContext,
+  TRequired extends readonly CapabilitySelector[]
+> = TRequired extends []
+  ? TContext
+  : TContext & { capabilities: CapabilitiesWith<SelectorBaseUnion<TRequired>> };
 
 export interface JobContext<
   TSettings,
@@ -26,8 +67,14 @@ export interface JobContext<
   parameters: TParameters;
 }
 
-export type JobHandler<TSettings, TSecrets, TParameters, TResult> = (
-  context: JobContext<TSettings, TSecrets, TParameters>
+export type JobHandler<
+  TSettings,
+  TSecrets,
+  TParameters,
+  TResult,
+  TRequired extends readonly CapabilitySelector[] = []
+> = (
+  context: CapabilityContext<JobContext<TSettings, TSecrets, TParameters>, TRequired>
 ) => Promise<TResult> | TResult;
 
 export interface ServiceContext<TSettings, TSecrets> extends ModuleContext<TSettings, TSecrets> {
@@ -61,8 +108,13 @@ export interface ServiceRegistration {
   ui?: ServiceRegistrationUiHints;
 }
 
-export type ServiceHandler<TSettings, TSecrets, TService extends ServiceLifecycle> = (
-  context: ServiceContext<TSettings, TSecrets>
+export type ServiceHandler<
+  TSettings,
+  TSecrets,
+  TService extends ServiceLifecycle,
+  TRequired extends readonly CapabilitySelector[] = []
+> = (
+  context: CapabilityContext<ServiceContext<TSettings, TSecrets>, TRequired>
 ) => Promise<TService> | TService;
 
 export type WorkflowStepDefinition = Record<string, unknown>;
@@ -126,25 +178,27 @@ export interface JobTargetDefinition<
   TSettings,
   TSecrets,
   TParameters,
-  TResult
-> extends ModuleTargetBase<TSettings, TSecrets> {
+  TResult,
+  TRequired extends readonly CapabilitySelector[] = []
+> extends ModuleTargetBase<TSettings, TSecrets, TRequired> {
   kind: 'job';
   parameters?: ValueDescriptor<TParameters>;
-  handler: JobHandler<TSettings, TSecrets, TParameters, TResult>;
+  handler: JobHandler<TSettings, TSecrets, TParameters, TResult, TRequired>;
 }
 
 export interface ServiceTargetDefinition<
   TSettings,
   TSecrets,
-  TService extends ServiceLifecycle = ServiceLifecycle
-> extends ModuleTargetBase<TSettings, TSecrets> {
+  TService extends ServiceLifecycle = ServiceLifecycle,
+  TRequired extends readonly CapabilitySelector[] = []
+> extends ModuleTargetBase<TSettings, TSecrets, TRequired> {
   kind: 'service';
-  handler: ServiceHandler<TSettings, TSecrets, TService>;
+  handler: ServiceHandler<TSettings, TSecrets, TService, TRequired>;
   registration?: ServiceRegistration;
 }
 
 export interface WorkflowTargetDefinition<TSettings, TSecrets>
-  extends ModuleTargetBase<TSettings, TSecrets> {
+  extends ModuleTargetBase<TSettings, TSecrets, readonly CapabilitySelector[]> {
   kind: 'workflow';
   definition: WorkflowDefinition;
   triggers?: WorkflowTriggerDefinition[];
@@ -152,27 +206,33 @@ export interface WorkflowTargetDefinition<TSettings, TSecrets>
 }
 
 export type ModuleTargetDefinition<TSettings, TSecrets> =
-  | JobTargetDefinition<TSettings, TSecrets, any, unknown>
-  | ServiceTargetDefinition<TSettings, TSecrets>
+  | JobTargetDefinition<TSettings, TSecrets, any, unknown, readonly CapabilitySelector[]>
+  | ServiceTargetDefinition<TSettings, TSecrets, ServiceLifecycle, readonly CapabilitySelector[]>
   | WorkflowTargetDefinition<TSettings, TSecrets>;
 
 export interface CreateJobHandlerOptions<
   TSettings,
   TSecrets,
   TParameters,
-  TResult
-> extends ModuleTargetBase<TSettings, TSecrets> {
+  TResult,
+  TRequired extends readonly CapabilitySelector[] = []
+> extends ModuleTargetBase<TSettings, TSecrets, TRequired> {
   parameters?: ValueDescriptor<TParameters>;
-  handler: JobHandler<TSettings, TSecrets, TParameters, TResult>;
+  handler: JobHandler<TSettings, TSecrets, TParameters, TResult, TRequired>;
 }
 
-export interface CreateServiceOptions<TSettings, TSecrets, TService extends ServiceLifecycle>
-  extends ModuleTargetBase<TSettings, TSecrets> {
-  handler: ServiceHandler<TSettings, TSecrets, TService>;
+export interface CreateServiceOptions<
+  TSettings,
+  TSecrets,
+  TService extends ServiceLifecycle,
+  TRequired extends readonly CapabilitySelector[] = []
+> extends ModuleTargetBase<TSettings, TSecrets, TRequired> {
+  handler: ServiceHandler<TSettings, TSecrets, TService, TRequired>;
   registration?: ServiceRegistration;
 }
 
-export interface CreateWorkflowOptions<TSettings, TSecrets> extends ModuleTargetBase<TSettings, TSecrets> {
+export interface CreateWorkflowOptions<TSettings, TSecrets>
+  extends ModuleTargetBase<TSettings, TSecrets, readonly CapabilitySelector[]> {
   definition: WorkflowDefinition;
   triggers?: WorkflowTriggerDefinition[];
   schedules?: WorkflowScheduleDefinition[];
@@ -186,21 +246,35 @@ export function createJobHandler<
   TSettings = Record<string, unknown>,
   TSecrets = Record<string, unknown>,
   TResult = unknown,
-  TParameters = Record<string, unknown>
+  TParameters = Record<string, unknown>,
+  TRequired extends readonly CapabilitySelector[] = []
 >(
-  options: CreateJobHandlerOptions<TSettings, TSecrets, TParameters, TResult>
-): JobTargetDefinition<TSettings, TSecrets, TParameters, TResult> {
-  const definition: JobTargetDefinition<TSettings, TSecrets, TParameters, TResult> = {
+  options: CreateJobHandlerOptions<TSettings, TSecrets, TParameters, TResult, TRequired>
+): JobTargetDefinition<TSettings, TSecrets, TParameters, TResult, TRequired> {
+  const requires = options.requires ?? ([] as unknown as TRequired);
+  const normalizedRequires = requires.length
+    ? (Object.freeze([...new Set(requires)]) as TRequired)
+    : undefined;
+
+  const handler: JobHandler<TSettings, TSecrets, TParameters, TResult, TRequired> = async (context) => {
+    if (normalizedRequires && normalizedRequires.length > 0) {
+      requireCapabilities(context.capabilities, normalizedRequires, `job ${options.name}`);
+    }
+    return options.handler(context as CapabilityContext<JobContext<TSettings, TSecrets, TParameters>, TRequired>);
+  };
+
+  const definition: JobTargetDefinition<TSettings, TSecrets, TParameters, TResult, TRequired> = {
     kind: 'job',
     name: options.name,
     version: options.version,
     displayName: options.displayName,
     description: options.description,
     capabilityOverrides: options.capabilityOverrides,
+    requires: normalizedRequires,
     settings: options.settings,
     secrets: options.secrets,
     parameters: options.parameters,
-    handler: options.handler
+    handler
   };
   return definition;
 }
@@ -208,20 +282,34 @@ export function createJobHandler<
 export function createService<
   TSettings = Record<string, unknown>,
   TSecrets = Record<string, unknown>,
-  TService extends ServiceLifecycle = ServiceLifecycle
+  TService extends ServiceLifecycle = ServiceLifecycle,
+  TRequired extends readonly CapabilitySelector[] = []
 >(
-  options: CreateServiceOptions<TSettings, TSecrets, TService>
-): ServiceTargetDefinition<TSettings, TSecrets, TService> {
-  const definition: ServiceTargetDefinition<TSettings, TSecrets, TService> = {
+  options: CreateServiceOptions<TSettings, TSecrets, TService, TRequired>
+): ServiceTargetDefinition<TSettings, TSecrets, TService, TRequired> {
+  const requires = options.requires ?? ([] as unknown as TRequired);
+  const normalizedRequires = requires.length
+    ? (Object.freeze([...new Set(requires)]) as TRequired)
+    : undefined;
+
+  const handler: ServiceHandler<TSettings, TSecrets, TService, TRequired> = async (context) => {
+    if (normalizedRequires && normalizedRequires.length > 0) {
+      requireCapabilities(context.capabilities, normalizedRequires, `service ${options.name}`);
+    }
+    return options.handler(context as CapabilityContext<ServiceContext<TSettings, TSecrets>, TRequired>);
+  };
+
+  const definition: ServiceTargetDefinition<TSettings, TSecrets, TService, TRequired> = {
     kind: 'service',
     name: options.name,
     version: options.version,
     displayName: options.displayName,
     description: options.description,
     capabilityOverrides: options.capabilityOverrides,
+    requires: normalizedRequires,
     settings: options.settings,
     secrets: options.secrets,
-    handler: options.handler,
+    handler,
     registration: options.registration
   };
   return definition;
@@ -237,6 +325,7 @@ export function createWorkflow<TSettings = Record<string, unknown>, TSecrets = R
     displayName: options.displayName,
     description: options.description,
     capabilityOverrides: options.capabilityOverrides,
+    requires: options.requires,
     settings: options.settings,
     secrets: options.secrets,
     definition: options.definition,

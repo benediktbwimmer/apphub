@@ -2,10 +2,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   CapabilityRequestError,
-  createCoreWorkflowsCapability,
   createJobHandler,
   createMetastoreCapability,
+  inheritModuleSecrets,
+  inheritModuleSettings,
   type CoreWorkflowsCapability,
+  type FilestoreCapability,
   type FilestoreDownloadStream,
   type JobContext,
   type MetastoreCapability
@@ -30,11 +32,8 @@ import {
   type CalibrationReprocessPlan
 } from '../runtime/plans';
 import { enforceScratchOnlyWrites } from '../runtime/scratchGuard';
-import {
-  defaultObservatorySettings,
-  type ObservatoryModuleSecrets,
-  type ObservatoryModuleSettings
-} from '../runtime/settings';
+import { type ObservatoryModuleSecrets, type ObservatoryModuleSettings } from '../runtime/settings';
+import { selectCoreWorkflows, selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 enforceScratchOnlyWrites();
 
@@ -335,7 +334,7 @@ function queuePlanPersist(task: () => Promise<void>): Promise<void> {
 
 async function enqueuePlanPersistence(
   plan: CalibrationReprocessPlan,
-  filestore: NonNullable<CalibrationReprocessorContext['capabilities']['filestore']>,
+  filestore: FilestoreCapability,
   backendMountId: number,
   backendMountKey: string | null,
   planPath: string,
@@ -537,7 +536,7 @@ function selectPartitions(
 
 async function loadPlan(
   context: CalibrationReprocessorContext,
-  filestore: NonNullable<CalibrationReprocessorContext['capabilities']['filestore']>,
+  filestore: FilestoreCapability,
   backendMountId: number,
   planNodeId: number | null,
   planPath: string | null,
@@ -689,12 +688,13 @@ export const calibrationReprocessorJob = createJobHandler<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
   CalibrationReprocessorResult,
-  CalibrationReprocessorParameters
+  CalibrationReprocessorParameters,
+  ['filestore', 'coreWorkflows', 'metastore.calibrations']
 >({
   name: 'observatory-calibration-reprocessor',
-  settings: {
-    defaults: defaultObservatorySettings
-  },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
+  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(normalizeRawParameters(raw))
   },
@@ -703,22 +703,15 @@ export const calibrationReprocessorJob = createJobHandler<
   ): Promise<CalibrationReprocessorResult> => {
     planPersistChain = Promise.resolve();
 
-    const filestore = context.capabilities.filestore;
-    if (!filestore) {
+    const filestoreCapabilityCandidate = selectFilestore(context.capabilities);
+    if (!filestoreCapabilityCandidate) {
       throw new Error('Filestore capability is required for the calibration reprocessor job');
     }
+    const filestore: FilestoreCapability = filestoreCapabilityCandidate;
 
-    const coreBaseUrl = context.settings.core.baseUrl;
-    if (!coreBaseUrl) {
-      throw new Error('Core base URL is not configured');
-    }
-
-    let coreWorkflows = context.capabilities.coreWorkflows;
+    const coreWorkflows = selectCoreWorkflows(context.capabilities);
     if (!coreWorkflows) {
-      coreWorkflows = createCoreWorkflowsCapability({
-        baseUrl: coreBaseUrl,
-        token: () => context.secrets.coreApiToken ?? null
-      });
+      throw new Error('Core workflows capability is required for the calibration reprocessor job');
     }
 
     const ingestWorkflowSlug =
@@ -751,13 +744,14 @@ export const calibrationReprocessorJob = createJobHandler<
     const metastoreBaseUrlRaw = (context.parameters.metastoreBaseUrl ?? context.settings.metastore.baseUrl)?.trim() ?? '';
     const metastoreNamespace =
       context.parameters.metastoreNamespace ?? context.settings.reprocess.metastoreNamespace;
+    const fallbackMetastore = selectMetastore(context.capabilities, 'calibrations');
     const metastoreCapability = metastoreBaseUrlRaw
       ? createMetastoreCapability({
           baseUrl: metastoreBaseUrlRaw,
           namespace: metastoreNamespace,
           token: () => context.secrets.metastoreToken ?? null
         })
-      : null;
+      : fallbackMetastore ?? null;
 
     const planPathRaw = context.parameters.planPath ?? null;
     const planNodeIdParam = context.parameters.planNodeId ?? null;

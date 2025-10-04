@@ -8,7 +8,7 @@ async function run() {
 
   try {
     const preview = await previewServiceConfigImport({
-      path: 'modules/environmental-observatory/resources',
+      path: 'examples/environmental-observatory',
       module: 'environmental-observatory'
     });
 

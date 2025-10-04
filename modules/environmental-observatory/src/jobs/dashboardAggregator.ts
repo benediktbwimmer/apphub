@@ -1,6 +1,13 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
-import { createJobHandler, type JobContext } from '@apphub/module-sdk';
+import {
+  createJobHandler,
+  inheritModuleSettings,
+  inheritModuleSecrets,
+  sanitizeIdentifier,
+  type FilestoreCapability,
+  type JobContext
+} from '@apphub/module-sdk';
 import {
   ensureFilestoreHierarchy,
   ensureResolvedBackendId,
@@ -8,7 +15,10 @@ import {
   DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
 } from '../runtime/filestore';
 import { createObservatoryEventPublisher } from '../runtime/events';
-import { defaultObservatorySettings, type ObservatoryModuleSecrets, type ObservatoryModuleSettings } from '../runtime/settings';
+import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
+import { selectEventBus, selectFilestore, selectTimestore } from '../runtime/capabilities';
+
+type SelectedTimestore = NonNullable<ReturnType<typeof selectTimestore>>;
 
 const MAX_ROWS = 10_000;
 const DATASET_READY_MAX_ATTEMPTS = 24;
@@ -452,9 +462,9 @@ function buildDashboardHtml(data: Record<string, unknown>): string {
 
 async function waitForDatasetReady(
   context: DashboardAggregatorContext,
+  timestore: SelectedTimestore,
   datasetSlug: string
 ): Promise<boolean> {
-  const timestore = context.capabilities.timestore!;
   for (let attempt = 0; attempt < DATASET_READY_MAX_ATTEMPTS; attempt += 1) {
     const dataset = await timestore.getDataset({ datasetSlug, principal: context.settings.principals.dashboardAggregator });
     if (dataset) {
@@ -503,23 +513,26 @@ export const dashboardAggregatorJob = createJobHandler<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
   DashboardAggregatorResult,
-  DashboardAggregatorParameters
+  DashboardAggregatorParameters,
+  ['filestore', 'timestore', 'events.default']
 >({
   name: 'observatory-dashboard-aggregator',
-  settings: {
-    defaults: defaultObservatorySettings
-  },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
+  requires: ['filestore', 'timestore', 'events.default'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
   handler: async (context: DashboardAggregatorContext): Promise<DashboardAggregatorResult> => {
-    const filestore = context.capabilities.filestore;
-    const timestore = context.capabilities.timestore;
-    if (!filestore) {
-      throw new Error('Filestore capability is required for the dashboard aggregator job');
+    const filestoreCapabilityCandidate = selectFilestore(context.capabilities);
+    if (!filestoreCapabilityCandidate) {
+      throw new Error('Filestore capability is required for dashboard aggregation');
     }
+    const filestore: FilestoreCapability = filestoreCapabilityCandidate;
+
+    const timestore = selectTimestore(context.capabilities);
     if (!timestore) {
-      throw new Error('Timestore capability is required for the dashboard aggregator job');
+      throw new Error('Timestore capability is required for dashboard aggregation');
     }
 
     const principal = context.settings.principals.dashboardAggregator?.trim() || undefined;
@@ -539,7 +552,7 @@ export const dashboardAggregatorJob = createJobHandler<
     const timeWindow = resolveTimeWindow(partitionKey, lookbackMinutes);
     const generatedAt = new Date().toISOString();
 
-    const datasetReady = await waitForDatasetReady(context, datasetSlug);
+    const datasetReady = await waitForDatasetReady(context, timestore, datasetSlug);
     if (!datasetReady) {
       throw new Error(
         `Timestore dataset ${datasetSlug} not ready after waiting ${
@@ -563,7 +576,7 @@ export const dashboardAggregatorJob = createJobHandler<
       ],
       limit: MAX_ROWS,
       principal
-    });
+    }) as { rows?: Array<Record<string, unknown>> };
 
     const rows = normalizeRows(queryResult.rows ?? []);
     context.logger.info('Aggregated timestore rows for dashboard', {
@@ -594,7 +607,7 @@ export const dashboardAggregatorJob = createJobHandler<
     const dashboardJsonPath = `${normalizedOverviewPrefix}/dashboard.json`;
     const dashboardHtmlPath = `${normalizedOverviewPrefix}/index.html`;
 
-    const idempotencySuffix = partitionKey.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const idempotencySuffix = sanitizeIdentifier(partitionKey) || 'partition';
 
     const [dataNode, htmlNode] = await Promise.all([
       uploadTextFile({
@@ -629,7 +642,12 @@ export const dashboardAggregatorJob = createJobHandler<
       })
     ]);
 
-    const publisher = createObservatoryEventPublisher({ capability: context.capabilities.events, source: context.settings.events.source });
+    const eventsCapability = selectEventBus(context.capabilities, 'default');
+    if (!eventsCapability) {
+      throw new Error('Event bus capability is required for dashboard aggregation');
+    }
+
+    const publisher = createObservatoryEventPublisher({ capability: eventsCapability, source: context.settings.events.source });
     try {
       await publisher.publish({
         type: 'observatory.dashboard.updated',

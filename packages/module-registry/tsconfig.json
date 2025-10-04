@@ -17,9 +17,6 @@
   "references": [
     {
       "path": "../module-sdk"
-    },
-    {
-      "path": "../observatory-support"
     }
   ]
 }

@@ -4,11 +4,13 @@ import { z } from 'zod';
 import {
   CapabilityRequestError,
   createJobHandler,
-  createMetastoreCapability,
-  type JobContext,
-  type MetastoreCapability,
-  type MetastoreCapabilityConfig
+  inheritModuleSettings,
+  inheritModuleSecrets,
+  sanitizeIdentifier,
+  toTemporalKey,
+  type JobContext
 } from '@apphub/module-sdk';
+import type { FilestoreCapability, MetastoreCapability } from '@apphub/module-sdk';
 import {
   DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY,
   ensureFilestoreHierarchy,
@@ -27,11 +29,8 @@ import {
   createObservatoryEventPublisher,
   toJsonRecord
 } from '../runtime/events';
-import {
-  defaultObservatorySettings,
-  type ObservatoryModuleSecrets,
-  type ObservatoryModuleSettings
-} from '../runtime/settings';
+import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
+import { selectEventBus, selectFilestore, selectMetastore } from '../runtime/capabilities';
 
 enforceScratchOnlyWrites();
 
@@ -109,11 +108,7 @@ function normalizePrefix(prefix: string): string {
 }
 
 function sanitizeRecordKey(value: string): string {
-  return value
-    .trim()
-    .replace(/[^0-9A-Za-z._/-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '');
+  return sanitizeIdentifier(value, { allow: /[0-9A-Za-z._/\-]/ });
 }
 
 function deriveMinuteSuffixes(minute: string): string[] {
@@ -136,7 +131,7 @@ function nodeMatchesMinute(
   suffixes: string[]
 ): boolean {
   const filename = path.split('/').pop() ?? '';
-  const normalizedMinute = minute.replace(/:/g, '-');
+  const normalizedMinute = toTemporalKey(minute);
   const minuteCandidates = new Set<string>();
   if (metadata) {
     const raw = metadata.minute ?? metadata.minuteKey ?? metadata.minute_key ?? metadata.minuteIso ?? metadata.minute_iso;
@@ -346,11 +341,14 @@ function maybeWarnCalibration(
 }
 
 async function upsertIngestionRecord(
-  capability: MetastoreCapability,
+  capability: MetastoreCapability | undefined,
   key: string,
   metadata: Record<string, unknown>,
   principal?: string
 ): Promise<void> {
+  if (!capability) {
+    return;
+  }
   const sanitized = sanitizeRecordKey(key);
   if (!sanitized) {
     return;
@@ -382,8 +380,8 @@ function normalizeArchivePath(
   filename: string
 ): string {
   const normalizedPrefix = normalizePrefix(archivePrefix);
-  const sanitizedInstrument = instrumentId?.trim().replace(/[^0-9A-Za-z._-]+/g, '-') || 'unknown';
-  const minuteKey = minute.replace(/:/g, '-');
+  const sanitizedInstrument = sanitizeIdentifier(instrumentId?.trim() ?? 'unknown');
+  const minuteKey = toTemporalKey(minute);
   return `${normalizedPrefix}/${sanitizedInstrument}/${minuteKey}/${filename}`;
 }
 
@@ -391,37 +389,27 @@ function buildChecksum(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
-function createMetastore(config: MetastoreCapabilityConfig, token?: string | null): MetastoreCapability {
-  return createMetastoreCapability({
-    ...config,
-    token: token ? () => token : undefined
-  });
-}
-
 export const inboxNormalizerJob = createJobHandler<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
   InboxNormalizerJobResult,
-  InboxNormalizerParameters
+  InboxNormalizerParameters,
+  ['filestore', 'events.default', 'metastore.reports']
 >({
   name: 'observatory-inbox-normalizer',
-  settings: {
-    defaults: defaultObservatorySettings
-  },
+  settings: inheritModuleSettings(),
+  secrets: inheritModuleSecrets(),
+  requires: ['filestore', 'events.default', 'metastore.reports'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
   handler: async (context: InboxNormalizerContext): Promise<InboxNormalizerJobResult> => {
-    const filestoreCapability = context.capabilities.filestore;
-    if (!filestoreCapability) {
+    const filestoreCapabilityCandidate = selectFilestore(context.capabilities);
+    if (!filestoreCapabilityCandidate) {
       throw new Error('Filestore capability is required for the inbox normalizer job');
     }
-    const filestore = filestoreCapability;
-
-    const eventsCapability = context.capabilities.events;
-    if (!eventsCapability) {
-      throw new Error('Event bus capability is required for the inbox normalizer job');
-    }
+    const filestore: FilestoreCapability = filestoreCapabilityCandidate;
+    const eventsCapability = selectEventBus(context.capabilities, 'default');
 
     const minute = context.parameters.minute.trim();
     if (!minute) {
@@ -461,7 +449,7 @@ export const inboxNormalizerJob = createJobHandler<
           minute,
           backendMountId,
           stagingPrefix,
-          stagingMinutePrefix: `${stagingPrefix}/${minute.replace(/:/g, '-')}`,
+          stagingMinutePrefix: `${stagingPrefix}/${toTemporalKey(minute)}`,
           files: [],
           instrumentCount: 0,
           recordCount: 0,
@@ -472,23 +460,8 @@ export const inboxNormalizerJob = createJobHandler<
       } satisfies InboxNormalizerJobResult;
     }
 
-    const ingestMetastore = createMetastore(
-      {
-        baseUrl: context.settings.metastore.baseUrl,
-        namespace: context.settings.ingest.metastoreNamespace
-      },
-      context.secrets.metastoreToken ?? null
-    );
-
-    const calibrationMetastore = context.settings.calibrations.baseUrl
-      ? createMetastore(
-          {
-            baseUrl: context.settings.calibrations.baseUrl,
-            namespace: context.settings.calibrations.namespace
-          },
-          context.secrets.calibrationsToken ?? context.secrets.metastoreToken ?? null
-        )
-      : null;
+    const ingestMetastore = selectMetastore(context.capabilities, 'reports');
+    const calibrationMetastore = selectMetastore(context.capabilities, 'calibrations');
 
     const calibrationConfig = calibrationMetastore
       ? ({
@@ -565,7 +538,7 @@ export const inboxNormalizerJob = createJobHandler<
           minute,
           backendMountId,
           stagingPrefix,
-          stagingMinutePrefix: `${stagingPrefix}/${minute.replace(/:/g, '-')}`,
+          stagingMinutePrefix: `${stagingPrefix}/${toTemporalKey(minute)}`,
           files: [],
           instrumentCount: 0,
           recordCount: 0,
@@ -576,7 +549,7 @@ export const inboxNormalizerJob = createJobHandler<
       } satisfies InboxNormalizerJobResult;
     }
 
-    const stagingMinutePrefix = `${stagingPrefix}/${minute.replace(/:/g, '-')}`;
+    const stagingMinutePrefix = `${stagingPrefix}/${toTemporalKey(minute)}`;
     await ensureFilestoreHierarchy(filestore, backendMountId, stagingMinutePrefix, normalizedPrincipal);
 
     const observedFiles: InboxNormalizerFile[] = [];
