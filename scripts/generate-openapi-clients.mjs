@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 import { access, mkdir, readFile, rm } from 'node:fs/promises';
 import { generate, HttpClient, Indent } from 'openapi-typescript-codegen';
 
@@ -7,10 +8,34 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 
 const services = [
-  { name: 'core', spec: 'services/core/openapi.json', output: 'packages/shared/src/api/core', clientName: 'CoreClient' },
-  { name: 'metastore', spec: 'services/metastore/openapi.json', output: 'packages/shared/src/api/metastore', clientName: 'MetastoreClient' },
-  { name: 'filestore', spec: 'services/filestore/openapi.json', output: 'packages/shared/src/api/filestore', clientName: 'FilestoreClient' },
-  { name: 'timestore', spec: 'services/timestore/openapi.json', output: 'packages/shared/src/api/timestore', clientName: 'TimestoreClient' }
+  {
+    name: 'core',
+    workspace: '@apphub/core',
+    spec: 'services/core/openapi.json',
+    output: 'packages/shared/src/api/core',
+    clientName: 'CoreClient'
+  },
+  {
+    name: 'metastore',
+    workspace: '@apphub/metastore',
+    spec: 'services/metastore/openapi.json',
+    output: 'packages/shared/src/api/metastore',
+    clientName: 'MetastoreClient'
+  },
+  {
+    name: 'filestore',
+    workspace: '@apphub/filestore',
+    spec: 'services/filestore/openapi.json',
+    output: 'packages/shared/src/api/filestore',
+    clientName: 'FilestoreClient'
+  },
+  {
+    name: 'timestore',
+    workspace: '@apphub/timestore',
+    spec: 'services/timestore/openapi.json',
+    output: 'packages/shared/src/api/timestore',
+    clientName: 'TimestoreClient'
+  }
 ];
 
 async function ensureSpecExists(specPath, serviceName) {
@@ -86,9 +111,18 @@ async function loadSpec(name, specPath) {
   return document;
 }
 
-async function generateClient({ name, spec, output, clientName }) {
+async function generateClient({ name, workspace, spec, output, clientName }) {
   const inputPath = path.resolve(rootDir, spec);
   const outputPath = path.resolve(rootDir, output);
+
+  if (workspace) {
+    // eslint-disable-next-line no-console
+    console.log(`Generating OpenAPI schema for ${workspace}...`);
+    execSync('npm run build:openapi --workspace ' + workspace, {
+      cwd: rootDir,
+      stdio: 'inherit'
+    });
+  }
 
   await ensureSpecExists(inputPath, name);
 

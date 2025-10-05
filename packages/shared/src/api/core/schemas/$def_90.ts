@@ -4,30 +4,25 @@
 /* eslint-disable */
 export const $def_90 = {
   properties: {
-    error: {
-      type: 'any-of',
-      contains: [{
-        type: 'any-of',
-        description: `Arbitrary JSON value.`,
-        contains: [{
-          type: 'string',
-        }, {
-          type: 'number',
-        }, {
-          type: 'number',
-        }, {
-          type: 'boolean',
-        }, {
-          type: 'dictionary',
-          contains: {
-            properties: {
-            },
-          },
-        }],
-      }, {
-        type: 'null',
-      }],
+    configured: {
+      type: 'boolean',
       isRequired: true,
+    },
+    reachable: {
+      type: 'boolean',
+      isRequired: true,
+      isNullable: true,
+    },
+    lastCheckedAt: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
+      format: 'date-time',
+    },
+    error: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
     },
   },
 } as const;

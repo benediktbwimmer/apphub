@@ -2,25 +2,60 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_0 } from './def_0';
 export type def_17 = {
-  id: string;
-  datasetId: string;
-  manifestId: string;
-  manifestShard?: string;
-  partitionKey: Record<string, def_0>;
-  storageTargetId: string;
-  fileFormat: 'duckdb' | 'parquet';
-  filePath: string;
-  fileSizeBytes?: number | null;
-  rowCount?: number | null;
-  startTime: string;
-  endTime: string;
-  checksum?: string | null;
-  metadata: Record<string, def_0>;
-  columnStatistics: Record<string, def_0>;
-  columnBloomFilters: Record<string, def_0>;
-  ingestionSignature?: string | null;
-  createdAt: string;
+  /**
+   * Display name to assign if the dataset is created automatically.
+   */
+  datasetName?: string | null;
+  /**
+   * Explicit storage target identifier. Defaults to the dataset's configured target.
+   */
+  storageTargetId?: string | null;
+  /**
+   * Physical table name override for the dataset backend.
+   */
+  tableName?: string | null;
+  schema: {
+    /**
+     * Field definitions describing the expected columns.
+     */
+    fields: Array<{
+      /**
+       * Logical column name defined by the dataset schema.
+       */
+      name: string;
+      /**
+       * Logical field type used to validate incoming rows.
+       */
+      type: 'timestamp' | 'string' | 'double' | 'integer' | 'boolean';
+    }>;
+    evolution?: {
+      defaults?: any | null;
+      backfill?: boolean | null;
+    };
+  };
+  partition: {
+    /**
+     * Partition key identifying the shard the data belongs to.
+     */
+    key: Record<string, string>;
+    /**
+     * Optional attributes describing the partition.
+     */
+    attributes?: any | null;
+    timeRange: {
+      start: string;
+      end: string;
+    };
+  };
+  /**
+   * Collection of rows that should be appended to the partition.
+   */
+  rows: Array<Record<string, ((string | number | boolean | Record<string, any>) | null)>>;
+  /**
+   * Client supplied token to deduplicate ingestion attempts.
+   */
+  idempotencyKey?: string | null;
+  actor?: any | null;
 };
 

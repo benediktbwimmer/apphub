@@ -2,11 +2,17 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { def_0 } from './def_0';
 export type def_19 = {
-  mode: 'queued';
-  /**
-   * Identifier of the enqueued ingestion job.
-   */
-  jobId: string;
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  status: 'active' | 'inactive';
+  writeFormat: 'duckdb' | 'parquet';
+  defaultStorageTargetId: string | null;
+  metadata: Record<string, def_0>;
+  createdAt: string;
+  updatedAt: string;
 };
 

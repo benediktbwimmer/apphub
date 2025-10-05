@@ -2,14 +2,14 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_0 } from './def_0';
 export type def_14 = {
-  id: string;
+  /**
+   * Logical column name defined by the dataset schema.
+   */
   name: string;
-  kind: 'local' | 's3' | 'gcs' | 'azure_blob';
-  description?: string | null;
-  config: Record<string, def_0>;
-  createdAt: string;
-  updatedAt: string;
+  /**
+   * Logical field type used to validate incoming rows.
+   */
+  type: 'timestamp' | 'string' | 'double' | 'integer' | 'boolean';
 };
 

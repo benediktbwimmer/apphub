@@ -1166,6 +1166,7 @@ export type WorkflowAssetFreshness = {
 };
 
 export type WorkflowAssetAutoMaterialize = {
+  enabled?: boolean | null;
   onUpstreamUpdate?: boolean | null;
   priority?: number | null;
   parameterDefaults?: JsonValue | null;

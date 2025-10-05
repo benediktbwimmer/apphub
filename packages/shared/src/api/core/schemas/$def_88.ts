@@ -4,40 +4,16 @@
 /* eslint-disable */
 export const $def_88 = {
   properties: {
-    status: {
-      type: 'Enum',
+    hits: {
+      type: 'number',
       isRequired: true,
     },
-    warnings: {
-      type: 'array',
-      contains: {
-        type: 'string',
-      },
+    misses: {
+      type: 'number',
+      isRequired: true,
     },
-    features: {
-      properties: {
-        streaming: {
-          properties: {
-            enabled: {
-              type: 'boolean',
-              isRequired: true,
-            },
-            state: {
-              type: 'Enum',
-              isRequired: true,
-            },
-            reason: {
-              type: 'string',
-              isNullable: true,
-            },
-            brokerConfigured: {
-              type: 'boolean',
-              isRequired: true,
-            },
-          },
-          isRequired: true,
-        },
-      },
+    invalidations: {
+      type: 'number',
       isRequired: true,
     },
   },

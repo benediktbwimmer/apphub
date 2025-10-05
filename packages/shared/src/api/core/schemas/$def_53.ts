@@ -4,167 +4,28 @@
 /* eslint-disable */
 export const $def_53 = {
   properties: {
-    id: {
-      type: 'string',
-      isRequired: true,
-    },
-    bundleId: {
-      type: 'string',
-      isRequired: true,
-    },
-    slug: {
-      type: 'string',
-      isRequired: true,
-    },
-    version: {
-      type: 'string',
-      isRequired: true,
-    },
-    checksum: {
-      type: 'string',
-      description: `SHA-256 checksum of the stored artifact.`,
-      isRequired: true,
-    },
-    capabilityFlags: {
-      type: 'array',
-      contains: {
-        type: 'string',
-      },
-      isRequired: true,
-    },
-    immutable: {
-      type: 'boolean',
-      description: `Indicates whether further edits to this version are allowed.`,
-      isRequired: true,
-    },
-    status: {
-      type: 'string',
-      description: `Lifecycle status of the bundle version.`,
-      isRequired: true,
-    },
-    artifact: {
+    data: {
       properties: {
-        storage: {
-          type: 'string',
-          description: `Where the bundle artifact is stored.`,
+        parametersSchema: {
+          type: 'def_0',
           isRequired: true,
         },
-        contentType: {
-          type: 'string',
-          description: `MIME type reported for the bundle artifact.`,
+        outputSchema: {
+          type: 'def_0',
           isRequired: true,
         },
-        size: {
-          type: 'number',
-          description: `Size of the bundle artifact in bytes.`,
+        parametersSource: {
+          type: 'string',
           isRequired: true,
+          isNullable: true,
         },
-      },
-      isRequired: true,
-    },
-    manifest: {
-      type: 'any-of',
-      contains: [{
-        type: 'any-of',
-        description: `Arbitrary JSON value.`,
-        contains: [{
-          type: 'string',
-        }, {
-          type: 'number',
-        }, {
-          type: 'number',
-        }, {
-          type: 'boolean',
-        }, {
-          type: 'dictionary',
-          contains: {
-            properties: {
-            },
-          },
-        }],
-      }, {
-        type: 'null',
-      }],
-    },
-    metadata: {
-      type: 'any-of',
-      contains: [{
-        type: 'any-of',
-        description: `Arbitrary JSON value.`,
-        contains: [{
-          type: 'string',
-        }, {
-          type: 'number',
-        }, {
-          type: 'number',
-        }, {
-          type: 'boolean',
-        }, {
-          type: 'dictionary',
-          contains: {
-            properties: {
-            },
-          },
-        }],
-      }, {
-        type: 'null',
-      }],
-      isRequired: true,
-    },
-    publishedBy: {
-      type: 'any',
-      isNullable: true,
-    },
-    publishedAt: {
-      type: 'string',
-      isNullable: true,
-      format: 'date-time',
-    },
-    deprecatedAt: {
-      type: 'string',
-      isNullable: true,
-      format: 'date-time',
-    },
-    replacedAt: {
-      type: 'string',
-      isNullable: true,
-      format: 'date-time',
-    },
-    replacedBy: {
-      type: 'string',
-      isNullable: true,
-    },
-    createdAt: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
-    },
-    updatedAt: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
-    },
-    download: {
-      properties: {
-        url: {
+        outputSource: {
           type: 'string',
           isRequired: true,
-          format: 'uri',
-        },
-        expiresAt: {
-          type: 'string',
-          isRequired: true,
-          format: 'date-time',
-        },
-        storage: {
-          type: 'string',
-          isRequired: true,
-        },
-        kind: {
-          type: 'string',
-          isRequired: true,
+          isNullable: true,
         },
       },
+      isRequired: true,
     },
   },
 } as const;

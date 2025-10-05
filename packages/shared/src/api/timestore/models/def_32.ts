@@ -3,14 +3,17 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_32 = {
-  name: string;
-  description?: string | null;
-  partitionKeys?: any[] | null;
-  columns: Array<{
-    name: string;
-    type: string;
-    nullable?: boolean | null;
-    description?: string | null;
-  }>;
+  timeRange: {
+    start: string;
+    end: string;
+  };
+  /**
+   * Logical timestamp column to use for range filtering.
+   */
+  timestampColumn?: string;
+  columns?: any[] | null;
+  filters?: any | null;
+  downsample?: any | null;
+  limit?: number | null;
 };
 

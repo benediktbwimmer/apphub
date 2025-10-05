@@ -2,10 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_39 } from './def_39';
+import type { def_41 } from './def_41';
 export type BundleEditorResponse = {
   data: {
-    job: def_39;
+    job: def_41;
     binding: {
       /**
        * Slug of the bundle bound to the job.

@@ -14258,6 +14258,9 @@
                     "autoMaterialize": {
                       "type": "object",
                       "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
                         "onUpstreamUpdate": {
                           "type": "boolean"
                         },
@@ -15629,6 +15632,9 @@
                         "autoMaterialize": {
                           "type": "object",
                           "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
                             "onUpstreamUpdate": {
                               "type": "boolean"
                             },
@@ -33236,6 +33242,9 @@
                         "null"
                       ],
                       "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
                         "onUpstreamUpdate": {
                           "type": "boolean"
                         },
@@ -34832,6 +34841,9 @@
                             "object"
                           ],
                           "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
                             "onUpstreamUpdate": {
                               "type": "boolean"
                             },
@@ -39278,6 +39290,33 @@
             },
             "in": "path",
             "name": "slug",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/workflows/{slug}/assets/{assetId}/auto-materialize": {
+      "patch": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "slug",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "assetId",
             "required": true
           }
         ],

@@ -2,31 +2,31 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_40 } from '../models/def_40';
-import type { def_41 } from '../models/def_41';
 import type { def_42 } from '../models/def_42';
 import type { def_43 } from '../models/def_43';
 import type { def_44 } from '../models/def_44';
+import type { def_45 } from '../models/def_45';
 import type { def_46 } from '../models/def_46';
-import type { def_47 } from '../models/def_47';
+import type { def_48 } from '../models/def_48';
 import type { def_49 } from '../models/def_49';
 import type { def_51 } from '../models/def_51';
-import type { def_54 } from '../models/def_54';
-import type { def_55 } from '../models/def_55';
+import type { def_53 } from '../models/def_53';
 import type { def_56 } from '../models/def_56';
 import type { def_57 } from '../models/def_57';
-import type { def_74 } from '../models/def_74';
-import type { def_75 } from '../models/def_75';
+import type { def_58 } from '../models/def_58';
+import type { def_59 } from '../models/def_59';
+import type { def_76 } from '../models/def_76';
+import type { def_77 } from '../models/def_77';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class JobsService {
   constructor(public readonly httpRequest: BaseHttpRequest) {}
   /**
    * List job definitions
-   * @returns def_43 Job definitions currently available to run.
+   * @returns def_45 Job definitions currently available to run.
    * @throws ApiError
    */
-  public getJobs(): CancelablePromise<def_43> {
+  public getJobs(): CancelablePromise<def_45> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/jobs',
@@ -35,14 +35,14 @@ export class JobsService {
   /**
    * Create a job definition
    * Creates a new job definition. Only callers with the jobs:write scope may invoke this endpoint.
-   * @returns def_42 The job definition was created successfully.
+   * @returns def_44 The job definition was created successfully.
    * @throws ApiError
    */
   public postJobs({
     requestBody,
   }: {
-    requestBody?: def_40,
-  }): CancelablePromise<def_42> {
+    requestBody?: def_42,
+  }): CancelablePromise<def_44> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/jobs',
@@ -60,10 +60,10 @@ export class JobsService {
   /**
    * List runtime readiness
    * Reports whether each job runtime (node, python, docker) is ready to execute jobs.
-   * @returns def_49 Runtime readiness diagnostics.
+   * @returns def_51 Runtime readiness diagnostics.
    * @throws ApiError
    */
-  public getJobsRuntimes(): CancelablePromise<def_49> {
+  public getJobsRuntimes(): CancelablePromise<def_51> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/jobs/runtimes',
@@ -74,7 +74,7 @@ export class JobsService {
   }
   /**
    * List job runs
-   * @returns def_46 Job runs matching the requested filters.
+   * @returns def_48 Job runs matching the requested filters.
    * @throws ApiError
    */
   public getJobRuns({
@@ -96,11 +96,11 @@ export class JobsService {
      */
     job?: string,
     /**
-     * Comma-separated list of runtimes to filter (node,python,docker).
+     * Comma-separated list of runtimes to filter (node,python,docker,module).
      */
     runtime?: string,
     search?: string,
-  }): CancelablePromise<def_46> {
+  }): CancelablePromise<def_48> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/job-runs',
@@ -122,7 +122,7 @@ export class JobsService {
   /**
    * Update a job definition
    * Updates an existing job definition. Requires jobs:write scope.
-   * @returns def_42 Job definition updated successfully.
+   * @returns def_44 Job definition updated successfully.
    * @throws ApiError
    */
   public patchJobs({
@@ -133,8 +133,8 @@ export class JobsService {
      * Job definition slug.
      */
     slug: string,
-    requestBody?: def_41,
-  }): CancelablePromise<def_42> {
+    requestBody?: def_43,
+  }): CancelablePromise<def_44> {
     return this.httpRequest.request({
       method: 'PATCH',
       url: '/jobs/{slug}',
@@ -155,7 +155,7 @@ export class JobsService {
   }
   /**
    * Get job definition with recent runs
-   * @returns def_47 Job definition and recent runs.
+   * @returns def_49 Job definition and recent runs.
    * @throws ApiError
    */
   public getJobs1({
@@ -182,11 +182,11 @@ export class JobsService {
      */
     job?: string,
     /**
-     * Comma-separated list of runtimes to filter (node,python,docker).
+     * Comma-separated list of runtimes to filter (node,python,docker,module).
      */
     runtime?: string,
     search?: string,
-  }): CancelablePromise<def_47> {
+  }): CancelablePromise<def_49> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/jobs/{slug}',
@@ -211,7 +211,7 @@ export class JobsService {
   /**
    * Preview job entry point schemas
    * Introspects a bundle entry point to infer input and output schemas.
-   * @returns def_51 Inferred schemas for the supplied entry point.
+   * @returns def_53 Inferred schemas for the supplied entry point.
    * @throws ApiError
    */
   public postJobsSchemaPreview({
@@ -219,9 +219,9 @@ export class JobsService {
   }: {
     requestBody: {
       entryPoint: string;
-      runtime?: 'node' | 'python' | 'docker';
+      runtime?: 'node' | 'python' | 'docker' | 'module';
     },
-  }): CancelablePromise<def_51> {
+  }): CancelablePromise<def_53> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/jobs/schema-preview',
@@ -238,7 +238,7 @@ export class JobsService {
   /**
    * Preview Python snippet analysis
    * Analyzes a Python snippet to infer handler metadata before creating a job.
-   * @returns def_74 Python snippet analysis results.
+   * @returns def_76 Python snippet analysis results.
    * @throws ApiError
    */
   public postJobsPythonSnippetPreview({
@@ -247,7 +247,7 @@ export class JobsService {
     requestBody: {
       snippet: string;
     },
-  }): CancelablePromise<def_74> {
+  }): CancelablePromise<def_76> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/jobs/python-snippet/preview',
@@ -264,7 +264,7 @@ export class JobsService {
   /**
    * Create a Python snippet job
    * Analyzes the provided snippet, generates a bundle, and creates or updates the job definition.
-   * @returns def_75 Python snippet job created successfully.
+   * @returns def_77 Python snippet job created successfully.
    * @throws ApiError
    */
   public postJobsPythonSnippet({
@@ -288,7 +288,7 @@ export class JobsService {
       bundleVersion?: string;
       jobVersion?: number;
     },
-  }): CancelablePromise<def_75> {
+  }): CancelablePromise<def_77> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/jobs/python-snippet',
@@ -304,7 +304,7 @@ export class JobsService {
   }
   /**
    * Fetch bundle editor context for a job
-   * @returns def_54 Current bundle editor state for the requested job.
+   * @returns def_56 Current bundle editor state for the requested job.
    * @throws ApiError
    */
   public getJobsBundleEditor({
@@ -314,7 +314,7 @@ export class JobsService {
      * Slug of the job definition to inspect.
      */
     slug: string,
-  }): CancelablePromise<def_54> {
+  }): CancelablePromise<def_56> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/jobs/{slug}/bundle-editor',
@@ -331,7 +331,7 @@ export class JobsService {
   /**
    * Generate bundle edits with AI
    * Runs an AI provider against the current job bundle and publishes a new version when the response is valid.
-   * @returns def_54 A new bundle version was generated and bound to the job.
+   * @returns def_56 A new bundle version was generated and bound to the job.
    * @throws ApiError
    */
   public postJobsBundleAiEdit({
@@ -342,8 +342,8 @@ export class JobsService {
      * Slug of the job whose bundle should be regenerated.
      */
     slug: string,
-    requestBody?: def_55,
-  }): CancelablePromise<def_54> {
+    requestBody?: def_57,
+  }): CancelablePromise<def_56> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/jobs/{slug}/bundle/ai-edit',
@@ -367,7 +367,7 @@ export class JobsService {
   /**
    * Regenerate bundle editor snapshot
    * Applies manual bundle edits and publishes a new version bound to the job.
-   * @returns def_54 Bundle regenerated and bound to the job.
+   * @returns def_56 Bundle regenerated and bound to the job.
    * @throws ApiError
    */
   public postJobsBundleRegenerate({
@@ -378,8 +378,8 @@ export class JobsService {
      * Job definition slug.
      */
     slug: string,
-    requestBody?: def_56,
-  }): CancelablePromise<def_54> {
+    requestBody?: def_58,
+  }): CancelablePromise<def_56> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/jobs/{slug}/bundle/regenerate',
@@ -402,7 +402,7 @@ export class JobsService {
   /**
    * Trigger a job run
    * Queues a run for the specified job definition.
-   * @returns def_44 Job run scheduled.
+   * @returns def_46 Job run scheduled.
    * @throws ApiError
    */
   public postJobsRun({
@@ -413,8 +413,8 @@ export class JobsService {
      * Job definition slug.
      */
     slug: string,
-    requestBody?: def_57,
-  }): CancelablePromise<def_44> {
+    requestBody?: def_59,
+  }): CancelablePromise<def_46> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/jobs/{slug}/run',

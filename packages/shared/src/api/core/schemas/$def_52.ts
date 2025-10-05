@@ -4,22 +4,23 @@
 /* eslint-disable */
 export const $def_52 = {
   properties: {
-    path: {
-      type: 'string',
-      description: `Relative path of the file inside the bundle.`,
+    parametersSchema: {
+      type: 'def_0',
       isRequired: true,
     },
-    contents: {
-      type: 'string',
-      description: `File contents encoded as UTF-8 text or base64.`,
+    outputSchema: {
+      type: 'def_0',
       isRequired: true,
     },
-    encoding: {
-      type: 'Enum',
+    parametersSource: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
     },
-    executable: {
-      type: 'boolean',
-      description: `Whether the file should be marked as executable in the generated bundle.`,
+    outputSource: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
     },
   },
 } as const;

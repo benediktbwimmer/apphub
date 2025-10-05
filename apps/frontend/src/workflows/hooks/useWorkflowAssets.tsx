@@ -14,7 +14,8 @@ import {
   fetchWorkflowAssetHistory,
   fetchWorkflowAssetPartitions,
   fetchWorkflowAssets,
-  getWorkflowAutoMaterializeOps
+  getWorkflowAutoMaterializeOps,
+  updateWorkflowAssetAutoMaterialize
 } from '../api';
 import type {
   WorkflowAssetDetail,
@@ -53,6 +54,8 @@ type WorkflowAssetsContextValue = {
   clearSelectedAsset: () => void;
   refreshAsset: (assetId: string) => void;
   refreshAutoMaterializeOps: (slug: string) => void;
+  toggleAutoMaterialize: (assetId: string, stepId: string, enabled: boolean) => Promise<void>;
+  autoMaterializeUpdating: { assetId: string; stepId: string } | null;
 };
 
 const WorkflowAssetsContext = createContext<WorkflowAssetsContextValue | undefined>(undefined);
@@ -76,6 +79,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
     Record<string, { data: WorkflowAutoMaterializeOps | null; loading: boolean; error: string | null }>
   >({});
   const autoMaterializeStateRef = useRef(autoMaterializeState);
+  const [autoMaterializeUpdating, setAutoMaterializeUpdating] = useState<{ assetId: string; stepId: string } | null>(null);
 
   const assetInventory = useMemo(
     () => (selectedSlug ? assetInventories[selectedSlug] ?? [] : []),
@@ -252,6 +256,86 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
     [loadAutoMaterializeOps]
   );
 
+  const toggleAutoMaterialize = useCallback(
+    async (assetId: string, stepId: string, enabled: boolean) => {
+      if (!selectedSlug) {
+        return;
+      }
+      setAutoMaterializeUpdating({ assetId, stepId });
+      try {
+        const result = await updateWorkflowAssetAutoMaterialize(authorizedFetch, selectedSlug, assetId, {
+          stepId,
+          enabled
+        });
+
+        setAssetInventories((current) => {
+          const entries = current[selectedSlug];
+          if (!entries) {
+            return current;
+          }
+          const updatedEntries = entries.map((entry) => {
+            if (entry.assetId !== result.assetId) {
+              return entry;
+            }
+            const producers = entry.producers.map((producer) =>
+              producer.stepId === result.stepId
+                ? { ...producer, autoMaterialize: result.autoMaterialize }
+                : producer
+            );
+            return { ...entry, producers };
+          });
+          return {
+            ...current,
+            [selectedSlug]: updatedEntries
+          };
+        });
+
+        setAssetDetails((current) => {
+          const key = `${selectedSlug}:${result.assetId}`;
+          const detail = current[key];
+          if (!detail) {
+            return current;
+          }
+          const producers = detail.producers.map((producer) =>
+            producer.stepId === result.stepId
+              ? { ...producer, autoMaterialize: result.autoMaterialize }
+              : producer
+          );
+          return {
+            ...current,
+            [key]: {
+              ...detail,
+              producers
+            }
+          };
+        });
+
+        pushToast({
+          tone: 'success',
+          title: enabled ? 'Auto-materialize enabled' : 'Auto-materialize disabled',
+          description: `${assetId} (${stepId})`
+        });
+
+        refreshAutoMaterializeOps(selectedSlug);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update auto-materialize policy';
+        pushToast({
+          tone: 'error',
+          title: 'Auto-materialize update failed',
+          description: message
+        });
+      } finally {
+        setAutoMaterializeUpdating((current) => {
+          if (current && current.assetId === assetId && current.stepId === stepId) {
+            return null;
+          }
+          return current;
+        });
+      }
+    },
+    [authorizedFetch, selectedSlug, pushToast, refreshAutoMaterializeOps]
+  );
+
   useEffect(() => {
     autoMaterializeStateRef.current = autoMaterializeState;
   }, [autoMaterializeState]);
@@ -355,7 +439,9 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       selectAsset,
       clearSelectedAsset,
       refreshAsset,
-      refreshAutoMaterializeOps
+      refreshAutoMaterializeOps,
+      toggleAutoMaterialize,
+      autoMaterializeUpdating
     }),
     [
       assetInventory,
@@ -374,7 +460,9 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       selectAsset,
       clearSelectedAsset,
       refreshAsset,
-      refreshAutoMaterializeOps
+      refreshAutoMaterializeOps,
+      toggleAutoMaterialize,
+      autoMaterializeUpdating
     ]
   );
 

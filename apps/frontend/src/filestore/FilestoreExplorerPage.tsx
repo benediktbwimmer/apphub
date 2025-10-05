@@ -74,26 +74,23 @@ const BROWSE_PAGE_SIZE = 200;
 const TREE_ROOT_LIMIT = 200;
 const TREE_CHILD_LIMIT = 200;
 const ACTIVITY_LIMIT = 50;
-const STATE_OPTIONS: FilestoreNodeState[] = ['active', 'inconsistent', 'missing', 'deleted', 'unknown'];
+const STATE_OPTIONS: FilestoreNodeState[] = ['active', 'inconsistent', 'missing', 'deleted'];
 const EMPTY_NODE_LIST: FilestoreNode[] = [];
 const KIND_LABEL: Record<FilestoreNodeKind, string> = {
   directory: 'Directory',
-  file: 'File',
-  unknown: 'Node'
+  file: 'File'
 };
 const STATE_LABEL: Record<FilestoreNodeState, string> = {
   active: 'Active',
   inconsistent: 'Inconsistent',
   missing: 'Missing',
-  deleted: 'Deleted',
-  unknown: 'Unknown'
+  deleted: 'Deleted'
 };
 const STATE_BADGE_CLASS: Record<FilestoreNodeState, string> = {
   active: 'bg-status-success-soft text-status-success shadow-elevation-sm',
   inconsistent: 'bg-status-warning-soft text-status-warning shadow-elevation-sm',
   missing: 'bg-status-danger-soft text-status-danger shadow-elevation-sm',
-  deleted: 'bg-surface-muted text-muted shadow-elevation-sm',
-  unknown: 'bg-surface-glass-soft text-secondary shadow-elevation-sm'
+  deleted: 'bg-surface-muted text-muted shadow-elevation-sm'
 };
 const MOUNT_STATE_LABEL: Record<FilestoreBackendMountState, string> = {
   active: 'Active',
@@ -2501,7 +2498,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         id,
         label: `Mount ${id}`,
         searchValue: `mount ${id}`,
-        state: 'unknown' as FilestoreBackendMountState
+        state: 'inactive' as FilestoreBackendMountState
       }));
     return [...base, ...extras].sort((a, b) => a.id - b.id);
   }, [availableMounts, extraMountIds]);

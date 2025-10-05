@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, type ReactNode } from 'react';
 import { Spinner } from '../../components';
 import { formatDuration, formatTimestamp } from '../formatters';
 import { getStatusToneClasses } from '../../theme/statusTokens';
@@ -24,6 +24,8 @@ type WorkflowAssetPanelProps = {
   assetPartitionsLoading: boolean;
   assetPartitionsError: string | null;
   onRefreshAssetDetail: (assetId: string) => void;
+  onToggleAutoMaterialize: (assetId: string, stepId: string, enabled: boolean) => void;
+  autoMaterializeUpdating: { assetId: string; stepId: string } | null;
 };
 
 function summarizePartitioning(partitioning: WorkflowAssetRoleDescriptor['partitioning']) {
@@ -71,6 +73,9 @@ function buildRoleMetadataChips(role: WorkflowAssetRoleDescriptor) {
     }
   }
   if (autoMaterialize) {
+    if (autoMaterialize.enabled === false) {
+      chips.push('Auto disabled');
+    }
     if (autoMaterialize.onUpstreamUpdate) {
       chips.push('Auto on upstream update');
     }
@@ -144,6 +149,9 @@ const ROLE_CARD_META = 'uppercase tracking-[0.3em] text-muted';
 const ROLE_METADATA_CHIP =
   'inline-flex items-center rounded-full border border-subtle bg-surface-glass px-2 py-[2px] text-[10px] font-weight-semibold uppercase tracking-[0.25em] text-secondary';
 
+const ROLE_ACTION_BUTTON =
+  'inline-flex items-center justify-center rounded-full border border-subtle bg-surface-glass px-2 py-1 text-[10px] font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
 const DETAIL_TABLE_WRAPPER = 'overflow-hidden rounded-xl border border-subtle';
 
 const DETAIL_TABLE_ROW_HIGHLIGHT = 'bg-status-warning-soft';
@@ -155,7 +163,11 @@ const STATUS_META_TEXT = 'text-scale-xs text-muted';
 
 const PARTITION_SECTION_DIVIDER = 'mt-4 border-t border-subtle pt-4';
 
-function renderRoleList(label: string, roles: WorkflowAssetRoleDescriptor[]) {
+function renderRoleList(
+  label: string,
+  roles: WorkflowAssetRoleDescriptor[],
+  options?: { renderActions?: (role: WorkflowAssetRoleDescriptor) => ReactNode }
+) {
   if (roles.length === 0) {
     return (
       <li className={ROLE_LIST_EMPTY_TEXT}>
@@ -169,6 +181,7 @@ function renderRoleList(label: string, roles: WorkflowAssetRoleDescriptor[]) {
       <ul className="mt-1 flex flex-wrap gap-2 pl-0">
         {roles.map((role) => {
           const metadataChips = buildRoleMetadataChips(role);
+          const actions = options?.renderActions?.(role) ?? null;
           return (
             <li
               key={`${role.stepId}-${role.stepType}`}
@@ -190,6 +203,7 @@ function renderRoleList(label: string, roles: WorkflowAssetRoleDescriptor[]) {
                   ))}
                 </div>
               )}
+              {actions ? <div className="flex justify-end">{actions}</div> : null}
             </li>
           );
         })}
@@ -211,7 +225,9 @@ export default function WorkflowAssetPanel({
   assetPartitions,
   assetPartitionsLoading,
   assetPartitionsError,
-  onRefreshAssetDetail
+  onRefreshAssetDetail,
+  onToggleAutoMaterialize,
+  autoMaterializeUpdating
 }: WorkflowAssetPanelProps) {
   const hasAssets = assets.length > 0;
   const hasSelection = Boolean(selectedAssetId);
@@ -344,7 +360,29 @@ export default function WorkflowAssetPanel({
           {!assetDetailLoading && !assetDetailError && assetDetail && (
             <div className="mt-3 space-y-4">
               <ul className={ROLE_GROUP_LIST}>
-                {renderRoleList('Producers', assetDetail.producers)}
+                {renderRoleList('Producers', assetDetail.producers, {
+                  renderActions: (role) => {
+                    if (!role.autoMaterialize) {
+                      return null;
+                    }
+                    const isDisabled = role.autoMaterialize.enabled === false;
+                    const isUpdating =
+                      autoMaterializeUpdating?.assetId === assetDetail.assetId &&
+                      autoMaterializeUpdating?.stepId === role.stepId;
+                    return (
+                      <button
+                        type="button"
+                        className={ROLE_ACTION_BUTTON}
+                        onClick={() =>
+                          onToggleAutoMaterialize(assetDetail.assetId, role.stepId, !isDisabled)
+                        }
+                        disabled={isUpdating}
+                      >
+                        {isDisabled ? 'Enable auto-run' : 'Disable auto-run'}
+                      </button>
+                    );
+                  }
+                })}
                 {renderRoleList('Consumers', assetDetail.consumers)}
               </ul>
 

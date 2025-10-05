@@ -221,6 +221,7 @@ export type WorkflowGraphResponse = {
           retentionDays?: number | null;
         }) | null;
         autoMaterialize?: {
+          enabled?: boolean;
           onUpstreamUpdate?: boolean;
           priority?: number | null;
           /**

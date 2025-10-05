@@ -4,10 +4,13 @@
 /* eslint-disable */
 export const $def_40 = {
   properties: {
-    id: {
-      type: 'string',
-      description: `Unique identifier of the saved query.`,
-      isRequired: true,
+    rowCount: {
+      type: 'number',
+      isNullable: true,
+    },
+    elapsedMs: {
+      type: 'number',
+      isNullable: true,
     },
   },
 } as const;

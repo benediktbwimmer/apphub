@@ -111,7 +111,8 @@ export function useCoreLaunches(options: UseCoreLaunchesOptions): UseCoreLaunche
         const normalizedEnv = request.env
           .map((entry) => ({ key: entry.key.trim(), value: entry.value }))
           .filter((entry) => entry.key.length > 0);
-        const command = request.command.trim();
+        const commandInput = request.command ?? '';
+        const command = commandInput.trim();
         const payload = await launchAppRequest(authToken, id, {
           env: normalizedEnv,
           command: command.length > 0 ? command : undefined,

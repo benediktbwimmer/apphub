@@ -27,7 +27,6 @@ test('generateModuleConfig writes defaults and capability config', { concurrency
   const outputPath = path.join(scratchRoot, 'config', 'observatory-config.json');
   const result = await generateModuleConfig({
     modulePath: OBSERVATORY_MODULE_PATH,
-    manifestPath: 'dist/module.json',
     definitionPath: 'dist/module.js',
     outputPath,
     scratchDir: scratchRoot,
@@ -62,7 +61,6 @@ test('validateModuleConfig verifies capability wiring', { concurrency: false }, 
   const configPath = path.join(scratchRoot, 'config', 'observatory-config.json');
   await generateModuleConfig({
     modulePath: OBSERVATORY_MODULE_PATH,
-    manifestPath: 'dist/module.json',
     definitionPath: 'dist/module.js',
     outputPath: configPath,
     scratchDir: scratchRoot,
@@ -72,7 +70,6 @@ test('validateModuleConfig verifies capability wiring', { concurrency: false }, 
   const result = await validateModuleConfig({
     modulePath: OBSERVATORY_MODULE_PATH,
     configPath,
-    manifestPath: 'dist/module.json',
     definitionPath: 'dist/module.js'
   });
 

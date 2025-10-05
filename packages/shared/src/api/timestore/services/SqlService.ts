@@ -2,13 +2,13 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_30 } from '../models/def_30';
-import type { def_33 } from '../models/def_33';
-import type { def_35 } from '../models/def_35';
-import type { def_38 } from '../models/def_38';
+import type { def_34 } from '../models/def_34';
+import type { def_37 } from '../models/def_37';
 import type { def_39 } from '../models/def_39';
-import type { def_41 } from '../models/def_41';
 import type { def_42 } from '../models/def_42';
+import type { def_43 } from '../models/def_43';
+import type { def_45 } from '../models/def_45';
+import type { def_46 } from '../models/def_46';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class SqlService {
@@ -16,10 +16,10 @@ export class SqlService {
   /**
    * Describe SQL schema
    * Returns the current logical schema exposed to the SQL runtime.
-   * @returns def_33 SQL schema snapshot for available datasets.
+   * @returns def_37 SQL schema snapshot for available datasets.
    * @throws ApiError
    */
-  public getSqlSchema(): CancelablePromise<def_33> {
+  public getSqlSchema(): CancelablePromise<def_37> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/sql/schema',
@@ -33,14 +33,14 @@ export class SqlService {
   /**
    * Execute read-only SQL query
    * Runs a read-only SELECT statement against the SQL runtime and returns the result set in the requested format.
-   * @returns def_35 Query executed successfully.
+   * @returns def_39 Query executed successfully.
    * @throws ApiError
    */
   public postSqlRead({
     requestBody,
   }: {
-    requestBody?: def_30,
-  }): CancelablePromise<def_35> {
+    requestBody?: def_34,
+  }): CancelablePromise<def_39> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/sql/read',
@@ -57,10 +57,10 @@ export class SqlService {
   }
   /**
    * List saved SQL queries
-   * @returns def_38 Saved SQL queries accessible to the caller.
+   * @returns def_42 Saved SQL queries accessible to the caller.
    * @throws ApiError
    */
-  public getSqlSaved(): CancelablePromise<def_38> {
+  public getSqlSaved(): CancelablePromise<def_42> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/sql/saved',
@@ -73,7 +73,7 @@ export class SqlService {
   }
   /**
    * Get saved SQL query
-   * @returns def_39 Saved SQL query definition.
+   * @returns def_43 Saved SQL query definition.
    * @throws ApiError
    */
   public getSqlSaved1({
@@ -83,7 +83,7 @@ export class SqlService {
      * Unique identifier of the saved query.
      */
     id: string,
-  }): CancelablePromise<def_39> {
+  }): CancelablePromise<def_43> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/sql/saved/{id}',
@@ -100,7 +100,7 @@ export class SqlService {
   }
   /**
    * Create or update saved SQL query
-   * @returns def_39 Saved SQL query persisted successfully.
+   * @returns def_43 Saved SQL query persisted successfully.
    * @throws ApiError
    */
   public putSqlSaved({
@@ -111,8 +111,8 @@ export class SqlService {
      * Unique identifier of the saved query.
      */
     id: string,
-    requestBody?: def_41,
-  }): CancelablePromise<def_39> {
+    requestBody?: def_45,
+  }): CancelablePromise<def_43> {
     return this.httpRequest.request({
       method: 'PUT',
       url: '/sql/saved/{id}',
@@ -159,14 +159,14 @@ export class SqlService {
   /**
    * Execute SQL statement
    * Executes a SQL statement with optional streaming responses for large result sets.
-   * @returns def_42 Statement executed successfully.
+   * @returns def_46 Statement executed successfully.
    * @throws ApiError
    */
   public postSqlExec({
     requestBody,
   }: {
-    requestBody?: def_30,
-  }): CancelablePromise<def_42> {
+    requestBody?: def_34,
+  }): CancelablePromise<def_46> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/sql/exec',

@@ -5,11 +5,13 @@ import { API_BASE_URL } from '../config';
 import { coreRequest, CoreApiError } from '../core/api';
 import { ApiError, createApiClient } from '../lib/apiClient';
 export { ApiError } from '../lib/apiClient';
-import type { AuthorizedFetch, QueryValue } from '../lib/apiClient';
+export type { AuthorizedFetch } from '../lib/apiClient';
+import type { AuthorizedFetch as AuthorizedFetchInput, QueryValue } from '../lib/apiClient';
 import type {
   WorkflowAssetDetail,
   WorkflowAssetInventoryEntry,
   WorkflowAssetPartitions,
+  WorkflowAssetAutoMaterialize,
   WorkflowDefinition,
   WorkflowRun,
   WorkflowRunStep,
@@ -71,7 +73,7 @@ export type WorkflowGraphFetchResult = {
 };
 
 type Token = string | null | undefined;
-type TokenInput = Token | AuthorizedFetch;
+type TokenInput = Token | AuthorizedFetchInput;
 
 type RequestJsonOptions<T> = {
   method?: string;
@@ -84,9 +86,30 @@ type RequestJsonOptions<T> = {
   signal?: AbortSignal;
 };
 
+function parseWorkflowAssetAutoMaterialize(value: unknown): WorkflowAssetAutoMaterialize | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const auto: WorkflowAssetAutoMaterialize = {};
+  if (typeof record.enabled === 'boolean') {
+    auto.enabled = record.enabled;
+  }
+  if (typeof record.onUpstreamUpdate === 'boolean') {
+    auto.onUpstreamUpdate = record.onUpstreamUpdate;
+  }
+  if (typeof record.priority === 'number' && Number.isFinite(record.priority)) {
+    auto.priority = record.priority;
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'parameterDefaults')) {
+    auto.parameterDefaults = record.parameterDefaults ?? null;
+  }
+  return Object.keys(auto).length > 0 ? auto : null;
+}
+
 function ensureToken(input: TokenInput): string {
   if (typeof input === 'function') {
-    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
+    const fetcher = input as AuthorizedFetchInput & { authToken?: string | null | undefined };
     const candidate = fetcher.authToken;
     if (typeof candidate === 'string' && candidate.trim().length > 0) {
       return candidate.trim();
@@ -1169,6 +1192,42 @@ export async function fetchWorkflowAssetHistory(
     }
     throw error;
   }
+}
+
+export async function updateWorkflowAssetAutoMaterialize(
+  token: TokenInput,
+  slug: string,
+  assetId: string,
+  input: {
+    stepId: string;
+    enabled?: boolean;
+    onUpstreamUpdate?: boolean;
+    priority?: number | null;
+    parameterDefaults?: unknown;
+  }
+): Promise<{
+  assetId: string;
+  stepId: string;
+  autoMaterialize: WorkflowAssetAutoMaterialize | null;
+}> {
+  const payload = await requestJson(token,
+    `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/auto-materialize`,
+    {
+      method: 'PATCH',
+      json: input,
+      schema: requiredDataSchema,
+      errorMessage: 'Failed to update auto-materialize policy'
+    }
+  );
+  const data = payload.data as Record<string, unknown> | undefined;
+  const responseAssetId = typeof data?.assetId === 'string' ? data.assetId : assetId;
+  const responseStepId = typeof data?.stepId === 'string' ? data.stepId : input.stepId;
+  const autoMaterialize = parseWorkflowAssetAutoMaterialize(data?.autoMaterialize ?? null);
+  return {
+    assetId: responseAssetId,
+    stepId: responseStepId,
+    autoMaterialize
+  };
 }
 
 export async function fetchWorkflowAssetPartitions(

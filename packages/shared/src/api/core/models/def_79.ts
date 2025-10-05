@@ -6,9 +6,8 @@ export type def_79 = {
   workflowId: string;
   workflowSlug: string;
   workflowName: string;
-  partitionKey: string | null;
-  requestedAt: string;
-  requestedBy: string | null;
-  note: string | null;
+  stepId: string;
+  stepName: string;
+  stepType: 'job' | 'service' | 'fanout';
 };
 

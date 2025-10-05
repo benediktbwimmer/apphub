@@ -2,8 +2,21 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { def_0 } from './def_0';
 export type def_58 = {
-  type: string;
-  options?: ((string | number | boolean | Record<string, any>) | null);
+  entryPoint: string;
+  manifestPath: string;
+  manifest?: def_0;
+  files: Array<{
+    path: string;
+    contents: string;
+    encoding?: 'utf8' | 'base64';
+    executable?: boolean;
+  }>;
+  capabilityFlags?: Array<string>;
+  metadata?: def_0;
+  description?: string | null;
+  displayName?: string | null;
+  version?: string;
 };
 

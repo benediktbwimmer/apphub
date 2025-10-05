@@ -4,16 +4,8 @@
 /* eslint-disable */
 export type def_12 = {
   /**
-   * Partition key identifying the shard the data belongs to.
+   * Human-readable slug uniquely identifying a dataset.
    */
-  key: Record<string, string>;
-  /**
-   * Optional attributes describing the partition.
-   */
-  attributes?: any | null;
-  timeRange: {
-    start: string;
-    end: string;
-  };
+  datasetSlug: string;
 };
 

@@ -1,10 +1,14 @@
-export interface CancelablePromiseLike<T> extends Promise<T> {
+export interface CancelablePromiseLike<T> {
   cancel: () => void;
+  then: Promise<T>['then'];
+  catch: Promise<T>['catch'];
+  finally: Promise<T>['finally'];
+  readonly [Symbol.toStringTag]?: string;
 }
 
 export function resolveCancelable<T>(promise: CancelablePromiseLike<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) {
-    return promise;
+    return promise as unknown as Promise<T>;
   }
 
   if (signal.aborted) {
@@ -31,4 +35,3 @@ export function resolveCancelable<T>(promise: CancelablePromiseLike<T>, signal?:
       });
   });
 }
-

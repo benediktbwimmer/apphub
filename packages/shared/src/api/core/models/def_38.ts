@@ -3,10 +3,19 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_38 = {
-  maxAttempts?: number;
-  strategy?: 'none' | 'fixed' | 'exponential';
-  initialDelayMs?: number;
-  maxDelayMs?: number;
-  jitter?: 'none' | 'full' | 'equal';
+  moduleId: string;
+  moduleVersion: string;
+  displayName?: string | null;
+  description?: string | null;
+  keywords?: Array<string>;
+  manifest: Record<string, any>;
+  artifact: {
+    filename?: string;
+    contentType?: string;
+    /**
+     * Base64-encoded module bundle contents.
+     */
+    data: string;
+  };
 };
 

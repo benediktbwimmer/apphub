@@ -35,6 +35,7 @@ const assetFreshnessSchema = z
 
 const assetAutoMaterializeSchema = z
   .object({
+    enabled: z.boolean().optional(),
     onUpstreamUpdate: z.boolean().optional(),
     priority: z.number().int().min(0).max(1_000_000).optional(),
     parameterDefaults: jsonValueSchema.optional()

@@ -4,17 +4,14 @@
 /* eslint-disable */
 export const $def_23 = {
   properties: {
-    type: {
+    mode: {
       type: 'Enum',
+      isRequired: true,
     },
-    eq: {
-      type: 'boolean',
-      isNullable: true,
-    },
-    in: {
-      type: 'any[]',
-      isNullable: true,
-      minItems: 1,
+    jobId: {
+      type: 'string',
+      description: `Identifier of the enqueued ingestion job.`,
+      isRequired: true,
     },
   },
 } as const;

@@ -7,7 +7,7 @@ export type JobDefinitionCreateRequest = {
   name: string;
   version?: number;
   type: 'batch' | 'service-triggered' | 'manual';
-  runtime?: 'node' | 'python' | 'docker';
+  runtime?: 'node' | 'python' | 'docker' | 'module';
   entryPoint: string;
   timeoutMs?: number;
   retryPolicy?: {

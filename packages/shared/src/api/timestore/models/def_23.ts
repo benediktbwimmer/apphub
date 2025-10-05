@@ -3,8 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_23 = {
-  type?: 'boolean';
-  eq?: boolean | null;
-  in?: any[] | null;
+  mode: 'queued';
+  /**
+   * Identifier of the enqueued ingestion job.
+   */
+  jobId: string;
 };
 
