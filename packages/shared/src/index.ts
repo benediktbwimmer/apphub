@@ -13,3 +13,4 @@ export * from './eventsExplorer';
 export * from './gitRepo';
 export * from './secretsClient';
 export * from './secretEvents';
+export * from './envConfig';

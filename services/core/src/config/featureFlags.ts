@@ -1,5 +1,5 @@
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
-const FALSE_VALUES = new Set(['0', 'false', 'no', 'off']);
+import { z } from 'zod';
+import { booleanVar, loadEnvConfig } from '@apphub/shared/envConfig';
 
 export type StreamingMirrorFlags = {
   workflowRuns: boolean;
@@ -18,41 +18,33 @@ export type FeatureFlags = {
 
 let cachedFlags: FeatureFlags | null = null;
 
-function parseFlag(value: string | undefined, fallback: boolean): boolean {
-  if (!value) {
-    return fallback;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return fallback;
-  }
-  if (TRUE_VALUES.has(normalized)) {
-    return true;
-  }
-  if (FALSE_VALUES.has(normalized)) {
-    return false;
-  }
-  return fallback;
-}
+const featureFlagEnvSchema = z
+  .object({
+    APPHUB_STREAMING_ENABLED: booleanVar({ defaultValue: false }),
+    APPHUB_STREAM_MIRROR_WORKFLOW_RUNS: booleanVar({ defaultValue: false }),
+    APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS: booleanVar({ defaultValue: false }),
+    APPHUB_STREAM_MIRROR_JOB_RUNS: booleanVar({ defaultValue: false }),
+    APPHUB_STREAM_MIRROR_INGESTION: booleanVar({ defaultValue: false }),
+    APPHUB_STREAM_MIRROR_CORE_EVENTS: booleanVar({ defaultValue: false })
+  })
+  .passthrough()
+  .transform((env) => ({
+    streaming: {
+      enabled: env.APPHUB_STREAMING_ENABLED ?? false,
+      mirrors: {
+        workflowRuns: env.APPHUB_STREAM_MIRROR_WORKFLOW_RUNS ?? false,
+        workflowEvents: env.APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS ?? false,
+        jobRuns: env.APPHUB_STREAM_MIRROR_JOB_RUNS ?? false,
+        ingestion: env.APPHUB_STREAM_MIRROR_INGESTION ?? false,
+        coreEvents: env.APPHUB_STREAM_MIRROR_CORE_EVENTS ?? false
+      }
+    }
+  }) satisfies FeatureFlags);
 
 export function getFeatureFlags(): FeatureFlags {
-  if (cachedFlags) {
-    return cachedFlags;
+  if (!cachedFlags) {
+    cachedFlags = loadEnvConfig(featureFlagEnvSchema, { context: 'core:feature-flags' });
   }
-  const streamingEnabled = parseFlag(process.env.APPHUB_STREAMING_ENABLED, false);
-  const mirrorFlags: StreamingMirrorFlags = {
-    workflowRuns: parseFlag(process.env.APPHUB_STREAM_MIRROR_WORKFLOW_RUNS, false),
-    workflowEvents: parseFlag(process.env.APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS, false),
-    jobRuns: parseFlag(process.env.APPHUB_STREAM_MIRROR_JOB_RUNS, false),
-    ingestion: parseFlag(process.env.APPHUB_STREAM_MIRROR_INGESTION, false),
-    coreEvents: parseFlag(process.env.APPHUB_STREAM_MIRROR_CORE_EVENTS, false)
-  };
-  cachedFlags = {
-    streaming: {
-      enabled: streamingEnabled,
-      mirrors: mirrorFlags
-    }
-  };
   return cachedFlags;
 }
 

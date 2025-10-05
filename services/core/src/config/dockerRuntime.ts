@@ -1,8 +1,13 @@
 import os from 'node:os';
 import path from 'node:path';
-
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
-const FALSE_VALUES = new Set(['0', 'false', 'no', 'off']);
+import { z } from 'zod';
+import {
+  booleanVar,
+  loadEnvConfig,
+  stringListVar,
+  stringVar,
+  EnvConfigError
+} from '@apphub/shared/envConfig';
 
 const DEFAULT_MAX_WORKSPACE_BYTES = 10 * 1024 * 1024 * 1024; // 10 GiB
 
@@ -31,49 +36,26 @@ export type DockerRuntimeConfig = {
 
 let cachedConfig: DockerRuntimeConfig | null = null;
 
-function parseBoolean(value: string | undefined, defaultValue = false): boolean {
-  if (value === undefined || value === null) {
-    return defaultValue;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return defaultValue;
-  }
-  if (TRUE_VALUES.has(normalized)) {
-    return true;
-  }
-  if (FALSE_VALUES.has(normalized)) {
-    return false;
-  }
-  return defaultValue;
-}
+const dockerEnvSchema = z
+  .object({
+    CORE_ENABLE_DOCKER_JOBS: booleanVar({ defaultValue: false }),
+    CORE_DOCKER_WORKSPACE_ROOT: stringVar({ allowEmpty: false }),
+    CORE_DOCKER_IMAGE_ALLOWLIST: stringListVar({ separator: ',', unique: false }),
+    CORE_DOCKER_IMAGE_DENYLIST: stringListVar({ separator: ',', unique: false }),
+    CORE_DOCKER_MAX_WORKSPACE_BYTES: stringVar({ allowEmpty: false }),
+    CORE_DOCKER_ENABLE_GPU: booleanVar({ defaultValue: false }),
+    CORE_DOCKER_ENFORCE_NETWORK_ISOLATION: booleanVar({ defaultValue: true }),
+    CORE_DOCKER_ALLOW_NETWORK_OVERRIDE: booleanVar({ defaultValue: false }),
+    CORE_DOCKER_ALLOWED_NETWORK_MODES: stringListVar({ separator: ',', lowercase: true, unique: true }),
+    CORE_DOCKER_DEFAULT_NETWORK_MODE: stringVar({ allowEmpty: true, lowercase: true }),
+    CORE_DOCKER_PERSIST_LOG_TAIL: booleanVar({ defaultValue: true })
+  })
+  .passthrough();
 
-function parseInteger(value: string | undefined, { defaultValue, allowNull = false }: { defaultValue: number | null; allowNull?: boolean }): number | null {
-  if (value === undefined || value === null) {
-    return defaultValue;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return defaultValue;
-  }
-  if (allowNull && (trimmed === '0' || trimmed.toLowerCase() === 'unlimited')) {
-    return null;
-  }
-  const parsed = Number.parseInt(trimmed, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`Invalid numeric value "${value}". Provide a positive integer${allowNull ? ' or 0 to disable the limit' : ''}.`);
-  }
-  return parsed;
-}
+type DockerEnv = z.infer<typeof dockerEnvSchema>;
 
-function parseCsv(value: string | undefined): string[] {
-  if (!value) {
-    return [];
-  }
-  return value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+function loadDockerEnv(): DockerEnv {
+  return loadEnvConfig(dockerEnvSchema, { context: 'core:docker-runtime' });
 }
 
 function escapeForRegex(value: string): string {
@@ -110,12 +92,11 @@ function compilePattern(pattern: string): DockerImagePattern {
   }
 }
 
-function parsePatterns(value: string | undefined): DockerImagePattern[] {
-  return parseCsv(value).map((entry) => compilePattern(entry));
+function parsePatterns(values: readonly string[]): DockerImagePattern[] {
+  return values.map((entry) => compilePattern(entry));
 }
 
-function resolveWorkspaceRoot(): string {
-  const configured = process.env.CORE_DOCKER_WORKSPACE_ROOT;
+function resolveWorkspaceRoot(configured: string | undefined): string {
   if (configured) {
     const trimmed = configured.trim();
     if (!trimmed) {
@@ -130,12 +111,12 @@ function resolveWorkspaceRoot(): string {
   return path.join(os.tmpdir(), 'apphub-docker-workspaces');
 }
 
-function resolveNetworkPolicy(): DockerNetworkPolicy {
-  const isolationEnabled = parseBoolean(process.env.CORE_DOCKER_ENFORCE_NETWORK_ISOLATION, true);
-  const defaultModeEnv = process.env.CORE_DOCKER_DEFAULT_NETWORK_MODE;
+function resolveNetworkPolicy(env: DockerEnv): DockerNetworkPolicy {
+  const isolationEnabled = env.CORE_DOCKER_ENFORCE_NETWORK_ISOLATION ?? true;
+  const defaultModeEnv = env.CORE_DOCKER_DEFAULT_NETWORK_MODE;
   const defaultMode = defaultModeEnv === 'bridge' ? 'bridge' : 'none';
-  const allowModeOverride = parseBoolean(process.env.CORE_DOCKER_ALLOW_NETWORK_OVERRIDE, false);
-  const allowedModesEnv = parseCsv(process.env.CORE_DOCKER_ALLOWED_NETWORK_MODES);
+  const allowModeOverride = env.CORE_DOCKER_ALLOW_NETWORK_OVERRIDE ?? false;
+  const allowedModesEnv = env.CORE_DOCKER_ALLOWED_NETWORK_MODES ?? [];
 
   const allowedModes = new Set<'none' | 'bridge'>();
 
@@ -171,21 +152,38 @@ function resolveNetworkPolicy(): DockerNetworkPolicy {
   } satisfies DockerNetworkPolicy;
 }
 
+function parseWorkspaceLimit(raw: string | undefined): number | null {
+  if (!raw) {
+    return DEFAULT_MAX_WORKSPACE_BYTES;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return DEFAULT_MAX_WORKSPACE_BYTES;
+  }
+  const normalized = trimmed.toLowerCase();
+  if (normalized === '0' || normalized === 'unlimited') {
+    return null;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new EnvConfigError(
+      `[core:docker-runtime] Invalid environment configuration\n  • CORE_DOCKER_MAX_WORKSPACE_BYTES: Provide a positive integer or 'unlimited'`
+    );
+  }
+  return parsed;
+}
+
 function buildConfig(): DockerRuntimeConfig {
-  const enabled = parseBoolean(process.env.CORE_ENABLE_DOCKER_JOBS, false);
-  const workspaceRoot = resolveWorkspaceRoot();
-  const imageAllowList = parsePatterns(process.env.CORE_DOCKER_IMAGE_ALLOWLIST);
-  const imageDenyList = parsePatterns(process.env.CORE_DOCKER_IMAGE_DENYLIST);
-  const maxWorkspaceBytes = parseInteger(process.env.CORE_DOCKER_MAX_WORKSPACE_BYTES, {
-    defaultValue: DEFAULT_MAX_WORKSPACE_BYTES,
-    allowNull: true,
-  });
-  const gpuEnabled = parseBoolean(process.env.CORE_DOCKER_ENABLE_GPU, false);
-  const network = resolveNetworkPolicy();
-  const persistLogTailInContext = parseBoolean(
-    process.env.CORE_DOCKER_PERSIST_LOG_TAIL,
-    true
-  );
+  const env = loadDockerEnv();
+
+  const enabled = env.CORE_ENABLE_DOCKER_JOBS ?? false;
+  const workspaceRoot = resolveWorkspaceRoot(env.CORE_DOCKER_WORKSPACE_ROOT);
+  const imageAllowList = parsePatterns(env.CORE_DOCKER_IMAGE_ALLOWLIST ?? []);
+  const imageDenyList = parsePatterns(env.CORE_DOCKER_IMAGE_DENYLIST ?? []);
+  const maxWorkspaceBytes = parseWorkspaceLimit(env.CORE_DOCKER_MAX_WORKSPACE_BYTES);
+  const gpuEnabled = env.CORE_DOCKER_ENABLE_GPU ?? false;
+  const network = resolveNetworkPolicy(env);
+  const persistLogTailInContext = env.CORE_DOCKER_PERSIST_LOG_TAIL ?? true;
 
   return {
     enabled,
