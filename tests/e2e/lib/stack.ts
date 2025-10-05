@@ -17,7 +17,7 @@ export interface StackHandle {
   composeFile: string;
   environment: ComposeEnvironment;
   stop: () => Promise<void>;
-  collectLogs: () => Promise<string>;
+  collectLogs: (options?: { since?: Date }) => Promise<string>;
 }
 
 export interface StartStackOptions {
@@ -141,6 +141,8 @@ export async function startStack(options: StartStackOptions = {}): Promise<Stack
     throw error;
   });
 
+  const startedAt = new Date();
+
   return {
     project,
     composeFile,
@@ -152,7 +154,8 @@ export async function startStack(options: StartStackOptions = {}): Promise<Stack
         env: environment
       });
     },
-    collectLogs: async () => collectComposeLogs({ composeFile, project, env: environment })
+    collectLogs: async (opts) =>
+      collectComposeLogs({ composeFile, project, env: environment, since: opts?.since ?? startedAt })
   };
 }
 
@@ -160,7 +163,12 @@ async function collectComposeLogs(params: {
   composeFile: string;
   project: string;
   env: ComposeEnvironment;
+  since?: Date;
 }): Promise<string> {
-  const { stdout } = await runDockerCompose(['logs', '--no-color'], params);
+  const args = ['logs', '--no-color'];
+  if (params.since) {
+    args.push('--since', params.since.toISOString());
+  }
+  const { stdout } = await runDockerCompose(args, params);
   return stdout;
 }
