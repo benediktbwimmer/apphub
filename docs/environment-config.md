@@ -49,6 +49,20 @@ The `getAuthConfig` loader and associated tests (`services/core/tests/authConfig
 
 Metastore-specific tests (`services/metastore/tests/unit/serviceConfig.test.ts`) exercise inline mode toggles, Redis validation, and token parsing via the shared helper.
 
+## Timestore Service
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `TIMESTORE_STAGING_DIRECTORY` | `<repo>/services/data/timestore/staging` | Root path for DuckDB staging files; created on boot if missing. |
+| `TIMESTORE_STAGING_MAX_DATASET_BYTES` | `536_870_912` (512 MiB) | Per-dataset guardrail; `0` disables the warning. Pair with `timestore_staging_disk_usage_bytes`. |
+| `TIMESTORE_STAGING_MAX_TOTAL_BYTES` | `0` | Global staging footprint ceiling. `0` leaves the global check disabled. |
+| `TIMESTORE_STAGING_MAX_PENDING` | `64` | In-memory queue depth per dataset before new batches are rejected. |
+| `TIMESTORE_STAGING_FLUSH_MAX_ROWS` | `50_000` | Flush trigger when staged rows exceed the threshold. `0` disables the row-based trigger. |
+| `TIMESTORE_STAGING_FLUSH_MAX_BYTES` | `134_217_728` (128 MiB) | Flush trigger based on DuckDB on-disk size. `0` disables the byte trigger. |
+| `TIMESTORE_STAGING_FLUSH_MAX_AGE_MS` | `60_000` (60s) | Flush trigger when the oldest batch waits longer than the threshold. `0` flushes eagerly whenever staging is non-empty. |
+
+Datasets can override the flush thresholds via metadata (`dataset.metadata.staging.flush`). Operators should document the overrides alongside alert thresholds so dashboards reflect the effective limits.
+
 ## Adding New Configuration
 
 1. Declare expected variables in your service with `z.object({ ... }).passthrough()`.
