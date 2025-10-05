@@ -43,14 +43,14 @@ const NODE_COLOR_TOKENS = (theme: ThemeDefinition): Record<WorkflowGraphCanvasNo
     badgeText: theme.semantics.accent.onAccent
   },
   'step-job': {
-    primary: theme.semantics.status.success,
-    secondary: theme.semantics.status.info,
-    badgeText: theme.semantics.status.successOn
+    primary: theme.semantics.status.info,
+    secondary: theme.semantics.text.accent,
+    badgeText: theme.semantics.status.infoOn
   },
   'step-service': {
-    primary: theme.semantics.status.info,
+    primary: theme.semantics.status.success,
     secondary: theme.semantics.accent.default,
-    badgeText: theme.semantics.status.infoOn
+    badgeText: theme.semantics.status.successOn
   },
   'step-fanout': {
     primary: theme.semantics.status.warning,
@@ -59,7 +59,7 @@ const NODE_COLOR_TOKENS = (theme: ThemeDefinition): Record<WorkflowGraphCanvasNo
   },
   'trigger-event': {
     primary: theme.semantics.accent.emphasis,
-    secondary: theme.semantics.status.info,
+    secondary: theme.semantics.status.warning,
     badgeText: theme.semantics.accent.onAccent
   },
   'trigger-definition': {
@@ -69,7 +69,7 @@ const NODE_COLOR_TOKENS = (theme: ThemeDefinition): Record<WorkflowGraphCanvasNo
   },
   schedule: {
     primary: theme.semantics.text.secondary,
-    secondary: theme.semantics.accent.default,
+    secondary: theme.semantics.status.info,
     badgeText: theme.semantics.text.inverse
   },
   asset: {
@@ -79,7 +79,7 @@ const NODE_COLOR_TOKENS = (theme: ThemeDefinition): Record<WorkflowGraphCanvasNo
   },
   'event-source': {
     primary: theme.semantics.status.success,
-    secondary: theme.semantics.status.info,
+    secondary: theme.semantics.accent.emphasis,
     badgeText: theme.semantics.status.successOn
   }
 });

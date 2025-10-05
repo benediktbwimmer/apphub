@@ -1,5 +1,5 @@
 import type { AssetExpiredEvent, AssetProducedEvent } from '../../core/types';
-import type { WorkflowEventSchedulerHealth, WorkflowRun } from '../types';
+import type { WorkflowEventSchedulerHealth, WorkflowRun, WorkflowRunStep } from '../types';
 import type {
   WorkflowGraphAssetStatus,
   WorkflowGraphLiveOverlay,
@@ -247,6 +247,47 @@ export function applyAssetExpiredOverlay(
     },
     triggers: overlay.triggers
   };
+}
+
+export function buildWorkflowRunOverlayFromSnapshot(
+  run: WorkflowRun,
+  steps: WorkflowRunStep[],
+  referenceTimestampMs: number = Date.now()
+): WorkflowGraphLiveOverlay {
+  let overlay = applyWorkflowRunOverlay(createInitialOverlay(), run, referenceTimestampMs);
+  if (steps.length === 0) {
+    return overlay;
+  }
+
+  let nextSteps = overlay.steps;
+  let mutated = false;
+  for (const step of steps) {
+    const state = mapStepStatus(step.status);
+    const stepTimestampMs =
+      toMillis(step.completedAt) ?? toMillis(step.startedAt) ?? referenceTimestampMs;
+    if (!mutated) {
+      nextSteps = { ...nextSteps };
+      mutated = true;
+    }
+    nextSteps[step.stepId] = {
+      state,
+      runId: run.id,
+      runKey: run.runKey ?? null,
+      updatedAt: new Date(stepTimestampMs ?? referenceTimestampMs).toISOString(),
+      attempt: step.attempt
+    } satisfies WorkflowGraphStepStatus;
+  }
+
+  if (!mutated) {
+    return overlay;
+  }
+
+  overlay = {
+    ...overlay,
+    steps: nextSteps
+  };
+
+  return overlay;
 }
 
 function mapTriggerStatus(

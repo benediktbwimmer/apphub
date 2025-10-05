@@ -647,6 +647,78 @@ export async function listWorkflowRunsForSlug(
   };
 }
 
+export async function getWorkflowRun(
+  token: TokenInput,
+  runId: string
+): Promise<WorkflowRun> {
+  const payload = await requestJson(token,  `/workflow-runs/${encodeURIComponent(runId)}`, {
+    schema: requiredDataSchema,
+    errorMessage: 'Failed to load workflow run'
+  });
+  const run = normalizeWorkflowRun(payload.data);
+  if (!run) {
+    throw new ApiError('Workflow run response missing data', 500, payload);
+  }
+  return run;
+}
+
+export type WorkflowRunSearchResult = {
+  run: WorkflowRun;
+  workflow: {
+    id: string;
+    slug: string;
+    name: string;
+    version: number;
+  };
+};
+
+export async function searchWorkflowRuns(
+  token: TokenInput,
+  params: { search: string; limit?: number }
+): Promise<WorkflowRunSearchResult[]> {
+  const trimmed = params.search.trim();
+  if (trimmed.length === 0) {
+    return [];
+  }
+  const searchParams = new URLSearchParams();
+  searchParams.set('search', trimmed);
+  if (typeof params.limit === 'number' && Number.isFinite(params.limit)) {
+    searchParams.set('limit', String(Math.max(1, Math.min(50, Math.trunc(params.limit)))));
+  }
+  const query = searchParams.toString();
+  const response = await requestJson(token,  `/workflow-runs${query ? `?${query}` : ''}`, {
+    errorMessage: 'Failed to search workflow runs'
+  });
+  const payload = response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
+  const data = Array.isArray(payload.data) ? payload.data : [];
+  const results: WorkflowRunSearchResult[] = [];
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const run = normalizeWorkflowRun(record.run);
+    const workflowRaw = record.workflow as Record<string, unknown> | undefined;
+    const workflowId = typeof workflowRaw?.id === 'string' ? workflowRaw.id : null;
+    const workflowSlug = typeof workflowRaw?.slug === 'string' ? workflowRaw.slug : null;
+    const workflowName = typeof workflowRaw?.name === 'string' ? workflowRaw.name : workflowSlug;
+    const workflowVersion = typeof workflowRaw?.version === 'number' ? workflowRaw.version : null;
+    if (!run || !workflowId || !workflowSlug || workflowVersion === null) {
+      continue;
+    }
+    results.push({
+      run,
+      workflow: {
+        id: workflowId,
+        slug: workflowSlug,
+        name: workflowName ?? workflowSlug,
+        version: workflowVersion
+      }
+    });
+  }
+  return results;
+}
+
 type WorkflowAnalyticsQuery = {
   range?: '24h' | '7d' | '30d';
   bucket?: '15m' | 'hour' | 'day';
