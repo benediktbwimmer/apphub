@@ -51,6 +51,19 @@ interface StreamingStatus {
   broker: StreamingBrokerStatus;
   batchers: StreamingBatcherStatusSummary;
   hotBuffer: StreamingHotBufferStatus;
+  mirrors?: Record<string, boolean>;
+  publisher?: StreamingMirrorPublisherStatus;
+}
+
+interface StreamingMirrorPublisherStatus {
+  configured: boolean;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  failureCount: number;
+  lastError: string | null;
+  broker: {
+    url: string | null;
+  };
 }
 
 interface HealthPayload {
@@ -138,6 +151,42 @@ function renderHealth(payload: HealthPayload | null, statusCode: number): void {
       console.log('  hot-buffer: disabled');
     } else {
       console.log(`  hot-buffer: ${streaming.hotBuffer.state} (datasets=${streaming.hotBuffer.datasets})`);
+    }
+
+    if (streaming.mirrors) {
+      const active = Object.entries(streaming.mirrors)
+        .filter(([, value]) => value)
+        .map(([key]) => key)
+        .sort();
+      const inactive = Object.entries(streaming.mirrors)
+        .filter(([, value]) => !value)
+        .map(([key]) => key)
+        .sort();
+
+      console.log('  mirrors:');
+      console.log(`    enabled: ${active.length > 0 ? active.join(', ') : 'none'}`);
+      if (inactive.length > 0) {
+        console.log(`    disabled: ${inactive.join(', ')}`);
+      }
+    }
+
+    const publisher = streaming.publisher;
+    if (publisher) {
+      console.log('  publisher:');
+      console.log(`    configured: ${publisher.configured ? 'yes' : 'no'}`);
+      if (publisher.broker.url) {
+        console.log(`    broker: ${publisher.broker.url}`);
+      }
+      if (publisher.lastSuccessAt) {
+        console.log(`    last-success: ${publisher.lastSuccessAt}`);
+      }
+      if (publisher.lastFailureAt) {
+        console.log(`    last-failure: ${publisher.lastFailureAt}`);
+      }
+      if (publisher.failureCount > 0) {
+        const errorSnippet = publisher.lastError ? ` (${publisher.lastError})` : '';
+        console.log(`    recent-failures: ${publisher.failureCount}${errorSnippet}`);
+      }
     }
   }
 }

@@ -183,7 +183,7 @@ const STREAMING_ENABLED = isEnabledValue(process.env.APPHUB_STREAMING_ENABLED);
 
 const DEV_REDPANDA = {
   container: process.env.APPHUB_DEV_REDPANDA_CONTAINER ?? 'apphub-dev-redpanda',
-  image: process.env.APPHUB_DEV_REDPANDA_IMAGE ?? 'docker.redpanda.com/redpandadata/redpanda:v24.2.3',
+  image: process.env.APPHUB_DEV_REDPANDA_IMAGE ?? 'docker.redpanda.com/redpandadata/redpanda:v23.3.12',
   volume: process.env.APPHUB_DEV_REDPANDA_VOLUME ?? 'apphub-dev-redpanda',
   kafkaPort: parsePort(process.env.APPHUB_DEV_REDPANDA_PORT, 19092),
   adminPort: parsePort(process.env.APPHUB_DEV_REDPANDA_ADMIN_PORT, 19644),
@@ -202,6 +202,7 @@ if (STREAMING_ENABLED) {
     volumes: [`${DEV_REDPANDA.volume}:/var/lib/redpanda/data`],
     ports: [`${DEV_REDPANDA.kafkaPort}:9092`, `${DEV_REDPANDA.adminPort}:9644`],
     args: [
+      'redpanda',
       'start',
       '--overprovisioned',
       '--smp',
@@ -224,9 +225,7 @@ if (STREAMING_ENABLED) {
       '--pandaproxy-addr',
       '0.0.0.0:8082',
       '--advertise-pandaproxy-addr',
-      '127.0.0.1:8082',
-      '--dashboard-addr',
-      '0.0.0.0:9644'
+      '127.0.0.1:8082'
     ]
   });
 }
@@ -238,7 +237,9 @@ if (STREAMING_ENABLED) {
 const STREAMING_TOPICS = [
   { name: 'apphub.core.events', partitions: 6, retentionMs: 604_800_000 },
   { name: 'apphub.ingestion.telemetry', partitions: 6, retentionMs: 259_200_000 },
-  { name: 'apphub.workflows.events', partitions: 6, retentionMs: 604_800_000 }
+  { name: 'apphub.workflows.events', partitions: 6, retentionMs: 604_800_000 },
+  { name: 'apphub.workflows.runs', partitions: 6, retentionMs: 604_800_000 },
+  { name: 'apphub.jobs.runs', partitions: 6, retentionMs: 604_800_000 }
 ];
 
 const STREAMING_SMOKE_TOPIC = STREAMING_TOPICS[0].name;

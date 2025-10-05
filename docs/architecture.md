@@ -316,12 +316,14 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 
 ## Feature Flags
 - `APPHUB_STREAMING_ENABLED` (default `false`) gates the streaming stack. With the flag disabled, Core and Timestore behave exactly as they do today while `/health` exposes the streaming feature as inactive. Enabling the flag requires `APPHUB_STREAM_BROKER_URL`; health endpoints return `503` when streaming is enabled but the broker is unreachable so operators can detect misconfiguration before traffic routes through the streaming path.
+- Per-producer mirrors default to `false` and let operators opt workloads into durable streaming: `APPHUB_STREAM_MIRROR_WORKFLOW_RUNS`, `APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS`, `APPHUB_STREAM_MIRROR_JOB_RUNS`, `APPHUB_STREAM_MIRROR_INGESTION`, and `APPHUB_STREAM_MIRROR_CORE_EVENTS`.
 
 ## Streaming Backbone
 - Redpanda acts as the durable event log for high-volume streaming workloads (core domain events, ingestion telemetry, workflow envelopes). See `docs/redpanda.md` for provisioning details, topic defaults, and operational SLOs.
 - Flink executes long-lived aggregations and windowed analytics on top of the Redpanda streams. `docs/flink.md` covers cluster deployment, checkpointing, and the bundled sample job.
 - Redis remains the source of truth for BullMQ job queues, caching, and inline event fallbacks; Redpanda is additive rather than a drop-in replacement.
 - Local development and docker-compose stacks ship with a single-node Redpanda broker and topic bootstrapper. Minikube deploys a three-node StatefulSet with persistent volumes and exposes Kafka (9092) plus the admin API (9644).
+- Timestore consumes mirrored topics into streaming datasets (`workflow_runs_stream`, `workflow_events_stream`, `job_runs_stream`, `ingestion_events_stream`, `core_events_stream`) so replay queries remain consistent with the Kafka mirrors.
 
 ### Hybrid Query Flow
 

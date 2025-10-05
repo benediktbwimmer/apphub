@@ -3,6 +3,7 @@ import { WorkflowRunRow, WorkflowRunStepRow, WorkflowRunStepAssetRow, WorkflowEx
 import type { WorkflowRunCreateInput, WorkflowRunRecord, WorkflowRunRetrySummary, WorkflowRunWithDefinition, WorkflowRunStatus, WorkflowRunUpdateInput, WorkflowRunStepCreateInput, WorkflowRunStepRecord, WorkflowRunStepUpdateInput, WorkflowRunStepStatus, JsonValue, WorkflowRunStepAssetRecord, WorkflowRunStepAssetInput, WorkflowExecutionHistoryRecord, WorkflowExecutionHistoryEventInput, WorkflowTriggerDeliveryRecord } from '../../db/types';
 import { useConnection, useTransaction } from '../../db/utils';
 import { emitApphubEvent } from '../../events';
+import { mirrorWorkflowRunLifecycle } from '../../streaming/workflowMirror';
 import { computeRunKeyColumns } from '../runKey';
 import { WorkflowRunListFilters, normalizePartitionKeyValue, upsertWorkflowAssetPartitionParameters } from './assetsRepository';
 import { MANUAL_TRIGGER } from './definitionsRepository';
@@ -263,9 +264,11 @@ function emitWorkflowRunEvents(run: WorkflowRunRecord | null, { forceUpdatedEven
   }
   if (forceUpdatedEvent) {
     emitApphubEvent({ type: 'workflow.run.updated', data: { run } });
+    mirrorWorkflowRunLifecycle('workflow.run.updated', run);
   }
   const statusEvent = `workflow.run.${run.status}` as const;
   emitApphubEvent({ type: statusEvent, data: { run } });
+  mirrorWorkflowRunLifecycle(statusEvent, run);
 }
 
 async function fetchWorkflowRunStepAssets(

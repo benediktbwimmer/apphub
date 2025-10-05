@@ -24,6 +24,7 @@ import type {
   TimestorePartitionDeletedEventData
 } from '@apphub/shared/coreEvents';
 import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
+import { mirrorApphubEvent } from './streaming/coreEventMirror';
 
 type WorkflowAnalyticsStatsEventPayload = {
   workflowId: string;
@@ -355,6 +356,7 @@ if (!inlineMode && redisUrl) {
 
 export function emitApphubEvent(event: ApphubEvent) {
   bus.emit('apphub:event', event);
+  mirrorApphubEvent(event);
 
   if (inlineMode || !publisher) {
     return;
