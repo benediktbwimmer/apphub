@@ -29,6 +29,22 @@ export async function authorizeAdminAccess(request: FastifyRequest): Promise<voi
   }
 }
 
+export function authorizeDatasetListAccess(request: FastifyRequest): void {
+  const scopes = getRequestScopes(request);
+  if (ADMIN_SCOPE && hasRequiredScope(scopes, [ADMIN_SCOPE])) {
+    return;
+  }
+  if (!REQUIRED_SCOPE) {
+    return;
+  }
+  if (!hasRequiredScope(scopes, [REQUIRED_SCOPE])) {
+    const message = `Missing required scope ${REQUIRED_SCOPE}`;
+    const error = new Error(message);
+    (error as Error & { statusCode?: number }).statusCode = 403;
+    throw error;
+  }
+}
+
 export function authorizeSqlReadAccess(request: FastifyRequest): void {
   enforceScopes(request, SQL_READ_SCOPES, 'Missing required SQL read scope');
 }

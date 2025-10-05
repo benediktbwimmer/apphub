@@ -38,6 +38,9 @@ type OperatorScope =
   | 'timestore:sql:read'
   | 'timestore:sql:exec'
   | 'timestore:metrics'
+  | 'observatory:read'
+  | 'observatory:write'
+  | 'observatory:reprocess'
   | 'admin:danger-zone';
 
 const ALL_SCOPES: OperatorScope[] = [
@@ -64,6 +67,9 @@ const ALL_SCOPES: OperatorScope[] = [
   'timestore:sql:read',
   'timestore:sql:exec',
   'timestore:metrics',
+  'observatory:read',
+  'observatory:write',
+  'observatory:reprocess',
   'admin:danger-zone'
 ];
 
@@ -93,6 +99,9 @@ const SCOPE_ALIASES: Record<OperatorScope, OperatorScope[]> = {
   'timestore:sql:read': [],
   'timestore:sql:exec': ['timestore:sql:read'],
   'timestore:metrics': [],
+  'observatory:read': [],
+  'observatory:write': ['observatory:read'],
+  'observatory:reprocess': ['observatory:write', 'observatory:read'],
   'admin:danger-zone': []
 };
 
