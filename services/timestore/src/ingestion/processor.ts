@@ -71,6 +71,7 @@ export async function processIngestionJob(
     'timestore.dataset_slug': datasetSlug
   });
   const start = process.hrtime.bigint();
+  let flushFailureHandled = false;
   try {
     const storageTarget = await resolveStorageTarget(payload);
 
@@ -332,6 +333,7 @@ export async function processIngestionJob(
       });
 
       endSpan(span, error);
+      flushFailureHandled = true;
       throw error;
     }
 
@@ -607,12 +609,14 @@ export async function processIngestionJob(
       return manifest;
     }
   } catch (error) {
-    observeIngestionJob({
-      datasetSlug,
-      result: 'failure',
-      durationSeconds: durationSince(start)
-    });
-    endSpan(span, error);
+    if (!flushFailureHandled) {
+      observeIngestionJob({
+        datasetSlug,
+        result: 'failure',
+        durationSeconds: durationSince(start)
+      });
+      endSpan(span, error);
+    }
     throw error;
   }
 }
