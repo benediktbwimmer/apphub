@@ -1,8 +1,12 @@
-# Environmental Observatory Instrument Network
+# Environmental Observatory Control Tower
 
-The environmental observatory scenario models a network of field instruments that stream minute-by-minute CSV measurements into an inbox directory. A set of AppHub workflows ingest the raw readings, persist them into Timestore, render updated plots, publish refreshed status pages, and optionally register report metadata in the Metastore whenever upstream assets change. The module leans on workflow asset lineage plus auto-materialization so downstream documents stay current without manual intervention.
+The observatory module now doubles as a Control Tower showcase. It narrates three complementary automation lanes so demo hosts can draw a clean line between event-first orchestration and asset-first auto-materialisation:
 
-The event-driven flavour now partitions Timestore manifests per instrument and propagates the instrument id through trigger parameters, enabling publication workflows to run for each sensor independently while sharing the same DAG.
+- **Pipeline Health (event-first):** Cron-driven data generation and Filestore events keep the ingest loop warm. `observatory-minute-ingest` reacts to `filestore.command.completed`, slurps the CSV batch directly, and publishes the materialised `observatory.timeseries.timestore` asset so downstream flows stay in lockstep.
+- **Insights (asset-first):** Once `observatory.timeseries.timestore` is materialised, downstream workflows listen for `observatory.asset.materialized` signals. Visualisations and reports still cascade off that lineage, but the burst window TTL now produces `observatory.burst.window` and `observatory.burst.ready`, which in turn drive the refreshed `observatory.dashboard.snapshot` payloads—showing how assets can debounce chatter without custom schedulers.
+- **Calibration Recovery (hybrid):** Calibration uploads emit both `observatory.calibration.updated` and an `observatory.calibration.instrument` asset. The planner materialises `observatory.reprocess.plan`, and the reprocessor immediately consumes that asset via trigger to hydrate new partitions—while still emitting events for audit streams.
+
+Each lane answers a different operational question (“Is data flowing?”, “What insights changed?”, “Can we trust the sensors?”) while showcasing how AppHub workflows mix triggers and assets inside a single module.
 
 > **Module-first tooling**
 >
@@ -10,9 +14,9 @@ The event-driven flavour now partitions Timestore manifests per instrument and p
 > wizard pulls catalog data from `/modules/catalog`, while the legacy assets under `examples/environmental-observatory/`
 > remain available for bootstrap scripts, sample data, and troubleshooting utilities.
 
-> **Event-driven variant**
+> **Event & asset choreography**
 >
-> In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `examples/environmental-observatory/`. CSV uploads flow through Filestore, the inbox normalizer emits `observatory.minute.raw-uploaded`, downstream publication reacts to `observatory.minute.partition-ready`, and a dashboard aggregation workflow listens for `timestore.partition.created` (with a guarded fallback on the ingest signal) before publishing `observatory.dashboard.updated` after querying Timestore for fleet-wide stats. See the [README](../examples/environmental-observatory/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the upgraded services).
+> The `examples/environmental-observatory/` workspace still hosts bootstrap scripts, yet the module itself now mixes trigger styles: cron and Filestore events keep the pipeline lane humming, while asset materialisation (`observatory.timeseries.timestore`, `observatory.visualizations.minute`, `observatory.reports.status`, `observatory.dashboard.snapshot`) drives the insights lane. The README covers the helper scripts (`materializeConfig.ts`, `setupTriggers.ts`) that wire event ingress plus the optional gateway.
 
 ## End-to-end validation (2025-09-29)
 
@@ -29,35 +33,35 @@ The event-driven flavour now partitions Timestore manifests per instrument and p
 graph TD
   Instruments[[Field instruments]] -->|Minute CSV drops| Inbox[[Inbox directory]]
   Inbox --> Gateway{{Observatory event gateway}}
-  Gateway -->|Uploads + triggers workflow| Normalizer[observatory-inbox-normalizer]
-  Normalizer --> Staging[(staging/<minute>/)]
-  Normalizer --> Archive[(archive/<instrument>/<hour>/<minute>.csv)]
-  Normalizer --> RawAsset[(Asset: observatory.timeseries.raw)]
-  RawAsset --> Loader[observatory-timestore-loader]
-  Loader --> Timestore[(Timestore dataset)]
-  Loader --> TimestoreAsset[(Asset: observatory.timeseries.timestore)]
-  TimestoreAsset --> Visualization[observatory-visualization-runner]
-  Visualization --> Plots[(plots/<minute>/)]
+  Gateway -->|Uploads + triggers workflow| Ingest[observatory-minute-ingest]
+  Ingest --> Archive[(archive/<instrument>/<hour>/<minute>.csv)]
+  Ingest --> Timestore[(Timestore dataset)]
+  Ingest --> TimeseriesAsset[(Asset: observatory.timeseries.timestore)]
+  Ingest --> BurstWindow[(Asset: observatory.burst.window)]
+  BurstWindow -->|TTL expiry| BurstFinalizer[observatory-burst-finalize]
+  BurstFinalizer --> BurstReady[(Asset: observatory.burst.ready)]
+  TimeseriesAsset --> Visualization[observatory-visualization-runner]
+  Visualization --> Plots[(visualizations/<minute>/)]
   Visualization --> VizAsset[(Asset: observatory.visualizations.minute)]
   VizAsset --> Reporter[observatory-report-publisher]
-  Reporter --> Reports[(reports/<minute>/)]
+  Reporter --> Reports[(reports/<instrument|minute>/)]
   Reporter --> ReportAsset[(Asset: observatory.reports.status)]
-  ReportAsset --> Dashboard[observatory-dashboard service]
+  BurstReady --> DashboardAggregator[observatory-dashboard-aggregator]
+  DashboardAggregator --> DashboardAsset[(Asset: observatory.dashboard.snapshot)]
+  DashboardAsset --> Dashboard[observatory-dashboard service]
   Dashboard --> Viewers[[Operators & stakeholders]]
 ```
 
 ## Data drop and directory layout
 
-Each instrument pushes a minute CSV into an inbox (`/tmp/apphub-scratch/observatory/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to the Timestore ingestion job:
+Each instrument pushes a minute CSV into a raw prefix (`/tmp/apphub-scratch/observatory/raw`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The ingest job processes the file in place and streams the records straight into Timestore:
 
 ```
-/tmp/apphub-scratch/observatory/
-  inbox/
+/tmp/apphub-scratch/observatory/raw/
     instrument_alpha_202508010900.csv
     instrument_alpha_202508011000.csv
     instrument_bravo_202508010900.csv
-  staging/
-  plots/
+  visualizations/
   reports/
 ```
 
@@ -85,10 +89,11 @@ Four Node jobs orchestrate the pipeline. Their sources live under `modules/envir
 
 | Bundle | Slug | Purpose |
 | ------ | ---- | ------- |
-| `modules/environmental-observatory/src/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, archives the originals under instrument/hour folders, extracts metadata, and emits the partitioned raw asset. |
-| `modules/environmental-observatory/src/jobs/observatory-timestore-loader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, producing per-instrument minute partitions and tagging each manifest entry with instrument metadata. |
-| `modules/environmental-observatory/src/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `plots`, and emits a visualization asset curating the artifacts. |
-| `modules/environmental-observatory/src/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
+| `modules/environmental-observatory/src/jobs/minutePreprocessor` | `observatory-minute-preprocessor` | Parses minute CSVs in-place under the raw prefix, resolves calibrations, records ingest metadata, and emits the normalized payload consumed by the loader. |
+| `modules/environmental-observatory/src/jobs/timestoreLoader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, tagging each manifest with calibration lineage and materialising `observatory.timeseries.timestore`. |
+| `modules/environmental-observatory/src/jobs/visualizationRunner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `visualizations/`, and emits the `observatory.visualizations.minute` asset. |
+| `modules/environmental-observatory/src/jobs/reportPublisher` | `observatory-report-publisher` | Renders Markdown/HTML/JSON reports in `reports/`, consuming the visualization asset and materialising `observatory.reports.status`. |
+| `modules/environmental-observatory/src/jobs/dashboardAggregator` | `observatory-dashboard-aggregator` | Aggregates fleet metrics, writes `observatory.dashboard.snapshot`, and emits `observatory.dashboard.updated` for UI freshness.
 
 Each bundle ships with an `apphub.bundle.json` and Node entry point so you can register them via the core API once built.
 
@@ -96,11 +101,12 @@ Each bundle ships with an `apphub.bundle.json` and Node entry point so you can r
 
 | Asset id | Producer | Consumers | Notes |
 | -------- | -------- | --------- | ----- |
-| `observatory.timeseries.raw` | Inbox normalizer workflow step | Timestore loader | `timeWindow` partitioned by minute (format `YYYY-MM-DDTHH:mm`). Produced when new CSVs land in the inbox. Includes Filestore `files` metadata (paths, node ids, checksums), staging prefixes, and per-file calibration references plus a `calibrationsApplied` summary sourced from the Metastore. |
-| `observatory.timeseries.timestore` | Timestore loader workflow step | Visualization runner | References the curated Timestore manifest, including ingestion mode, manifest id, row counts, and the calibration id/effectiveAt/version applied during ingestion. Declares `freshness.ttlMs = 60_000` to expire after one minute if no new data arrives. |
+| `observatory.inbox.normalized` | Inbox normalizer workflow step | Timestore loader | Normalised minute payload with per-file metadata and calibration lineage. |
+| `observatory.timeseries.timestore` | Minute ingest job | Visualization runner | `timeWindow` partitioned by minute (`YYYY-MM-DDTHH:mm`) with ingestion artefacts (manifest id, rows, calibration lineage, storage target). Generated directly from inbox CSVs. |
 | `observatory.visualizations.minute` | Visualization runner workflow step | Report publisher | Lists generated plots (`temperature_trend.svg`, `air_quality_small_multiples.png`) and summary metrics. `autoMaterialize.onUpstreamUpdate = true` so new Timestore partitions retrigger plotting automatically. |
 | `observatory.reports.status` | Report publisher workflow step | Frontend/web CDN | Bundles Markdown, HTML, and JSON payloads for the site. Produces audit-friendly provenance (`generatedAt`, `plotArtifacts`) and is also a candidate for downstream notifications. |
 | `observatory.calibration.instrument` | Calibration import workflow step | Future ingest/planning flows | Stores the canonical calibration payload (instrument, effectiveAt, offsets/scales, metadata) plus metastore linkage for reprocessing planners. |
+| `observatory.dashboard.snapshot` | Dashboard aggregator workflow step | Dashboard service | Curated snapshot (HTML + JSON) with fleet metrics. Materialisation triggers UI refreshes and downstream consumers can diff successive snapshots. |
 
 The lineage graph forms a linear chain: inbox → Timestore → plots → reports. Auto-materialization guarantees the visualization workflow runs after each upstream Timestore ingest, which in turn triggers the reporting step. The asset history for `observatory.reports.status` makes it easy to diff report revisions over time.
 
@@ -110,9 +116,9 @@ Two workflows manage the module. Their TypeScript definitions live in `modules/e
 
 - **Trigger:** Manual or filesystem gateway (optional) when the minute inbox directory receives new CSVs.
 - **Steps:**
-  1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by minute. As part of normalization it resolves the latest Metastore calibration for each instrument, logs gaps/future-effective versions, and records the reference in both the per-file metadata and the `calibrationsApplied` summary. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off Timestore ingestion.
-  2. `observatory-timestore-loader` consumes the raw asset, fetches the referenced calibration snapshot (or the active calibration when ingest is re-run), applies offsets/scales to each reading before streaming into Timestore, and produces `observatory.timeseries.timestore` with `freshness.ttlMs` tuned for minute cadence plus calibration lineage in the manifest summary.
-- **Parameters:** `minute`, Filestore connection details (`filestoreBaseUrl`, `filestoreBackendId`, `inboxPrefix`, `stagingPrefix`, `archivePrefix`), optional `maxFiles`, and the Timestore dataset coordinates.
+  1. `observatory-minute-preprocessor` reads the raw CSV under the `inboxPrefix`, enriches each file with calibration lineage, and emits the normalized payload while keeping the original object in place.
+  2. `observatory-timestore-loader` consumes the normalized payload, streams the readings into Timestore, and materialises `observatory.timeseries.timestore`.
+- **Parameters:** `minute`, Filestore connection details (`filestoreBaseUrl`, `filestoreBackendId`, `inboxPrefix`), optional `maxFiles`, optional `commandPath`, and the Timestore dataset coordinates.
 - **Defaults:** Derived from the generated observatory config; ingestion works entirely through Filestore prefixes.
 
 ### 2. `observatory-daily-publication`
@@ -148,12 +154,14 @@ Two workflows manage the module. Their TypeScript definitions live in `modules/e
 
 ## Auto-materialization flow
 
-1. Inbox workflow runs after new CSV drops. Step 1 copies files into the staging Filestore prefix, moves the originals under the archive prefix, records row counts, and produces `observatory.timeseries.raw` (minute partition). The asset materializer notices the new partition.
-2. Because the ingest step declares `autoMaterialize.onUpstreamUpdate`, the workflow enqueues the Timestore loader immediately for the same partition. The loader produces `observatory.timeseries.timestore` and schedules an expiry after 60 minutes.
-3. The visualization workflow listens to `observatory.timeseries.timestore`. When a snapshot is produced or expires, the materializer runs `observatory-visualization-runner`, regenerating SVG plots straight to Filestore.
-4. The reporting step consumes the visualization asset. Since it also opts into `autoMaterialize.onUpstreamUpdate`, any new plots automatically yield fresh reports (Markdown/HTML/JSON) in Filestore.
-5. Reports are now available for the frontend or external publishing, and when Metastore credentials are supplied the latest payload metadata is upserted into `observatory.reports` for search and auditing. The dashboard service streams the latest report files directly from Filestore, so operators always see fresh metrics without relying on repository directories. Asset history exposes run keys, run IDs, and payload diffs for auditing.
-6. When calibration uploads arrive the calibration workflow publishes `observatory.calibration.instrument`, which downstream reprocessing planners can use to decide which partitions to rebuild before re-triggering ingest.
+1. `observatory-minute-preprocessor` reacts to Filestore uploads, enriches the raw CSV with calibration lineage, and hands the normalized payload to `observatory-timestore-loader`, which ingests the rows into Timestore and materialises both `observatory.timeseries.timestore` and a quiet-window heartbeat asset `observatory.burst.window`.
+2. The visualization workflow subscribes to the timestore asset and regenerates plots and metrics, producing `observatory.visualizations.minute`.
+3. The reporting workflow consumes the visualization asset, writes Markdown/HTML/JSON artefacts, and materialises `observatory.reports.status`—publishing an asset event that downstream consumers can follow.
+4. Each new `observatory.burst.window` materialisation resets a TTL. When the quiet window elapses without additional CSVs, the resulting `asset.expired` signal triggers `observatory-burst-finalize`, which emits `observatory.burst.finished` and materialises the debounce asset `observatory.burst.ready`.
+5. `observatory-dashboard-aggregator` consumes `observatory.burst.ready`, queries Timestore for fleet-wide summaries, materialises `observatory.dashboard.snapshot`, and emits `observatory.dashboard.updated` so the UI refreshes instantly. The snapshot asset now carries its own freshness TTL, so the materializer automatically reruns aggregation if a minute goes by without a burst signal.
+6. Calibration uploads still emit both `observatory.calibration.instrument` and `observatory.calibration.updated`. The planner materialises `observatory.reprocess.plan`, and the reprocessor subscribes to that asset so rehydration runs kick off automatically.
+
+The burst finalizer also emits an `observatory.burst.finished` event so socket consumers can keep a live timeline, and the new module settings `dashboard.burstQuietMs` / `dashboard.snapshotFreshnessMs` expose the quiet-window delay (default 5 seconds) plus the "run at least every X ms" freshness guarantee (default 60 seconds) for demos.
 
 ## Running the demo locally
 
@@ -202,7 +210,7 @@ npm run build --workspace @apphub/environmental-observatory-module
    cp modules/environmental-observatory/dist/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
    cp modules/environmental-observatory/dist/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
    ```
-7. Simulate an instrument drop by writing new minute CSV files into `inbox` (the gateway will mirror them into `staging/<minute>/` and queue the ingest workflow automatically). Trigger the ingest workflow manually with:
+7. Simulate an instrument drop by writing new minute CSV files into the raw prefix. Trigger the ingest workflow manually with:
    ```bash
    curl -X POST http://127.0.0.1:4000/workflows/observatory-minute-ingest/run \
      -H "Authorization: Bearer $TOKEN" \
@@ -211,9 +219,7 @@ npm run build --workspace @apphub/environmental-observatory-module
        "partitionKey": "2025-08-01T09:00",
        "parameters": {
          "minute": "2025-08-01T09:00",
-         "inboxDir": "/tmp/apphub-scratch/observatory/inbox",
-         "stagingDir": "/tmp/apphub-scratch/observatory/staging",
-         "archiveDir": "/tmp/apphub-scratch/observatory/archive",
+         "inboxDir": "/tmp/apphub-scratch/observatory/raw",
         "timestoreBaseUrl": "http://127.0.0.1:4200",
         "timestoreDatasetSlug": "observatory-timeseries",
         "timestoreDatasetName": "Observatory Time Series",

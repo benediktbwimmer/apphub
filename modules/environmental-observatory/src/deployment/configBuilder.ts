@@ -61,6 +61,8 @@ export type ObservatoryConfig = {
     dashboard?: {
       overviewPrefix?: string;
       lookbackMinutes?: number;
+      burstQuietMillis?: number;
+      snapshotFreshnessMillis?: number;
     };
   };
 };
@@ -371,7 +373,10 @@ export function createEventDrivenObservatoryConfig(
       },
       dashboard: {
         overviewPrefix: optionalString(getVar('OBSERVATORY_DASHBOARD_OVERVIEW_PREFIX')),
-        lookbackMinutes: optionalNumber(getVar('OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES')) ?? 720
+        lookbackMinutes: optionalNumber(getVar('OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES')) ?? 720,
+        burstQuietMillis: optionalNumber(getVar('OBSERVATORY_DASHBOARD_BURST_QUIET_MS')) ?? 5_000,
+        snapshotFreshnessMillis:
+          optionalNumber(getVar('OBSERVATORY_DASHBOARD_SNAPSHOT_FRESHNESS_MS')) ?? 60_000
       }
     }
   };

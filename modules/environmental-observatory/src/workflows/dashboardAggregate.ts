@@ -16,7 +16,9 @@ const definition: WorkflowDefinition = {
     type: 'object',
     properties: {
       partitionKey: { type: 'string', minLength: 1 },
-      lookbackMinutes: { type: 'number', minimum: 5, maximum: 4320 }
+      lookbackMinutes: { type: 'number', minimum: 5, maximum: 4320 },
+      burstReason: { type: 'string' },
+      burstFinishedAt: { type: 'string' }
     },
     required: ['partitionKey']
   },
@@ -31,50 +33,59 @@ const definition: WorkflowDefinition = {
       jobSlug: 'observatory-dashboard-aggregator',
       parameters: {
         partitionKey: '{{ parameters.partitionKey }}',
-        lookbackMinutes: '{{ parameters.lookbackMinutes | default: defaultParameters.lookbackMinutes }}'
-      }
+        lookbackMinutes: '{{ parameters.lookbackMinutes | default: defaultParameters.lookbackMinutes }}',
+        burstReason: '{{ parameters.burstReason }}',
+        burstFinishedAt: '{{ parameters.burstFinishedAt }}'
+      },
+      consumes: [
+        {
+          assetId: 'observatory.burst.ready'
+        }
+      ],
+      produces: [
+        {
+          assetId: 'observatory.dashboard.snapshot',
+          partitioning: {
+            type: 'timeWindow',
+            granularity: 'minute',
+            format: 'YYYY-MM-DDTHH:mm',
+            lookbackWindows: 1440
+          },
+          freshness: {
+            ttlMs: 60000
+          },
+          autoMaterialize: {
+            priority: 5
+          }
+        }
+      ]
     }
   ]
 };
 
 const triggers = [
   createWorkflowTrigger({
-    name: 'Aggregate on timestore partition',
-    description: 'Refresh dashboards when new timestore partitions become available.',
-    eventType: 'timestore.partition.created',
-    eventSource: 'timestore.ingest',
-    predicates: [
-      {
-        path: '$.payload.datasetSlug',
-        operator: 'equals',
-        value: moduleSetting('timestore.datasetSlug')
-      }
-    ],
-    parameterTemplate: {
-      partitionKey: '{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey }}',
-      lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
-    },
-    idempotencyKeyExpression:
-      'dashboard-aggregate-{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey }}'
-  }),
-  createWorkflowTrigger({
-    name: 'Aggregate on observatory partition ready',
-    description: 'Fallback trigger fired by the ingest workflow when a partition is hydrated.',
-    eventType: 'observatory.minute.partition-ready',
+    name: 'Aggregate on burst readiness',
+    description: 'Refresh dashboards when the burst finalizer signals a quiet window.',
+    eventType: 'observatory.asset.materialized',
     eventSource: 'observatory.events',
     predicates: [
       {
-        path: '$.payload.datasetSlug',
+        path: '$.payload.assetId',
         operator: 'equals',
-        value: moduleSetting('timestore.datasetSlug')
+        value: 'observatory.burst.ready'
       }
     ],
     parameterTemplate: {
-      partitionKey: '{{ event.payload.partitionKeyFields.window | default: event.payload.minute }}',
+      partitionKey: '{{ event.payload.partitionKey }}',
+      lookbackMinutes: '{{ event.payload.metadata.lookbackMinutes | default: trigger.metadata.lookbackMinutes }}',
+      burstReason: '{{ event.payload.metadata.reason }}',
+      burstFinishedAt: '{{ event.payload.producedAt }}'
+    },
+    metadata: {
       lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
     },
-    idempotencyKeyExpression:
-      'dashboard-aggregate-{{ event.payload.partitionKeyFields.window | default: event.payload.minute }}'
+    idempotencyKeyExpression: 'dashboard-aggregate-{{ event.payload.partitionKey }}'
   })
 ];
 

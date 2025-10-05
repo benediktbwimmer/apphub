@@ -1,5 +1,4 @@
 import path from 'node:path';
-import os from 'node:os';
 import process from 'node:process';
 import { promises as fs } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
@@ -31,6 +30,8 @@ import { analyzeLogs } from './lib/logs';
 import { runCommand } from './lib/process';
 
 const SKIP_STACK = process.env.APPHUB_E2E_SKIP_STACK === '1';
+const BURST_QUIET_MS = 5_000;
+const SNAPSHOT_FRESHNESS_MS = 60_000;
 const DEFAULT_BUCKET = 'apphub-filestore';
 const DEFAULT_JOB_BUNDLE_BUCKET = 'apphub-example-bundles';
 const DEFAULT_TIMESTORE_BUCKET = 'apphub-timestore';
@@ -78,6 +79,39 @@ async function ensureLogsDirectory(): Promise<string> {
   const logsDir = path.resolve('logs');
   await fs.mkdir(logsDir, { recursive: true });
   return logsDir;
+}
+
+type AssetHistoryEntry = {
+  producedAt?: string;
+  partitionKey?: string | null;
+  freshness?: {
+    ttlMs?: number | null;
+  } | null;
+  payload?: Record<string, unknown> | null;
+};
+
+async function fetchAssetHistory(
+  workflowSlug: string,
+  assetId: string,
+  options: { partitionKey?: string; limit?: number } = {}
+): Promise<AssetHistoryEntry[]> {
+  const { partitionKey, limit } = options;
+  const search = new URLSearchParams();
+  if (limit !== undefined) {
+    search.set('limit', String(limit));
+  }
+  if (partitionKey) {
+    search.set('partitionKey', partitionKey);
+  }
+  const url = `${CORE_BASE_URL}/workflows/${encodeURIComponent(workflowSlug)}/assets/${encodeURIComponent(assetId)}/history${search.size ? `?${search.toString()}` : ''}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${OPERATOR_TOKEN}` }
+  });
+  assert.equal(response.status, 200, `failed to fetch asset history for ${assetId} (${response.status})`);
+  const body = (await response.json()) as {
+    data?: { history?: AssetHistoryEntry[] };
+  };
+  return body.data?.history ?? [];
 }
 
 test('environmental observatory end-to-end pipeline', async (t) => {
@@ -136,11 +170,10 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   await waitForEndpoint(`${FILESTORE_BASE_URL}/health`, { headers: healthHeaders });
   log('service health checks succeeded');
 
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-observatory-e2e-'));
-  const scratchRoot = path.join(tempRoot, 'scratch');
-  const configOutputPath = path.join(tempRoot, 'config', 'observatory-config.json');
-  const dataRoot = path.join(tempRoot, 'data');
-  await fs.mkdir(scratchRoot, { recursive: true });
+  const scratchRoot = '/tmp/apphub';
+  const configOutputPath = path.join(scratchRoot, 'config', 'observatory-config.json');
+  const dataRoot = path.join(scratchRoot, 'data');
+  await fs.rm(scratchRoot, { recursive: true, force: true });
   await fs.mkdir(path.dirname(configOutputPath), { recursive: true });
   await fs.mkdir(dataRoot, { recursive: true });
 
@@ -183,6 +216,10 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     OBSERVATORY_TIMESTORE_DATASET_SLUG: DATASET_SLUG,
     OBSERVATORY_TIMESTORE_TABLE_NAME: 'observations',
     OBSERVATORY_SKIP_GENERATOR_SCHEDULE: '1',
+    APPHUB_RUNTIME_SCRATCH_ROOT: '/tmp/apphub',
+    APPHUB_RUNTIME_SCRATCH_ROOT: '/tmp/apphub',
+    OBSERVATORY_DASHBOARD_BURST_QUIET_MS: String(BURST_QUIET_MS),
+    OBSERVATORY_DASHBOARD_SNAPSHOT_FRESHNESS_MS: String(SNAPSHOT_FRESHNESS_MS),
     SERVICE_REGISTRY_TOKEN: OPERATOR_TOKEN,
     AWS_ACCESS_KEY_ID: 'apphub',
     AWS_SECRET_ACCESS_KEY: 'apphub123',
@@ -234,6 +271,8 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     OBSERVATORY_TIMESTORE_TABLE_NAME: 'observations',
     OBSERVATORY_TIMESTORE_DATASET_NAME: 'Observatory Time Series',
     OBSERVATORY_SKIP_GENERATOR_SCHEDULE: '1',
+    OBSERVATORY_DASHBOARD_BURST_QUIET_MS: String(BURST_QUIET_MS),
+    OBSERVATORY_DASHBOARD_SNAPSHOT_FRESHNESS_MS: String(SNAPSHOT_FRESHNESS_MS),
     SERVICE_REGISTRY_TOKEN: OPERATOR_TOKEN,
     AWS_ACCESS_KEY_ID: 'apphub',
     AWS_SECRET_ACCESS_KEY: 'apphub123',
@@ -304,7 +343,11 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     onPoll: createWaitLogger('generator')
   });
   log(`generator run completed with status ${generatorCompleted.status}`);
-  const generatorOutput = (generatorCompleted.output ?? {}) as {
+  const generatorStepContext = (generatorCompleted.context ?? {}) as {
+    steps?: Record<string, { result?: { partitions?: Array<{ instrumentId: string; relativePath: string; rows: number }>; generatedAt?: string } }>;
+  };
+  const generatorStepResult = generatorStepContext.steps?.['generate-drop']?.result;
+  const generatorOutput = (generatorCompleted.output ?? generatorStepResult ?? {}) as {
     partitions?: Array<{ instrumentId: string; relativePath: string; rows: number }>;
     generatedAt?: string;
   };
@@ -316,41 +359,152 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     generatorCompleted.createdAt ?? generatorCompleted.startedAt ?? Date.now()
   );
   const ingestSearchStart = new Date(generatorCreatedAt.getTime() - 60_000);
-  log('waiting for observatory-minute-ingest workflow run');
-  const ingestRun = await waitForLatestRun(coreClient, 'observatory-minute-ingest', {
-    after: ingestSearchStart,
-    onPoll: createWaitLogger('ingest')
+  const ingestWaitLogger = createWaitLogger('ingest');
+
+  function extractNormalized(run: WorkflowRun) {
+    const outputNormalized = ((run.output ?? {}) as { normalized?: unknown }).normalized;
+    const normalizedFromOutput =
+      (outputNormalized as { normalized?: unknown })?.normalized ?? outputNormalized;
+    const contextSteps = (run as unknown as { context?: { steps?: Record<string, any>; shared?: any } }).context;
+    const normalizedFromSteps = contextSteps?.steps?.['normalize-inbox']?.result?.normalized;
+    const normalizedFromShared = contextSteps?.shared?.normalized?.normalized ?? contextSteps?.shared?.normalized;
+    return (normalizedFromOutput ?? normalizedFromSteps ?? normalizedFromShared ?? null) as
+      | {
+          minute?: string;
+          partitionKey?: string;
+          recordCount?: number;
+          files?: Array<{ path: string; rows: number }>;
+        }
+      | null;
+  }
+
+  async function waitForIngestEventRuns(expectedCount: number): Promise<WorkflowRun[]> {
+    const deadline = Date.now() + 240_000;
+    const seen = new Map<string, WorkflowRun>();
+    let attempt = 0;
+
+    while (Date.now() <= deadline) {
+      attempt += 1;
+      const runs = await coreClient.listWorkflowRuns('observatory-minute-ingest', expectedCount * 3);
+      ingestWaitLogger({
+        attempt,
+        phase: 'list',
+        slug: 'observatory-minute-ingest',
+        remainingMs: Math.max(0, deadline - Date.now()),
+        note: `fetched ${runs.length} runs`
+      });
+
+      for (const run of runs) {
+        if (new Date(run.createdAt) < ingestSearchStart) {
+          continue;
+        }
+        const triggerType = (run.trigger as { type?: string } | null)?.type ?? null;
+        if (triggerType !== 'event') {
+          continue;
+        }
+        if (run.status !== 'succeeded') {
+          continue;
+        }
+        seen.set(run.id, run);
+      }
+
+      if (seen.size >= expectedCount) {
+        ingestWaitLogger({
+          attempt,
+          phase: 'found',
+          slug: 'observatory-minute-ingest',
+          remainingMs: Math.max(0, deadline - Date.now()),
+          note: `collected ${seen.size} event runs`
+        });
+        return Array.from(seen.values()).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      }
+
+      ingestWaitLogger({
+        attempt,
+        phase: 'sleep',
+        slug: 'observatory-minute-ingest',
+        remainingMs: Math.max(0, deadline - Date.now()),
+        note: `waiting for ${expectedCount - seen.size} additional event runs`
+      });
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+
+    ingestWaitLogger({
+      attempt,
+      phase: 'timeout',
+      slug: 'observatory-minute-ingest',
+      remainingMs: 0,
+      note: `only observed ${seen.size} event runs (expected ${expectedCount})`
+    });
+    throw new Error(`Timed out waiting for ${expectedCount} ingest event runs`);
+  }
+
+  const expectedIngestRuns = Math.max(1, generatorOutput.partitions?.length ?? 1);
+  log(`waiting for ${expectedIngestRuns} observatory-minute-ingest event runs`);
+  const ingestRuns = await waitForIngestEventRuns(expectedIngestRuns);
+  log(`observed ${ingestRuns.length} ingest event runs`);
+
+  const normalizedResults = ingestRuns.map(extractNormalized);
+
+  normalizedResults.forEach((result, index) => {
+    assert.ok(result, `ingest run ${index + 1} produced normalization payload`);
+    assert.ok((result?.files?.length ?? 0) === 1, `ingest run ${index + 1} normalized a single file`);
+    assert.ok((result?.recordCount ?? 0) > 0, `ingest run ${index + 1} recorded rows`);
   });
-  log(`ingest workflow completed with status ${ingestRun.status}`);
-  const ingestOutput = (ingestRun.output ?? {}) as {
-    normalized?: {
-      minute?: string;
-      partitionKey?: string;
-      recordCount?: number;
-      files?: Array<{ path: string; rows: number }>;
-      normalized?: {
-        minute?: string;
-        partitionKey?: string;
-        recordCount?: number;
-        files?: Array<{ path: string; rows: number }>;
-      };
-    };
-    assets?: unknown;
-  };
 
-  const normalizedResult = ingestOutput.normalized?.normalized ?? ingestOutput.normalized;
+  const totalRecords = normalizedResults.reduce((sum, result) => sum + (result?.recordCount ?? 0), 0);
+  assert.ok(totalRecords > 0, 'ingest recorded rows across the burst');
 
-  assert.equal(ingestRun.status, 'succeeded', 'ingest workflow succeeded');
-  assert.ok(normalizedResult?.files?.length, 'ingest normalized files');
-  assert.ok((normalizedResult?.recordCount ?? 0) > 0, 'ingest recorded rows');
+  const primaryNormalized = normalizedResults[0];
+  const ingestRun = ingestRuns[0];
 
   const minuteIso = toIsoMinute(
-    normalizedResult?.minute ?? generatorOutput.partitions?.[0]?.relativePath?.match(/_(\d{12})/i)?.[1] ?? ''
+    primaryNormalized?.minute ?? generatorOutput.partitions?.[0]?.relativePath?.match(/_(\d{12})/i)?.[1] ?? ''
   );
   assert.ok(minuteIso, 'resolved ingest minute');
   const minuteDate = new Date(minuteIso);
   const queryStart = new Date(minuteDate.getTime() - 120 * 60_000);
   const queryEnd = new Date(minuteDate.getTime() + 5 * 60_000);
+
+  const ingestPartitionKey =
+    primaryNormalized?.partitionKey ??
+    primaryNormalized?.minute ??
+    minuteIso.slice(0, 16);
+  assert.ok(ingestPartitionKey, 'resolved ingest partition key');
+
+  const burstWindowHistory = await fetchAssetHistory('observatory-minute-ingest', 'observatory.burst.window', {
+    partitionKey: ingestPartitionKey
+  });
+  assert.ok(burstWindowHistory.length > 0, 'burst window asset history available');
+  assert.equal(
+    burstWindowHistory[0]?.freshness?.ttlMs,
+    BURST_QUIET_MS,
+    'burst window asset carries quiet-window TTL'
+  );
+
+  const burstFinalizeRun = await waitForLatestRun(coreClient, 'observatory-burst-finalize', {
+    after: generatorCreatedAt,
+    onPoll: createWaitLogger('burst-finalize')
+  });
+  assert.equal(burstFinalizeRun.status, 'succeeded', 'burst finalizer succeeded');
+  const burstFinalizeTrigger = (burstFinalizeRun.trigger as { event?: { type?: string } } | null)?.event ?? null;
+  assert.ok(burstFinalizeTrigger, 'burst finalizer recorded trigger event');
+  assert.equal(burstFinalizeTrigger?.type, 'asset.expired', 'burst finalizer triggered by asset.expired');
+  const burstFinalizeOutput = (burstFinalizeRun.output ?? {}) as {
+    burst?: { reason?: string | null; finishedAt?: string | null };
+    assets?: Array<{ assetId: string }>;
+  };
+  assert.equal(burstFinalizeOutput.burst?.reason, 'ttl', 'burst finalizer included ttl reason');
+  assert.ok(burstFinalizeOutput.burst?.finishedAt, 'burst finalizer recorded finish timestamp');
+  assert.ok(
+    burstFinalizeOutput.assets?.some((asset) => asset.assetId === 'observatory.burst.ready'),
+    'burst finalizer produced burst.ready asset'
+  );
+
+  const burstReadyHistory = await fetchAssetHistory('observatory-burst-finalize', 'observatory.burst.ready', {
+    partitionKey: ingestPartitionKey
+  });
+  assert.ok(burstReadyHistory.length > 0, 'burst ready asset history available');
 
   log('waiting for observatory-dashboard-aggregate workflow run');
   const dashboardRun = await waitForLatestRun(coreClient, 'observatory-dashboard-aggregate', {
@@ -369,13 +523,55 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   assert.equal(publicationRun.status, 'succeeded', 'daily publication succeeded');
 
   assert.ok(dashboardRun.trigger, 'dashboard run was triggered');
-  const dashboardEventType =
-    (dashboardRun.trigger as { event?: { type?: string } })?.event?.type ??
-    (dashboardRun.trigger as { eventType?: string })?.eventType ??
-    '';
+  const dashboardTrigger = (dashboardRun.trigger as { event?: { type?: string; payload?: Record<string, unknown> } } | null)
+    ?.event ?? null;
+  assert.ok(dashboardTrigger, 'dashboard trigger captured upstream event');
+  assert.equal(
+    dashboardTrigger?.type,
+    'observatory.asset.materialized',
+    `dashboard run expected asset.materialized trigger, received ${dashboardTrigger?.type ?? 'unknown'}`
+  );
+  const dashboardTriggerPayload = dashboardTrigger?.payload as
+    | { assetId?: string; metadata?: Record<string, unknown> }
+    | undefined;
+  assert.equal(
+    dashboardTriggerPayload?.assetId,
+    'observatory.burst.ready',
+    'dashboard trigger payload references burst.ready asset'
+  );
+  const triggerReason = (dashboardTriggerPayload?.metadata as { reason?: string })?.reason;
+  assert.equal(triggerReason, 'ttl', 'dashboard trigger metadata includes ttl reason');
+
+  const dashboardParameters = (dashboardRun.parameters ?? {}) as {
+    burstReason?: string;
+    burstFinishedAt?: string;
+  };
+  assert.equal(dashboardParameters.burstReason, 'ttl', 'dashboard parameters include burst reason');
+  assert.ok(dashboardParameters.burstFinishedAt, 'dashboard parameters include burst finished timestamp');
+
+  const dashboardOutput = (dashboardRun.output ?? {}) as {
+    burst?: { reason?: string | null; finishedAt?: string | null };
+    assets?: Array<{ assetId: string }>;
+  };
+  assert.equal(dashboardOutput.burst?.reason, 'ttl', 'dashboard output echoes burst reason');
+  assert.ok(dashboardOutput.burst?.finishedAt, 'dashboard output includes burst finish timestamp');
   assert.ok(
-    /observatory|timestore/.test(dashboardEventType),
-    `dashboard run carried unexpected event type: ${dashboardEventType || 'unknown'}`
+    dashboardOutput.assets?.some((asset) => asset.assetId === 'observatory.dashboard.snapshot'),
+    'dashboard aggregation produced snapshot asset'
+  );
+
+  const snapshotHistory = await fetchAssetHistory(
+    'observatory-dashboard-aggregate',
+    'observatory.dashboard.snapshot',
+    {
+      partitionKey: ingestPartitionKey
+    }
+  );
+  assert.ok(snapshotHistory.length > 0, 'dashboard snapshot asset history available');
+  assert.equal(
+    snapshotHistory[0]?.freshness?.ttlMs,
+    SNAPSHOT_FRESHNESS_MS,
+    'dashboard snapshot asset records freshness TTL'
   );
 
   const publicationOutput = (publicationRun.output ?? {}) as {

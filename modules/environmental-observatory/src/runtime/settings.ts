@@ -41,6 +41,8 @@ export interface EventSettings {
 
 export interface DashboardSettings {
   lookbackMinutes: number;
+  burstQuietMs: number;
+  snapshotFreshnessMs: number;
 }
 
 export interface CoreSettings {
@@ -62,7 +64,7 @@ export interface IngestSettings {
 
 export interface PrincipalSettings {
   dataGenerator: string;
-  inboxNormalizer: string;
+  minutePreprocessor: string;
   timestoreLoader: string;
   visualizationRunner: string;
   dashboardAggregator: string;
@@ -117,9 +119,9 @@ const FALLBACK_OBSERVATORY_SETTINGS: ObservatoryModuleSettings = {
     baseUrl: 'http://127.0.0.1:4300',
     backendKey: 'observatory-event-driven-s3',
     backendId: 1,
-    inboxPrefix: 'datasets/observatory/inbox',
-    stagingPrefix: 'datasets/observatory/staging',
-    archivePrefix: 'datasets/observatory/archive',
+    inboxPrefix: 'datasets/observatory/raw',
+    stagingPrefix: 'datasets/observatory/raw',
+    archivePrefix: 'datasets/observatory/raw',
     visualizationsPrefix: 'datasets/observatory/visualizations',
     reportsPrefix: 'datasets/observatory/reports',
     overviewPrefix: 'datasets/observatory/reports/overview',
@@ -147,7 +149,9 @@ const FALLBACK_OBSERVATORY_SETTINGS: ObservatoryModuleSettings = {
     source: 'observatory.events'
   },
   dashboard: {
-    lookbackMinutes: 720
+    lookbackMinutes: 720,
+    burstQuietMs: 5_000,
+    snapshotFreshnessMs: 60_000
   },
   core: {
     baseUrl: 'http://127.0.0.1:4000'
@@ -165,7 +169,7 @@ const FALLBACK_OBSERVATORY_SETTINGS: ObservatoryModuleSettings = {
   },
   principals: {
     dataGenerator: 'observatory-data-generator',
-    inboxNormalizer: 'observatory-inbox-normalizer',
+    minutePreprocessor: 'observatory-minute-preprocessor',
     timestoreLoader: 'observatory-timestore-loader',
     visualizationRunner: 'observatory-visualization-runner',
     dashboardAggregator: 'observatory-dashboard-aggregator',

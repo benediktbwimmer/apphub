@@ -29,7 +29,7 @@ const definition: WorkflowDefinition = {
       id: 'normalize-inbox',
       name: 'Normalize inbox files',
       type: 'job',
-      jobSlug: 'observatory-inbox-normalizer',
+      jobSlug: 'observatory-minute-preprocessor',
       parameters: {
         minute: '{{ parameters.minute | default: run.trigger.schedule.occurrence | slice: 0, 16 }}',
         maxFiles: '{{ parameters.maxFiles | default: defaultParameters.maxFiles }}',
@@ -71,6 +71,24 @@ const definition: WorkflowDefinition = {
             granularity: 'minute',
             format: 'YYYY-MM-DDTHH:mm',
             lookbackWindows: 1440
+          },
+          autoMaterialize: {
+            enabled: false
+          }
+        },
+        {
+          assetId: 'observatory.burst.window',
+          partitioning: {
+            type: 'timeWindow',
+            granularity: 'minute',
+            format: 'YYYY-MM-DDTHH:mm',
+            lookbackWindows: 1440
+          },
+          freshness: {
+            ttlMs: 5000
+          },
+          autoMaterialize: {
+            enabled: false
           }
         }
       ]
