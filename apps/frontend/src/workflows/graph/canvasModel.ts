@@ -1071,8 +1071,21 @@ function buildNeighborMap(edges: WorkflowGraphCanvasEdge[]): Map<string, Set<str
 
 function createContextCollector(
   graph: WorkflowGraphNormalized,
-  register: (nodeId: string) => void
+  register: (nodeId: string) => void,
+  options: {
+    allowedWorkflowIds?: Set<string> | null;
+  } = {}
 ) {
+  const allowedWorkflowIds = options.allowedWorkflowIds ?? null;
+  const workflowIsAllowed = (workflowId: string | null | undefined): boolean => {
+    if (!allowedWorkflowIds || allowedWorkflowIds.size === 0) {
+      return true;
+    }
+    if (!workflowId) {
+      return false;
+    }
+    return allowedWorkflowIds.has(workflowId);
+  };
   const visitedWorkflows = new Set<string>();
   const visitedSteps = new Set<string>();
   const visitedTriggers = new Set<string>();
@@ -1082,7 +1095,7 @@ function createContextCollector(
   const visitedEventTypes = new Set<string>();
 
   const addWorkflowContext = (workflowId: string | null | undefined): void => {
-    if (!workflowId || visitedWorkflows.has(workflowId)) {
+    if (!workflowId || visitedWorkflows.has(workflowId) || !workflowIsAllowed(workflowId)) {
       return;
     }
     visitedWorkflows.add(workflowId);
@@ -1120,13 +1133,14 @@ function createContextCollector(
     if (!stepId || visitedSteps.has(stepId)) {
       return;
     }
-    visitedSteps.add(stepId);
     const step = graph.stepsIndex.byId[stepId];
-    if (!step) {
+    if (!step || !workflowIsAllowed(step.workflowId)) {
       return;
     }
+    visitedSteps.add(stepId);
+    const workflowId = step.workflowId;
     register(toStepNodeId(step));
-    addWorkflowContext(step.workflowId);
+    addWorkflowContext(workflowId);
 
     const produces = graph.adjacency.stepProduces[stepId] ?? [];
     for (const edge of produces) {
@@ -1148,11 +1162,11 @@ function createContextCollector(
     if (!triggerId || visitedTriggers.has(triggerId)) {
       return;
     }
-    visitedTriggers.add(triggerId);
     const trigger = graph.triggersIndex.byId[triggerId];
-    if (!trigger) {
+    if (!trigger || !workflowIsAllowed(trigger.workflowId)) {
       return;
     }
+    visitedTriggers.add(triggerId);
     register(toTriggerNodeId(trigger));
     addWorkflowContext(trigger.workflowId);
 
@@ -1166,11 +1180,11 @@ function createContextCollector(
     if (!scheduleId || visitedSchedules.has(scheduleId)) {
       return;
     }
-    visitedSchedules.add(scheduleId);
     const schedule = graph.schedulesIndex.byId[scheduleId];
-    if (!schedule) {
+    if (!schedule || !workflowIsAllowed(schedule.workflowId)) {
       return;
     }
+    visitedSchedules.add(scheduleId);
     register(toScheduleNodeId(schedule));
     addWorkflowContext(schedule.workflowId);
   };
@@ -1302,11 +1316,23 @@ function computeVisibleNodeIds(
   filtersActive: boolean;
   searchActive: boolean;
 } {
-  const filtersActive = Boolean(
-    (filters?.workflowIds?.length ?? 0) > 0 ||
-      (filters?.assetNormalizedIds?.length ?? 0) > 0 ||
-      (filters?.eventTypes?.length ?? 0) > 0
-  );
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const normalizedWorkflowFilterIds = (filters?.workflowIds ?? [])
+    .map((workflowId) => (typeof workflowId === 'string' ? workflowId.trim() : ''))
+    .filter((workflowId): workflowId is string => workflowId.length > 0);
+  const normalizedAssetFilterIds = (filters?.assetNormalizedIds ?? [])
+    .map((assetId) => (typeof assetId === 'string' ? assetId.trim() : ''))
+    .filter((assetId): assetId is string => assetId.length > 0);
+  const normalizedEventTypeFilterIds = (filters?.eventTypes ?? [])
+    .map((eventType) => (typeof eventType === 'string' ? eventType.trim() : ''))
+    .filter((eventType): eventType is string => eventType.length > 0);
+  const allowedWorkflowIds =
+    normalizedWorkflowFilterIds.length > 0 ? new Set(normalizedWorkflowFilterIds) : null;
+
+  const filtersActive =
+    normalizedWorkflowFilterIds.length > 0 ||
+    normalizedAssetFilterIds.length > 0 ||
+    normalizedEventTypeFilterIds.length > 0;
   const searchActive = searchTerm !== null;
 
   if (!filtersActive && !searchActive) {
@@ -1318,27 +1344,56 @@ function computeVisibleNodeIds(
   }
 
   const anchors = new Set<string>();
-  const collector = createContextCollector(graph, (nodeId) => {
-    if (nodeId) {
-      anchors.add(nodeId);
+  const collector = createContextCollector(
+    graph,
+    (nodeId) => {
+      if (nodeId) {
+        anchors.add(nodeId);
+      }
+    },
+    { allowedWorkflowIds }
+  );
+
+  const nodeMatchesWorkflowScope = (nodeId: string): boolean => {
+    if (!allowedWorkflowIds || allowedWorkflowIds.size === 0) {
+      return true;
     }
-  });
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      return false;
+    }
+    switch (node.kind) {
+      case 'workflow':
+        return allowedWorkflowIds.has(node.refId);
+      case 'step-job':
+      case 'step-service':
+      case 'step-fanout': {
+        const step = graph.stepsIndex.byId[node.refId];
+        return step ? allowedWorkflowIds.has(step.workflowId) : false;
+      }
+      case 'trigger-event':
+      case 'trigger-definition': {
+        const trigger = graph.triggersIndex.byId[node.refId];
+        return trigger ? allowedWorkflowIds.has(trigger.workflowId) : false;
+      }
+      case 'schedule': {
+        const schedule = graph.schedulesIndex.byId[node.refId];
+        return schedule ? allowedWorkflowIds.has(schedule.workflowId) : false;
+      }
+      default:
+        return true;
+    }
+  };
 
   if (filtersActive && filters) {
-    for (const workflowId of filters.workflowIds ?? []) {
-      if (typeof workflowId === 'string' && workflowId.trim().length > 0) {
-        collector.addWorkflowContext(workflowId.trim());
-      }
+    for (const workflowId of normalizedWorkflowFilterIds) {
+      collector.addWorkflowContext(workflowId);
     }
-    for (const assetId of filters.assetNormalizedIds ?? []) {
-      if (typeof assetId === 'string' && assetId.trim().length > 0) {
-        collector.addAssetContext(assetId.trim());
-      }
+    for (const assetId of normalizedAssetFilterIds) {
+      collector.addAssetContext(assetId);
     }
-    for (const eventType of filters.eventTypes ?? []) {
-      if (typeof eventType === 'string' && eventType.trim().length > 0) {
-        collector.addEventTypeContext(eventType.trim());
-      }
+    for (const eventType of normalizedEventTypeFilterIds) {
+      collector.addEventTypeContext(eventType);
     }
   }
 
@@ -1366,7 +1421,9 @@ function computeVisibleNodeIds(
       continue;
     }
     for (const neighbor of neighbors) {
-      visible.add(neighbor);
+      if (nodeMatchesWorkflowScope(neighbor)) {
+        visible.add(neighbor);
+      }
     }
   }
 

@@ -164,6 +164,13 @@ function boundsIntersect(a: GraphBounds | null, b: GraphBounds | null): boolean 
 
 const WorkflowGraphCanvasThemeContext = createContext<WorkflowGraphCanvasTheme | null>(null);
 
+const MIN_ZOOM = 0.01;
+const MAX_ZOOM = 32;
+const UNBOUNDED_TRANSLATE_EXTENT: [[number, number], [number, number]] = [
+  [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY],
+  [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY]
+];
+
 const INVISIBLE_HANDLE_STYLE: CSSProperties = {
   width: 14,
   height: 14,
@@ -446,6 +453,12 @@ type WorkflowGraphCanvasProps = {
   onCanvasClick?: () => void;
   interactionMode?: 'interactive' | 'static';
   overlay?: WorkflowGraphLiveOverlay | null;
+  fullscreen?: {
+    isActive: boolean;
+    onToggle: () => void;
+    supported?: boolean;
+    label?: string;
+  };
 };
 
 export function WorkflowGraphCanvas({
@@ -463,7 +476,8 @@ export function WorkflowGraphCanvas({
   onNodeSelect,
   onCanvasClick,
   interactionMode = 'interactive',
-  overlay = null
+  overlay = null,
+  fullscreen
 }: WorkflowGraphCanvasProps) {
   const { theme: activeTheme } = useTheme();
   const baseTheme = useMemo<WorkflowGraphCanvasTheme>(
@@ -545,8 +559,16 @@ export function WorkflowGraphCanvas({
   }, []);
 
   const ensureViewportHasContent = useCallback(
-    ({ force = false, immediate = false }: { force?: boolean; immediate?: boolean } = {}) => {
-      if (!instance) {
+    (
+      {
+        force = false,
+        immediate = false,
+        delayMs = 0,
+        targetInstance = null
+      }: { force?: boolean; immediate?: boolean; delayMs?: number; targetInstance?: ReactFlowInstance | null } = {}
+    ) => {
+      const flow = targetInstance ?? instance;
+      if (!flow) {
         return;
       }
       const container = containerRef.current;
@@ -557,12 +579,12 @@ export function WorkflowGraphCanvas({
       if (containerBounds.width === 0 || containerBounds.height === 0) {
         return;
       }
-      const nodeBounds = layoutBoundsRef.current ?? computeInstanceBounds(instance);
+      const nodeBounds = layoutBoundsRef.current ?? computeInstanceBounds(flow);
       if (!nodeBounds) {
         return;
       }
       const viewportBounds = computeViewportBounds(
-        instance.getViewport(),
+        flow.getViewport(),
         containerBounds.width,
         containerBounds.height
       );
@@ -570,16 +592,40 @@ export function WorkflowGraphCanvas({
       if (!shouldFit) {
         return;
       }
-      shouldAutoFitRef.current = false;
-      if (typeof window !== 'undefined' && window.__apphubExposeTopologyInstance) {
-        window.__apphubViewportAutoFitCount = (window.__apphubViewportAutoFitCount ?? 0) + 1;
+      const executeFit = (targetFlow: ReactFlowInstance) => {
+        const currentContainer = containerRef.current;
+        if (!currentContainer) {
+          return;
+        }
+        if (typeof window !== 'undefined' && window.__apphubExposeTopologyInstance) {
+          window.__apphubViewportAutoFitCount = (window.__apphubViewportAutoFitCount ?? 0) + 1;
+        }
+        suppressMoveEndRef.current = true;
+        targetFlow.fitView({
+          padding: fitViewPadding,
+          includeHiddenNodes: false,
+          duration: immediate ? 0 : 220
+        });
+        shouldAutoFitRef.current = false;
+      };
+
+      const scheduleFit = (targetFlow: ReactFlowInstance) => {
+        if (immediate) {
+          executeFit(targetFlow);
+        } else {
+          if (typeof window !== 'undefined') {
+            window.requestAnimationFrame(() => executeFit(targetFlow));
+          } else {
+            executeFit(targetFlow);
+          }
+        }
+      };
+
+      if (typeof window !== 'undefined' && delayMs > 0) {
+        window.setTimeout(() => scheduleFit(flow), delayMs);
+      } else {
+        scheduleFit(flow);
       }
-      suppressMoveEndRef.current = true;
-      instance.fitView({
-        padding: fitViewPadding,
-        includeHiddenNodes: false,
-        duration: immediate ? 0 : 220
-      });
     },
     [fitViewPadding, instance]
   );
@@ -595,11 +641,12 @@ export function WorkflowGraphCanvas({
     structureSignatureRef.current = renderGraph.structureSignature;
     const structureChanged = previousSignature !== renderGraph.structureSignature;
     const shouldForce = shouldAutoFitRef.current || (structureChanged && !userInteractedRef.current);
-    if (shouldForce) {
-      shouldAutoFitRef.current = false;
-    }
     const frame = window.requestAnimationFrame(() => {
-      ensureViewportHasContent({ force: shouldForce });
+      ensureViewportHasContent({
+        force: shouldForce,
+        immediate: shouldForce && !userInteractedRef.current,
+        delayMs: shouldForce ? 60 : 0
+      });
     });
     return () => {
       window.cancelAnimationFrame(frame);
@@ -640,6 +687,24 @@ export function WorkflowGraphCanvas({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!instance) {
+      return;
+    }
+    if (!shouldAutoFitRef.current) {
+      return;
+    }
+    if (nodes.length === 0) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      ensureViewportHasContent({ force: true, immediate: true, delayMs: 60 });
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [ensureViewportHasContent, instance, nodes]);
 
   useEffect(() => {
     if (!autoFit) {
@@ -835,6 +900,10 @@ export function WorkflowGraphCanvas({
     !error &&
     Boolean(model && model.nodes.length === 0 && (model.filtersApplied || model.searchApplied));
   const controlsDisabled = !interactive || !instance || !hasRenderableNodes;
+  const fullscreenSupported = fullscreen?.supported ?? true;
+  const fullscreenActive = fullscreen?.isActive ?? false;
+  const fullscreenLabel = fullscreen?.label ?? (fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen');
+  const showFullscreenButton = Boolean(fullscreen?.onToggle) && fullscreenSupported;
 
   let tooltipStyle: CSSProperties | undefined;
   if (tooltip && containerRef.current) {
@@ -949,6 +1018,14 @@ export function WorkflowGraphCanvas({
               window.__apphubTopologyReactFlowInstance = nextInstance;
               window.__apphubTopologyReactFlowInstanceViewport = nextInstance.getViewport();
             }
+          if (shouldAutoFitRef.current) {
+            ensureViewportHasContent({
+              force: true,
+              immediate: true,
+              delayMs: 60,
+              targetInstance: nextInstance
+            });
+          }
           }}
           onMoveEnd={handleMoveEnd}
           onNodeClick={(_, node) => {
@@ -967,8 +1044,9 @@ export function WorkflowGraphCanvas({
           zoomOnPinch={interactive}
           zoomActivationKeyCode=" "
           zoomOnDoubleClick={interactive}
-          minZoom={0.2}
-          maxZoom={2}
+          minZoom={MIN_ZOOM}
+          maxZoom={MAX_ZOOM}
+          translateExtent={UNBOUNDED_TRANSLATE_EXTENT}
           proOptions={{ hideAttribution: true }}
           nodesDraggable={false}
           nodesFocusable
@@ -1052,6 +1130,16 @@ export function WorkflowGraphCanvas({
               >
                 Fit
               </button>
+              {showFullscreenButton && (
+                <button
+                  type="button"
+                  className={CONTROL_BUTTON_WIDE_CLASS}
+                  onClick={fullscreen!.onToggle}
+                  aria-label={fullscreenLabel}
+                >
+                  {fullscreenActive ? '⤫' : '⤢'}
+                </button>
+              )}
             </div>
           </Panel>
         </ReactFlow>

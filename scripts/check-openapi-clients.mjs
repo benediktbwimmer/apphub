@@ -28,5 +28,6 @@ const pending = diff
 if (pending.length > 0) {
   console.error('OpenAPI client artifacts are out of date.');
   console.error('Run `npm run generate:openapi-clients` and commit the updated files.');
+  console.error('Diff summary:\n' + diff);
   process.exitCode = 1;
 }

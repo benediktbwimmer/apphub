@@ -2,6 +2,7 @@ import classNames from 'classnames';
 import { useMemo, useState, useCallback, useEffect, useRef, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ReactFlowProvider } from 'reactflow';
+import { Modal } from '../../components';
 import WorkflowGraphCanvas, {
   type WorkflowGraphCanvasThemeOverrides,
   type WorkflowGraphCanvasNodeData
@@ -87,6 +88,10 @@ const FULLSCREEN_BUTTON_CLASSES =
   'inline-flex items-center gap-2 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.18em] text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft/50 hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50';
 const FULLSCREEN_FLOATING_BUTTON_CLASSES =
   'absolute right-4 top-4 z-10 inline-flex items-center gap-1 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.18em] text-secondary shadow-elevation-lg hover:border-accent-soft hover:bg-accent-soft/50 hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const DETAILS_MODAL_CONTENT_CLASSES = 'max-w-4xl';
+const DETAILS_MODAL_BODY_CLASSES = 'p-6 sm:p-8';
+const DETAILS_MODAL_CLOSE_BUTTON_CLASSES =
+  'inline-flex items-center rounded-full border border-subtle bg-surface-glass px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.18em] text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 const STAT_BADGE_CONTAINER_CLASSES =
   'inline-flex min-w-[96px] flex-col items-center rounded-xl border border-subtle bg-surface-glass-soft px-3 py-2 text-[11px] font-weight-semibold leading-4 text-secondary';
@@ -223,6 +228,7 @@ export function WorkflowTopologyPanel({
   const [searchTermLocal, setSearchTermLocal] = useState('');
   const [filtersState, setFiltersState] = useState<WorkflowGraphCanvasFilters>({});
   const [selectedNode, setSelectedNode] = useState<WorkflowGraphCanvasNodeData | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const workflowFilterOptions = useMemo(() => {
     if (!graph) {
@@ -297,10 +303,12 @@ export function WorkflowTopologyPanel({
 
   useEffect(() => {
     setSelectedNode(null);
+    setDetailsOpen(false);
   }, [graph]);
 
   useEffect(() => {
     setSelectedNode(null);
+    setDetailsOpen(false);
   }, [filtersState, canvasSearchTerm]);
 
   const handleSearchChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
@@ -335,14 +343,17 @@ export function WorkflowTopologyPanel({
     setFiltersState({});
     setSearchTermLocal('');
     setSelectedNode(null);
+    setDetailsOpen(false);
   }, []);
 
   const handleCanvasNodeSelect = useCallback((_: string, data: WorkflowGraphCanvasNodeData) => {
     setSelectedNode(data);
+    setDetailsOpen(true);
   }, []);
 
   const handleCanvasClick = useCallback(() => {
     setSelectedNode(null);
+    setDetailsOpen(false);
   }, []);
 
   const multiSelectSize = (length: number) => Math.min(4, Math.max(3, length || 3));
@@ -387,6 +398,21 @@ export function WorkflowTopologyPanel({
     }
     element.requestFullscreen?.().catch(() => {});
   }, [isFullscreen]);
+
+  useEffect(() => {
+    if (!detailsOpen) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setDetailsOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [detailsOpen]);
 
   return (
     <section className={PANEL_CONTAINER_CLASSES}>
@@ -576,8 +602,8 @@ export function WorkflowTopologyPanel({
           <div
             ref={graphContainerRef}
             className={classNames(
-              'relative grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]',
-              isFullscreen && 'h-full w-full lg:grid-cols-[minmax(0,1fr)]'
+              'relative mt-2',
+              isFullscreen ? 'h-full w-full' : 'h-[640px]'
             )}
           >
             {isFullscreen && (
@@ -596,20 +622,41 @@ export function WorkflowTopologyPanel({
               loading={graphLoading || graphRefreshing}
               error={graphError}
               theme={panelTheme}
-              height={isFullscreen ? '100vh' : 640}
+              height={isFullscreen ? '100vh' : '100%'}
               filters={canvasFilters}
               searchTerm={canvasSearchTerm}
               onNodeSelect={handleCanvasNodeSelect}
               onCanvasClick={handleCanvasClick}
               overlay={overlay ?? null}
+              fullscreen={{
+                isActive: isFullscreen,
+                onToggle: handleToggleFullscreen,
+                supported: fullscreenSupported
+              }}
               {...selectionProps}
             />
-            {!isFullscreen && (
-              <WorkflowTopologyNodeDetails graph={graph} node={selectedNode} onClear={handleCanvasClick} />
-            )}
           </div>
         </ReactFlowProvider>
       </div>
+
+      <Modal
+        open={detailsOpen && Boolean(selectedNode)}
+        onClose={() => setDetailsOpen(false)}
+        contentClassName={`${DETAILS_MODAL_CONTENT_CLASSES} w-full max-h-screen overflow-hidden`}
+      >
+        <div className={`${DETAILS_MODAL_BODY_CLASSES} h-full max-h-[90vh] overflow-y-auto`}>
+          <div className="mb-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setDetailsOpen(false)}
+              className={DETAILS_MODAL_CLOSE_BUTTON_CLASSES}
+            >
+              Close
+            </button>
+          </div>
+          <WorkflowTopologyNodeDetails graph={graph} node={selectedNode} />
+        </div>
+      </Modal>
     </section>
   );
 }
@@ -914,30 +961,22 @@ function buildNodeDetails(
 type WorkflowTopologyNodeDetailsProps = {
   graph: WorkflowGraphNormalized | null;
   node: WorkflowGraphCanvasNodeData | null;
-  onClear: () => void;
 };
 
-function WorkflowTopologyNodeDetails({ graph, node, onClear }: WorkflowTopologyNodeDetailsProps) {
+function WorkflowTopologyNodeDetails({ graph, node }: WorkflowTopologyNodeDetailsProps) {
   const detail = useMemo(() => buildNodeDetails(graph, node), [graph, node]);
 
   if (!detail) {
-    return (
-      <aside className={DETAIL_EMPTY_CLASSES}>
-        Select a node to explore topology details.
-      </aside>
-    );
+    return <div className={DETAIL_EMPTY_CLASSES}>Select a node to explore topology details.</div>;
   }
 
   return (
-    <aside className={DETAIL_CONTAINER_CLASSES}>
+    <div className={DETAIL_CONTAINER_CLASSES}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col">
           <p className={DETAIL_HEADER_TITLE_CLASSES}>{detail.title}</p>
           {detail.subtitle && <p className={DETAIL_HEADER_SUBTITLE_CLASSES}>{detail.subtitle}</p>}
         </div>
-        <button type="button" onClick={onClear} className={CLEAR_FILTERS_BUTTON_CLASSES}>
-          Clear
-        </button>
       </div>
 
       {detail.badges.length > 0 && (
@@ -980,6 +1019,6 @@ function WorkflowTopologyNodeDetails({ graph, node, onClear }: WorkflowTopologyN
           ))}
         </div>
       )}
-    </aside>
+    </div>
   );
 }

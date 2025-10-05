@@ -1,4 +1,4 @@
-import { useEffect, type PropsWithChildren } from 'react';
+import { useEffect, useRef, type PropsWithChildren } from 'react';
 
 type ModalProps = {
   open: boolean;
@@ -14,7 +14,7 @@ type ModalProps = {
 const BASE_OVERLAY_CLASSES =
   'fixed inset-0 z-50 flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-overlay-scrim backdrop-blur-sm p-6 sm:p-10';
 const BASE_CONTENT_CLASSES =
-  'relative w-full max-w-2xl rounded-3xl border border-subtle bg-surface-raised shadow-elevation-xl';
+  'relative w-full max-w-2xl rounded-3xl border border-subtle bg-surface-raised shadow-elevation-xl before:absolute before:-inset-4 before:-z-10 before:rounded-[32px] before:bg-surface-glass/75 before:backdrop-blur-md';
 
 function joinClassNames(...values: Array<string | null | undefined | false>) {
   return values
@@ -107,6 +107,34 @@ export function Modal({
 }: PropsWithChildren<ModalProps>) {
   useBodyScrollLock(open);
 
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const previousScrollRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    if (typeof window !== 'undefined') {
+      previousScrollRef.current = window.scrollY;
+      if (window.scrollY > 0) {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      }
+    }
+
+    const element = overlayRef.current;
+    if (element) {
+      element.scrollTop = 0;
+    }
+
+    return () => {
+      if (typeof window !== 'undefined' && previousScrollRef.current !== null) {
+        window.scrollTo({ top: previousScrollRef.current, behavior: 'auto' });
+        previousScrollRef.current = null;
+      }
+    };
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -122,6 +150,7 @@ export function Modal({
 
   return (
     <div
+      ref={overlayRef}
       className={overlayClasses}
       role={role}
       aria-modal="true"

@@ -618,20 +618,20 @@ export async function listWorkflowRuns(
 
     if (typeof filters.search === 'string' && filters.search.trim().length > 0) {
       const term = `%${filters.search.trim().replace(/[%_]/g, '\\$&')}%`;
-      params.push(term);
-      params.push(term);
-      params.push(term);
-      params.push(term);
-      params.push(term);
-      conditions.push(
-        `(
-           wr.id ILIKE $${params.length - 4}
-           OR wd.slug ILIKE $${params.length - 3}
-           OR wd.name ILIKE $${params.length - 2}
-           OR COALESCE(wr.triggered_by, '') ILIKE $${params.length - 1}
-           OR COALESCE(wr.partition_key, '') ILIKE $${params.length}
-         )`
-      );
+      const searchableColumns = [
+        'wr.id',
+        'wd.slug',
+        'wd.name',
+        "COALESCE(wr.triggered_by, '')",
+        "COALESCE(wr.partition_key, '')",
+        "COALESCE(wr.run_key, '')"
+      ];
+      const searchFragments: string[] = [];
+      for (const column of searchableColumns) {
+        params.push(term);
+        searchFragments.push(`${column} ILIKE $${params.length}`);
+      }
+      conditions.push(`(${searchFragments.join(' OR ')})`);
     }
 
     if (typeof filters.from === 'string' && filters.from.trim().length > 0) {
