@@ -111,6 +111,30 @@ async function loadSpec(name, specPath) {
   return document;
 }
 
+async function ensureWorkspaceBuild(workspace, outputCheckPaths = []) {
+  if (!workspace) {
+    return;
+  }
+  const unresolved = [];
+  for (const relativePath of outputCheckPaths) {
+    const fullPath = path.resolve(rootDir, relativePath);
+    try {
+      await access(fullPath);
+    } catch {
+      unresolved.push(fullPath);
+    }
+  }
+  if (unresolved.length === 0) {
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.log(`Building workspace ${workspace} because ${unresolved.length} artifact(s) are missing...`);
+  execSync(`npm run build --workspace ${workspace}`, {
+    cwd: rootDir,
+    stdio: 'inherit'
+  });
+}
+
 async function generateClient({ name, workspace, spec, output, clientName }) {
   const inputPath = path.resolve(rootDir, spec);
   const outputPath = path.resolve(rootDir, output);
@@ -118,6 +142,9 @@ async function generateClient({ name, workspace, spec, output, clientName }) {
   if (workspace) {
     // eslint-disable-next-line no-console
     console.log(`Generating OpenAPI schema for ${workspace}...`);
+    if (workspace === '@apphub/module-sdk') {
+      // already handled explicitly below
+    }
     execSync('npm run build:openapi --workspace ' + workspace, {
       cwd: rootDir,
       stdio: 'inherit'
@@ -147,6 +174,8 @@ async function generateClient({ name, workspace, spec, output, clientName }) {
 }
 
 async function main() {
+  await ensureWorkspaceBuild('@apphub/module-sdk', ['packages/module-sdk/dist/index.js']);
+
   for (const service of services) {
     // eslint-disable-next-line no-console
     console.log(`Generating ${service.name} client...`);
