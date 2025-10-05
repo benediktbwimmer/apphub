@@ -105,7 +105,7 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
   const manifest = service.metadata?.manifest ?? null;
   const runtime = service.metadata?.runtime ?? null;
   const moduleConfig = toModuleServiceConfig(service.metadata?.config);
-  const linkedApps = service.metadata?.linkedApps ?? manifest?.apps ?? null;
+  const linkedBuilds = service.metadata?.linkedApps ?? manifest?.apps ?? null;
   const manifestSourceLabel = manifest?.source ?? (manifest?.sources?.[0] ?? 'manifest import');
   const runtimeLabel =
     runtime?.repositoryId ?? moduleConfig?.module?.id ?? runtime?.baseUrl ?? 'not linked';
@@ -178,27 +178,27 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
                 {manifestSourceLabel}
               </dd>
             </div>
-          <div className="flex flex-col gap-1">
-            <dt>Runtime App</dt>
-            <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{runtimeLabel}</dd>
-          </div>
-          {previewPath ? (
             <div className="flex flex-col gap-1">
-              <dt>Preview Path</dt>
-              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{previewPath}</dd>
+              <dt>Runtime Build</dt>
+              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{runtimeLabel}</dd>
             </div>
-          ) : null}
-          {moduleTags && moduleTags.length > 0 ? (
+            {previewPath ? (
+              <div className="flex flex-col gap-1">
+                <dt>Preview Path</dt>
+                <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{previewPath}</dd>
+              </div>
+            ) : null}
+            {moduleTags && moduleTags.length > 0 ? (
+              <div className="flex flex-col gap-1">
+                <dt>Tags</dt>
+                <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{moduleTags.join(', ')}</dd>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-1">
-              <dt>Tags</dt>
-              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{moduleTags.join(', ')}</dd>
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-1">
-            <dt>Linked Apps</dt>
-            <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>
-              {linkedApps && linkedApps.length > 0 ? linkedApps.join(', ') : 'none'}
-            </dd>
+              <dt>Linked Builds</dt>
+              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>
+                {linkedBuilds && linkedBuilds.length > 0 ? linkedBuilds.join(', ') : 'none'}
+              </dd>
             </div>
           </dl>
           {service.metadata?.notes && <p className={SERVICE_PREVIEW_NOTES_CLASSES}>{service.metadata.notes}</p>}

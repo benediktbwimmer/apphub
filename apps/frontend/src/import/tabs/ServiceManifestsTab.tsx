@@ -44,7 +44,7 @@ function describePlaceholderUsages(placeholder: ManifestPlaceholder) {
         case 'network-service':
           return `Network ${occurrence.networkId} -> service ${occurrence.serviceSlug} · env ${envKey} (source: ${source})`;
         case 'app-launch':
-          return `App ${occurrence.appId} (network ${occurrence.networkId}) · env ${envKey} (source: ${source})`;
+          return `Build ${occurrence.appId} (network ${occurrence.networkId}) · env ${envKey} (source: ${source})`;
         default:
           return `env ${envKey} (source: ${source})`;
       }
@@ -161,7 +161,7 @@ export default function ServiceManifestsTab({ onImported }: ServiceManifestsTabP
         <div className={`${CARD_SECTION} gap-2`}>
           <p className={BODY_TEXT}>
             Provide either a Git repository or Docker image containing the manifest bundle to register services and networks.
-            When you want AppHub to build a container from source, continue with the <strong>Apps</strong> tab instead.
+            When you want AppHub to build a container from source, continue with the <strong>Builds</strong> tab instead.
           </p>
           <a className={LINK_ACCENT} href={SERVICE_MANIFEST_DOC_URL} target="_blank" rel="noreferrer">
             Learn more about service manifests

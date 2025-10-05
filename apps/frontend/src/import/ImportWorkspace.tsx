@@ -14,18 +14,18 @@ import {
   SECONDARY_BUTTON_LARGE
 } from './importTokens';
 
-const STEPS = ['service-manifests', 'apps', 'jobs', 'workflows'] as const;
+const STEPS = ['service-manifests', 'builds', 'jobs', 'workflows'] as const;
 
 const STEP_LABELS: Record<(typeof STEPS)[number], string> = {
   'service-manifests': 'Service manifests',
-  apps: 'Apps',
+  builds: 'Builds',
   jobs: 'Jobs',
   workflows: 'Workflows'
 };
 
 const STEP_DESCRIPTIONS: Record<(typeof STEPS)[number], string> = {
   'service-manifests': 'Register network and service configuration from manifest descriptors.',
-  apps: 'Connect repositories so AppHub can build and launch containers.',
+  builds: 'Connect repositories so AppHub can build and launch containers.',
   jobs: 'Upload or reference job bundles to keep automation assets in sync.',
   workflows: 'Create workflow definitions and validate trigger dependencies.'
 };
@@ -79,7 +79,7 @@ export default function ImportWorkspace({
       <header className="flex flex-col gap-2">
         <h1 className={HEADING_PRIMARY}>Import workspace assets</h1>
         <p className={SUBTEXT}>
-          Seed your AppHub environment with services, apps, job bundles, and workflows. Pick a category below and follow the
+          Seed your AppHub environment with services, builds, job bundles, and workflows. Pick a category below and follow the
           guided form to upload configuration manually.
         </p>
       </header>
@@ -101,7 +101,7 @@ export default function ImportWorkspace({
         {activeStep === 'service-manifests' && (
           <ServiceManifestsTab onImported={onManifestImported} />
         )}
-        {activeStep === 'apps' && <ImportAppsTab onAppRegistered={onAppRegistered} onViewCore={onViewCore} />}
+        {activeStep === 'builds' && <ImportAppsTab onAppRegistered={onAppRegistered} onViewCore={onViewCore} />}
         {activeStep === 'jobs' && <ImportJobBundleTab />}
         {activeStep === 'workflows' && <ImportWorkflowTab />}
       </section>
@@ -110,8 +110,8 @@ export default function ImportWorkspace({
         <button type="button" className={PRIMARY_BUTTON} onClick={() => setActiveStep('service-manifests')}>
           Start with service manifests
         </button>
-        <button type="button" className={SECONDARY_BUTTON_LARGE} onClick={() => setActiveStep('apps')}>
-          Jump to apps
+        <button type="button" className={SECONDARY_BUTTON_LARGE} onClick={() => setActiveStep('builds')}>
+          Jump to builds
         </button>
       </footer>
     </div>

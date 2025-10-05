@@ -216,7 +216,7 @@ function CorePage({ searchSeed, onSeedApplied, savedSearchSlug, onSavedSearchApp
       <section className="flex flex-col gap-6">
         {loading && (
           <div className="rounded-2xl border border-subtle bg-surface-muted px-5 py-4 text-scale-sm font-weight-medium text-secondary shadow-sm">
-            <Spinner label="Loading apps…" size="sm" />
+            <Spinner label="Loading builds…" size="sm" />
           </div>
         )}
         {error && !loading && (
@@ -226,7 +226,7 @@ function CorePage({ searchSeed, onSeedApplied, savedSearchSlug, onSavedSearchApp
         )}
         {!loading && !error && apps.length === 0 && (
           <div className="rounded-2xl border border-subtle bg-surface-muted px-5 py-4 text-scale-sm font-weight-medium text-secondary shadow-sm">
-            No apps match your filters yet.
+            No builds match your filters yet.
           </div>
         )}
         <AppList

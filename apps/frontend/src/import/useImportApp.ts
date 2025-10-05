@@ -187,7 +187,7 @@ export function useImportApp(onAppRegistered?: (id: string) => void): UseImportA
     const interval = window.setInterval(async () => {
       try {
       if (!activeToken) {
-        throw new Error('Authentication required to load app status');
+        throw new Error('Authentication required to load build status');
       }
       const payload = await fetchRepository(activeToken, appId, { signal: controller.signal });
       setCurrentApp(payload);
