@@ -18,6 +18,7 @@ import {
   updateWorkflowDefinition,
   updateWorkflowRun,
   listWorkflowAssetDeclarationsBySlug,
+  updateWorkflowAssetAutoMaterialize,
   listLatestWorkflowAssetSnapshots,
   listWorkflowAssetHistory,
   listWorkflowAssetPartitions,
@@ -414,6 +415,25 @@ const workflowAssetPartitionsQuerySchema = z
       .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(10_000).optional())
   })
   .partial();
+
+const workflowAssetAutoMaterializeUpdateSchema = z
+  .object({
+    stepId: z.string().min(1).max(200),
+    enabled: z.boolean().optional(),
+    onUpstreamUpdate: z.boolean().optional(),
+    priority: z
+      .preprocess((value) => (value === null ? null : value), z.number().int().min(0).max(1_000_000).nullable().optional()),
+    parameterDefaults: jsonValueSchema.optional()
+  })
+  .strict()
+  .refine((value) => {
+    return (
+      value.enabled !== undefined ||
+      value.onUpstreamUpdate !== undefined ||
+      value.priority !== undefined ||
+      value.parameterDefaults !== undefined
+    );
+  }, { message: 'At least one auto-materialize field must be provided' });
 
 const workflowAssetPartitionParamsQuerySchema = z
   .object({
@@ -1613,6 +1633,97 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
 
     reply.status(200);
     return { data: { assets: payload } };
+  });
+
+  app.patch('/workflows/:slug/assets/:assetId/auto-materialize', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflow-assets.update',
+      resource: 'workflows',
+      requiredScopes: WORKFLOW_WRITE_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = workflowAssetParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = workflowAssetAutoMaterializeUpdateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'workflow_not_found',
+        workflowSlug: parseParams.data.slug
+      });
+      return { error: 'workflow not found' };
+    }
+
+    const payload = parseBody.data;
+    const updates: Partial<WorkflowAssetDeclaration['autoMaterialize']> = {};
+
+    if (payload.enabled !== undefined) {
+      updates.enabled = payload.enabled;
+    }
+    if (payload.onUpstreamUpdate !== undefined) {
+      updates.onUpstreamUpdate = payload.onUpstreamUpdate;
+    }
+    if (payload.priority !== undefined) {
+      updates.priority = payload.priority ?? null;
+    }
+    if (payload.parameterDefaults !== undefined) {
+      updates.parameterDefaults = payload.parameterDefaults ?? null;
+    }
+
+    const updated = await updateWorkflowAssetAutoMaterialize({
+      workflowDefinitionId: workflow.id,
+      stepId: payload.stepId.trim(),
+      assetId: parseParams.data.assetId,
+      updates
+    });
+
+    if (!updated) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'asset_not_found',
+        workflowId: workflow.id,
+        workflowSlug: workflow.slug,
+        assetId: parseParams.data.assetId,
+        stepId: payload.stepId
+      });
+      return { error: 'asset declaration not found' };
+    }
+
+    reply.status(200);
+    await authResult.auth.log('succeeded', {
+      workflowId: workflow.id,
+      workflowSlug: workflow.slug,
+      assetId: updated.assetId,
+      stepId: updated.stepId
+    });
+    return {
+      data: {
+        assetId: updated.assetId,
+        stepId: updated.stepId,
+        autoMaterialize: updated.autoMaterialize ?? null
+      }
+    };
   });
 
   app.get('/workflows/:slug/assets/:assetId/history', async (request, reply) => {

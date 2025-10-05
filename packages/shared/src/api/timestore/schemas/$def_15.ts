@@ -4,51 +4,34 @@
 /* eslint-disable */
 export const $def_15 = {
   properties: {
-    id: {
-      type: 'string',
-      isRequired: true,
-    },
-    slug: {
-      type: 'string',
-      isRequired: true,
-    },
-    name: {
-      type: 'string',
-      isRequired: true,
-    },
-    description: {
-      type: 'string',
-      isNullable: true,
-    },
-    status: {
-      type: 'Enum',
-      isRequired: true,
-    },
-    writeFormat: {
-      type: 'Enum',
-      isRequired: true,
-    },
-    defaultStorageTargetId: {
-      type: 'string',
-      isRequired: true,
-      isNullable: true,
-    },
-    metadata: {
-      type: 'dictionary',
+    fields: {
+      type: 'array',
       contains: {
-        type: 'def_0',
+        properties: {
+          name: {
+            type: 'string',
+            description: `Logical column name defined by the dataset schema.`,
+            isRequired: true,
+          },
+          type: {
+            type: 'Enum',
+            isRequired: true,
+          },
+        },
       },
       isRequired: true,
     },
-    createdAt: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
-    },
-    updatedAt: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
+    evolution: {
+      properties: {
+        defaults: {
+          type: 'any',
+          isNullable: true,
+        },
+        backfill: {
+          type: 'boolean',
+          isNullable: true,
+        },
+      },
     },
   },
 } as const;

@@ -7,7 +7,7 @@ export const $ApiKeyCreateResponse = {
     data: {
       properties: {
         key: {
-          type: 'def_71',
+          type: 'def_73',
           isRequired: true,
         },
         token: {

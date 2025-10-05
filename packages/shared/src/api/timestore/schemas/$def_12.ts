@@ -4,32 +4,11 @@
 /* eslint-disable */
 export const $def_12 = {
   properties: {
-    key: {
-      type: 'dictionary',
-      contains: {
-        type: 'string',
-      },
+    datasetSlug: {
+      type: 'string',
+      description: `Human-readable slug uniquely identifying a dataset.`,
       isRequired: true,
-    },
-    attributes: {
-      type: 'any',
-      description: `Optional attributes describing the partition.`,
-      isNullable: true,
-    },
-    timeRange: {
-      properties: {
-        start: {
-          type: 'string',
-          isRequired: true,
-          format: 'date-time',
-        },
-        end: {
-          type: 'string',
-          isRequired: true,
-          format: 'date-time',
-        },
-      },
-      isRequired: true,
+      minLength: 1,
     },
   },
 } as const;

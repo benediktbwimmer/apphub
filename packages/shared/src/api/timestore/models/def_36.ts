@@ -3,7 +3,14 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_36 = {
-  rowCount?: number | null;
-  elapsedMs?: number | null;
+  name: string;
+  description?: string | null;
+  partitionKeys?: any[] | null;
+  columns: Array<{
+    name: string;
+    type: string;
+    nullable?: boolean | null;
+    description?: string | null;
+  }>;
 };
 

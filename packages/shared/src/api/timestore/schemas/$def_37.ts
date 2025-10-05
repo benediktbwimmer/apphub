@@ -4,36 +4,61 @@
 /* eslint-disable */
 export const $def_37 = {
   properties: {
-    id: {
-      type: 'string',
-      isRequired: true,
-    },
-    statement: {
-      type: 'string',
-      isRequired: true,
-    },
-    label: {
-      type: 'string',
-      isNullable: true,
-    },
-    stats: {
-      type: 'any',
-      isNullable: true,
-    },
-    createdBy: {
-      type: 'string',
-      isRequired: true,
-      isNullable: true,
-    },
-    createdAt: {
+    fetchedAt: {
       type: 'string',
       isRequired: true,
       format: 'date-time',
     },
-    updatedAt: {
-      type: 'string',
+    tables: {
+      type: 'array',
+      contains: {
+        properties: {
+          name: {
+            type: 'string',
+            isRequired: true,
+          },
+          description: {
+            type: 'string',
+            isNullable: true,
+          },
+          partitionKeys: {
+            type: 'any[]',
+            isNullable: true,
+          },
+          columns: {
+            type: 'array',
+            contains: {
+              properties: {
+                name: {
+                  type: 'string',
+                  isRequired: true,
+                },
+                type: {
+                  type: 'string',
+                  isRequired: true,
+                },
+                nullable: {
+                  type: 'boolean',
+                  isNullable: true,
+                },
+                description: {
+                  type: 'string',
+                  isNullable: true,
+                },
+              },
+            },
+            isRequired: true,
+          },
+        },
+      },
       isRequired: true,
-      format: 'date-time',
+    },
+    warnings: {
+      type: 'array',
+      contains: {
+        type: 'string',
+      },
+      isRequired: true,
     },
   },
 } as const;

@@ -7,7 +7,7 @@ export const $BundleEditorResponse = {
     data: {
       properties: {
         job: {
-          type: 'def_39',
+          type: 'def_41',
           isRequired: true,
         },
         binding: {

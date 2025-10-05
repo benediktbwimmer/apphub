@@ -5,7 +5,7 @@ import {
 } from '@apphub/shared/filestoreFilters';
 import { ApiError } from '@apphub/shared/api/filestore';
 import { createFilestoreClient } from '@apphub/shared/api';
-import { resolveCancelable } from '../api/cancelable';
+import { resolveCancelable, type CancelablePromiseLike } from '../api/cancelable';
 import { FILESTORE_BASE_URL } from '../config';
 import {
   filestoreBackendMountListEnvelopeSchema,
@@ -248,7 +248,7 @@ function handleApiError(error: unknown): never {
   throw new Error(String(error));
 }
 
-async function execute<T>(promise: { cancel(): void; then: Promise<T>["then"]; catch: Promise<T>["catch"]; finally: Promise<T>["finally"] }, signal?: AbortSignal): Promise<T> {
+async function execute<T>(promise: CancelablePromiseLike<T>, signal?: AbortSignal): Promise<T> {
   try {
     return await resolveCancelable(promise, signal);
   } catch (error) {
@@ -768,32 +768,25 @@ export function subscribeToFilestoreEvents(
 export type {
   FilestoreBackendMount,
   FilestoreBackendMountState,
-  FilestoreEvent,
-  FilestoreEventType,
-  FilestoreNode,
-  FilestoreNodeDownload,
-  FilestoreNodeChildren,
-  FilestoreNodeList,
-  FilestorePagination,
-  FilestoreNodeState,
-  FilestoreNodeKind,
-  FilestoreReconciliationJob,
-  FilestoreReconciliationJobStatus
-} from './types';
-export type {
   FilestoreCommandCompletedPayload,
   FilestoreCommandResponse,
   FilestoreDriftDetectedPayload,
-  FilestoreEventBase,
-  FilestoreEventPayload,
-  FilestoreNodeCreatedPayload,
-  FilestoreNodeDeletedPayload,
-  FilestoreNodeMovedPayload,
-  FilestoreNodeCopiedPayload,
-  FilestoreNodeUpdatedPayload,
-  FilestoreNodeUploadedPayload,
+  FilestoreEvent,
+  FilestoreEventType,
+  FilestoreNode,
+  FilestoreNodeChildren,
+  FilestoreNodeDownload,
   FilestoreNodeDownloadedPayload,
+  FilestoreNodeEventPayload,
+  FilestoreNodeKind,
+  FilestoreNodeList,
+  FilestoreNodeReconciledPayload,
+  FilestoreNodeState,
+  FilestorePagination,
+  FilestoreReconciliationJob,
   FilestoreReconciliationJobDetail,
-  FilestoreReconciliationJobList
+  FilestoreReconciliationJobList,
+  FilestoreReconciliationJobStatus,
+  FilestoreReconciliationReason,
 } from './types';
 export { describeFilestoreEvent } from './eventSummaries';

@@ -42,7 +42,7 @@ export type QueueManagerOptions = {
 
 const queueEnvSchema = z
   .object({
-    REDIS_URL: stringVar({ required: true, description: 'REDIS_URL' }),
+    REDIS_URL: stringVar({ defaultValue: 'redis://127.0.0.1:6379', description: 'REDIS_URL' }),
     APPHUB_EVENTS_MODE: stringVar({ allowEmpty: true, lowercase: true }),
     APPHUB_ALLOW_INLINE_MODE: booleanVar({ defaultValue: false })
   })

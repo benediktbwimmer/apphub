@@ -38,14 +38,14 @@ export type LaunchEnvVar = {
 
 export type LaunchRequestDraft = {
   env: LaunchEnvVar[];
-  command: string;
+  command?: string | null;
   launchId: string;
 };
 
 export type LaunchSummary = {
   id: string;
   status: LaunchStatus;
-  buildId: string;
+  buildId: string | null;
   instanceUrl: string | null;
   resourceProfile: string | null;
   env: LaunchEnvVar[];

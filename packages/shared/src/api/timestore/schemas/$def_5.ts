@@ -4,55 +4,60 @@
 /* eslint-disable */
 export const $def_5 = {
   properties: {
-    status: {
+    connectorId: {
+      type: 'string',
+      isRequired: true,
+    },
+    datasetSlug: {
+      type: 'string',
+      isRequired: true,
+    },
+    topic: {
+      type: 'string',
+      isRequired: true,
+    },
+    groupId: {
+      type: 'string',
+      isRequired: true,
+    },
+    state: {
       type: 'Enum',
       isRequired: true,
     },
-    lifecycle: {
-      properties: {
-        inline: {
-          type: 'boolean',
-          description: `Indicates whether queue processing runs inline instead of Redis-backed.`,
-          isRequired: true,
-        },
-        ready: {
-          type: 'boolean',
-          description: `True when the lifecycle queue connection is available.`,
-          isRequired: true,
-        },
-        lastError: {
-          type: 'string',
-          isRequired: true,
-          isNullable: true,
-        },
-      },
+    bufferedWindows: {
+      type: 'number',
       isRequired: true,
     },
-    features: {
-      properties: {
-        streaming: {
-          properties: {
-            enabled: {
-              type: 'boolean',
-              isRequired: true,
-            },
-            state: {
-              type: 'Enum',
-              isRequired: true,
-            },
-            reason: {
-              type: 'string',
-              isNullable: true,
-            },
-            brokerConfigured: {
-              type: 'boolean',
-              isRequired: true,
-            },
-          },
-          isRequired: true,
-        },
-      },
+    bufferedRows: {
+      type: 'number',
       isRequired: true,
+    },
+    openWindows: {
+      type: 'number',
+      isRequired: true,
+    },
+    lastMessageAt: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
+      format: 'date-time',
+    },
+    lastFlushAt: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
+      format: 'date-time',
+    },
+    lastEventTimestamp: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
+      format: 'date-time',
+    },
+    lastError: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
     },
   },
 } as const;

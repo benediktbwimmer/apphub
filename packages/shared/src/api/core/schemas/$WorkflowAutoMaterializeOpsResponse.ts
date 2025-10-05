@@ -9,14 +9,14 @@ export const $WorkflowAutoMaterializeOpsResponse = {
         runs: {
           type: 'array',
           contains: {
-            type: 'def_67',
+            type: 'def_69',
           },
           isRequired: true,
         },
         inFlight: {
           type: 'all-of',
           contains: [{
-            type: 'def_68',
+            type: 'def_70',
           }],
           isRequired: true,
           isNullable: true,
@@ -24,7 +24,7 @@ export const $WorkflowAutoMaterializeOpsResponse = {
         cooldown: {
           type: 'all-of',
           contains: [{
-            type: 'def_69',
+            type: 'def_71',
           }],
           isRequired: true,
           isNullable: true,

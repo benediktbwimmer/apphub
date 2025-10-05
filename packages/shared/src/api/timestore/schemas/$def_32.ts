@@ -4,41 +4,42 @@
 /* eslint-disable */
 export const $def_32 = {
   properties: {
-    name: {
-      type: 'string',
-      isRequired: true,
-    },
-    description: {
-      type: 'string',
-      isNullable: true,
-    },
-    partitionKeys: {
-      type: 'any[]',
-      isNullable: true,
-    },
-    columns: {
-      type: 'array',
-      contains: {
-        properties: {
-          name: {
-            type: 'string',
-            isRequired: true,
-          },
-          type: {
-            type: 'string',
-            isRequired: true,
-          },
-          nullable: {
-            type: 'boolean',
-            isNullable: true,
-          },
-          description: {
-            type: 'string',
-            isNullable: true,
-          },
+    timeRange: {
+      properties: {
+        start: {
+          type: 'string',
+          isRequired: true,
+          format: 'date-time',
+        },
+        end: {
+          type: 'string',
+          isRequired: true,
+          format: 'date-time',
         },
       },
       isRequired: true,
+    },
+    timestampColumn: {
+      type: 'string',
+      description: `Logical timestamp column to use for range filtering.`,
+    },
+    columns: {
+      type: 'any[]',
+      isNullable: true,
+    },
+    filters: {
+      type: 'any',
+      isNullable: true,
+    },
+    downsample: {
+      type: 'any',
+      isNullable: true,
+    },
+    limit: {
+      type: 'number',
+      isNullable: true,
+      maximum: 500000,
+      minimum: 1,
     },
   },
 } as const;

@@ -4,9 +4,10 @@
 /* eslint-disable */
 import type { def_0 } from './def_0';
 export type def_50 = {
-  parametersSchema: def_0;
-  outputSchema: def_0;
-  parametersSource: string | null;
-  outputSource: string | null;
+  runtime: 'node' | 'python' | 'docker' | 'module';
+  ready: boolean;
+  reason: string | null;
+  checkedAt: string;
+  details: def_0;
 };
 

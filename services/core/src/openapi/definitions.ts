@@ -1731,6 +1731,7 @@ const workflowTopologyAssetFreshnessSchema: OpenAPIV3.SchemaObject = {
 const workflowTopologyAssetAutoMaterializeSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   properties: {
+    enabled: { type: 'boolean' },
     onUpstreamUpdate: { type: 'boolean' },
     priority: nullable(integerSchema()),
     parameterDefaults: jsonValueSchema

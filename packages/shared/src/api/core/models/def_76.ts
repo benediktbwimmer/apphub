@@ -2,15 +2,17 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { def_0 } from './def_0';
 export type def_76 = {
-  workflowId: string;
-  workflowSlug: string;
-  workflowName: string;
-  stepId: string;
-  stepName: string;
-  stepType: 'job' | 'service' | 'fanout';
-  partitioning: ((string | number | boolean | Record<string, any>) | null);
-  autoMaterialize: ((string | number | boolean | Record<string, any>) | null);
-  freshness: ((string | number | boolean | Record<string, any>) | null);
+  handlerName: string;
+  handlerIsAsync: boolean;
+  inputModel: {
+    name: string;
+    schema: def_0;
+  };
+  outputModel: {
+    name: string;
+    schema: def_0;
+  };
 };
 

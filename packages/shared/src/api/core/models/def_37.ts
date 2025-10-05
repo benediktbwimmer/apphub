@@ -2,7 +2,6 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_33 } from './def_33';
 export type def_37 = {
   /**
    * Unique identifier for the service.
@@ -16,11 +15,17 @@ export type def_37 = {
   baseUrl: string;
   status?: 'unknown' | 'healthy' | 'degraded' | 'unreachable';
   statusMessage?: string | null;
-  capabilities?: ((string | number | boolean | Record<string, any>) | null);
-  metadata?: (def_33 | null);
+  /**
+   * Optional capability metadata exposed by the service.
+   */
+  capabilities?: any | null;
+  /**
+   * Optional metadata describing manifest provenance, linked apps, and runtime expectations.
+   */
+  metadata?: any | null;
   /**
    * Source type. External registrations must use "external".
    */
-  source?: 'external';
+  source?: 'external' | 'module';
 };
 

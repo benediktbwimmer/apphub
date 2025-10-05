@@ -764,7 +764,13 @@ export class AssetMaterializer {
       return null;
     }
     const record = candidate as Record<string, unknown>;
+    if (record.enabled === false) {
+      return null;
+    }
     const policy: AssetAutoMaterializePolicy = {};
+    if (typeof record.enabled === 'boolean') {
+      policy.enabled = record.enabled;
+    }
     if (typeof record.onUpstreamUpdate === 'boolean') {
       policy.onUpstreamUpdate = record.onUpstreamUpdate;
     }

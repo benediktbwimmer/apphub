@@ -4,95 +4,95 @@
 /* eslint-disable */
 export const $def_42 = {
   properties: {
-    data: {
+    slug: {
+      type: 'string',
+      isRequired: true,
+      maxLength: 100,
+      minLength: 1,
+      pattern: '^[a-zA-Z0-9][a-zA-Z0-9-_]*$',
+    },
+    name: {
+      type: 'string',
+      isRequired: true,
+    },
+    version: {
+      type: 'number',
+      minimum: 1,
+    },
+    type: {
+      type: 'Enum',
+      isRequired: true,
+    },
+    runtime: {
+      type: 'Enum',
+    },
+    entryPoint: {
+      type: 'string',
+      isRequired: true,
+    },
+    timeoutMs: {
+      type: 'number',
+      maximum: 86400000,
+      minimum: 1000,
+    },
+    retryPolicy: {
       properties: {
-        id: {
-          type: 'string',
-          isRequired: true,
-        },
-        slug: {
-          type: 'string',
-          isRequired: true,
-        },
-        name: {
-          type: 'string',
-          isRequired: true,
-        },
-        version: {
+        maxAttempts: {
           type: 'number',
-          isRequired: true,
+          maximum: 10,
+          minimum: 1,
         },
-        type: {
+        strategy: {
           type: 'Enum',
-          isRequired: true,
         },
-        runtime: {
-          type: 'Enum',
-          isRequired: true,
-        },
-        entryPoint: {
-          type: 'string',
-          isRequired: true,
-        },
-        parametersSchema: {
-          type: 'any',
-          isRequired: true,
-          isNullable: true,
-        },
-        defaultParameters: {
-          type: 'any',
-          isRequired: true,
-          isNullable: true,
-        },
-        outputSchema: {
-          type: 'any',
-          isRequired: true,
-          isNullable: true,
-        },
-        timeoutMs: {
+        initialDelayMs: {
           type: 'number',
-          isNullable: true,
+          maximum: 86400000,
         },
-        retryPolicy: {
-          type: 'any',
-          isNullable: true,
+        maxDelayMs: {
+          type: 'number',
+          maximum: 86400000,
         },
-        metadata: {
-          type: 'any-of',
-          contains: [{
-            type: 'any-of',
-            description: `Arbitrary JSON value.`,
-            contains: [{
-              type: 'string',
-            }, {
-              type: 'number',
-            }, {
-              type: 'number',
-            }, {
-              type: 'boolean',
-            }, {
-              type: 'dictionary',
-              contains: {
-                properties: {
-                },
-              },
-            }],
-          }, {
-            type: 'null',
-          }],
-        },
-        createdAt: {
-          type: 'string',
-          isRequired: true,
-          format: 'date-time',
-        },
-        updatedAt: {
-          type: 'string',
-          isRequired: true,
-          format: 'date-time',
+        jitter: {
+          type: 'Enum',
         },
       },
-      isRequired: true,
+    },
+    parametersSchema: {
+      type: 'any',
+      isNullable: true,
+    },
+    defaultParameters: {
+      type: 'any',
+      isNullable: true,
+    },
+    outputSchema: {
+      type: 'any',
+      isNullable: true,
+    },
+    metadata: {
+      type: 'any-of',
+      contains: [{
+        type: 'any-of',
+        description: `Arbitrary JSON value.`,
+        contains: [{
+          type: 'string',
+        }, {
+          type: 'number',
+        }, {
+          type: 'number',
+        }, {
+          type: 'boolean',
+        }, {
+          type: 'dictionary',
+          contains: {
+            properties: {
+            },
+          },
+        }],
+      }, {
+        type: 'null',
+      }],
     },
   },
 } as const;

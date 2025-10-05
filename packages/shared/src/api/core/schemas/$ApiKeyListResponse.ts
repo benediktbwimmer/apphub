@@ -9,7 +9,7 @@ export const $ApiKeyListResponse = {
         keys: {
           type: 'array',
           contains: {
-            type: 'def_71',
+            type: 'def_73',
           },
           isRequired: true,
         },

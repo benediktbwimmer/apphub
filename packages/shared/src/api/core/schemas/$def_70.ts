@@ -4,74 +4,59 @@
 /* eslint-disable */
 export const $def_70 = {
   properties: {
-    data: {
-      properties: {
-        runs: {
-          type: 'array',
-          contains: {
-            type: 'def_67',
-          },
-          isRequired: true,
-        },
-        inFlight: {
-          type: 'any-of',
-          contains: [{
-            type: 'all-of',
-            contains: [{
-              type: 'def_68',
-            }],
-          }, {
-            type: 'null',
-          }],
-          isRequired: true,
-        },
-        cooldown: {
-          type: 'any-of',
-          contains: [{
-            type: 'all-of',
-            contains: [{
-              type: 'def_69',
-            }],
-          }, {
-            type: 'null',
-          }],
-          isRequired: true,
-        },
-        updatedAt: {
-          type: 'string',
-          isRequired: true,
-          format: 'date-time',
-        },
-      },
+    workflowRunId: {
+      type: 'string',
+      isNullable: true,
+    },
+    reason: {
+      type: 'string',
       isRequired: true,
     },
-    meta: {
-      properties: {
-        workflow: {
-          properties: {
-            id: {
-              type: 'string',
-              isRequired: true,
-            },
-            slug: {
-              type: 'string',
-              isRequired: true,
-            },
-            name: {
-              type: 'string',
-              isRequired: true,
+    assetId: {
+      type: 'string',
+      isNullable: true,
+    },
+    partitionKey: {
+      type: 'string',
+      isNullable: true,
+    },
+    requestedAt: {
+      type: 'string',
+      isRequired: true,
+      format: 'date-time',
+    },
+    claimedAt: {
+      type: 'string',
+      isRequired: true,
+      format: 'date-time',
+    },
+    claimOwner: {
+      type: 'string',
+      isRequired: true,
+    },
+    context: {
+      type: 'any-of',
+      contains: [{
+        type: 'any-of',
+        description: `Arbitrary JSON value.`,
+        contains: [{
+          type: 'string',
+        }, {
+          type: 'number',
+        }, {
+          type: 'number',
+        }, {
+          type: 'boolean',
+        }, {
+          type: 'dictionary',
+          contains: {
+            properties: {
             },
           },
-        },
-        limit: {
-          type: 'number',
-          maximum: 50,
-          minimum: 1,
-        },
-        offset: {
-          type: 'number',
-        },
-      },
+        }],
+      }, {
+        type: 'null',
+      }],
     },
   },
 } as const;

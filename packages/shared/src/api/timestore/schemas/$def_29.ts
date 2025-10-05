@@ -4,35 +4,11 @@
 /* eslint-disable */
 export const $def_29 = {
   properties: {
-    rows: {
-      type: 'array',
-      contains: {
-        type: 'dictionary',
-        contains: {
-          properties: {
-          },
-        },
-      },
-      isRequired: true,
+    partitionKey: {
+      type: 'any',
+      isNullable: true,
     },
     columns: {
-      type: 'array',
-      contains: {
-        type: 'string',
-      },
-      isRequired: true,
-    },
-    mode: {
-      type: 'Enum',
-      isRequired: true,
-    },
-    warnings: {
-      type: 'array',
-      contains: {
-        type: 'string',
-      },
-    },
-    streaming: {
       type: 'any',
       isNullable: true,
     },

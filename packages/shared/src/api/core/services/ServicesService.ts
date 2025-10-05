@@ -6,7 +6,6 @@ import type { def_0 } from '../models/def_0';
 import type { def_33 } from '../models/def_33';
 import type { def_35 } from '../models/def_35';
 import type { def_36 } from '../models/def_36';
-import type { def_37 } from '../models/def_37';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class ServicesService {
@@ -33,19 +32,19 @@ export class ServicesService {
     });
   }
   /**
-   * Register or update a service
-   * Adds a new service entry or updates the metadata for an existing service. Requires the service registry bearer token.
-   * @returns def_36 The service metadata was updated.
+   * Register or update a module-managed service
+   * Adds or updates a service provisioned via the AppHub module runtime.
+   * @returns def_36 Module service updated.
    * @throws ApiError
    */
-  public postServices({
+  public postServicesModule({
     requestBody,
   }: {
-    requestBody?: def_37,
+    requestBody?: Record<string, any>,
   }): CancelablePromise<def_36> {
     return this.httpRequest.request({
       method: 'POST',
-      url: '/services',
+      url: '/services/module',
       body: requestBody,
       mediaType: 'application/json',
       errors: {

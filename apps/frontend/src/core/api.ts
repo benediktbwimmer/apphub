@@ -1,7 +1,8 @@
 import { ApiError } from '@apphub/shared/api/core';
 import { createCoreClient } from '@apphub/shared/api';
-import type { ApiRequestOptions, CancelablePromise } from '@apphub/shared/api/core';
-import { resolveCancelable } from '../api/cancelable';
+import type { CancelablePromise } from '@apphub/shared/api/core';
+import type { ApiRequestOptions } from '@apphub/shared/api/core/core/ApiRequestOptions';
+import { resolveCancelable, type CancelablePromiseLike } from '../api/cancelable';
 import { API_BASE_URL } from '../config';
 import type {
   AppRecord,
@@ -34,13 +35,6 @@ export class CoreApiError extends Error {
 type Token = string | null | undefined;
 
 type CoreClientInstance = ReturnType<typeof createCoreClient>;
-
-type CancelablePromiseLike<T> = {
-  cancel: () => void;
-  then: Promise<T>['then'];
-  catch: Promise<T>['catch'];
-  finally: Promise<T>['finally'];
-};
 
 function createClient(token: Token): CoreClientInstance {
   return createCoreClient({
@@ -932,7 +926,7 @@ export async function submitRepository(
 }
 
 type CoreRequestOptions = {
-  method?: ApiRequestOptions['method'];
+  method?: ApiRequestOptions['method'] | string;
   url: string;
   query?: ApiRequestOptions['query'];
   body?: ApiRequestOptions['body'];
@@ -944,24 +938,23 @@ type CoreRequestOptions = {
 
 export async function coreRequest<T = unknown>(token: Token, options: CoreRequestOptions): Promise<T> {
   const client = createClient(token);
+  const rawMethod = options.method ?? 'GET';
+  const method = (typeof rawMethod === 'string' ? rawMethod.toUpperCase() : rawMethod) as ApiRequestOptions['method'];
+  const shouldDefaultJson =
+    options.body !== undefined &&
+    options.body !== null &&
+    !(options.body instanceof FormData) &&
+    !options.mediaType;
+  const mediaType = shouldDefaultJson ? 'application/json' : options.mediaType;
   const requestOptions: ApiRequestOptions = {
-    method: options.method ?? 'GET',
+    method,
     url: options.url,
     query: options.query,
     body: options.body,
-    mediaType: options.mediaType,
+    mediaType,
     headers: options.headers,
     responseHeader: options.responseHeader
   };
-
-  if (
-    requestOptions.body !== undefined &&
-    requestOptions.body !== null &&
-    !(requestOptions.body instanceof FormData) &&
-    !requestOptions.mediaType
-  ) {
-    requestOptions.mediaType = 'application/json';
-  }
 
   const promise = client.request.request(requestOptions) as CancelablePromiseLike<T>;
   return execute<T>(promise, options.signal);

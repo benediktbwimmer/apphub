@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { def_27 } from '../models/def_27';
-import type { def_72 } from '../models/def_72';
-import type { def_73 } from '../models/def_73';
+import type { def_74 } from '../models/def_74';
+import type { def_75 } from '../models/def_75';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class AuthService {
@@ -103,10 +103,10 @@ export class AuthService {
   /**
    * List API keys
    * Returns the API keys owned by the authenticated user.
-   * @returns def_72 API keys for the current user.
+   * @returns def_74 API keys for the current user.
    * @throws ApiError
    */
-  public getAuthApiKeys(): CancelablePromise<def_72> {
+  public getAuthApiKeys(): CancelablePromise<def_74> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/auth/api-keys',
@@ -120,7 +120,7 @@ export class AuthService {
   /**
    * Create API key
    * Mints a new API key scoped to the authenticated user.
-   * @returns def_73 API key created successfully.
+   * @returns def_75 API key created successfully.
    * @throws ApiError
    */
   public postAuthApiKeys({
@@ -131,7 +131,7 @@ export class AuthService {
       scopes?: Array<string>;
       expiresAt?: string;
     } | null),
-  }): CancelablePromise<def_73> {
+  }): CancelablePromise<def_75> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/auth/api-keys',

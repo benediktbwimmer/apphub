@@ -548,6 +548,26 @@ export class DefaultService {
    * @returns any Default Response
    * @throws ApiError
    */
+  public patchWorkflowsAssetsAutoMaterialize({
+    slug,
+    assetId,
+  }: {
+    slug: string,
+    assetId: string,
+  }): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'PATCH',
+      url: '/workflows/{slug}/assets/{assetId}/auto-materialize',
+      path: {
+        'slug': slug,
+        'assetId': assetId,
+      },
+    });
+  }
+  /**
+   * @returns any Default Response
+   * @throws ApiError
+   */
   public getWorkflowsAssetsHistory({
     slug,
     assetId,
@@ -707,6 +727,16 @@ export class DefaultService {
       path: {
         'runId': runId,
       },
+    });
+  }
+  /**
+   * @returns any Default Response
+   * @throws ApiError
+   */
+  public postServices(): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'POST',
+      url: '/services',
     });
   }
   /**

@@ -2,22 +2,11 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { def_0 } from './def_0';
 export type def_52 = {
-  /**
-   * Relative path of the file inside the bundle.
-   */
-  path: string;
-  /**
-   * File contents encoded as UTF-8 text or base64.
-   */
-  contents: string;
-  /**
-   * Encoding of the contents value. Defaults to utf8 when omitted.
-   */
-  encoding?: 'utf8' | 'base64';
-  /**
-   * Whether the file should be marked as executable in the generated bundle.
-   */
-  executable?: boolean;
+  parametersSchema: def_0;
+  outputSchema: def_0;
+  parametersSource: string | null;
+  outputSource: string | null;
 };
 

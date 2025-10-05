@@ -5,24 +5,31 @@
 export const $def_51 = {
   properties: {
     data: {
-      properties: {
-        parametersSchema: {
-          type: 'def_0',
-          isRequired: true,
-        },
-        outputSchema: {
-          type: 'def_0',
-          isRequired: true,
-        },
-        parametersSource: {
-          type: 'string',
-          isRequired: true,
-          isNullable: true,
-        },
-        outputSource: {
-          type: 'string',
-          isRequired: true,
-          isNullable: true,
+      type: 'array',
+      contains: {
+        properties: {
+          runtime: {
+            type: 'Enum',
+            isRequired: true,
+          },
+          ready: {
+            type: 'boolean',
+            isRequired: true,
+          },
+          reason: {
+            type: 'string',
+            isRequired: true,
+            isNullable: true,
+          },
+          checkedAt: {
+            type: 'string',
+            isRequired: true,
+            format: 'date-time',
+          },
+          details: {
+            type: 'def_0',
+            isRequired: true,
+          },
         },
       },
       isRequired: true,

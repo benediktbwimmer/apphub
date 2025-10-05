@@ -3,42 +3,54 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_55 = {
+  id: string;
+  bundleId: string;
+  slug: string;
+  version: string;
   /**
-   * Instruction describing the desired edits to apply to the job bundle.
+   * SHA-256 checksum of the stored artifact.
    */
-  prompt: string;
+  checksum: string;
   /**
-   * Model provider responsible for generating the bundle edits.
+   * Capability flags declared by the bundle.
    */
-  provider?: 'codex' | 'openai' | 'openrouter';
+  capabilityFlags: Array<string>;
   /**
-   * Provider-specific configuration such as API keys or maximum output tokens.
+   * Indicates whether further edits to this version are allowed.
    */
-  providerOptions?: {
+  immutable: boolean;
+  /**
+   * Lifecycle status of the bundle version.
+   */
+  status: string;
+  artifact: {
     /**
-     * API key to authorize calls to OpenAI models.
+     * Where the bundle artifact is stored.
      */
-    openAiApiKey?: string;
+    storage: string;
     /**
-     * Override for the OpenAI API base URL when routing requests through a proxy.
+     * MIME type reported for the bundle artifact.
      */
-    openAiBaseUrl?: string;
+    contentType: string;
     /**
-     * Maximum number of tokens the OpenAI provider may generate in a single response.
+     * Size of the bundle artifact in bytes.
      */
-    openAiMaxOutputTokens?: number;
-    /**
-     * API key used when the OpenRouter provider is selected.
-     */
-    openRouterApiKey?: string;
-    /**
-     * Referer value to include when calling OpenRouter.
-     */
-    openRouterReferer?: string;
-    /**
-     * Human readable title supplied to OpenRouter when making a request.
-     */
-    openRouterTitle?: string;
+    size: number;
+  };
+  manifest?: ((string | number | boolean | Record<string, any>) | null);
+  metadata: ((string | number | boolean | Record<string, any>) | null);
+  publishedBy?: any | null;
+  publishedAt?: string | null;
+  deprecatedAt?: string | null;
+  replacedAt?: string | null;
+  replacedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  download?: {
+    url: string;
+    expiresAt: string;
+    storage: string;
+    kind: string;
   };
 };
 

@@ -22,7 +22,10 @@ export type def_31 = {
   healthEndpoint?: string | null;
   workingDir?: string | null;
   devCommand?: string | null;
-  env?: (((string | number | boolean | Record<string, any>) | null) | null);
+  /**
+   * Environment variables declared for the service in manifests, including placeholder metadata.
+   */
+  env?: any[] | null;
   /**
    * IDs of apps that are linked to this service through service networks.
    */

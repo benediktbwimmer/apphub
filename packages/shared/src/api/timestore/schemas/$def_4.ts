@@ -4,55 +4,25 @@
 /* eslint-disable */
 export const $def_4 = {
   properties: {
-    status: {
-      type: 'Enum',
+    configured: {
+      type: 'boolean',
       isRequired: true,
     },
-    lifecycle: {
-      properties: {
-        inline: {
-          type: 'boolean',
-          description: `Indicates whether queue processing runs inline instead of Redis-backed.`,
-          isRequired: true,
-        },
-        ready: {
-          type: 'boolean',
-          description: `True when the lifecycle queue connection is available.`,
-          isRequired: true,
-        },
-        lastError: {
-          type: 'string',
-          isRequired: true,
-          isNullable: true,
-        },
-      },
+    reachable: {
+      type: 'boolean',
       isRequired: true,
+      isNullable: true,
     },
-    features: {
-      properties: {
-        streaming: {
-          properties: {
-            enabled: {
-              type: 'boolean',
-              isRequired: true,
-            },
-            state: {
-              type: 'Enum',
-              isRequired: true,
-            },
-            reason: {
-              type: 'string',
-              isNullable: true,
-            },
-            brokerConfigured: {
-              type: 'boolean',
-              isRequired: true,
-            },
-          },
-          isRequired: true,
-        },
-      },
+    lastCheckedAt: {
+      type: 'string',
       isRequired: true,
+      isNullable: true,
+      format: 'date-time',
+    },
+    error: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
     },
   },
 } as const;

@@ -6,6 +6,7 @@ import type {
 export type AssetExpiryReason = 'ttl' | 'cadence' | 'manual';
 
 export type AssetAutoMaterializePolicy = {
+  enabled?: boolean | null;
   onUpstreamUpdate?: boolean;
   priority?: number | null;
 };

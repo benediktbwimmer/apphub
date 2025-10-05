@@ -2,10 +2,11 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { pathExists, ensureDir } from './fs';
-import { readJsonFile, writeJsonFile } from './json';
+import { writeJsonFile } from './json';
 import {
   createModuleContext,
   resolveModuleCapabilityConfig,
+  serializeModuleDefinition,
   type ModuleCapabilities,
   type ModuleDefinition,
   type ModuleManifest,
@@ -15,7 +16,6 @@ import {
   type ValueDescriptor
 } from '@apphub/module-sdk';
 
-const DEFAULT_MANIFEST_LOCATIONS = ['dist/module.json', 'module.json'];
 const DEFAULT_DEFINITION_LOCATIONS = ['dist/module.js', 'module.js'];
 
 export interface ModuleConfigFile {
@@ -29,7 +29,6 @@ export interface ModuleConfigFile {
 
 export interface GenerateModuleConfigOptions {
   modulePath: string;
-  manifestPath?: string;
   definitionPath?: string;
   outputPath?: string;
   scratchDir?: string;
@@ -45,7 +44,6 @@ export interface GenerateModuleConfigResult {
 export interface ValidateModuleConfigOptions {
   modulePath: string;
   configPath: string;
-  manifestPath?: string;
   definitionPath?: string;
 }
 
@@ -79,11 +77,6 @@ async function resolveFromCandidates(
   throw new Error(
     `Unable to locate required file. Tried: ${candidates.map((candidate) => path.resolve(modulePath, candidate)).join(', ')}`
   );
-}
-
-async function loadModuleManifest(modulePath: string, manifestPath?: string): Promise<ModuleManifest> {
-  const resolvedManifestPath = await resolveFromCandidates(modulePath, manifestPath, DEFAULT_MANIFEST_LOCATIONS);
-  return readJsonFile<ModuleManifest>(resolvedManifestPath);
 }
 
 export async function loadModuleDefinition(modulePath: string, definitionPath?: string): Promise<ModuleDefinition> {
@@ -131,8 +124,8 @@ export async function generateModuleConfig(
   options: GenerateModuleConfigOptions
 ): Promise<GenerateModuleConfigResult> {
   const modulePath = path.resolve(options.modulePath);
-  const manifest = await loadModuleManifest(modulePath, options.manifestPath);
   const definition = await loadModuleDefinition(modulePath, options.definitionPath);
+  const manifest = serializeModuleDefinition(definition);
 
   const settingsDefaults = resolveDescriptorDefaults<Record<string, unknown>>(
     manifest.settings,
@@ -212,11 +205,11 @@ export async function validateModuleConfig(
   const modulePath = path.resolve(options.modulePath);
   const configPath = path.resolve(options.configPath);
 
-  const [manifest, definition, config] = await Promise.all([
-    loadModuleManifest(modulePath, options.manifestPath),
+  const [definition, config] = await Promise.all([
     loadModuleDefinition(modulePath, options.definitionPath),
     readConfigFile(configPath)
   ]);
+  const manifest = serializeModuleDefinition(definition);
 
   const context = createModuleContext<Record<string, unknown>, Record<string, unknown>>({
     module: definition.metadata,

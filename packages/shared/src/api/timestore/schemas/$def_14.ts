@@ -4,38 +4,14 @@
 /* eslint-disable */
 export const $def_14 = {
   properties: {
-    id: {
-      type: 'string',
-      isRequired: true,
-    },
     name: {
       type: 'string',
+      description: `Logical column name defined by the dataset schema.`,
       isRequired: true,
     },
-    kind: {
+    type: {
       type: 'Enum',
       isRequired: true,
-    },
-    description: {
-      type: 'string',
-      isNullable: true,
-    },
-    config: {
-      type: 'dictionary',
-      contains: {
-        type: 'def_0',
-      },
-      isRequired: true,
-    },
-    createdAt: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
-    },
-    updatedAt: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
     },
   },
 } as const;

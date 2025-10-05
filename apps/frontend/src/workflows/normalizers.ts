@@ -1679,11 +1679,17 @@ function normalizeAssetAutoMaterialize(value: unknown): WorkflowAssetAutoMateria
     return null;
   }
   const auto: WorkflowAssetAutoMaterialize = {};
+  if (typeof record.enabled === 'boolean') {
+    auto.enabled = record.enabled;
+  }
   if (typeof record.onUpstreamUpdate === 'boolean') {
     auto.onUpstreamUpdate = record.onUpstreamUpdate;
   }
   if (typeof record.priority === 'number' && Number.isFinite(record.priority)) {
     auto.priority = record.priority;
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'parameterDefaults')) {
+    auto.parameterDefaults = record.parameterDefaults ?? null;
   }
   return Object.keys(auto).length > 0 ? auto : null;
 }

@@ -45,6 +45,8 @@ type FilestoreHealthResponse = Awaited<ReturnType<MetastoreClientInstance['files
 type NamespaceListResponse = Awaited<ReturnType<MetastoreClientInstance['namespaces']['listNamespaces']>>;
 
 type BulkOperationResponse = Awaited<ReturnType<MetastoreClientInstance['records']['bulkRecords']>>;
+type BulkRequestInput = Parameters<MetastoreClientInstance['records']['bulkRecords']>[0]['requestBody'];
+type BulkUpsertOperationInput = Extract<BulkRequestInput['operations'][number], { type?: 'create' | 'upsert' | 'put' }>;
 
 type RecordResponse = Awaited<ReturnType<MetastoreClientInstance['records']['getRecord']>>;
 
@@ -140,8 +142,15 @@ export async function upsertRecord(
   options: RequestOptions = {}
 ): Promise<MetastoreRecordDetail> {
   const client = createClient(token);
+  const requestBody = {
+    metadata: payload.metadata ?? {},
+    ...(payload.tags ? { tags: payload.tags } : {}),
+    ...(payload.owner !== undefined ? { owner: payload.owner ?? undefined } : {}),
+    ...(payload.schemaHash !== undefined ? { schemaHash: payload.schemaHash ?? undefined } : {}),
+    ...(payload.expectedVersion !== undefined ? { expectedVersion: payload.expectedVersion } : {})
+  } satisfies Parameters<MetastoreClientInstance['records']['upsertRecord']>[0]['requestBody'];
   const response = await resolveCancelable<RecordMutationResponse>(
-    client.records.upsertRecord({ namespace, key, requestBody: payload }),
+    client.records.upsertRecord({ namespace, key, requestBody }),
     options.signal
   );
   const parsed = recordResponseSchema.parse(response);
@@ -156,8 +165,16 @@ export async function patchRecord(
   options: RequestOptions = {}
 ): Promise<MetastoreRecordDetail> {
   const client = createClient(token);
+  const requestBody = {
+    ...(payload.metadata !== undefined ? { metadata: payload.metadata } : {}),
+    ...(payload.metadataUnset ? { metadataUnset: payload.metadataUnset } : {}),
+    ...(payload.tags ? { tags: payload.tags } : {}),
+    ...(payload.owner !== undefined ? { owner: payload.owner ?? null } : {}),
+    ...(payload.schemaHash !== undefined ? { schemaHash: payload.schemaHash ?? null } : {}),
+    ...(payload.expectedVersion !== undefined ? { expectedVersion: payload.expectedVersion } : {})
+  } satisfies Parameters<MetastoreClientInstance['records']['patchRecord']>[0]['requestBody'];
   const response = await resolveCancelable<RecordPatchResponse>(
-    client.records.patchRecord({ namespace, key, requestBody: payload }),
+    client.records.patchRecord({ namespace, key, requestBody }),
     options.signal
   );
   const parsed = recordResponseSchema.parse(response);
@@ -221,8 +238,33 @@ export async function bulkOperate(
   options: RequestOptions = {}
 ): Promise<BulkResponsePayload> {
   const client = createClient(token);
+  const normalizedOperations: BulkRequestInput['operations'] = payload.operations.map((operation) => {
+    if (operation.type === 'upsert') {
+      const normalized = {
+        type: 'upsert',
+        namespace: operation.namespace,
+        key: operation.key,
+        metadata: operation.metadata ?? {},
+        ...(operation.tags ? { tags: operation.tags } : {}),
+        ...(operation.owner ? { owner: operation.owner } : {}),
+        ...(operation.schemaHash ? { schemaHash: operation.schemaHash } : {}),
+        ...(operation.expectedVersion !== undefined ? { expectedVersion: operation.expectedVersion } : {})
+      } as BulkUpsertOperationInput;
+      return normalized;
+    }
+    return {
+      type: 'delete',
+      namespace: operation.namespace,
+      key: operation.key,
+      ...(operation.expectedVersion !== undefined ? { expectedVersion: operation.expectedVersion } : {})
+    } satisfies BulkRequestInput['operations'][number];
+  });
+  const requestBody: BulkRequestInput = {
+    operations: normalizedOperations,
+    ...(payload.continueOnError !== undefined ? { continueOnError: payload.continueOnError } : {})
+  };
   const response = await resolveCancelable<BulkOperationResponse>(
-    client.records.bulkRecords({ requestBody: payload }),
+    client.records.bulkRecords({ requestBody }),
     options.signal
   );
   return bulkResponseSchema.parse(response);

@@ -1337,7 +1337,7 @@ function LaunchTimeline({
                     {new Date(timestamp).toLocaleString()}
                   </time>
                   <code className={CODE_PILL_BASE}>
-                    {launchItem.buildId.slice(0, 8)}
+                    {launchItem.buildId ? launchItem.buildId.slice(0, 8) : '—'}
                   </code>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-scale-sm">

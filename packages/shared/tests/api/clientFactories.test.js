@@ -1,6 +1,6 @@
-import assert from 'node:assert/strict';
-import { afterEach, beforeEach, describe, it } from 'node:test';
-import { createMetastoreClient } from '../../dist/api/clientFactories.js';
+const assert = require('node:assert/strict');
+const { afterEach, beforeEach, describe, it } = require('node:test');
+const { createMetastoreClient } = require('../../dist/api/clientFactories.js');
 
 const originalFetch = global.fetch;
 

@@ -788,6 +788,7 @@ function cloneAutoMaterialize(
     return null;
   }
   return {
+    enabled: autoMaterialize.enabled ?? null,
     onUpstreamUpdate: autoMaterialize.onUpstreamUpdate ?? null,
     priority: autoMaterialize.priority ?? null,
     parameterDefaults: cloneJson(autoMaterialize.parameterDefaults as unknown as JsonValue)

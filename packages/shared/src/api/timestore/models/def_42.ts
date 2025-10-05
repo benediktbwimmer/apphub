@@ -3,7 +3,14 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_42 = {
-  command: string;
-  rowCount: number;
+  savedQueries: Array<{
+    id: string;
+    statement: string;
+    label?: string | null;
+    stats?: any | null;
+    createdBy: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
 };
 

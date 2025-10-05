@@ -4,13 +4,41 @@
 /* eslint-disable */
 export const $def_36 = {
   properties: {
-    rowCount: {
-      type: 'number',
+    name: {
+      type: 'string',
+      isRequired: true,
+    },
+    description: {
+      type: 'string',
       isNullable: true,
     },
-    elapsedMs: {
-      type: 'number',
+    partitionKeys: {
+      type: 'any[]',
       isNullable: true,
+    },
+    columns: {
+      type: 'array',
+      contains: {
+        properties: {
+          name: {
+            type: 'string',
+            isRequired: true,
+          },
+          type: {
+            type: 'string',
+            isRequired: true,
+          },
+          nullable: {
+            type: 'boolean',
+            isNullable: true,
+          },
+          description: {
+            type: 'string',
+            isNullable: true,
+          },
+        },
+      },
+      isRequired: true,
     },
   },
 } as const;

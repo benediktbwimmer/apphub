@@ -3,13 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_29 = {
-  rows: Array<Record<string, any>>;
-  columns: Array<string>;
-  mode: 'raw' | 'downsampled';
-  /**
-   * Non-fatal issues encountered while executing the query.
-   */
-  warnings?: Array<string>;
-  streaming?: any | null;
+  partitionKey?: any | null;
+  columns?: any | null;
 };
 

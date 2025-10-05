@@ -5,7 +5,7 @@
 import type { def_0 } from './def_0';
 export type RuntimeReadinessListResponse = {
   data: Array<{
-    runtime: 'node' | 'python' | 'docker';
+    runtime: 'node' | 'python' | 'docker' | 'module';
     ready: boolean;
     reason: string | null;
     checkedAt: string;

@@ -4,12 +4,61 @@
 /* eslint-disable */
 export type def_9 = {
   /**
-   * Identifier of the actor that initiated the ingestion.
+   * Indicates the service cannot serve traffic.
    */
-  id: string;
-  /**
-   * Authorization scopes granted to the actor.
-   */
-  scopes: Array<string>;
+  status: 'unavailable' | 'degraded';
+  lifecycle: {
+    /**
+     * Indicates whether queue processing runs inline instead of Redis-backed.
+     */
+    inline: boolean;
+    /**
+     * True when the lifecycle queue connection is available.
+     */
+    ready: boolean;
+    lastError: string | null;
+  };
+  features: {
+    streaming: {
+      enabled: boolean;
+      state: 'disabled' | 'ready' | 'degraded' | 'unconfigured';
+      reason: string | null;
+      broker: {
+        configured: boolean;
+        reachable: boolean | null;
+        lastCheckedAt: string | null;
+        error: string | null;
+      };
+      batchers: {
+        configured: number;
+        running: number;
+        failing: number;
+        state: 'disabled' | 'ready' | 'degraded';
+        connectors: Array<{
+          connectorId: string;
+          datasetSlug: string;
+          topic: string;
+          groupId: string;
+          state: 'starting' | 'running' | 'stopped' | 'error';
+          bufferedWindows: number;
+          bufferedRows: number;
+          openWindows: number;
+          lastMessageAt: string | null;
+          lastFlushAt: string | null;
+          lastEventTimestamp: string | null;
+          lastError: string | null;
+        }>;
+      };
+      hotBuffer: {
+        enabled: boolean;
+        state: 'disabled' | 'ready' | 'unavailable';
+        datasets: number;
+        healthy: boolean;
+        lastRefreshAt: string | null;
+        lastIngestAt: string | null;
+      };
+      mirrors?: Record<string, boolean>;
+    };
+  };
 };
 

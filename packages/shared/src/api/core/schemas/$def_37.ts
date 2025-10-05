@@ -31,40 +31,14 @@ export const $def_37 = {
       isNullable: true,
     },
     capabilities: {
-      type: 'any-of',
-      contains: [{
-        type: 'any-of',
-        description: `Arbitrary JSON value.`,
-        contains: [{
-          type: 'string',
-        }, {
-          type: 'number',
-        }, {
-          type: 'number',
-        }, {
-          type: 'boolean',
-        }, {
-          type: 'dictionary',
-          contains: {
-            properties: {
-            },
-          },
-        }],
-      }, {
-        type: 'null',
-      }],
+      type: 'any',
+      description: `Optional capability metadata exposed by the service.`,
+      isNullable: true,
     },
     metadata: {
-      type: 'any-of',
-      contains: [{
-        type: 'all-of',
-        description: `Optional metadata describing manifest provenance, linked apps, and runtime expectations.`,
-        contains: [{
-          type: 'def_33',
-        }],
-      }, {
-        type: 'null',
-      }],
+      type: 'any',
+      description: `Optional metadata describing manifest provenance, linked apps, and runtime expectations.`,
+      isNullable: true,
     },
     source: {
       type: 'Enum',

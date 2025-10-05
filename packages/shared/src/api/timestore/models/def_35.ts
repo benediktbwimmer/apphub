@@ -3,22 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_35 = {
-  executionId: string;
-  columns: Array<{
-    name: string;
-    type: string;
-    nullable?: boolean | null;
-    description?: string | null;
-  }>;
-  rows: Array<Record<string, ((string | number | boolean | Record<string, any>) | null)>>;
-  /**
-   * Indicates whether results were truncated due to limits.
-   */
-  truncated: boolean;
-  warnings: Array<string>;
-  statistics: {
-    rowCount: number;
-    elapsedMs: number;
-  };
+  name: string;
+  type: string;
+  nullable?: boolean | null;
+  description?: string | null;
 };
 

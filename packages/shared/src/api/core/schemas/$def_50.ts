@@ -4,23 +4,27 @@
 /* eslint-disable */
 export const $def_50 = {
   properties: {
-    parametersSchema: {
-      type: 'def_0',
+    runtime: {
+      type: 'Enum',
       isRequired: true,
     },
-    outputSchema: {
-      type: 'def_0',
+    ready: {
+      type: 'boolean',
       isRequired: true,
     },
-    parametersSource: {
+    reason: {
       type: 'string',
       isRequired: true,
       isNullable: true,
     },
-    outputSource: {
+    checkedAt: {
       type: 'string',
       isRequired: true,
-      isNullable: true,
+      format: 'date-time',
+    },
+    details: {
+      type: 'def_0',
+      isRequired: true,
     },
   },
 } as const;

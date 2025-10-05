@@ -4,60 +4,54 @@
 /* eslint-disable */
 export const $def_41 = {
   properties: {
+    id: {
+      type: 'string',
+      isRequired: true,
+    },
+    slug: {
+      type: 'string',
+      isRequired: true,
+    },
     name: {
       type: 'string',
-      minLength: 1,
+      isRequired: true,
     },
     version: {
       type: 'number',
-      minimum: 1,
+      isRequired: true,
     },
     type: {
       type: 'Enum',
+      isRequired: true,
     },
     runtime: {
       type: 'Enum',
+      isRequired: true,
     },
     entryPoint: {
       type: 'string',
-    },
-    timeoutMs: {
-      type: 'number',
-      maximum: 86400000,
-      minimum: 1000,
-    },
-    retryPolicy: {
-      properties: {
-        maxAttempts: {
-          type: 'number',
-          maximum: 10,
-          minimum: 1,
-        },
-        strategy: {
-          type: 'Enum',
-        },
-        initialDelayMs: {
-          type: 'number',
-          maximum: 86400000,
-        },
-        maxDelayMs: {
-          type: 'number',
-          maximum: 86400000,
-        },
-        jitter: {
-          type: 'Enum',
-        },
-      },
+      isRequired: true,
     },
     parametersSchema: {
       type: 'any',
+      isRequired: true,
       isNullable: true,
     },
     defaultParameters: {
       type: 'any',
+      isRequired: true,
       isNullable: true,
     },
     outputSchema: {
+      type: 'any',
+      isRequired: true,
+      isNullable: true,
+    },
+    timeoutMs: {
+      type: 'number',
+      isNullable: true,
+    },
+    retryPolicy: {
       type: 'any',
       isNullable: true,
     },
@@ -84,6 +78,16 @@ export const $def_41 = {
       }, {
         type: 'null',
       }],
+    },
+    createdAt: {
+      type: 'string',
+      isRequired: true,
+      format: 'date-time',
+    },
+    updatedAt: {
+      type: 'string',
+      isRequired: true,
+      format: 'date-time',
     },
   },
 } as const;

@@ -4,38 +4,86 @@
 /* eslint-disable */
 export const $def_39 = {
   properties: {
-    savedQuery: {
+    executionId: {
+      type: 'string',
+      isRequired: true,
+    },
+    columns: {
+      type: 'array',
+      contains: {
+        properties: {
+          name: {
+            type: 'string',
+            isRequired: true,
+          },
+          type: {
+            type: 'string',
+            isRequired: true,
+          },
+          nullable: {
+            type: 'boolean',
+            isNullable: true,
+          },
+          description: {
+            type: 'string',
+            isNullable: true,
+          },
+        },
+      },
+      isRequired: true,
+    },
+    rows: {
+      type: 'array',
+      contains: {
+        type: 'dictionary',
+        contains: {
+          type: 'any-of',
+          contains: [{
+            type: 'any-of',
+            description: `Arbitrary JSON value.`,
+            contains: [{
+              type: 'string',
+            }, {
+              type: 'number',
+            }, {
+              type: 'number',
+            }, {
+              type: 'boolean',
+            }, {
+              type: 'dictionary',
+              contains: {
+                properties: {
+                },
+              },
+            }],
+          }, {
+            type: 'null',
+          }],
+        },
+      },
+      isRequired: true,
+    },
+    truncated: {
+      type: 'boolean',
+      description: `Indicates whether results were truncated due to limits.`,
+      isRequired: true,
+    },
+    warnings: {
+      type: 'array',
+      contains: {
+        type: 'string',
+      },
+      isRequired: true,
+    },
+    statistics: {
       properties: {
-        id: {
-          type: 'string',
+        rowCount: {
+          type: 'number',
           isRequired: true,
         },
-        statement: {
-          type: 'string',
+        elapsedMs: {
+          type: 'number',
           isRequired: true,
-        },
-        label: {
-          type: 'string',
-          isNullable: true,
-        },
-        stats: {
-          type: 'any',
-          isNullable: true,
-        },
-        createdBy: {
-          type: 'string',
-          isRequired: true,
-          isNullable: true,
-        },
-        createdAt: {
-          type: 'string',
-          isRequired: true,
-          format: 'date-time',
-        },
-        updatedAt: {
-          type: 'string',
-          isRequired: true,
-          format: 'date-time',
         },
       },
       isRequired: true,

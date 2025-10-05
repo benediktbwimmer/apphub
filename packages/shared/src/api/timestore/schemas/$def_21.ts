@@ -4,33 +4,91 @@
 /* eslint-disable */
 export const $def_21 = {
   properties: {
-    type: {
+    id: {
+      type: 'string',
+      isRequired: true,
+    },
+    datasetId: {
+      type: 'string',
+      isRequired: true,
+    },
+    manifestId: {
+      type: 'string',
+      isRequired: true,
+    },
+    manifestShard: {
+      type: 'string',
+    },
+    partitionKey: {
+      type: 'dictionary',
+      contains: {
+        type: 'def_0',
+      },
+      isRequired: true,
+    },
+    storageTargetId: {
+      type: 'string',
+      isRequired: true,
+    },
+    fileFormat: {
       type: 'Enum',
+      isRequired: true,
     },
-    eq: {
+    filePath: {
+      type: 'string',
+      isRequired: true,
+    },
+    fileSizeBytes: {
       type: 'number',
       isNullable: true,
     },
-    in: {
-      type: 'any[]',
-      isNullable: true,
-      minItems: 1,
-    },
-    gt: {
+    rowCount: {
       type: 'number',
       isNullable: true,
     },
-    gte: {
-      type: 'number',
+    startTime: {
+      type: 'string',
+      isRequired: true,
+      format: 'date-time',
+    },
+    endTime: {
+      type: 'string',
+      isRequired: true,
+      format: 'date-time',
+    },
+    checksum: {
+      type: 'string',
       isNullable: true,
     },
-    lt: {
-      type: 'number',
+    metadata: {
+      type: 'dictionary',
+      contains: {
+        type: 'def_0',
+      },
+      isRequired: true,
+    },
+    columnStatistics: {
+      type: 'dictionary',
+      contains: {
+        type: 'def_0',
+      },
+      isRequired: true,
+    },
+    columnBloomFilters: {
+      type: 'dictionary',
+      contains: {
+        type: 'def_0',
+      },
+      isRequired: true,
+    },
+    ingestionSignature: {
+      type: 'string',
       isNullable: true,
     },
-    lte: {
-      type: 'number',
-      isNullable: true,
+    createdAt: {
+      type: 'string',
+      isRequired: true,
+      format: 'date-time',
     },
   },
 } as const;

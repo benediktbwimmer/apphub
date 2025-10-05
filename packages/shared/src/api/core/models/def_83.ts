@@ -3,7 +3,15 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_83 = {
-  partitionKey?: string;
-  note?: string;
+  fromAssetId: string;
+  fromAssetNormalizedId: string;
+  toAssetId: string;
+  toAssetNormalizedId: string;
+  workflowId: string;
+  workflowSlug: string;
+  workflowName: string;
+  stepId: string;
+  stepName: string;
+  stepType: 'job' | 'service' | 'fanout';
 };
 
