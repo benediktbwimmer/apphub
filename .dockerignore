@@ -1,6 +1,7 @@
 .git
 .gitmodules
 node_modules
+**/node_modules
 npm-debug.log
 services/core/node_modules
 apps/frontend/node_modules
@@ -10,3 +11,10 @@ services/core/tests
 **/*.log
 dist
 coverage
+infra
+docker/demo-data
+logs
+.dev
+.vscode
+tmp
+.DS_Store

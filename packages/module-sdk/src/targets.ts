@@ -135,7 +135,9 @@ export type WorkflowTriggerPredicateOperator =
   | 'notEquals'
   | 'in'
   | 'notIn'
-  | 'exists';
+  | 'exists'
+  | 'contains'
+  | 'regex';
 
 export interface WorkflowTriggerPredicate {
   path: string;

@@ -184,26 +184,50 @@ function parseCalibrations(raw: RawPlannerOverrides): PlannerCalibration[] {
     candidates.push(raw.calibration);
   }
   if (candidates.length === 0) {
-    throw new Error('At least one calibration must be provided');
+    return [];
   }
 
-  return candidates.map((entry, index) => {
-    const parsed = calibrationInputSchema.parse(entry);
-    const effectiveAtIso = new Date(parsed.effectiveAt).toISOString();
-    if (Number.isNaN(new Date(effectiveAtIso).getTime())) {
-      throw new Error(`Calibration at index ${index} has invalid effectiveAt '${parsed.effectiveAt}'`);
+  const calibrations: PlannerCalibration[] = [];
+  candidates.forEach((entry, index) => {
+    if (!entry || typeof entry !== 'object') {
+      return;
     }
-    const fallbackId = `${parsed.instrumentId}:${effectiveAtIso}`;
-    const calibrationId = sanitizeIdentifier(parsed.calibrationId ?? fallbackId, fallbackId);
-    const metastoreVersion = ensureNumber(parsed.metastoreVersion) ?? null;
-    return {
+    const record = entry as Record<string, unknown>;
+    const instrumentRaw = typeof record.instrumentId === 'string' ? record.instrumentId.trim() : '';
+    const effectiveRaw = typeof record.effectiveAt === 'string' ? record.effectiveAt.trim() : '';
+    if (!instrumentRaw || !effectiveRaw) {
+      return;
+    }
+    const calibrationIdRaw =
+      typeof record.calibrationId === 'string' && record.calibrationId.trim().length > 0
+        ? record.calibrationId.trim()
+        : undefined;
+    const parsed = calibrationInputSchema.safeParse({
+      calibrationId: calibrationIdRaw,
+      instrumentId: instrumentRaw,
+      effectiveAt: effectiveRaw,
+      metastoreVersion: record.metastoreVersion
+    });
+    if (!parsed.success) {
+      return;
+    }
+    const effectiveAtIso = new Date(parsed.data.effectiveAt).toISOString();
+    if (Number.isNaN(new Date(effectiveAtIso).getTime())) {
+      return;
+    }
+    const fallbackId = `${parsed.data.instrumentId}:${effectiveAtIso}`;
+    const calibrationId = sanitizeIdentifier(parsed.data.calibrationId ?? fallbackId, fallbackId);
+    const metastoreVersion = ensureNumber(parsed.data.metastoreVersion) ?? null;
+    calibrations.push({
       calibrationId,
-      instrumentId: parsed.instrumentId,
+      instrumentId: parsed.data.instrumentId,
       effectiveAtIso,
       effectiveMinute: toEffectiveMinuteKey(effectiveAtIso),
       metastoreVersion
-    } satisfies PlannerCalibration;
+    });
   });
+
+  return calibrations;
 }
 
 function parseDownstreamWorkflows(raw: RawPlannerOverrides): CalibrationPlanDownstreamWorkflow[] {
@@ -794,6 +818,34 @@ export const calibrationPlannerJob = createJobHandler<
     });
 
     const calibrationEntries = buildCalibrationEntries(context.parameters, partitions, requestTimestamp, context);
+    if (calibrationEntries.length === 0) {
+      context.logger.info('No valid calibrations provided; skipping plan generation', {
+        planId,
+        ingestWorkflowSlug,
+        ingestAssetId
+      });
+      return {
+        planId,
+        planPath,
+        planNodeId: null,
+        partitionCount: 0,
+        instrumentCount: 0,
+        calibrationCount: 0,
+        state: 'completed',
+        storage: {
+          plansPrefix: plansPrefix ?? null,
+          planPath,
+          nodeId: null
+        },
+        summary: {
+          partitionCount: 0,
+          instrumentCount: 0,
+          calibrationCount: 0
+        },
+        assets: []
+      } satisfies CalibrationPlannerResult;
+    }
+
     const summary = buildPlanSummary(calibrationEntries);
 
     const includeMetastore = Boolean(metastoreBaseUrl ?? fallbackMetastore);

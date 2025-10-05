@@ -24,8 +24,14 @@ const parametersSchema = z
       .transform((value) => (value == null ? undefined : value)),
     instrumentId: z.string().min(1).optional(),
     siteFilter: z
-      .union([z.string().min(1), z.null(), z.undefined()])
-      .transform((value) => (value == null ? undefined : value)),
+      .union([z.string(), z.null(), z.undefined()])
+      .transform((value) => {
+        if (value == null) {
+          return undefined;
+        }
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+      }),
     datasetSlug: z.string().min(1).optional(),
     datasetName: z.string().min(1).optional()
   })

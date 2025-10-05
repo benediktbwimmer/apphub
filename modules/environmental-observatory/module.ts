@@ -1,6 +1,6 @@
 import { defineModule, namedCapabilities, secretsRef, settingsRef } from '@apphub/module-sdk';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from './src/runtime/settings';
-import { defaultObservatorySettings } from './src/runtime/settings';
+import { defaultObservatorySettings, defaultObservatorySecrets } from './src/runtime/settings';
 import { dataGeneratorJob } from './src/jobs/dataGenerator';
 import { inboxNormalizerJob } from './src/jobs/inboxNormalizer';
 import { timestoreLoaderJob } from './src/jobs/timestoreLoader';
@@ -32,7 +32,7 @@ export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>
     defaults: defaultObservatorySettings
   },
   secrets: {
-    defaults: {}
+    defaults: defaultObservatorySecrets
   },
   capabilities: {
     filestore: {

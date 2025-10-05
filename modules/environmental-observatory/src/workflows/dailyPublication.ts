@@ -37,7 +37,7 @@ const definition: WorkflowDefinition = {
         partitionKey: '{{ parameters.partitionKey }}',
         partitionWindow: '{{ parameters.partitionWindow | default: parameters.partitionKey | slice: 0, 16 }}',
         instrumentId: '{{ parameters.instrumentId }}',
-        siteFilter: '{{ parameters.siteFilter }}',
+        siteFilter: '{{ parameters.siteFilter | default: "" }}',
         lookbackMinutes: '{{ parameters.lookbackMinutes | default: defaultParameters.lookbackMinutes }}'
       },
       storeResultAs: 'visualizations'
@@ -50,7 +50,7 @@ const definition: WorkflowDefinition = {
       parameters: {
         partitionKey: '{{ parameters.partitionKey }}',
         instrumentId: '{{ parameters.instrumentId }}',
-        reportTemplate: '{{ parameters.reportTemplate }}',
+        reportTemplate: '{{ parameters.reportTemplate | default: "" }}',
         visualizationAsset: '{{ steps.generate-plots.result.visualization }}'
       },
       consumes: [
