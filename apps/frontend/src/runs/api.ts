@@ -14,6 +14,7 @@ type CoreJsonOptions = {
   url: string;
   query?: Record<string, QueryValue>;
   body?: unknown;
+  headers?: Record<string, string>;
   signal?: AbortSignal;
   errorMessage: string;
 };

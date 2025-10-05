@@ -3,18 +3,13 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_33 = {
-  fetchedAt: string;
-  tables: Array<{
-    name: string;
-    description?: string | null;
-    partitionKeys?: any[] | null;
-    columns: Array<{
-      name: string;
-      type: string;
-      nullable?: boolean | null;
-      description?: string | null;
-    }>;
-  }>;
-  warnings: Array<string>;
+  rows: Array<Record<string, any>>;
+  columns: Array<string>;
+  mode: 'raw' | 'downsampled';
+  /**
+   * Non-fatal issues encountered while executing the query.
+   */
+  warnings?: Array<string>;
+  streaming?: any | null;
 };
 

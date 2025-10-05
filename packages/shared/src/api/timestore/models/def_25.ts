@@ -3,7 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_25 = {
-  partitionKey?: any | null;
-  columns?: any | null;
+  type?: 'number';
+  eq?: number | null;
+  in?: any[] | null;
+  gt?: number | null;
+  gte?: number | null;
+  lt?: number | null;
+  lte?: number | null;
 };
 

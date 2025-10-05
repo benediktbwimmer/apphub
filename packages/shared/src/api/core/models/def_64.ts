@@ -2,12 +2,53 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type def_64 = {
-  slug: string;
+export type def_64 = ({
+  id: string;
   name: string;
-  version?: number;
-  description?: string;
-  steps: Array<({
+  type?: 'job';
+  jobSlug: string;
+  description?: string | null;
+  dependsOn?: Array<string>;
+  parameters?: ((string | number | boolean | Record<string, any>) | null);
+  timeoutMs?: number | null;
+  retryPolicy?: any | null;
+  storeResultAs?: string | null;
+} | {
+  id: string;
+  name: string;
+  type: 'service';
+  serviceSlug: string;
+  description?: string | null;
+  dependsOn?: Array<string>;
+  parameters?: ((string | number | boolean | Record<string, any>) | null);
+  timeoutMs?: number | null;
+  retryPolicy?: any | null;
+  requireHealthy?: boolean;
+  allowDegraded?: boolean;
+  captureResponse?: boolean;
+  storeResponseAs?: string;
+  request: {
+    path: string;
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
+    headers?: Record<string, (string | {
+      secret: {
+        source: 'env' | 'store';
+        key: string;
+        version?: string;
+      };
+      prefix?: string;
+    })>;
+    query?: Record<string, (string | number | boolean)>;
+    body?: ((string | number | boolean | Record<string, any>) | null);
+  };
+} | {
+  id: string;
+  name: string;
+  type: 'fanout';
+  description?: string | null;
+  dependsOn?: Array<string>;
+  collection: ((string | number | boolean | Record<string, any>) | null);
+  template: ({
     id: string;
     name: string;
     type?: 'job';
@@ -46,64 +87,9 @@ export type def_64 = {
       query?: Record<string, (string | number | boolean)>;
       body?: ((string | number | boolean | Record<string, any>) | null);
     };
-  } | {
-    id: string;
-    name: string;
-    type: 'fanout';
-    description?: string | null;
-    dependsOn?: Array<string>;
-    collection: ((string | number | boolean | Record<string, any>) | null);
-    template: ({
-      id: string;
-      name: string;
-      type?: 'job';
-      jobSlug: string;
-      description?: string | null;
-      dependsOn?: Array<string>;
-      parameters?: ((string | number | boolean | Record<string, any>) | null);
-      timeoutMs?: number | null;
-      retryPolicy?: any | null;
-      storeResultAs?: string | null;
-    } | {
-      id: string;
-      name: string;
-      type: 'service';
-      serviceSlug: string;
-      description?: string | null;
-      dependsOn?: Array<string>;
-      parameters?: ((string | number | boolean | Record<string, any>) | null);
-      timeoutMs?: number | null;
-      retryPolicy?: any | null;
-      requireHealthy?: boolean;
-      allowDegraded?: boolean;
-      captureResponse?: boolean;
-      storeResponseAs?: string;
-      request: {
-        path: string;
-        method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
-        headers?: Record<string, (string | {
-          secret: {
-            source: 'env' | 'store';
-            key: string;
-            version?: string;
-          };
-          prefix?: string;
-        })>;
-        query?: Record<string, (string | number | boolean)>;
-        body?: ((string | number | boolean | Record<string, any>) | null);
-      };
-    });
-    maxItems?: number | null;
-    maxConcurrency?: number | null;
-    storeResultsAs?: string;
-  })>;
-  triggers?: Array<{
-    type: string;
-    options?: ((string | number | boolean | Record<string, any>) | null);
-  }>;
-  parametersSchema?: any | null;
-  defaultParameters?: any | null;
-  outputSchema?: any | null;
-  metadata?: any | null;
-};
+  });
+  maxItems?: number | null;
+  maxConcurrency?: number | null;
+  storeResultsAs?: string;
+});
 

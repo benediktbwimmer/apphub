@@ -240,6 +240,9 @@ function parseAssetAutoMaterialize(value: unknown): WorkflowAssetAutoMaterialize
   }
   const record = value as Record<string, unknown>;
   const policy: WorkflowAssetAutoMaterialize = {};
+  if (typeof record.enabled === 'boolean') {
+    policy.enabled = record.enabled;
+  }
   if (typeof record.onUpstreamUpdate === 'boolean') {
     policy.onUpstreamUpdate = record.onUpstreamUpdate;
   }

@@ -4,24 +4,57 @@
 /* eslint-disable */
 export const $def_38 = {
   properties: {
-    maxAttempts: {
-      type: 'number',
-      maximum: 10,
-      minimum: 1,
+    moduleId: {
+      type: 'string',
+      isRequired: true,
+      minLength: 1,
     },
-    strategy: {
-      type: 'Enum',
+    moduleVersion: {
+      type: 'string',
+      isRequired: true,
+      minLength: 1,
     },
-    initialDelayMs: {
-      type: 'number',
-      maximum: 86400000,
+    displayName: {
+      type: 'string',
+      isNullable: true,
     },
-    maxDelayMs: {
-      type: 'number',
-      maximum: 86400000,
+    description: {
+      type: 'string',
+      isNullable: true,
     },
-    jitter: {
-      type: 'Enum',
+    keywords: {
+      type: 'array',
+      contains: {
+        type: 'string',
+        minLength: 1,
+      },
+    },
+    manifest: {
+      type: 'dictionary',
+      contains: {
+        properties: {
+        },
+      },
+      isRequired: true,
+    },
+    artifact: {
+      properties: {
+        filename: {
+          type: 'string',
+          minLength: 1,
+        },
+        contentType: {
+          type: 'string',
+          minLength: 1,
+        },
+        data: {
+          type: 'string',
+          description: `Base64-encoded module bundle contents.`,
+          isRequired: true,
+          minLength: 1,
+        },
+      },
+      isRequired: true,
     },
   },
 } as const;

@@ -926,6 +926,9 @@ export const $WorkflowTopologyGraph = {
               },
               autoMaterialize: {
                 properties: {
+                  enabled: {
+                    type: 'boolean',
+                  },
                   onUpstreamUpdate: {
                     type: 'boolean',
                   },

@@ -928,6 +928,9 @@ export const $WorkflowGraphResponse = {
                   },
                   autoMaterialize: {
                     properties: {
+                      enabled: {
+                        type: 'boolean',
+                      },
                       onUpstreamUpdate: {
                         type: 'boolean',
                       },

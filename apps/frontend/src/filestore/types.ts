@@ -50,10 +50,10 @@ export const filestoreNodeDownloadSchema = z.object({
 });
 export type FilestoreNodeDownload = z.infer<typeof filestoreNodeDownloadSchema>;
 
-export const filestoreNodeKindSchema = z.enum(['file', 'directory', 'unknown']);
+export const filestoreNodeKindSchema = z.enum(['file', 'directory']);
 export type FilestoreNodeKind = z.infer<typeof filestoreNodeKindSchema>;
 
-export const filestoreNodeStateSchema = z.enum(['active', 'inconsistent', 'missing', 'deleted', 'unknown']);
+export const filestoreNodeStateSchema = z.enum(['active', 'inconsistent', 'missing', 'deleted']);
 export type FilestoreNodeState = z.infer<typeof filestoreNodeStateSchema>;
 
 export const filestoreConsistencyStateSchema = z.enum(['active', 'inconsistent', 'missing']);

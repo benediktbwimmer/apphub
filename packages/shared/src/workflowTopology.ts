@@ -20,6 +20,7 @@ export type WorkflowTopologyAssetFreshness = {
 };
 
 export type WorkflowTopologyAssetAutoMaterialize = {
+  enabled?: boolean | null;
   onUpstreamUpdate?: boolean | null;
   priority?: number | null;
   parameterDefaults?: JsonValue | null;

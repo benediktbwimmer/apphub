@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { JobDefinitionSummary } from '../workflows/api';
 import { createJobDefinition } from '../workflows/api';
 import type { AuthorizedFetch } from '../lib/apiClient';
+import { useAuth } from '../auth/useAuth';
 import { Modal } from '../components';
 import { Editor } from '../components/Editor';
 import {
@@ -140,6 +141,7 @@ export default function JobCreateDialog({
   runtimeStatuses,
   onCreated
 }: JobCreateDialogProps) {
+  const { activeToken } = useAuth();
   const runtimeStatusMap = useMemo(() => {
     const map = new Map<JobRuntimeStatus['runtime'], JobRuntimeStatus>();
     for (const status of runtimeStatuses) {

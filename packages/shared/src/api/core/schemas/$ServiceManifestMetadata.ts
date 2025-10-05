@@ -37,28 +37,58 @@ export const $ServiceManifestMetadata = {
       isNullable: true,
     },
     env: {
-      type: 'all-of',
-      description: `Environment variables declared for the service in manifests, including placeholder metadata.`,
-      contains: [{
-        type: 'any-of',
-        description: `Arbitrary JSON value.`,
-        contains: [{
-          type: 'string',
-        }, {
-          type: 'number',
-        }, {
-          type: 'number',
-        }, {
-          type: 'boolean',
-        }, {
-          type: 'dictionary',
-          contains: {
+      type: 'array',
+      contains: {
+        description: `Environment variable declared in a service manifest.`,
+        properties: {
+          key: {
+            type: 'string',
+            isRequired: true,
+            minLength: 1,
+          },
+          value: {
+            type: 'one-of',
+            contains: [{
+              type: 'string',
+            }, {
+              properties: {
+                $var: {
+                  properties: {
+                    name: {
+                      type: 'string',
+                      isRequired: true,
+                      minLength: 1,
+                    },
+                    default: {
+                      type: 'string',
+                    },
+                    description: {
+                      type: 'string',
+                    },
+                  },
+                  isRequired: true,
+                },
+              },
+            }],
+          },
+          fromService: {
             properties: {
+              service: {
+                type: 'string',
+                isRequired: true,
+                minLength: 1,
+              },
+              property: {
+                type: 'Enum',
+                isRequired: true,
+              },
+              fallback: {
+                type: 'string',
+              },
             },
           },
-        }],
-        isNullable: true,
-      }],
+        },
+      },
       isNullable: true,
     },
     apps: {

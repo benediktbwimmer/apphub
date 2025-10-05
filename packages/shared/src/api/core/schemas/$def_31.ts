@@ -36,37 +36,9 @@ export const $def_31 = {
       isNullable: true,
     },
     env: {
-      type: 'any-of',
-      contains: [{
-        type: 'all-of',
-        description: `Environment variables declared for the service in manifests, including placeholder metadata.`,
-        contains: [{
-          type: 'any-of',
-          contains: [{
-            type: 'any-of',
-            description: `Arbitrary JSON value.`,
-            contains: [{
-              type: 'string',
-            }, {
-              type: 'number',
-            }, {
-              type: 'number',
-            }, {
-              type: 'boolean',
-            }, {
-              type: 'dictionary',
-              contains: {
-                properties: {
-                },
-              },
-            }],
-          }, {
-            type: 'null',
-          }],
-        }],
-      }, {
-        type: 'null',
-      }],
+      type: 'any[]',
+      description: `Environment variables declared for the service in manifests, including placeholder metadata.`,
+      isNullable: true,
     },
     apps: {
       type: 'any[]',

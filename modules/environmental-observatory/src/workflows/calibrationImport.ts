@@ -53,30 +53,39 @@ const definition: WorkflowDefinition = {
   ]
 };
 
-const triggers = [
-  createWorkflowTrigger({
-    name: 'Import calibrations on upload',
-    description: 'Import a calibration whenever a file is uploaded under the calibrations prefix.',
-    eventType: 'filestore.command.completed',
-    eventSource: 'filestore.service',
-    predicates: [
-      { path: '$.payload.command', operator: 'equals', value: 'uploadFile' },
-      { path: '$.payload.backendMountId', operator: 'equals', value: moduleSetting('filestore.backendId') },
-      {
-        path: '$.payload.path',
-        operator: 'regex',
-        value: '^{{ module.settings.filestore.calibrationsPrefix }}(?:/|$)'
-      }
-    ],
-    parameterTemplate: {
-      calibrationPath: '{{ event.payload.path }}',
-      calibrationNodeId: '{{ event.payload.node.id }}',
-      checksum: '{{ event.payload.node.checksum }}'
-    },
-    idempotencyKeyExpression:
-      "observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: '/', '_' }}"
-  })
-];
+const CALIBRATION_IMPORT_TRIGGERS_ENABLED = false;
+
+const triggers = CALIBRATION_IMPORT_TRIGGERS_ENABLED
+  ? [
+      createWorkflowTrigger({
+        name: 'Import calibrations on upload',
+        description:
+          'Import a calibration whenever a file is uploaded under the calibrations prefix.',
+        eventType: 'filestore.command.completed',
+        eventSource: 'filestore.service',
+        predicates: [
+          { path: '$.payload.command', operator: 'equals', value: 'uploadFile' },
+          {
+            path: '$.payload.backendMountId',
+            operator: 'equals',
+            value: moduleSetting('filestore.backendId')
+          },
+          {
+            path: '$.payload.path',
+            operator: 'regex',
+            value: '^{{ module.settings.filestore.calibrationsPrefix }}(?:/|$)'
+          }
+        ],
+        parameterTemplate: {
+          calibrationPath: '{{ event.payload.path }}',
+          calibrationNodeId: '{{ event.payload.node.id }}',
+          checksum: '{{ event.payload.node.checksum }}'
+        },
+        idempotencyKeyExpression:
+          "observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: '/', '_' }}"
+      })
+    ]
+  : [];
 
 export const calibrationImportWorkflow = createWorkflow<
   ObservatoryModuleSettings,

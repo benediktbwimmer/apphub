@@ -3,9 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_40 = {
-  /**
-   * Unique identifier of the saved query.
-   */
-  id: string;
+  rowCount?: number | null;
+  elapsedMs?: number | null;
 };
 

@@ -568,7 +568,7 @@ export async function fetchJobDetail(
     url: `/jobs/${encodeURIComponent(slug)}`,
     signal: options.signal
   });
-  return jobDetailEnvelope.parse(response);
+  return jobDetailEnvelope.parse(response) as JobDetailResponse;
 }
 
 export async function fetchJobBundleEditor(
@@ -580,7 +580,7 @@ export async function fetchJobBundleEditor(
     url: `/jobs/${encodeURIComponent(slug)}/bundle-editor`,
     signal: options.signal
   });
-  return bundleEditorDataEnvelope.parse(response);
+  return bundleEditorDataEnvelope.parse(response) as BundleEditorData;
 }
 
 export async function fetchBundleVersionDetail(
@@ -593,7 +593,7 @@ export async function fetchBundleVersionDetail(
     url: `/job-bundles/${encodeURIComponent(slug)}/versions/${encodeURIComponent(version)}`,
     signal: options.signal
   });
-  return bundleVersionDetailEnvelope.parse(response);
+  return bundleVersionDetailEnvelope.parse(response) as BundleVersionDetail;
 }
 
 export type BundleRegenerateInput = {
@@ -625,7 +625,7 @@ export async function regenerateJobBundle(
     body: input,
     signal: options.signal
   });
-  return bundleEditorDataEnvelope.parse(response);
+  return bundleEditorDataEnvelope.parse(response) as BundleEditorData;
 }
 
 export type BundleAiEditInput = {
@@ -653,7 +653,7 @@ export async function aiEditJobBundle(
     body: input,
     signal: options.signal
   });
-  return bundleEditorDataEnvelope.parse(response);
+  return bundleEditorDataEnvelope.parse(response) as BundleEditorData;
 }
 
 export async function previewJobSchemas(
@@ -667,7 +667,7 @@ export async function previewJobSchemas(
     body: { entryPoint: input.entryPoint, runtime: input.runtime },
     signal: options.signal
   });
-  return schemaPreviewEnvelope.parse(response);
+  return schemaPreviewEnvelope.parse(response) as SchemaPreview;
 }
 
 export async function previewPythonSnippet(
@@ -681,7 +681,7 @@ export async function previewPythonSnippet(
     body: input,
     signal: options.signal
   });
-  return pythonSnippetPreviewEnvelope.parse(response);
+  return pythonSnippetPreviewEnvelope.parse(response) as PythonSnippetPreview;
 }
 
 export async function createPythonSnippetJob(
@@ -706,5 +706,5 @@ export async function createPythonSnippetJob(
     body: input,
     signal: options.signal
   });
-  return pythonSnippetCreateEnvelope.parse(response);
+  return pythonSnippetCreateEnvelope.parse(response) as PythonSnippetCreateResult;
 }

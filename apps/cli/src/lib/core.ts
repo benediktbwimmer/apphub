@@ -1,4 +1,4 @@
-import type { ApiRequestOptions } from '@apphub/shared/api/core';
+import type { ApiRequestOptions } from '@apphub/shared/api/core/core/ApiRequestOptions';
 import { ApiError } from '@apphub/shared/api/core';
 import { createCoreClient } from '@apphub/shared/api';
 
@@ -60,19 +60,23 @@ function createClient(config: CoreRequestConfig) {
 
 export async function coreRequest<T = unknown>(config: CoreRequestConfig): Promise<T> {
   const client = createClient(config);
+  const rawMethod = config.method ?? 'GET';
+  const method = (typeof rawMethod === 'string' ? rawMethod.toUpperCase() : rawMethod) as ApiRequestOptions['method'];
+  const shouldDefaultJson =
+    config.body !== undefined &&
+    config.body !== null &&
+    !(config.body instanceof FormData) &&
+    !config.mediaType;
+  const mediaType = shouldDefaultJson ? 'application/json' : config.mediaType;
   const requestOptions: ApiRequestOptions = {
-    method: config.method ?? 'GET',
+    method,
     url: config.path.startsWith('/') ? config.path : `/${config.path}`,
     body: config.body,
     query: config.query,
-    mediaType: config.mediaType,
+    mediaType,
     headers: config.headers,
     responseHeader: config.responseHeader
   };
-
-  if (requestOptions.body !== undefined && !requestOptions.mediaType && !(requestOptions.body instanceof FormData)) {
-    requestOptions.mediaType = 'application/json';
-  }
 
   try {
     return await client.request.request<T>(requestOptions);

@@ -4,15 +4,45 @@
 /* eslint-disable */
 export const $def_83 = {
   properties: {
-    partitionKey: {
+    fromAssetId: {
       type: 'string',
-      maxLength: 200,
-      minLength: 1,
+      isRequired: true,
     },
-    note: {
+    fromAssetNormalizedId: {
       type: 'string',
-      maxLength: 500,
-      minLength: 1,
+      isRequired: true,
+    },
+    toAssetId: {
+      type: 'string',
+      isRequired: true,
+    },
+    toAssetNormalizedId: {
+      type: 'string',
+      isRequired: true,
+    },
+    workflowId: {
+      type: 'string',
+      isRequired: true,
+    },
+    workflowSlug: {
+      type: 'string',
+      isRequired: true,
+    },
+    workflowName: {
+      type: 'string',
+      isRequired: true,
+    },
+    stepId: {
+      type: 'string',
+      isRequired: true,
+    },
+    stepName: {
+      type: 'string',
+      isRequired: true,
+    },
+    stepType: {
+      type: 'Enum',
+      isRequired: true,
     },
   },
 } as const;

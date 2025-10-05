@@ -2,22 +2,13 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type def_26 = ({
-  fn: 'avg' | 'min' | 'max' | 'sum' | 'median';
-  column: string;
-  alias?: string | null;
-} | {
-  fn: 'count';
-  column?: string | null;
-  alias?: string | null;
-} | {
-  fn: 'count_distinct';
-  column: string;
-  alias?: string | null;
-} | {
-  fn: 'percentile';
-  column: string;
-  percentile: number;
-  alias?: string | null;
-});
+export type def_26 = {
+  type?: 'timestamp';
+  eq?: string | null;
+  in?: any[] | null;
+  gt?: string | null;
+  gte?: string | null;
+  lt?: string | null;
+  lte?: string | null;
+};
 

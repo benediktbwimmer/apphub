@@ -3,12 +3,18 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_37 = {
-  id: string;
-  statement: string;
-  label?: string | null;
-  stats?: any | null;
-  createdBy: string | null;
-  createdAt: string;
-  updatedAt: string;
+  fetchedAt: string;
+  tables: Array<{
+    name: string;
+    description?: string | null;
+    partitionKeys?: any[] | null;
+    columns: Array<{
+      name: string;
+      type: string;
+      nullable?: boolean | null;
+      description?: string | null;
+    }>;
+  }>;
+  warnings: Array<string>;
 };
 

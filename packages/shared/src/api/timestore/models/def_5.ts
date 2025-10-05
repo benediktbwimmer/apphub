@@ -3,28 +3,17 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_5 = {
-  /**
-   * Indicates the service cannot serve traffic.
-   */
-  status: 'unavailable';
-  lifecycle: {
-    /**
-     * Indicates whether queue processing runs inline instead of Redis-backed.
-     */
-    inline: boolean;
-    /**
-     * True when the lifecycle queue connection is available.
-     */
-    ready: boolean;
-    lastError: string | null;
-  };
-  features: {
-    streaming: {
-      enabled: boolean;
-      state: 'disabled' | 'ready' | 'unconfigured';
-      reason?: string | null;
-      brokerConfigured: boolean;
-    };
-  };
+  connectorId: string;
+  datasetSlug: string;
+  topic: string;
+  groupId: string;
+  state: 'starting' | 'running' | 'stopped' | 'error';
+  bufferedWindows: number;
+  bufferedRows: number;
+  openWindows: number;
+  lastMessageAt: string | null;
+  lastFlushAt: string | null;
+  lastEventTimestamp: string | null;
+  lastError: string | null;
 };
 

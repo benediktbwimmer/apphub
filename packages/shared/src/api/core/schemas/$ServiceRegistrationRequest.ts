@@ -31,31 +31,19 @@ export const $ServiceRegistrationRequest = {
       isNullable: true,
     },
     capabilities: {
-      type: 'any-of',
-      description: `Arbitrary JSON value.`,
-      contains: [{
-        type: 'string',
-      }, {
-        type: 'number',
-      }, {
-        type: 'number',
-      }, {
-        type: 'boolean',
-      }, {
-        type: 'dictionary',
-        contains: {
-          properties: {
-          },
+      type: 'dictionary',
+      contains: {
+        properties: {
         },
-      }],
+      },
       isNullable: true,
     },
     metadata: {
-      type: 'all-of',
-      description: `Optional metadata describing manifest provenance, linked apps, and runtime expectations.`,
-      contains: [{
-        type: 'def_33',
-      }],
+      type: 'dictionary',
+      contains: {
+        properties: {
+        },
+      },
       isNullable: true,
     },
     source: {

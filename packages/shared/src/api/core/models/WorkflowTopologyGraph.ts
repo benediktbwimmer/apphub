@@ -220,6 +220,7 @@ export type WorkflowTopologyGraph = {
         retentionDays?: number | null;
       }) | null;
       autoMaterialize?: {
+        enabled?: boolean;
         onUpstreamUpdate?: boolean;
         priority?: number | null;
         /**

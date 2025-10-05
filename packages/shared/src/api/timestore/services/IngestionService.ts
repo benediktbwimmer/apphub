@@ -2,9 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_13 } from '../models/def_13';
-import type { def_18 } from '../models/def_18';
-import type { def_19 } from '../models/def_19';
+import type { def_17 } from '../models/def_17';
+import type { def_22 } from '../models/def_22';
+import type { def_23 } from '../models/def_23';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class IngestionService {
@@ -12,8 +12,8 @@ export class IngestionService {
   /**
    * Ingest dataset partition
    * Schedules ingestion for a dataset partition. Depending on configuration the job may run inline or be enqueued.
-   * @returns def_19 Ingestion job accepted for processing.
-   * @returns def_18 Ingestion completed inline.
+   * @returns def_23 Ingestion job accepted for processing.
+   * @returns def_22 Ingestion completed inline.
    * @throws ApiError
    */
   public postDatasetsIngest({
@@ -24,8 +24,8 @@ export class IngestionService {
      * Human-readable slug uniquely identifying a dataset.
      */
     datasetSlug: string,
-    requestBody?: def_13,
-  }): CancelablePromise<def_19 | def_18> {
+    requestBody?: def_17,
+  }): CancelablePromise<def_23 | def_22> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/datasets/{datasetSlug}/ingest',

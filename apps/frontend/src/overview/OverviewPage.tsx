@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useOverviewData } from './useOverviewData';
 import { ROUTE_PATHS } from '../routes/paths';
 import { Spinner } from '../components';
@@ -15,6 +16,9 @@ const SECONDARY_BADGE_BASE =
 
 const CARD_CONTAINER_CLASSES =
   'flex flex-col gap-4 rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-xl backdrop-blur-md transition-colors';
+
+const ACCENT_LINK_CLASSES =
+  'inline-flex items-center gap-2 rounded-full border border-accent bg-accent px-3 py-1 text-scale-xs font-weight-semibold text-inverse shadow-elevation-sm transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 const EMPTY_STATE_CLASSES =
   'flex h-28 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-subtle bg-surface-muted text-scale-sm text-muted';

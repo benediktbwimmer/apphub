@@ -3,6 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_90 = {
-  error: ((string | number | boolean | Record<string, any>) | null);
+  configured: boolean;
+  reachable: boolean | null;
+  lastCheckedAt: string | null;
+  error: string | null;
 };
 

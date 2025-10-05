@@ -1,7 +1,19 @@
 import { mapWorkflowAssetDeclarationRow, mapWorkflowRunStepAssetRow, mapWorkflowAssetSnapshotRow, mapWorkflowAssetStalePartitionRow, mapWorkflowAssetPartitionParametersRow } from '../../db/rowMappers';
 import { WorkflowAssetDeclarationRow, WorkflowRunStepAssetRow, WorkflowAssetSnapshotRow, WorkflowAssetStalePartitionRow, WorkflowAssetPartitionParametersRow } from '../../db/rowTypes';
-import type { JsonValue, WorkflowStepDefinition, WorkflowAssetDeclaration, WorkflowAssetDeclarationRecord, WorkflowAssetDirection, WorkflowRunStepAssetRecord, WorkflowAssetSnapshotRecord, WorkflowAssetPartitionSummary, WorkflowAssetStalePartitionRecord, WorkflowAssetPartitionParametersRecord } from '../../db/types';
-import { useConnection } from '../../db/utils';
+import type {
+  JsonValue,
+  WorkflowStepDefinition,
+  WorkflowAssetDeclaration,
+  WorkflowAssetDeclarationRecord,
+  WorkflowAssetDirection,
+  WorkflowRunStepAssetRecord,
+  WorkflowAssetSnapshotRecord,
+  WorkflowAssetPartitionSummary,
+  WorkflowAssetStalePartitionRecord,
+  WorkflowAssetPartitionParametersRecord,
+  WorkflowAssetAutoMaterialize
+} from '../../db/types';
+import { useConnection, useTransaction } from '../../db/utils';
 import { randomUUID } from 'node:crypto';
 import { PoolClient } from 'pg';
 
@@ -475,6 +487,125 @@ export async function listWorkflowAssetDeclarationsBySlug(
   slug: string
 ): Promise<WorkflowAssetDeclarationRecord[]> {
   return useConnection((client) => fetchWorkflowAssetDeclarationsBySlug(client, slug));
+}
+
+function applyAutoMaterializeUpdates(
+  current: WorkflowAssetAutoMaterialize | null,
+  updates: Partial<WorkflowAssetAutoMaterialize>
+): WorkflowAssetAutoMaterialize | null {
+  const next: WorkflowAssetAutoMaterialize = { ...(current ?? {}) };
+
+  if (Object.prototype.hasOwnProperty.call(updates, 'enabled')) {
+    const value = updates.enabled;
+    if (typeof value === 'boolean') {
+      next.enabled = value;
+    } else if (value === null) {
+      delete next.enabled;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, 'onUpstreamUpdate')) {
+    const value = updates.onUpstreamUpdate;
+    if (typeof value === 'boolean') {
+      next.onUpstreamUpdate = value;
+    } else if (value === null) {
+      delete next.onUpstreamUpdate;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, 'priority')) {
+    const value = updates.priority;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      next.priority = Math.trunc(value);
+    } else if (value === null) {
+      delete next.priority;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, 'parameterDefaults')) {
+    const value = updates.parameterDefaults;
+    if (value === undefined) {
+      delete next.parameterDefaults;
+    } else {
+      next.parameterDefaults = value ?? null;
+    }
+  }
+
+  const sanitized: WorkflowAssetAutoMaterialize = {};
+  if (typeof next.enabled === 'boolean') {
+    sanitized.enabled = next.enabled;
+  }
+  if (typeof next.onUpstreamUpdate === 'boolean') {
+    sanitized.onUpstreamUpdate = next.onUpstreamUpdate;
+  }
+  if (typeof next.priority === 'number' && Number.isFinite(next.priority)) {
+    sanitized.priority = Math.trunc(next.priority);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, 'parameterDefaults')) {
+    sanitized.parameterDefaults = next.parameterDefaults ?? null;
+  }
+
+  return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
+
+function serializeAutoMaterialize(value: WorkflowAssetAutoMaterialize | null): string | null {
+  if (!value) {
+    return null;
+  }
+  return JSON.stringify(value);
+}
+
+export async function updateWorkflowAssetAutoMaterialize(
+  options: {
+    workflowDefinitionId: string;
+    stepId: string;
+    assetId: string;
+    updates: Partial<WorkflowAssetAutoMaterialize>;
+  }
+): Promise<WorkflowAssetDeclarationRecord | null> {
+  const { workflowDefinitionId, stepId, assetId, updates } = options;
+
+  let record: WorkflowAssetDeclarationRecord | null = null;
+
+  await useTransaction(async (client) => {
+    const existingRows = await client.query<WorkflowAssetDeclarationRow>(
+      `SELECT *
+         FROM workflow_asset_declarations
+        WHERE workflow_definition_id = $1
+          AND step_id = $2
+          AND direction = 'produces'
+          AND asset_id = $3
+        FOR UPDATE`,
+      [workflowDefinitionId, stepId, assetId]
+    );
+
+    if (existingRows.rows.length === 0) {
+      record = null;
+      return;
+    }
+
+    const existing = mapWorkflowAssetDeclarationRow(existingRows.rows[0]);
+    const nextAutoMaterialize = applyAutoMaterializeUpdates(existing.autoMaterialize, updates);
+    const serialized = serializeAutoMaterialize(nextAutoMaterialize);
+
+    const updatedRows = await client.query<WorkflowAssetDeclarationRow>(
+      `UPDATE workflow_asset_declarations
+          SET auto_materialize = $1::jsonb,
+              updated_at = NOW()
+        WHERE id = $2
+        RETURNING *`,
+      [serialized, existing.id]
+    );
+
+    if (updatedRows.rows.length === 0) {
+      record = null;
+      return;
+    }
+
+    record = mapWorkflowAssetDeclarationRow(updatedRows.rows[0]);
+  });
+
+  return record;
 }
 
 export async function listLatestWorkflowAssetSnapshots(

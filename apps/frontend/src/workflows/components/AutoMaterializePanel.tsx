@@ -108,6 +108,9 @@ function formatPolicyChips(asset: WorkflowAssetInventoryEntry): string[] {
     if (!policy) {
       continue;
     }
+    if (policy.enabled === false) {
+      chips.add('Auto disabled');
+    }
     if (policy.onUpstreamUpdate) {
       chips.add('On upstream update');
     }

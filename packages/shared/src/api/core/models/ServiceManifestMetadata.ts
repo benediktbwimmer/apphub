@@ -25,7 +25,21 @@ export type ServiceManifestMetadata = {
   /**
    * Environment variables declared for the service in manifests, including placeholder metadata.
    */
-  env?: (string | number | boolean | Record<string, any>) | null | null;
+  env?: Array<{
+    key: string;
+    value?: (string | {
+      $var: {
+        name: string;
+        default?: string;
+        description?: string;
+      };
+    });
+    fromService?: {
+      service: string;
+      property: 'instanceUrl' | 'baseUrl' | 'host' | 'port';
+      fallback?: string;
+    };
+  }> | null;
   /**
    * IDs of apps that are linked to this service through service networks.
    */

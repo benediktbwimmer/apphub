@@ -30,7 +30,7 @@ export type JobRunWithDefinition = {
     name: string;
     version: number;
     type: 'batch' | 'service-triggered' | 'manual';
-    runtime: 'node' | 'python' | 'docker';
+    runtime: 'node' | 'python' | 'docker' | 'module';
   };
 };
 

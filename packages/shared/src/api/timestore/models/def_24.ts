@@ -2,7 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-/**
- * Shorthand for an equality/inclusion check across string values.
- */
-export type def_24 = Array<string>;
+export type def_24 = {
+  type?: 'string';
+  eq?: string | null;
+  in?: any[] | null;
+};
+

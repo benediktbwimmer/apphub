@@ -4,91 +4,127 @@
 /* eslint-disable */
 export const $def_17 = {
   properties: {
-    id: {
+    datasetName: {
       type: 'string',
-      isRequired: true,
-    },
-    datasetId: {
-      type: 'string',
-      isRequired: true,
-    },
-    manifestId: {
-      type: 'string',
-      isRequired: true,
-    },
-    manifestShard: {
-      type: 'string',
-    },
-    partitionKey: {
-      type: 'dictionary',
-      contains: {
-        type: 'def_0',
-      },
-      isRequired: true,
+      description: `Display name to assign if the dataset is created automatically.`,
+      isNullable: true,
     },
     storageTargetId: {
       type: 'string',
-      isRequired: true,
-    },
-    fileFormat: {
-      type: 'Enum',
-      isRequired: true,
-    },
-    filePath: {
-      type: 'string',
-      isRequired: true,
-    },
-    fileSizeBytes: {
-      type: 'number',
+      description: `Explicit storage target identifier. Defaults to the dataset's configured target.`,
       isNullable: true,
     },
-    rowCount: {
-      type: 'number',
+    tableName: {
+      type: 'string',
+      description: `Physical table name override for the dataset backend.`,
       isNullable: true,
     },
-    startTime: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
-    },
-    endTime: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
-    },
-    checksum: {
-      type: 'string',
-      isNullable: true,
-    },
-    metadata: {
-      type: 'dictionary',
-      contains: {
-        type: 'def_0',
+    schema: {
+      properties: {
+        fields: {
+          type: 'array',
+          contains: {
+            properties: {
+              name: {
+                type: 'string',
+                description: `Logical column name defined by the dataset schema.`,
+                isRequired: true,
+              },
+              type: {
+                type: 'Enum',
+                isRequired: true,
+              },
+            },
+          },
+          isRequired: true,
+        },
+        evolution: {
+          properties: {
+            defaults: {
+              type: 'any',
+              isNullable: true,
+            },
+            backfill: {
+              type: 'boolean',
+              isNullable: true,
+            },
+          },
+        },
       },
       isRequired: true,
     },
-    columnStatistics: {
-      type: 'dictionary',
-      contains: {
-        type: 'def_0',
+    partition: {
+      properties: {
+        key: {
+          type: 'dictionary',
+          contains: {
+            type: 'string',
+          },
+          isRequired: true,
+        },
+        attributes: {
+          type: 'any',
+          description: `Optional attributes describing the partition.`,
+          isNullable: true,
+        },
+        timeRange: {
+          properties: {
+            start: {
+              type: 'string',
+              isRequired: true,
+              format: 'date-time',
+            },
+            end: {
+              type: 'string',
+              isRequired: true,
+              format: 'date-time',
+            },
+          },
+          isRequired: true,
+        },
       },
       isRequired: true,
     },
-    columnBloomFilters: {
-      type: 'dictionary',
+    rows: {
+      type: 'array',
       contains: {
-        type: 'def_0',
+        type: 'dictionary',
+        contains: {
+          type: 'any-of',
+          contains: [{
+            type: 'any-of',
+            description: `Arbitrary JSON value.`,
+            contains: [{
+              type: 'string',
+            }, {
+              type: 'number',
+            }, {
+              type: 'number',
+            }, {
+              type: 'boolean',
+            }, {
+              type: 'dictionary',
+              contains: {
+                properties: {
+                },
+              },
+            }],
+          }, {
+            type: 'null',
+          }],
+        },
       },
       isRequired: true,
     },
-    ingestionSignature: {
+    idempotencyKey: {
       type: 'string',
+      description: `Client supplied token to deduplicate ingestion attempts.`,
       isNullable: true,
+      maxLength: 255,
     },
-    createdAt: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
+    actor: {
+      type: 'any',
+      isNullable: true,
     },
   },
 } as const;

@@ -2,8 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_28 } from '../models/def_28';
-import type { def_29 } from '../models/def_29';
+import type { def_32 } from '../models/def_32';
+import type { def_33 } from '../models/def_33';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class QueryService {
@@ -11,7 +11,7 @@ export class QueryService {
   /**
    * Execute dataset query
    * Executes a query over the requested dataset using partition pruning and optional downsampling.
-   * @returns def_29 Query executed successfully.
+   * @returns def_33 Query executed successfully.
    * @throws ApiError
    */
   public postDatasetsQuery({
@@ -22,8 +22,8 @@ export class QueryService {
      * Human-readable slug uniquely identifying a dataset.
      */
     datasetSlug: string,
-    requestBody?: def_28,
-  }): CancelablePromise<def_29> {
+    requestBody?: def_32,
+  }): CancelablePromise<def_33> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/datasets/{datasetSlug}/query',

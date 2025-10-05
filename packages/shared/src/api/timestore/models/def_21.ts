@@ -2,13 +2,25 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { def_0 } from './def_0';
 export type def_21 = {
-  type?: 'number';
-  eq?: number | null;
-  in?: any[] | null;
-  gt?: number | null;
-  gte?: number | null;
-  lt?: number | null;
-  lte?: number | null;
+  id: string;
+  datasetId: string;
+  manifestId: string;
+  manifestShard?: string;
+  partitionKey: Record<string, def_0>;
+  storageTargetId: string;
+  fileFormat: 'duckdb' | 'parquet';
+  filePath: string;
+  fileSizeBytes?: number | null;
+  rowCount?: number | null;
+  startTime: string;
+  endTime: string;
+  checksum?: string | null;
+  metadata: Record<string, def_0>;
+  columnStatistics: Record<string, def_0>;
+  columnBloomFilters: Record<string, def_0>;
+  ingestionSignature?: string | null;
+  createdAt: string;
 };
 

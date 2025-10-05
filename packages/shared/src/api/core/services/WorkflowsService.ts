@@ -2,12 +2,12 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_65 } from '../models/def_65';
-import type { def_66 } from '../models/def_66';
-import type { def_70 } from '../models/def_70';
-import type { def_82 } from '../models/def_82';
-import type { def_83 } from '../models/def_83';
-import type { def_87 } from '../models/def_87';
+import type { def_67 } from '../models/def_67';
+import type { def_68 } from '../models/def_68';
+import type { def_72 } from '../models/def_72';
+import type { def_84 } from '../models/def_84';
+import type { def_85 } from '../models/def_85';
+import type { def_89 } from '../models/def_89';
 import type { WorkflowDefinitionCreateRequest } from '../models/WorkflowDefinitionCreateRequest';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
@@ -16,10 +16,10 @@ export class WorkflowsService {
   /**
    * Retrieve workflow topology graph
    * Returns the cached workflow topology graph used by the operations console. Requires the workflows:read or workflows:write operator scope.
-   * @returns def_87 Current workflow topology graph snapshot.
+   * @returns def_89 Current workflow topology graph snapshot.
    * @throws ApiError
    */
-  public getWorkflowsGraph(): CancelablePromise<def_87> {
+  public getWorkflowsGraph(): CancelablePromise<def_89> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/workflows/graph',
@@ -32,10 +32,10 @@ export class WorkflowsService {
   }
   /**
    * List workflow definitions
-   * @returns def_66 Workflow definitions currently available.
+   * @returns def_68 Workflow definitions currently available.
    * @throws ApiError
    */
-  public getWorkflows(): CancelablePromise<def_66> {
+  public getWorkflows(): CancelablePromise<def_68> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/workflows',
@@ -47,14 +47,14 @@ export class WorkflowsService {
   /**
    * Create a workflow definition
    * Creates a workflow by composing job and service steps. Requires the workflows:write operator scope.
-   * @returns def_65 Workflow definition created successfully.
+   * @returns def_67 Workflow definition created successfully.
    * @throws ApiError
    */
   public postWorkflows({
     requestBody,
   }: {
     requestBody: WorkflowDefinitionCreateRequest,
-  }): CancelablePromise<def_65> {
+  }): CancelablePromise<def_67> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/workflows',
@@ -72,7 +72,7 @@ export class WorkflowsService {
   /**
    * Inspect auto materialize status
    * Provides recent auto-materialize runs, in-flight claims, and cooldown status for the specified workflow.
-   * @returns def_70 Auto-materialize status for the workflow.
+   * @returns def_72 Auto-materialize status for the workflow.
    * @throws ApiError
    */
   public getWorkflowsAutoMaterialize({
@@ -109,7 +109,7 @@ export class WorkflowsService {
     search?: string,
     from?: string,
     to?: string,
-  }): CancelablePromise<def_70> {
+  }): CancelablePromise<def_72> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/workflows/{slug}/auto-materialize',
@@ -136,10 +136,10 @@ export class WorkflowsService {
   /**
    * Retrieve workflow asset graph
    * Aggregates asset producers and consumers across all registered workflows.
-   * @returns def_82 Current asset graph snapshot.
+   * @returns def_84 Current asset graph snapshot.
    * @throws ApiError
    */
-  public getAssetsGraph(): CancelablePromise<def_82> {
+  public getAssetsGraph(): CancelablePromise<def_84> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/assets/graph',
@@ -167,7 +167,7 @@ export class WorkflowsService {
      * Asset identifier declared by the workflow.
      */
     assetId: string,
-    requestBody?: def_83,
+    requestBody?: def_85,
   }): CancelablePromise<void> {
     return this.httpRequest.request({
       method: 'POST',

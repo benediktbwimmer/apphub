@@ -104,6 +104,8 @@ function WorkflowsPageContent() {
     autoMaterializeLoading,
     autoMaterializeError,
     refreshAutoMaterializeOps,
+    toggleAutoMaterialize,
+    autoMaterializeUpdating,
     eventTriggers,
     eventTriggersLoading,
     eventTriggersError,
@@ -387,6 +389,8 @@ function WorkflowsPageContent() {
             assetPartitionsLoading={assetPartitionsLoading}
             assetPartitionsError={assetPartitionsError}
             onRefreshAssetDetail={refreshAsset}
+            onToggleAutoMaterialize={toggleAutoMaterialize}
+            autoMaterializeUpdating={autoMaterializeUpdating}
           />
 
           {workflowDetail && (

@@ -3,9 +3,25 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_31 = {
-  name: string;
-  type: string;
-  nullable?: boolean | null;
-  description?: string | null;
+  intervalUnit?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month';
+  intervalSize?: number;
+  aggregations: Array<({
+    fn: 'avg' | 'min' | 'max' | 'sum' | 'median';
+    column: string;
+    alias?: string | null;
+  } | {
+    fn: 'count';
+    column?: string | null;
+    alias?: string | null;
+  } | {
+    fn: 'count_distinct';
+    column: string;
+    alias?: string | null;
+  } | {
+    fn: 'percentile';
+    column: string;
+    percentile: number;
+    alias?: string | null;
+  })>;
 };
 

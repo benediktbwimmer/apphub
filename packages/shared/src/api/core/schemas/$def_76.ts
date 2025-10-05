@@ -4,103 +4,38 @@
 /* eslint-disable */
 export const $def_76 = {
   properties: {
-    workflowId: {
+    handlerName: {
       type: 'string',
       isRequired: true,
     },
-    workflowSlug: {
-      type: 'string',
+    handlerIsAsync: {
+      type: 'boolean',
       isRequired: true,
     },
-    workflowName: {
-      type: 'string',
-      isRequired: true,
-    },
-    stepId: {
-      type: 'string',
-      isRequired: true,
-    },
-    stepName: {
-      type: 'string',
-      isRequired: true,
-    },
-    stepType: {
-      type: 'Enum',
-      isRequired: true,
-    },
-    partitioning: {
-      type: 'any-of',
-      contains: [{
-        type: 'any-of',
-        description: `Arbitrary JSON value.`,
-        contains: [{
+    inputModel: {
+      properties: {
+        name: {
           type: 'string',
-        }, {
-          type: 'number',
-        }, {
-          type: 'number',
-        }, {
-          type: 'boolean',
-        }, {
-          type: 'dictionary',
-          contains: {
-            properties: {
-            },
-          },
-        }],
-      }, {
-        type: 'null',
-      }],
+          isRequired: true,
+        },
+        schema: {
+          type: 'def_0',
+          isRequired: true,
+        },
+      },
       isRequired: true,
     },
-    autoMaterialize: {
-      type: 'any-of',
-      contains: [{
-        type: 'any-of',
-        description: `Arbitrary JSON value.`,
-        contains: [{
+    outputModel: {
+      properties: {
+        name: {
           type: 'string',
-        }, {
-          type: 'number',
-        }, {
-          type: 'number',
-        }, {
-          type: 'boolean',
-        }, {
-          type: 'dictionary',
-          contains: {
-            properties: {
-            },
-          },
-        }],
-      }, {
-        type: 'null',
-      }],
-      isRequired: true,
-    },
-    freshness: {
-      type: 'any-of',
-      contains: [{
-        type: 'any-of',
-        description: `Arbitrary JSON value.`,
-        contains: [{
-          type: 'string',
-        }, {
-          type: 'number',
-        }, {
-          type: 'number',
-        }, {
-          type: 'boolean',
-        }, {
-          type: 'dictionary',
-          contains: {
-            properties: {
-            },
-          },
-        }],
-      }, {
-        type: 'null',
-      }],
+          isRequired: true,
+        },
+        schema: {
+          type: 'def_0',
+          isRequired: true,
+        },
+      },
       isRequired: true,
     },
   },

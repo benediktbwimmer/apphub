@@ -2,18 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type def_28 = {
-  timeRange: {
-    start: string;
-    end: string;
-  };
-  /**
-   * Logical timestamp column to use for range filtering.
-   */
-  timestampColumn?: string;
-  columns?: any[] | null;
-  filters?: any | null;
-  downsample?: any | null;
-  limit?: number | null;
-};
-
+/**
+ * Shorthand for an equality/inclusion check across string values.
+ */
+export type def_28 = Array<string>;

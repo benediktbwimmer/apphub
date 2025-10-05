@@ -4,22 +4,6 @@
 /* eslint-disable */
 export const $def_81 = {
   properties: {
-    fromAssetId: {
-      type: 'string',
-      isRequired: true,
-    },
-    fromAssetNormalizedId: {
-      type: 'string',
-      isRequired: true,
-    },
-    toAssetId: {
-      type: 'string',
-      isRequired: true,
-    },
-    toAssetNormalizedId: {
-      type: 'string',
-      isRequired: true,
-    },
     workflowId: {
       type: 'string',
       isRequired: true,
@@ -32,17 +16,25 @@ export const $def_81 = {
       type: 'string',
       isRequired: true,
     },
-    stepId: {
+    partitionKey: {
       type: 'string',
       isRequired: true,
+      isNullable: true,
     },
-    stepName: {
+    requestedAt: {
       type: 'string',
       isRequired: true,
+      format: 'date-time',
     },
-    stepType: {
-      type: 'Enum',
+    requestedBy: {
+      type: 'string',
       isRequired: true,
+      isNullable: true,
+    },
+    note: {
+      type: 'string',
+      isRequired: true,
+      isNullable: true,
     },
   },
 } as const;

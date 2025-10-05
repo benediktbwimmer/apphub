@@ -10,6 +10,7 @@ import { AuthService } from './services/AuthService';
 import { DefaultService } from './services/DefaultService';
 import { EventsService } from './services/EventsService';
 import { JobsService } from './services/JobsService';
+import { ModulesService } from './services/ModulesService';
 import { SavedSearchesService } from './services/SavedSearchesService';
 import { ServicesService } from './services/ServicesService';
 import { SystemService } from './services/SystemService';
@@ -21,6 +22,7 @@ export class CoreClient {
   public readonly default: DefaultService;
   public readonly events: EventsService;
   public readonly jobs: JobsService;
+  public readonly modules: ModulesService;
   public readonly savedSearches: SavedSearchesService;
   public readonly services: ServicesService;
   public readonly system: SystemService;
@@ -43,6 +45,7 @@ export class CoreClient {
     this.default = new DefaultService(this.request);
     this.events = new EventsService(this.request);
     this.jobs = new JobsService(this.request);
+    this.modules = new ModulesService(this.request);
     this.savedSearches = new SavedSearchesService(this.request);
     this.services = new ServicesService(this.request);
     this.system = new SystemService(this.request);

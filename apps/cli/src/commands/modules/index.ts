@@ -5,7 +5,6 @@ import { deployModule } from '../../lib/moduleDeploy/deploy';
 
 interface ConfigGenerateOptions {
   module?: string;
-  manifest?: string;
   definition?: string;
   out?: string;
   scratch?: string;
@@ -14,7 +13,6 @@ interface ConfigGenerateOptions {
 
 interface DoctorOptions {
   module?: string;
-  manifest?: string;
   definition?: string;
   config: string;
 }
@@ -39,7 +37,6 @@ export function registerModuleCommands(program: Command): void {
     .command('config generate')
     .description('Generate a configuration file seeded with module defaults and capability wiring')
     .option('-m, --module <path>', 'Path to the module workspace (defaults to CWD)')
-    .option('--manifest <path>', 'Path to the module manifest JSON')
     .option('--definition <path>', 'Path to the compiled module definition (module.js)')
     .option('-o, --out <path>', 'Output file or directory. When omitted, writes to <scratch>/config/<module>.json')
     .option('--scratch <path>', 'Scratch directory root used for default output placement')
@@ -48,7 +45,6 @@ export function registerModuleCommands(program: Command): void {
       const modulePath = resolveModulePath(opts.module);
       const result = await generateModuleConfig({
         modulePath,
-        manifestPath: opts.manifest,
         definitionPath: opts.definition,
         outputPath: opts.out,
         scratchDir: opts.scratch,
@@ -70,14 +66,12 @@ export function registerModuleCommands(program: Command): void {
     .description('Validate module settings and secrets against the module definition')
     .requiredOption('-c, --config <path>', 'Path to the configuration file to validate')
     .option('-m, --module <path>', 'Path to the module workspace (defaults to CWD)')
-    .option('--manifest <path>', 'Path to the module manifest JSON')
     .option('--definition <path>', 'Path to the compiled module definition (module.js)')
     .action(async (opts: DoctorOptions) => {
       const modulePath = resolveModulePath(opts.module);
       const result = await validateModuleConfig({
         modulePath,
         configPath: opts.config,
-        manifestPath: opts.manifest,
         definitionPath: opts.definition
       });
 

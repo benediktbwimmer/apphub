@@ -129,7 +129,7 @@ export const FILESTORE_DRIFT_PLAYBOOKS: ReadonlyArray<FilestorePlaybook> = [
     id: 'unknown-state-triage',
     title: 'Triage unknown state',
     summary: 'Gather context and run a manual sweep when watcher output is unavailable.',
-    states: ['unknown'],
+    states: ['inconsistent'],
     actions: [
       {
         type: 'reconcile',
