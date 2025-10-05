@@ -575,7 +575,11 @@ export function WorkflowGraphCanvas({
         window.__apphubViewportAutoFitCount = (window.__apphubViewportAutoFitCount ?? 0) + 1;
       }
       suppressMoveEndRef.current = true;
-      instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true, duration: immediate ? 0 : 220 });
+      instance.fitView({
+        padding: fitViewPadding,
+        includeHiddenNodes: false,
+        duration: immediate ? 0 : 220
+      });
     },
     [fitViewPadding, instance]
   );
@@ -766,7 +770,7 @@ export function WorkflowGraphCanvas({
         case '0':
           if (event.metaKey || event.ctrlKey) {
             event.preventDefault();
-            instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true });
+            instance.fitView({ padding: fitViewPadding, includeHiddenNodes: false });
           }
           break;
         default:

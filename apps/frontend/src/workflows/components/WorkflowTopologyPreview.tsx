@@ -63,7 +63,8 @@ export default function WorkflowTopologyPreview({ workflow }: WorkflowTopologyPr
               error={graphError}
               filters={filters}
               overlay={overlay ?? null}
-              interactionMode="static"
+              interactionMode="interactive"
+              fitViewPadding={0.12}
               autoFit
             />
           </ReactFlowProvider>

@@ -70,6 +70,29 @@ export function inferLanguage(path: string | null | undefined): string {
 }
 
 export function buildInitialFiles(files: BundleEditorFile[]): FileState[] {
+  const scorePath = (path: string): number => {
+    const normalized = path.toLowerCase();
+    if (normalized.endsWith('.map')) {
+      return 6;
+    }
+    if (normalized.startsWith('src/') || normalized.includes('/src/')) {
+      return 0;
+    }
+    if (normalized.endsWith('.ts') || normalized.endsWith('.tsx')) {
+      return 1;
+    }
+    if (normalized.endsWith('.json') || normalized.endsWith('.yaml') || normalized.endsWith('.yml')) {
+      return 2;
+    }
+    if (normalized.endsWith('.js') || normalized.endsWith('.jsx')) {
+      return normalized.startsWith('dist/') || normalized.includes('/dist/') ? 5 : 3;
+    }
+    if (normalized.startsWith('dist/') || normalized.includes('/dist/')) {
+      return 5;
+    }
+    return 4;
+  };
+
   return files
     .map((file) => ({
       path: file.path,
@@ -78,7 +101,13 @@ export function buildInitialFiles(files: BundleEditorFile[]): FileState[] {
       executable: Boolean(file.executable),
       readOnly: file.encoding !== 'utf8'
     }))
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .sort((a, b) => {
+      const scoreDiff = scorePath(a.path) - scorePath(b.path);
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+      return a.path.localeCompare(b.path);
+    });
 }
 
 export function cloneFileState(file: FileState): FileState {

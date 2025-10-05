@@ -97,11 +97,11 @@ x-shared-env: &shared-env
   OBSERVATORY_INSTRUMENT_COUNT: "3"
   AWS_SDK_LOAD_CONFIG: "1"
   APPHUB_OPERATOR_TOKENS: >-
-    [{"subject":"demo-admin","token":"${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}","scopes":"*","kind":"user"},{"subject":"demo-service","token":"${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}","scopes":["jobs:write","jobs:run","jobs:read","job-bundles:write","job-bundles:read","workflows:write","workflows:run","workflows:read","filestore:read","filestore:write","filestore:admin","metastore:read","metastore:write","metastore:delete","metastore:admin","timestore:sql:read","timestore:sql:exec","runtime:write"],"kind":"service"},{"subject":"demo-viewer","token":"${APPHUB_DEMO_VIEWER_TOKEN:-demo-viewer-token}","scopes":["jobs:read","job-bundles:read","workflows:read","filestore:read","metastore:read","timestore:sql:read"],"kind":"user"}]
+    [{"subject":"demo-admin","token":"${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}","scopes":"*","kind":"user"},{"subject":"demo-service","token":"${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}","scopes":["jobs:write","jobs:run","jobs:read","job-bundles:write","job-bundles:read","workflows:write","workflows:run","workflows:read","filestore:read","filestore:write","filestore:admin","metastore:read","metastore:write","metastore:delete","metastore:admin","timestore:read","timestore:write","timestore:admin","timestore:metrics","timestore:sql:read","timestore:sql:exec","observatory:read","observatory:write","observatory:reprocess","runtime:write"],"kind":"service"},{"subject":"demo-viewer","token":"${APPHUB_DEMO_VIEWER_TOKEN:-demo-viewer-token}","scopes":["jobs:read","jobs:run","job-bundles:read","workflows:read","workflows:run","filestore:read","metastore:read","timestore:read","timestore:sql:read","timestore:metrics","observatory:read"],"kind":"user"}]
 
 services:
   redpanda:
-    image: docker.redpanda.com/redpandadata/redpanda:v23.3.12
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
     restart: unless-stopped
     command:
       - redpanda
@@ -142,18 +142,19 @@ services:
         target: /var/lib/redpanda/data
 
   redpanda-init:
-    image: docker.redpanda.com/redpandadata/redpanda:v23.3.12
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
     depends_on:
       redpanda:
         condition: service_healthy
-    command: >-
-      bash -c "set -euo pipefail; \
-      sleep 2; \
-      rpk cluster info --brokers redpanda:9092 >/dev/null 2>&1; \
-      for topic in apphub.core.events apphub.ingestion.telemetry apphub.workflows.events apphub.workflows.runs apphub.jobs.runs apphub.streaming.input apphub.streaming.aggregates; do \
-        rpk topic create \"$$topic\" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
-        rpk topic describe \"$$topic\" --brokers redpanda:9092 >/dev/null 2>&1; \
-      done"
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      set -euo pipefail
+      sleep 2
+      rpk cluster info --brokers redpanda:9092 >/dev/null 2>&1
+      for topic in apphub.core.events apphub.ingestion.telemetry apphub.workflows.events apphub.workflows.runs apphub.jobs.runs apphub.streaming.input apphub.streaming.aggregates; do
+        rpk topic create "$topic" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
+        rpk topic describe "$topic" --brokers redpanda:9092 >/dev/null 2>&1
+      done
     restart: "no"
 
   streaming-seed:
