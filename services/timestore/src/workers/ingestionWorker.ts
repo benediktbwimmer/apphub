@@ -24,9 +24,10 @@ async function main(): Promise<void> {
     async (job) => {
       const result = await processIngestionJob(job.data);
       return {
-        manifestId: result.manifest.id,
+        manifestId: result.manifest?.id ?? null,
         datasetId: result.dataset.id,
-        storageTargetId: result.storageTarget.id
+        storageTargetId: result.storageTarget.id,
+        flushPending: result.flushPending
       };
     },
     {
@@ -38,7 +39,8 @@ async function main(): Promise<void> {
   worker.on('completed', (job) => {
     console.log('[timestore:ingest] completed job', {
       jobId: job.id,
-      manifestId: job.returnvalue?.manifestId,
+      manifestId: job.returnvalue?.manifestId ?? null,
+      flushPending: job.returnvalue?.flushPending ?? false,
       datasetId: job.returnvalue?.datasetId
     });
   });

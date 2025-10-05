@@ -9,7 +9,8 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, test } from 'node:test';
 import fastify from 'fastify';
-import EmbeddedPostgres from 'embedded-postgres';
+import type EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from './utils/embeddedPostgres';
 import { resetCachedServiceConfig } from '../src/config/serviceConfig';
 
 let postgres: EmbeddedPostgres | null = null;
@@ -42,7 +43,7 @@ before(async () => {
   storageRoot = await mkdtemp(path.join(tmpdir(), 'timestore-admin-storage-'));
 
   const port = 58000 + Math.floor(Math.random() * 1000);
-  const embedded = new EmbeddedPostgres({
+  const embedded = createEmbeddedPostgres({
     databaseDir: dataDirectory,
     port,
     user: 'postgres',
@@ -107,9 +108,8 @@ after(async () => {
   if (clientModule) {
     await clientModule.closePool();
   }
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
+  postgres = null;
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }

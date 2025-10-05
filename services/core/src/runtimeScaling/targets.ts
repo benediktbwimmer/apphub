@@ -55,7 +55,7 @@ const BUILD_DEFAULT = withinBounds(parseEnvConcurrency('BUILD_CONCURRENCY', 1), 
 const BUILD_RATE_LIMIT = Number.parseInt(process.env.BUILD_SCALING_RATE_LIMIT_MS ?? String(DEFAULT_RATE_LIMIT_MS), 10) || DEFAULT_RATE_LIMIT_MS;
 
 const WORKFLOW_MAX = withinBounds(Number.parseInt(process.env.WORKFLOW_MAX_CONCURRENCY ?? '50', 10) || 50, 1, 200);
-const WORKFLOW_DEFAULT = withinBounds(parseEnvConcurrency('WORKFLOW_CONCURRENCY', 1), 0, WORKFLOW_MAX);
+const WORKFLOW_DEFAULT = withinBounds(parseEnvConcurrency('WORKFLOW_CONCURRENCY', 50), 0, WORKFLOW_MAX);
 const WORKFLOW_RATE_LIMIT = Number.parseInt(process.env.WORKFLOW_SCALING_RATE_LIMIT_MS ?? String(DEFAULT_RATE_LIMIT_MS), 10) || DEFAULT_RATE_LIMIT_MS;
 
 export const RUNTIME_SCALING_TARGETS: Record<RuntimeScalingTargetKey, RuntimeScalingTargetConfig> = {

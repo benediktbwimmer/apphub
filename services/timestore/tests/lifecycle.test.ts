@@ -8,7 +8,8 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, test } from 'node:test';
-import EmbeddedPostgres from 'embedded-postgres';
+import type EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from './utils/embeddedPostgres';
 import type { PartitionInput } from '../src/db/metadata';
 
 let postgres: EmbeddedPostgres | null = null;
@@ -32,7 +33,7 @@ before(async () => {
   storageRoot = storageDir;
 
   const port = 54000 + Math.floor(Math.random() * 1000);
-  const embedded = new EmbeddedPostgres({
+  const embedded = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -77,9 +78,8 @@ after(async () => {
   if (clientModule) {
     await clientModule.closePool();
   }
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
+  postgres = null;
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }

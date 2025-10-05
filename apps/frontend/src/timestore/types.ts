@@ -84,7 +84,8 @@ export const manifestPartitionSchema = z
     endTime: z.string(),
     checksum: z.string().nullable().optional(),
     metadata: z.record(z.unknown()).optional(),
-    createdAt: z.string()
+    createdAt: z.string(),
+    manifestShard: z.string().optional()
   })
   .passthrough();
 
@@ -97,28 +98,50 @@ const datasetSchemaFieldSchema = z.object({
 
 export type DatasetSchemaField = z.infer<typeof datasetSchemaFieldSchema>;
 
-export const manifestResponseSchema = z.object({
+export const datasetManifestSchema = z
+  .object({
+    id: z.string(),
+    version: z.number(),
+    createdAt: z.string(),
+    updatedAt: z.string().optional(),
+    publishedAt: z.string().nullable().optional(),
+    manifestShard: z.string().nullable().optional(),
+    schemaVersionId: z.string().nullable().optional(),
+    schemaVersion: z
+      .object({
+        id: z.string(),
+        version: z.number(),
+        fields: z.array(datasetSchemaFieldSchema)
+      })
+      .nullable()
+      .optional(),
+    partitions: z.array(manifestPartitionSchema)
+  })
+  .passthrough();
+
+export type DatasetManifest = z.infer<typeof datasetManifestSchema>;
+
+const manifestResponseSingleSchema = z.object({
   datasetId: z.string(),
-  manifest: z
-    .object({
-      id: z.string(),
-      version: z.number(),
-      createdAt: z.string(),
-      schemaVersionId: z.string().nullable().optional(),
-      schemaVersion: z
-        .object({
-          id: z.string(),
-          version: z.number(),
-          fields: z.array(datasetSchemaFieldSchema)
-        })
-        .nullable()
-        .optional(),
-      partitions: z.array(manifestPartitionSchema)
-    })
-    .passthrough()
+  manifest: datasetManifestSchema
 });
 
-export type ManifestResponse = z.infer<typeof manifestResponseSchema>;
+const manifestResponseCollectionSchema = z.object({
+  datasetId: z.string(),
+  manifests: z.array(datasetManifestSchema).min(1)
+});
+
+export const manifestResponseSchema = z.union([
+  manifestResponseSingleSchema,
+  manifestResponseCollectionSchema
+]);
+
+export type ManifestResponsePayload = z.infer<typeof manifestResponseSchema>;
+
+export type ManifestResponse = {
+  datasetId: string;
+  manifests: DatasetManifest[];
+};
 
 export const lifecycleJobSchema = z.object({
   id: z.string(),

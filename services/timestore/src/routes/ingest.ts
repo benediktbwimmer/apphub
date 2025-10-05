@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { ingestionRequestSchema, ingestionJobPayloadSchema } from '../ingestion/types';
 import { enqueueIngestionJob, isInlineQueueMode } from '../queue';
+import { StagingQueueFullError } from '../ingestion/stagingManager';
 import { loadDatasetForWrite, resolveRequestActor, getRequestScopes } from '../service/iam';
 import { recordDatasetAccessEvent } from '../db/metadata';
 import { observeIngestion } from '../observability/metrics';
@@ -37,7 +38,8 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
           401: errorResponse('Authentication is required.'),
           403: errorResponse('Caller lacks permission to ingest into this dataset.'),
           404: errorResponse('Dataset not found.'),
-          500: errorResponse('Unexpected error while scheduling ingestion.')
+          500: errorResponse('Unexpected error while scheduling ingestion.'),
+          503: errorResponse('Ingestion staging queue is full. Please retry.')
         }
       }
     },
@@ -137,15 +139,19 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
 
         if (result.mode === 'inline' && result.result) {
           datasetId = result.result.dataset.id;
+          const flushPending = result.result.flushPending === true;
+          const manifestId = result.result.manifest?.id ?? null;
+
           (request.log ?? reply.log).info(
             {
-              event: 'dataset.ingest',
+              event: flushPending ? 'dataset.ingest.staged' : 'dataset.ingest',
               datasetId: result.result.dataset.id,
               datasetSlug: params.datasetSlug,
               actorId: actor?.id ?? null,
-              mode: 'inline'
+              mode: 'inline',
+              flushPending
             },
-            'dataset ingestion completed inline'
+            flushPending ? 'dataset ingestion staged inline; flush pending' : 'dataset ingestion completed inline'
           );
 
           await recordDatasetAccessEvent({
@@ -158,7 +164,8 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
             success: true,
             metadata: {
               mode: 'inline',
-              manifestId: result.result.manifest.id
+              flushPending,
+              manifestId
             }
           });
 
@@ -170,11 +177,12 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
             durationSeconds
           });
           endSpan(span);
-          return reply.status(201).send({
+          return reply.status(flushPending ? 202 : 201).send({
             mode: 'inline',
-            manifest: result.result.manifest,
+            flushPending,
             dataset: result.result.dataset,
-            storageTarget: result.result.storageTarget
+            storageTarget: result.result.storageTarget,
+            manifest: result.result.manifest ?? null
           });
         }
 
@@ -235,6 +243,12 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
           },
           'dataset ingestion failed'
         );
+        if (error instanceof StagingQueueFullError) {
+          return reply.status(503).send({
+            error: 'Service Unavailable',
+            message: failureMessage
+          });
+        }
         throw error;
       }
     }

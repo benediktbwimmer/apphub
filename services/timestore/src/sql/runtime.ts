@@ -20,7 +20,12 @@ import {
   type ResolvedGcsOptions,
   type ResolvedAzureOptions
 } from '../storage';
-import { configureS3Support, configureGcsSupport, configureAzureSupport } from '../query/executor';
+import {
+  configureS3Support,
+  configureGcsSupport,
+  configureAzureSupport,
+  applyDefaultDuckDbSettings
+} from '../query/executor';
 import {
   recordRuntimeCacheEvent,
   observeRuntimeCacheRebuild,
@@ -508,9 +513,13 @@ async function releaseCachedConnection(
   }
 }
 
-function leaseCachedConnection(entry: ConnectionCacheEntry): SqlRuntimeConnection {
+async function leaseCachedConnection(
+  entry: ConnectionCacheEntry,
+  config: ServiceConfig
+): Promise<SqlRuntimeConnection> {
   const connection = entry.db.connect();
   entry.activeConnections += 1;
+  await applyDefaultDuckDbSettings(connection, config);
   return {
     connection,
     warnings: [...entry.warnings],
@@ -812,7 +821,7 @@ export async function createDuckDbConnection(context: SqlContext): Promise<SqlRu
     if (cachedEntry && !cachedEntry.disposed && cachedEntry.expiresAt > now) {
       cachedEntry.expiresAt = now + ttlMs;
       recordRuntimeCacheEvent('connection', 'hit');
-      return leaseCachedConnection(cachedEntry);
+      return leaseCachedConnection(cachedEntry, context.config);
     }
 
     if (cachedEntry) {
@@ -848,7 +857,7 @@ export async function createDuckDbConnection(context: SqlContext): Promise<SqlRu
       recordRuntimeCacheEvent('connection', 'hit');
     }
 
-    return leaseCachedConnection(entry);
+    return leaseCachedConnection(entry, context.config);
   }
 }
 
@@ -887,6 +896,7 @@ async function createDuckDbConnectionUncached(
   let connection: DuckDbConnection | null = null;
   try {
     connection = db.connect();
+    await applyDefaultDuckDbSettings(connection, context.config);
   } catch (error) {
     if (isCloseable(db)) {
       ignoreCloseError(() => db.close());
@@ -915,6 +925,7 @@ async function initializeDuckDbDatabase(context: SqlContext): Promise<{ db: any;
   const warnings = [...context.warnings];
 
   try {
+    await applyDefaultDuckDbSettings(connection, context.config);
     await prepareConnectionForRemotePartitions(connection, context);
 
     await run(connection, 'CREATE SCHEMA IF NOT EXISTS timestore');
