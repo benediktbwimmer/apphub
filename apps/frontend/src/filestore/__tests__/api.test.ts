@@ -15,8 +15,6 @@ import type { FilestoreEvent } from '../api';
 
 const iso = new Date().toISOString();
 
-type FetchLike = (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => Promise<Response>;
-
 describe('filestore api helpers', () => {
   it('parses SSE frames into typed events', () => {
     const frame = [
@@ -86,23 +84,26 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn<FetchLike>(async (input, init) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       if (typeof input !== 'string') {
         throw new Error('Expected mount discovery URL to be a string.');
       }
       expect(input).toContain('/v1/backend-mounts');
       expect(init?.method).toBe('GET');
-      return {
-        ok: true,
-        text: async () => JSON.stringify(responsePayload)
-      } as Response;
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe('Bearer test-token');
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     });
 
-    const result = await listBackendMounts(fetchMock);
+    const result = await listBackendMounts('test-token');
     expect(result.mounts).toHaveLength(1);
     expect(result.mounts[0].mountKey).toBe('primary');
     expect(result.pagination.total).toBe(1);
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    fetchSpy.mockRestore();
   });
 
   it('summarizes node created events for the activity feed', () => {
@@ -187,7 +188,7 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn<FetchLike>(async (input, init) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       if (typeof input !== 'string') {
         throw new Error('Expected metadata request URL to be a string.');
       }
@@ -196,13 +197,16 @@ describe('filestore api helpers', () => {
       const body = init?.body ? JSON.parse(init.body as string) : {};
       expect(body.backendMountId).toBe(5);
       expect(body.set.owner).toBe('ops');
-      return {
-        ok: true,
-        text: async () => JSON.stringify(responsePayload)
-      } as Response;
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe('Bearer test-token');
+      expect(headers.get('Idempotency-Key')).toBeNull();
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     });
 
-    const result = await updateNodeMetadata(fetchMock, {
+    const result = await updateNodeMetadata('test-token', {
       nodeId: 42,
       backendMountId: 5,
       set: { owner: 'ops' }
@@ -211,7 +215,8 @@ describe('filestore api helpers', () => {
     expect(result.journalEntryId).toBe(77);
     const metadataResult = result.result as { nodeId: number };
     expect(metadataResult.nodeId).toBe(42);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
   });
 
   it('moves nodes via POST request', async () => {
@@ -224,25 +229,29 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn<FetchLike>(async (_input, init) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (_input, init) => {
       expect(init?.method).toBe('POST');
       const body = init?.body ? JSON.parse(init.body as string) : {};
       expect(body.path).toBe('datasets/raw');
       expect(body.targetPath).toBe('datasets/archive');
-      return {
-        ok: true,
-        text: async () => JSON.stringify(responsePayload)
-      } as Response;
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe('Bearer move-token');
+      expect(headers.get('Idempotency-Key')).toBeNull();
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     });
 
-    const result = await moveNode(fetchMock, {
+    const result = await moveNode('move-token', {
       backendMountId: 9,
       path: 'datasets/raw',
       targetPath: 'datasets/archive'
     });
 
     expect(result.journalEntryId).toBe(88);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
   });
 
   it('copies nodes via POST request', async () => {
@@ -255,25 +264,28 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn<FetchLike>(async (_input, init) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (_input, init) => {
       expect(init?.method).toBe('POST');
       const body = init?.body ? JSON.parse(init.body as string) : {};
       expect(body.path).toBe('datasets/archive');
       expect(body.targetPath).toBe('datasets/archive-copy');
-      return {
-        ok: true,
-        text: async () => JSON.stringify(responsePayload)
-      } as Response;
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe('Bearer copy-token');
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     });
 
-    const result = await copyNode(fetchMock, {
+    const result = await copyNode('copy-token', {
       backendMountId: 9,
       path: 'datasets/archive',
       targetPath: 'datasets/archive-copy'
     });
 
     expect(result.journalEntryId).toBe(99);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
   });
 
   it('uploads files via multipart request', async () => {
@@ -286,14 +298,14 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn<FetchLike>(async (_input, init) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (_input, init) => {
       expect(init?.method).toBe('POST');
-      expect(init?.headers).toMatchObject({
-        'Idempotency-Key': 'upload-1',
-        'x-filestore-principal': 'tester',
-        'x-filestore-checksum': 'sha256:abc',
-        'x-filestore-content-hash': 'sha256:def'
-      });
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe('Bearer upload-token');
+      expect(headers.get('Idempotency-Key')).toBe('upload-1');
+      expect(headers.get('x-filestore-principal')).toBe('tester');
+      expect(headers.get('x-filestore-checksum')).toBe('sha256:abc');
+      expect(headers.get('x-filestore-content-hash')).toBe('sha256:def');
 
       const form = init?.body as FormData;
       expect(form).toBeInstanceOf(FormData);
@@ -303,16 +315,16 @@ describe('filestore api helpers', () => {
       expect(form.get('metadata')).toBe(JSON.stringify({ owner: 'ops' }));
       expect(form.get('idempotencyKey')).toBe('upload-1');
 
-      return {
-        ok: true,
-        text: async () => JSON.stringify(responsePayload)
-      } as Response;
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     });
 
     const blob = new Blob(['hello'], { type: 'text/plain' });
     Object.assign(blob, { name: 'sample.txt' });
 
-    const result = await uploadFile(fetchMock, {
+    const result = await uploadFile('upload-token', {
       backendMountId: 3,
       path: 'datasets/sample.txt',
       file: blob,
@@ -325,7 +337,8 @@ describe('filestore api helpers', () => {
     });
 
     expect(result.journalEntryId).toBe(123);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
   });
 
   it('requests presigned download metadata', async () => {
@@ -338,21 +351,24 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn<FetchLike>(async (input) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       if (typeof input !== 'string') {
         throw new Error('Expected presign URL to be a string.');
       }
       expect(input).toContain('/v1/files/55/presign');
-      return {
-        ok: true,
-        text: async () => JSON.stringify(payload)
-      } as Response;
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe('Bearer presign-token');
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     });
 
-    const result = await presignNodeDownload(fetchMock, 55);
+    const result = await presignNodeDownload('presign-token', 55);
     expect(result.url).toBe('https://presign.example/file');
     expect(result.method).toBe('GET');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
   });
 
   it('lists reconciliation jobs via GET request', async () => {
@@ -384,17 +400,19 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn<FetchLike>(async (input, init) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       expect(typeof input).toBe('string');
       expect((input as string)).toContain('/v1/reconciliation/jobs');
       expect(init?.method).toBe('GET');
-      return {
-        ok: true,
-        text: async () => JSON.stringify(responsePayload)
-      } as Response;
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe('Bearer reconcile-token');
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     });
 
-    const result = await listReconciliationJobs(fetchMock, {
+    const result = await listReconciliationJobs('reconcile-token', {
       backendMountId: 2,
       statuses: ['running'],
       limit: 20
@@ -402,7 +420,8 @@ describe('filestore api helpers', () => {
 
     expect(result.jobs).toHaveLength(1);
     expect(result.jobs[0].status).toBe('running');
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    fetchSpy.mockRestore();
   });
 
   it('fetches reconciliation job detail', async () => {
@@ -428,19 +447,22 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn<FetchLike>(async (input, init) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       expect(typeof input).toBe('string');
       expect((input as string)).toContain('/v1/reconciliation/jobs/7');
       expect(init?.method).toBe('GET');
-      return {
-        ok: true,
-        text: async () => JSON.stringify(responsePayload)
-      } as Response;
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe('Bearer detail-token');
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     });
 
-    const job = await fetchReconciliationJob(fetchMock, 7);
+    const job = await fetchReconciliationJob('detail-token', 7);
     expect(job.status).toBe('succeeded');
     expect(job.result?.outcome).toBe('reconciled');
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    fetchSpy.mockRestore();
   });
 });

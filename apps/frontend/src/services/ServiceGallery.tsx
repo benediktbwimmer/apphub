@@ -1,15 +1,12 @@
 import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../config';
+import { useAuth } from '../auth/useAuth';
 import { normalizePreviewUrl } from '../utils/url';
 import { formatFetchError } from '../core/utils';
 import { usePreviewLayout } from '../settings/previewLayoutContext';
 import { Spinner } from '../components';
-import type {
-  ModuleServiceRuntimeConfig,
-  ServiceSummary,
-  ServicesResponse
-} from './types';
+import type { ModuleServiceRuntimeConfig, ServiceSummary } from './types';
 import { usePollingResource } from '../hooks/usePollingResource';
 import {
   SERVICE_ALERT_CLASSES,
@@ -28,6 +25,7 @@ import {
   SERVICE_PREVIEW_TITLE_CLASSES
 } from './serviceTokens';
 import { getStatusToneClasses } from '../theme/statusTokens';
+import { listServices } from '../core/api';
 
 const REFRESH_INTERVAL_MS = 15000;
 const STATUS_ORDER = ['healthy', 'degraded', 'unknown', 'unreachable'] as const;
@@ -38,10 +36,6 @@ const STATUS_PRIORITY = STATUS_ORDER.reduce<Record<string, number>>((acc, status
 const UNKNOWN_STATUS_PRIORITY = STATUS_ORDER.length;
 const EMPTY_SERVICES: ServiceSummary[] = [];
 const HIDDEN_OVERVIEW_SERVICE_IDENTIFIERS = new Set(['timestore', 'filestore', 'metastore']);
-
-function hasServiceData(payload: ServicesResponse): payload is { data: ServiceSummary[] } {
-  return Array.isArray((payload as { data?: unknown }).data);
-}
 
 function toModuleServiceConfig(config: unknown): ModuleServiceRuntimeConfig | null {
   if (!config || typeof config !== 'object') {
@@ -216,23 +210,22 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
 }
 
 export default function ServiceGallery() {
+  const { activeToken: authToken } = useAuth();
   const { width } = usePreviewLayout();
   const fetchServices = useCallback(
     async ({
-      authorizedFetch,
       signal
     }: {
       authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
       signal: AbortSignal;
     }) => {
-      const response = await authorizedFetch(`${API_BASE_URL}/services`, { signal });
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
+      if (!authToken) {
+        return [];
       }
-      const payload = (await response.json()) as ServicesResponse;
-      return hasServiceData(payload) ? payload.data : [];
+      const services = await listServices(authToken, { signal });
+      return services;
     },
-    []
+    [authToken]
   );
 
   const {

@@ -3,12 +3,17 @@ import { act, renderHook } from '@testing-library/react';
 import { useCoreSearch } from '../useCoreSearch';
 import type { TagFacet } from '../../types';
 
-const mockAuthorizedFetch = vi.fn<
-  (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
->();
+const mockAuthToken = 'token';
+const mockSearchRepositories = vi.fn();
+const mockSuggestTags = vi.fn();
 
-vi.mock('../../../auth/useAuthorizedFetch', () => ({
-  useAuthorizedFetch: () => mockAuthorizedFetch
+vi.mock('../../../auth/useAuth', () => ({
+  useAuth: () => ({ activeToken: mockAuthToken })
+}));
+
+vi.mock('../../api', () => ({
+  searchRepositories: (...args: unknown[]) => mockSearchRepositories(...args),
+  suggestTags: (...args: unknown[]) => mockSuggestTags(...args)
 }));
 
 vi.mock('../../../events/context', async () => {
@@ -21,25 +26,24 @@ vi.mock('../../../events/context', async () => {
   };
 });
 
-const createResponse = (body: unknown, init?: { status?: number; ok?: boolean }) => ({
-  ok: init?.ok ?? true,
-  status: init?.status ?? 200,
-  async json() {
-    return body;
-  }
-}) as unknown as Response;
-
 describe('useCoreSearch', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    mockAuthorizedFetch.mockReset();
-    mockAuthorizedFetch.mockImplementation((input) => {
-      const url = typeof input === 'string' ? input : String(input);
-      if (url.includes('/tags/suggest')) {
-        return Promise.resolve(createResponse({ data: [] }));
-      }
-      return Promise.resolve(createResponse({ data: [], facets: {}, meta: { tokens: [] } }));
-    });
+    mockSearchRepositories.mockReset();
+    mockSuggestTags.mockReset();
+    mockSearchRepositories.mockImplementation((_, params) =>
+      Promise.resolve({
+        repositories: [],
+        facets: { tags: [], statuses: [], owners: [], frameworks: [] },
+        total: 0,
+        meta: {
+          tokens: [],
+          sort: (params as { sort?: string } | undefined)?.sort ?? 'relevance',
+          weights: { name: 1, description: 1, tags: 1 }
+        }
+      })
+    );
+    mockSuggestTags.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -49,7 +53,7 @@ describe('useCoreSearch', () => {
   it('switches search sort between relevance and updated based on the parsed query', async () => {
     const { result } = renderHook(() => useCoreSearch());
 
-    mockAuthorizedFetch.mockClear();
+    mockSearchRepositories.mockClear();
 
     await act(async () => {
       result.current.setInputValue('alpha');
@@ -67,14 +71,12 @@ describe('useCoreSearch', () => {
       await Promise.resolve();
     });
 
-    const relevanceCall = mockAuthorizedFetch.mock.calls.find(([request]) =>
-      typeof request === 'string' && request.includes('/apps?')
-    );
+    const relevanceCall = mockSearchRepositories.mock.calls[0];
     expect(relevanceCall).toBeDefined();
-    const relevanceUrl = new URL(relevanceCall?.[0] as string, 'https://core.test');
-    expect(relevanceUrl.searchParams.get('sort')).toBe('relevance');
+    const relevanceParams = relevanceCall?.[1] as { sort?: string } | undefined;
+    expect(relevanceParams?.sort).toBe('relevance');
 
-    mockAuthorizedFetch.mockClear();
+    mockSearchRepositories.mockClear();
 
     await act(async () => {
       result.current.handlers.setSortMode('name');
@@ -96,12 +98,10 @@ describe('useCoreSearch', () => {
       await Promise.resolve();
     });
 
-    const updatedCall = mockAuthorizedFetch.mock.calls.find(([request]) =>
-      typeof request === 'string' && request.includes('/apps?')
-    );
+    const updatedCall = mockSearchRepositories.mock.calls[0];
     expect(updatedCall).toBeDefined();
-    const updatedUrl = new URL(updatedCall?.[0] as string, 'https://core.test');
-    expect(updatedUrl.searchParams.get('sort')).toBe('updated');
+    const updatedParams = updatedCall?.[1] as { sort?: string } | undefined;
+    expect(updatedParams?.sort).toBe('updated');
   });
 
   it('avoids duplicating applied tag facets', () => {

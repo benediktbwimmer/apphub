@@ -4,26 +4,45 @@ import type {
   EventSavedViewCreateInput,
   EventSavedViewUpdateInput
 } from '@apphub/shared/eventsExplorer';
-import {
-  listWorkflowEventSamples,
-  type AuthorizedFetch,
-  type WorkflowEventSamplesResponse
-} from '../workflows/api';
-import { API_BASE_URL } from '../config';
+import { coreRequest, CoreApiError } from '../core/api';
+import { listWorkflowEventSamples, type WorkflowEventSamplesResponse } from '../workflows/api';
+import type { AuthorizedFetch } from '../lib/apiClient';
 import { normalizeFilters, type EventsExplorerFilters, type EventsExplorerPage } from './explorerTypes';
 import { buildEventsQuery, prepareEventFilters, matchesEventFilters } from './filtering';
 
-const SAVED_VIEWS_ROOT = `${API_BASE_URL}/events/saved-views`;
+type Token = string | null | undefined;
+type TokenInput = Token | AuthorizedFetch;
+
+const SAVED_VIEWS_ROOT = '/events/saved-views';
+
+function ensureToken(input: TokenInput): string {
+  if (typeof input === 'function') {
+    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
+    const candidate = fetcher.authToken;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+    if (typeof candidate === 'string') {
+      return candidate;
+    }
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  throw new Error('Authentication required for event requests.');
+}
 
 export async function fetchEventsExplorerPage(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   filters: EventsExplorerFilters,
   cursor?: string | null
 ): Promise<EventsExplorerPage> {
   const normalized = normalizeFilters(filters);
   const prepared = prepareEventFilters(normalized);
   const query: WorkflowEventSampleQuery = buildEventsQuery(normalized, cursor);
-  const response: WorkflowEventSamplesResponse = await listWorkflowEventSamples(fetcher, query);
+  const response: WorkflowEventSamplesResponse = await listWorkflowEventSamples(token, query);
   const filtered = response.samples.filter((event) => matchesEventFilters(event, prepared));
   const limit = response.page?.limit ?? query.limit ?? normalized.limit;
   return {
@@ -42,90 +61,83 @@ function resolveSavedViewUrl(slug?: string): string {
   return `${SAVED_VIEWS_ROOT}/${encodeURIComponent(slug)}`;
 }
 
-async function parseSavedViewResponse(response: Response): Promise<EventSavedViewRecord> {
-  const payload = await response.json();
-  const record = payload?.data as EventSavedViewRecord | undefined;
+function parseSavedViewResponse(payload: unknown): EventSavedViewRecord {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Malformed saved view response');
+  }
+  const record = (payload as { data?: EventSavedViewRecord }).data;
   if (!record) {
     throw new Error('Malformed saved view response');
   }
   return record;
 }
 
-export async function listSavedEventViews(fetcher: AuthorizedFetch): Promise<EventSavedViewRecord[]> {
-  const response = await fetcher(SAVED_VIEWS_ROOT);
-  if (!response.ok) {
-    throw new Error(`Failed to load saved views (${response.status})`);
-  }
-  const payload = await response.json();
-  const records = Array.isArray(payload?.data) ? (payload.data as EventSavedViewRecord[]) : [];
-  return records;
+export async function listSavedEventViews(token: TokenInput): Promise<EventSavedViewRecord[]> {
+  const payload = await coreRequest<{ data?: EventSavedViewRecord[] }>(ensureToken(token), {
+    url: SAVED_VIEWS_ROOT
+  });
+  const records = Array.isArray(payload?.data) ? payload.data : [];
+  return records.map((record) => ({ ...record }));
 }
 
 export async function createSavedEventView(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   input: EventSavedViewCreateInput
 ): Promise<EventSavedViewRecord> {
-  const response = await fetcher(SAVED_VIEWS_ROOT, {
+  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(ensureToken(token), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+    url: SAVED_VIEWS_ROOT,
+    body: input
   });
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw new Error(detail?.error ?? `Failed to create saved view (${response.status})`);
-  }
-  return parseSavedViewResponse(response);
+  return parseSavedViewResponse(payload);
 }
 
 export async function updateSavedEventView(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   updates: EventSavedViewUpdateInput
 ): Promise<EventSavedViewRecord> {
-  const response = await fetcher(resolveSavedViewUrl(slug), {
+  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(ensureToken(token), {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(updates)
+    url: resolveSavedViewUrl(slug),
+    body: updates
   });
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw new Error(detail?.error ?? `Failed to update saved view (${response.status})`);
-  }
-  return parseSavedViewResponse(response);
+  return parseSavedViewResponse(payload);
 }
 
-export async function deleteSavedEventView(fetcher: AuthorizedFetch, slug: string): Promise<boolean> {
-  const response = await fetcher(resolveSavedViewUrl(slug), { method: 'DELETE' });
-  if (response.status === 204) {
+export async function deleteSavedEventView(token: TokenInput, slug: string): Promise<boolean> {
+  try {
+    await coreRequest(ensureToken(token), {
+      method: 'DELETE',
+      url: resolveSavedViewUrl(slug)
+    });
     return true;
+  } catch (error) {
+    if (error instanceof CoreApiError && error.status === 404) {
+      return false;
+    }
+    throw error;
   }
-  if (response.status === 404) {
-    return false;
-  }
-  const detail = await response.json().catch(() => null);
-  throw new Error(detail?.error ?? `Failed to delete saved view (${response.status})`);
 }
 
 export async function applySavedEventView(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string
 ): Promise<EventSavedViewRecord> {
-  const response = await fetcher(`${resolveSavedViewUrl(slug)}/apply`, { method: 'POST' });
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw new Error(detail?.error ?? `Failed to record saved view usage (${response.status})`);
-  }
-  return parseSavedViewResponse(response);
+  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(ensureToken(token), {
+    method: 'POST',
+    url: `${resolveSavedViewUrl(slug)}/apply`
+  });
+  return parseSavedViewResponse(payload);
 }
 
 export async function shareSavedEventView(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string
 ): Promise<EventSavedViewRecord> {
-  const response = await fetcher(`${resolveSavedViewUrl(slug)}/share`, { method: 'POST' });
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw new Error(detail?.error ?? `Failed to share saved view (${response.status})`);
-  }
-  return parseSavedViewResponse(response);
+  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(ensureToken(token), {
+    method: 'POST',
+    url: `${resolveSavedViewUrl(slug)}/share`
+  });
+  return parseSavedViewResponse(payload);
 }

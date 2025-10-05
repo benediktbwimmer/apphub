@@ -53,6 +53,16 @@ npm install
 
 All packages are managed through npm workspaces, so a single install at the repo root prepares every app, service, and shared module.
 
+### Regenerate OpenAPI Clients
+
+Typed API clients for core services are generated from their OpenAPI documents. Regenerate the shared clients whenever a service spec changes:
+
+```bash
+npm run generate:openapi-clients
+```
+
+CI (and `npm run lint`) will invoke `npm run check:openapi-clients` to ensure the generated artifacts match the committed output.
+
 ### Run Tests
 
 ```bash

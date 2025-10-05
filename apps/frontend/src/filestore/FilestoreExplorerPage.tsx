@@ -8,7 +8,7 @@ import {
   type FilestoreRollupFilter,
   type FilestoreMetadataFilter
 } from '@apphub/shared/filestoreFilters';
-import type { AuthIdentity } from '../auth/useAuth';
+import { useAuth, type AuthIdentity } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -433,6 +433,7 @@ type FilestoreExplorerPageProps = {
 };
 
 export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPageProps) {
+  const { activeToken } = useAuth();
   const authorizedFetch = useAuthorizedFetch();
   const { showError, showSuccess, showInfo } = useToastHelpers();
   const { trackEvent } = useAnalytics();
@@ -1007,7 +1008,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   }, [applyFilters]);
 
   const listFetcher = useCallback(
-    async ({ authorizedFetch: fetchFn, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+    async ({ signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
       if (backendMountId === null) {
         throw new Error('Backend mount not selected');
       }
@@ -1024,7 +1025,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
           filters: null,
           search: null
         };
-        return listNodes(fetchFn, params, { signal });
+        return listNodes(activeToken, params, { signal });
       }
 
       const params = buildListParams({
@@ -1037,9 +1038,9 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         driftOnly,
         filters: advancedFilters
       });
-      return listNodes(fetchFn, params, { signal });
+      return listNodes(activeToken, params, { signal });
     },
-    [backendMountId, viewMode, activePath, stateFilters, driftOnly, advancedFilters, offset, depth]
+    [activeToken, backendMountId, viewMode, activePath, stateFilters, driftOnly, advancedFilters, offset, depth]
   );
 
   const {
@@ -1054,13 +1055,13 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   });
 
   const detailFetcher = useCallback(
-    async ({ authorizedFetch: fetchFn, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+    async ({ signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
       if (!selectedNodeId) {
         throw new Error('Node not selected');
       }
-      return fetchNodeById(fetchFn, selectedNodeId, { signal });
+      return fetchNodeById(activeToken, selectedNodeId, { signal });
     },
-    [selectedNodeId]
+    [activeToken, selectedNodeId]
   );
 
   const {
@@ -1075,7 +1076,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   });
 
   const childrenFetcher = useCallback(
-    async ({ authorizedFetch: fetchFn, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+    async ({ signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
       if (!selectedNodeId) {
         throw new Error('Node not selected');
       }
@@ -1085,9 +1086,9 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         driftOnly,
         filters: advancedFilters
       });
-      return fetchNodeChildren(fetchFn, selectedNodeId, params, { signal });
+      return fetchNodeChildren(activeToken, selectedNodeId, params, { signal });
     },
-    [selectedNodeId, stateFilters, driftOnly, advancedFilters]
+    [activeToken, selectedNodeId, stateFilters, driftOnly, advancedFilters]
   );
 
   const {
@@ -1102,7 +1103,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   });
 
   const jobsFetcher = useCallback(
-    async ({ authorizedFetch: fetchFn, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+    async ({ signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
       if (!hasWriteScope) {
         throw new Error('filestore:write scope required to list reconciliation jobs');
       }
@@ -1116,9 +1117,9 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         path: jobPathFilter,
         statuses: jobStatusFilters.length > 0 ? jobStatusFilters : undefined
       };
-      return listReconciliationJobs(fetchFn, params, { signal });
+      return listReconciliationJobs(activeToken, params, { signal });
     },
-    [backendMountId, hasWriteScope, jobListOffset, jobPathFilter, jobStatusFilters]
+    [activeToken, backendMountId, hasWriteScope, jobListOffset, jobPathFilter, jobStatusFilters]
   );
 
   const {
@@ -1133,16 +1134,16 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   });
 
   const jobDetailFetcher = useCallback(
-    async ({ authorizedFetch: fetchFn, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+    async ({ signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
       if (!hasWriteScope) {
         throw new Error('filestore:write scope required to inspect reconciliation jobs');
       }
       if (selectedJobId === null) {
         throw new Error('Job not selected');
       }
-      return fetchReconciliationJob(fetchFn, selectedJobId, { signal });
+      return fetchReconciliationJob(activeToken, selectedJobId, { signal });
     },
-    [hasWriteScope, selectedJobId]
+    [activeToken, hasWriteScope, selectedJobId]
   );
 
   const {
@@ -1172,7 +1173,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       setMountsLoading(true);
       setMountsError(null);
       try {
-        const result = await listBackendMounts(authorizedFetch, {}, { signal: controller.signal });
+        const result = await listBackendMounts(activeToken, {}, { signal: controller.signal });
         if (cancelled) {
           return;
         }
@@ -1233,7 +1234,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       cancelled = true;
       controller.abort();
     };
-  }, [authorizedFetch, showError]);
+  }, [activeToken, showError]);
 
   useEffect(() => {
     if (!listData || backendMountId === null) {
@@ -1270,7 +1271,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       setTreeLoading(true);
       setTreeError(null);
       try {
-        const response = await listNodes(authorizedFetch, {
+        const response = await listNodes(activeToken, {
           backendMountId,
           limit: TREE_ROOT_LIMIT,
           offset: 0,
@@ -1325,7 +1326,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       cancelled = true;
       controller.abort();
     };
-  }, [authorizedFetch, backendMountId, driftOnly, stateFilters, viewMode]);
+  }, [activeToken, backendMountId, driftOnly, stateFilters, viewMode]);
 
   const loadDirectoryChildren = useCallback(
     async (parentId: number) => {
@@ -1345,7 +1346,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
       try {
         const response = await fetchNodeChildren(
-          authorizedFetch,
+          activeToken,
           parentId,
           {
             limit: TREE_CHILD_LIMIT,
@@ -1406,7 +1407,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         });
       }
     },
-    [authorizedFetch, driftOnly, stateFilters]
+    [activeToken, driftOnly, stateFilters]
   );
 
   const toggleTreeNode = useCallback(
@@ -1685,7 +1686,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         return;
       }
       try {
-        const node = await fetchNodeByPath(authorizedFetch, {
+        const node = await fetchNodeByPath(activeToken, {
           backendMountId: mountId,
           path: normalizedPath
         });
@@ -1695,7 +1696,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         pendingSelectionRef.current = { mountId, path: normalizedPath };
       }
     },
-    [authorizedFetch]
+    [activeToken]
   );
 
   const getParentPath = useCallback((path: string): string | null => {
@@ -1772,7 +1773,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       pendingSelectionRef.current = { mountId: backendMountId, path: normalizedPath };
 
       try {
-        const response = await createDirectory(authorizedFetch, {
+        const response = await createDirectory(activeToken, {
           backendMountId,
           path: normalizedPath,
           metadata: input.metadata,
@@ -1814,7 +1815,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     },
     [
       activePath,
-      authorizedFetch,
+      activeToken,
       backendMountId,
       getParentPath,
       hasWriteScope,
@@ -1869,7 +1870,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       pendingSelectionRef.current = { mountId: backendMountId, path: normalizedPath };
 
       try {
-        const response = await uploadFile(authorizedFetch, {
+        const response = await uploadFile(activeToken, {
           backendMountId,
           path: normalizedPath,
           file: input.file,
@@ -1915,7 +1916,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     },
     [
       activePath,
-      authorizedFetch,
+      activeToken,
       backendMountId,
       getParentPath,
       hasWriteScope,
@@ -1968,7 +1969,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       pendingSelectionRef.current = { mountId: targetMountId, path: normalizedPath };
 
       try {
-        const response = await moveNode(authorizedFetch, {
+        const response = await moveNode(activeToken, {
           backendMountId: sourceMountId,
           path: selectedNode.path,
           targetBackendMountId: targetMountId === sourceMountId ? undefined : targetMountId,
@@ -2021,7 +2022,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     [
       activePath,
       applyBackendMountSelection,
-      authorizedFetch,
+      activeToken,
       backendMountId,
       getParentPath,
       hasWriteScope,
@@ -2075,7 +2076,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       pendingSelectionRef.current = { mountId: targetMountId, path: normalizedPath };
 
       try {
-        const response = await copyNode(authorizedFetch, {
+        const response = await copyNode(activeToken, {
           backendMountId: sourceMountId,
           path: selectedNode.path,
           targetBackendMountId: targetMountId === sourceMountId ? undefined : targetMountId,
@@ -2128,7 +2129,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     [
       activePath,
       applyBackendMountSelection,
-      authorizedFetch,
+      activeToken,
       backendMountId,
       getParentPath,
       hasWriteScope,
@@ -2177,7 +2178,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       });
 
       try {
-        await deleteNode(authorizedFetch, {
+        await deleteNode(activeToken, {
           backendMountId: mountId,
           path: normalizedPath,
           recursive: input.recursive,
@@ -2225,7 +2226,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     },
     [
       activePath,
-      authorizedFetch,
+      activeToken,
       getParentPath,
       hasWriteScope,
       principal,
@@ -2297,7 +2298,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     }
 
     const subscription = subscribeToFilestoreEvents(
-      authorizedFetch,
+      activeToken,
       async (event) => {
         const entry = describeFilestoreEvent(event);
         setActivity((prev) => {
@@ -2352,7 +2353,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     };
   }, [
     activePath,
-    authorizedFetch,
+    activeToken,
     backendMountId,
     enabledEventTypes,
     refetchChildren,
@@ -2692,7 +2693,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
       setPendingReconcileActionId(actionId);
       try {
-        await enqueueReconciliation(authorizedFetch, {
+        await enqueueReconciliation(activeToken, {
           backendMountId: node.backendMountId,
           path: node.path,
           nodeId: node.id,
@@ -2733,7 +2734,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       }
     },
     [
-      authorizedFetch,
+      activeToken,
       reconcileDetectChildren,
       reconcileReason,
       reconcileRequestHash,
@@ -2875,7 +2876,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     setMetadataErrorMessage(null);
 
     try {
-      await updateNodeMetadata(authorizedFetch, {
+      await updateNodeMetadata(activeToken, {
         nodeId: selectedNode.id,
         backendMountId: selectedNode.backendMountId,
         set: Object.keys(toSet).length > 0 ? toSet : undefined,
@@ -2895,7 +2896,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       setMetadataPending(false);
     }
   }, [
-    authorizedFetch,
+    activeToken,
     metadataDraft,
     refetchList,
     refetchNode,
@@ -3009,7 +3010,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         source
       });
       try {
-        const presign = await presignNodeDownload(authorizedFetch, node.id);
+        const presign = await presignNodeDownload(activeToken, node.id);
         finishDownload(node.id);
         if (typeof window !== 'undefined') {
           window.open(presign.url, '_blank', 'noopener,noreferrer');
@@ -3035,6 +3036,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       }
     },
     [
+      activeToken,
       authorizedFetch,
       failDownload,
       finishDownload,

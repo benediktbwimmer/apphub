@@ -1,15 +1,11 @@
 import { useCallback, useState } from 'react';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
+import { useAuth } from '../../auth/useAuth';
 import { useAppHubEvent, type AppHubSocketEvent } from '../../events/context';
 import { API_BASE_URL } from '../constants';
-import type {
-  AppRecord,
-  LaunchListState,
-  LaunchRequestDraft,
-  LaunchSummary
-} from '../types';
+import type { LaunchListState, LaunchRequestDraft, LaunchSummary } from '../types';
 import { formatFetchError } from '../utils';
 import type { CoreRepositoryMutators } from './useCoreSearch';
+import { launchApp as launchAppRequest, listLaunches, stopLaunch as stopLaunchRequest } from '../api';
 
 export type UseCoreLaunchesOptions = {
   repositories: CoreRepositoryMutators;
@@ -27,7 +23,7 @@ export type UseCoreLaunchesResult = {
 
 export function useCoreLaunches(options: UseCoreLaunchesOptions): UseCoreLaunchesResult {
   const { repositories } = options;
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
   const [launchLists, setLaunchLists] = useState<LaunchListState>({});
   const [launchErrors, setLaunchErrors] = useState<Record<string, string | null>>({});
   const [launchingId, setLaunchingId] = useState<string | null>(null);
@@ -46,19 +42,14 @@ export function useCoreLaunches(options: UseCoreLaunchesOptions): UseCoreLaunche
       }));
 
       try {
-        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/launches`);
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          throw new Error(payload?.error ?? `Failed to load launches (${response.status})`);
-        }
-        const payload = await response.json();
+        const payload = await listLaunches(authToken, id);
         setLaunchLists((prev) => ({
           ...prev,
           [id]: {
             open: true,
             loading: false,
             error: null,
-            launches: payload?.data ?? []
+            launches: payload ?? []
           }
         }));
       } catch (err) {
@@ -73,7 +64,7 @@ export function useCoreLaunches(options: UseCoreLaunchesOptions): UseCoreLaunche
         }));
       }
     },
-    [authorizedFetch]
+    [authToken]
   );
 
   const toggleLaunches = useCallback(
@@ -120,27 +111,13 @@ export function useCoreLaunches(options: UseCoreLaunchesOptions): UseCoreLaunche
         const normalizedEnv = request.env
           .map((entry) => ({ key: entry.key.trim(), value: entry.value }))
           .filter((entry) => entry.key.length > 0);
-        const requestPayload: Record<string, unknown> = {};
-        if (normalizedEnv.length > 0) {
-          requestPayload.env = normalizedEnv;
-        }
         const command = request.command.trim();
-        if (command.length > 0) {
-          requestPayload.command = command;
-        }
-        if (request.launchId) {
-          requestPayload.launchId = request.launchId;
-        }
-        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/launch`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestPayload)
+        const payload = await launchAppRequest(authToken, id, {
+          env: normalizedEnv,
+          command: command.length > 0 ? command : undefined,
+          launchId: request.launchId
         });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.error ?? `Launch failed with status ${response.status}`);
-        }
-        const repository = payload?.data?.repository as AppRecord | undefined;
+        const repository = payload.repository ?? undefined;
         if (repository) {
           repositories.replace(repository);
         }
@@ -157,7 +134,7 @@ export function useCoreLaunches(options: UseCoreLaunchesOptions): UseCoreLaunche
         setLaunchingId(null);
       }
     },
-    [authorizedFetch, fetchLaunches, launchLists, repositories]
+    [authToken, fetchLaunches, launchLists, repositories]
   );
 
   const stopLaunch = useCallback(
@@ -165,14 +142,8 @@ export function useCoreLaunches(options: UseCoreLaunchesOptions): UseCoreLaunche
       setStoppingLaunchId(launchId);
       setLaunchErrors((prev) => ({ ...prev, [appId]: null }));
       try {
-        const response = await authorizedFetch(`${API_BASE_URL}/apps/${appId}/launches/${launchId}/stop`, {
-          method: 'POST'
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.error ?? `Stop failed with status ${response.status}`);
-        }
-        const repository = payload?.data?.repository as AppRecord | undefined;
+        const payload = await stopLaunchRequest(authToken, appId, launchId);
+        const repository = payload.repository ?? undefined;
         if (repository) {
           repositories.replace(repository);
         }
@@ -189,7 +160,7 @@ export function useCoreLaunches(options: UseCoreLaunchesOptions): UseCoreLaunche
         setStoppingLaunchId(null);
       }
     },
-    [authorizedFetch, fetchLaunches, launchLists, repositories]
+    [authToken, fetchLaunches, launchLists, repositories]
   );
 
   const handleLaunchUpdate = useCallback((repositoryId: string, launch: LaunchSummary) => {

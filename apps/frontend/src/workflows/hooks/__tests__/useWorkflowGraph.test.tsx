@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkflowTopologyGraph } from '@apphub/shared/workflowTopology';
 import { WorkflowGraphProvider, useWorkflowGraph } from '../useWorkflowGraph';
+import type { AuthorizedFetch } from '../../lib/apiClient';
 
 const { mockFetchWorkflowTopologyGraph, mockGetWorkflowEventHealth, appHubSubscribers, accessContextMock } =
   vi.hoisted(() => {
@@ -19,7 +20,8 @@ const { mockFetchWorkflowTopologyGraph, mockGetWorkflowEventHealth, appHubSubscr
       canRunWorkflowsScope: false,
       canEditWorkflows: false,
       canUseAiBuilder: false,
-      canCreateAiJobs: false
+      canCreateAiJobs: false,
+      activeToken: 'test-token'
     }
   };
 });
@@ -186,6 +188,7 @@ describe('useWorkflowGraph', () => {
     mockGetWorkflowEventHealth.mockReset();
     mockGetWorkflowEventHealth.mockResolvedValue(null);
     accessContextMock.authorizedFetch.mockReset();
+    (accessContextMock.authorizedFetch as AuthorizedFetch & { authToken?: string | null }).authToken = 'test-token';
     mockFetchWorkflowTopologyGraph.mockResolvedValue({ graph: GRAPH_V1, meta: { cache: null } });
     accessContextMock.pushToast.mockReset();
     appHubSubscribers.clear();

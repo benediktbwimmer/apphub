@@ -11,8 +11,9 @@ import {
   deleteAssetPartitionParameters
 } from './api';
 import type { WorkflowAssetPartitionSummary, WorkflowAssetPartitions } from '../workflows/types';
-import { ApiError, fetchWorkflowAssetPartitions, getWorkflowDetail } from '../workflows/api';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { fetchWorkflowAssetPartitions, getWorkflowDetail } from '../workflows/api';
+import { ApiError } from '../lib/apiClient';
+import { useAuth } from '../auth/useAuth';
 import { useToastHelpers } from '../components/toast';
 import { Spinner } from '../components';
 import { AssetRecomputeDialog } from './components/AssetRecomputeDialog';
@@ -28,7 +29,7 @@ function buildPendingKey(action: string, slug: string, partitionKey: string | nu
 }
 
 export default function AssetsPage() {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
   const { showSuccess, showError, showDestructiveSuccess, showDestructiveError } = useToastHelpers();
   const [graph, setGraph] = useState<AssetGraphData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -48,12 +49,18 @@ export default function AssetsPage() {
   const [workflowInputsError, setWorkflowInputsError] = useState<string | null>(null);
 
   const refreshGraph = useCallback(async () => {
-    const data = await fetchAssetGraph(authorizedFetch);
+    if (!authToken) {
+      throw new ApiError('Authentication required', 401);
+    }
+    const data = await fetchAssetGraph(authToken);
     setGraph(data);
     return data;
-  }, [authorizedFetch]);
+  }, [authToken]);
 
   useEffect(() => {
+    if (!authToken) {
+      return;
+    }
     let active = true;
     setLoading(true);
     setError(null);
@@ -73,7 +80,7 @@ export default function AssetsPage() {
     return () => {
       active = false;
     };
-  }, [refreshGraph]);
+  }, [authToken, refreshGraph]);
 
   const selectedAsset: AssetGraphNode | null = useMemo(() => {
     if (!graph || !selectedAssetId) {
@@ -115,11 +122,14 @@ export default function AssetsPage() {
 
   const loadPartitions = useCallback(
     async (assetNode: AssetGraphNode, workflowSlug: string) => {
+      if (!authToken) {
+        throw new ApiError('Authentication required', 401);
+      }
       setPartitionsLoading(true);
       setPartitionsError(null);
       try {
         const data = await fetchWorkflowAssetPartitions(
-          authorizedFetch,
+          authToken,
           workflowSlug,
           assetNode.assetId,
           {}
@@ -133,7 +143,7 @@ export default function AssetsPage() {
         setPartitionsLoading(false);
       }
     },
-    [authorizedFetch]
+    [authToken]
   );
 
   useEffect(() => {
@@ -194,7 +204,7 @@ export default function AssetsPage() {
     : undefined;
 
   useEffect(() => {
-    if (!pendingRunPartition || !selectedWorkflowSlug) {
+    if (!authToken || !pendingRunPartition || !selectedWorkflowSlug) {
       setWorkflowInputsError(null);
       return;
     }
@@ -205,7 +215,7 @@ export default function AssetsPage() {
     let active = true;
     setWorkflowInputsLoading(true);
     setWorkflowInputsError(null);
-    getWorkflowDetail(authorizedFetch, selectedWorkflowSlug)
+    getWorkflowDetail(authToken, selectedWorkflowSlug)
       .then(({ workflow }) => {
         if (!active) {
           return;
@@ -234,7 +244,7 @@ export default function AssetsPage() {
       active = false;
     };
   }, [
-    authorizedFetch,
+    authToken,
     cachedWorkflowInputs,
     pendingRunPartition,
     selectedWorkflowSlug,
@@ -251,7 +261,7 @@ export default function AssetsPage() {
       const actionKey = buildPendingKey('mark', selectedWorkflowSlug, partitionKey);
       await withPendingAction(actionKey, async () => {
         try {
-          await markAssetPartitionStale(authorizedFetch, selectedWorkflowSlug, selectedAsset.assetId, {
+          await markAssetPartitionStale(authToken, selectedWorkflowSlug, selectedAsset.assetId, {
             partitionKey
           });
           showDestructiveSuccess('Mark stale', partitionKey ? `partition ${partitionKey}` : 'asset');
@@ -263,7 +273,7 @@ export default function AssetsPage() {
       });
     },
     [
-      authorizedFetch,
+      authToken,
       loadPartitions,
       refreshGraph,
       selectedAsset,
@@ -282,7 +292,7 @@ export default function AssetsPage() {
       const actionKey = buildPendingKey('clear', selectedWorkflowSlug, partitionKey);
       await withPendingAction(actionKey, async () => {
         try {
-          await clearAssetPartitionStale(authorizedFetch, selectedWorkflowSlug, selectedAsset.assetId, partitionKey ?? undefined);
+          await clearAssetPartitionStale(authToken, selectedWorkflowSlug, selectedAsset.assetId, partitionKey ?? undefined);
           showDestructiveSuccess('Clear stale flag', partitionKey ? `partition ${partitionKey}` : 'asset');
           await loadPartitions(selectedAsset, selectedWorkflowSlug);
           await refreshGraph();
@@ -292,7 +302,7 @@ export default function AssetsPage() {
       });
     },
     [
-      authorizedFetch,
+      authToken,
       loadPartitions,
       refreshGraph,
       selectedAsset,
@@ -320,7 +330,7 @@ export default function AssetsPage() {
       await withPendingAction(actionKey, async () => {
         try {
           if (persistParameters) {
-            await saveAssetPartitionParameters(authorizedFetch, selectedWorkflowSlug, selectedAsset.assetId, {
+            await saveAssetPartitionParameters(authToken, selectedWorkflowSlug, selectedAsset.assetId, {
               partitionKey: partitionKey ?? null,
               parameters
             });
@@ -342,7 +352,7 @@ export default function AssetsPage() {
             });
           }
 
-          const run = await triggerWorkflowRun(authorizedFetch, selectedWorkflowSlug, {
+          const run = await triggerWorkflowRun(authToken, selectedWorkflowSlug, {
             partitionKey,
             parameters
           });
@@ -356,7 +366,7 @@ export default function AssetsPage() {
       });
     },
     [
-      authorizedFetch,
+      authToken,
       loadPartitions,
       refreshGraph,
       selectedAsset,
@@ -391,7 +401,7 @@ export default function AssetsPage() {
       await withPendingAction(actionKey, async () => {
         try {
           await deleteAssetPartitionParameters(
-            authorizedFetch,
+            authToken,
             selectedWorkflowSlug,
             selectedAsset.assetId,
             partitionKey ?? undefined
@@ -422,7 +432,7 @@ export default function AssetsPage() {
       });
     },
     [
-      authorizedFetch,
+      authToken,
       loadPartitions,
       refreshGraph,
       selectedAsset,

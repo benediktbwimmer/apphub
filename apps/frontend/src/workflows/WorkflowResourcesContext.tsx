@@ -7,7 +7,7 @@ import {
   useState,
   type PropsWithChildren
 } from 'react';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useAuth } from '../auth/useAuth';
 import {
   listJobDefinitions,
   listServices,
@@ -63,7 +63,7 @@ function normalizeServices(services: ServiceSummary[]): {
 }
 
 export function WorkflowResourcesProvider({ children }: PropsWithChildren<unknown>) {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
   const [jobs, setJobs] = useState<JobDefinitionSummary[]>([]);
   const [services, setServices] = useState<ServiceSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -76,14 +76,23 @@ export function WorkflowResourcesProvider({ children }: PropsWithChildren<unknow
 
   useEffect(() => {
     let canceled = false;
+    if (!authToken) {
+      setJobs([]);
+      setServices([]);
+      setLoading(false);
+      setError(null);
+      return () => {
+        canceled = true;
+      };
+    }
     setLoading(true);
     setError(null);
 
     const run = async () => {
       try {
         const [jobsData, servicesData] = await Promise.all([
-          listJobDefinitions(authorizedFetch),
-          listServices(authorizedFetch)
+          listJobDefinitions(authToken),
+          listServices(authToken)
         ]);
         if (canceled) {
           return;
@@ -108,7 +117,7 @@ export function WorkflowResourcesProvider({ children }: PropsWithChildren<unknow
     return () => {
       canceled = true;
     };
-  }, [authorizedFetch, refreshIndex]);
+  }, [authToken, refreshIndex]);
 
   const value = useMemo<WorkflowResourcesContextValue>(() => {
     const jobBySlug = normalizeJobs(jobs);

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { API_BASE_URL } from '../config';
+import { useAuth } from '../auth/useAuth';
+import { coreRequest, CoreApiError } from '../core/api';
 import { fileToEncodedPayload, type EncodedFilePayload } from '../utils/fileEncoding';
 
 export type JobImportSource = 'upload' | 'registry';
@@ -116,7 +116,7 @@ function buildPreviewRequestBody(
 }
 
 export function useJobImportWorkflow(): UseJobImportWorkflowResult {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken } = useAuth();
   const [form, setForm] = useState<JobImportFormState>(DEFAULT_FORM);
   const [archive, setArchiveState] = useState<File | null>(null);
   const lastEncodedArchive = useRef<EncodedFilePayload | null>(null);
@@ -204,28 +204,24 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
 
       const body = buildPreviewRequestBody(form, archivePayload);
 
-      const response = await authorizedFetch(`${API_BASE_URL}/job-imports/preview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const message = payload?.error ?? `Preview failed with status ${response.status}`;
-        const normalizedMessage = typeof message === 'string' ? message : 'Preview failed';
-        setPreviewError(normalizedMessage);
-        const rawErrors = Array.isArray(payload?.errors) ? (payload.errors as JobImportValidationError[]) : [];
-        setPreviewValidationErrors(rawErrors);
-        return false;
+      if (!activeToken) {
+        throw new Error('Authentication required to preview job import');
       }
 
-      if (!payload || !payload.data) {
+      const payload = await coreRequest<{ data?: JobImportPreviewResult; errors?: JobImportValidationError[] }>(
+        activeToken,
+        {
+          method: 'POST',
+          url: '/job-imports/preview',
+          body
+        }
+      );
+
+      if (!payload?.data) {
         throw new Error('Preview response missing data');
       }
 
-      const data = payload.data as JobImportPreviewResult;
+      const data = payload.data;
       setPreviewResult({
         bundle: data.bundle,
         warnings: data.warnings ?? [],
@@ -234,12 +230,21 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
       });
       return true;
     } catch (err) {
-      setPreviewError((err as Error).message);
+      if (err instanceof CoreApiError) {
+        const details = (err.details ?? null) as { errors?: unknown } | null;
+        const errors = Array.isArray(details?.errors)
+          ? (details?.errors as JobImportValidationError[])
+          : [];
+        setPreviewValidationErrors(errors);
+        setPreviewError(err.message);
+      } else {
+        setPreviewError((err as Error).message);
+      }
       return false;
     } finally {
       setPreviewLoading(false);
     }
-  }, [archive, authorizedFetch, form]);
+  }, [activeToken, archive, form]);
 
   const confirmImport = useCallback(async () => {
     if (!previewResult) {
@@ -272,32 +277,33 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
         form.source === 'upload' ? archivePayload : null
       );
 
-      const response = await authorizedFetch(`${API_BASE_URL}/job-imports`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        const message = payload?.error ?? `Import failed with status ${response.status}`;
-        setConfirmError(typeof message === 'string' ? message : 'Import failed');
-        return false;
+      if (!activeToken) {
+        throw new Error('Authentication required to confirm job import');
       }
 
-      if (!payload || !payload.data) {
+      const payload = await coreRequest<{ data?: JobImportConfirmResult }>(activeToken, {
+        method: 'POST',
+        url: '/job-imports',
+        body
+      });
+
+      if (!payload?.data) {
         throw new Error('Import response missing data');
       }
 
-      setConfirmResult(payload.data as JobImportConfirmResult);
+      setConfirmResult(payload.data);
       return true;
     } catch (err) {
-      setConfirmError((err as Error).message);
+      if (err instanceof CoreApiError) {
+        setConfirmError(err.message);
+      } else {
+        setConfirmError((err as Error).message);
+      }
       return false;
     } finally {
       setConfirmLoading(false);
     }
-  }, [archive, authorizedFetch, form, previewResult]);
+  }, [activeToken, archive, form, previewResult]);
 
   const reset = useCallback(() => {
     setForm(DEFAULT_FORM);

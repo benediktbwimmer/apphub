@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL } from '../config';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useAuth } from '../auth/useAuth';
 import type { AppRecord, StatusFacet } from '../core/types';
 import { formatFetchError } from '../core/utils';
 import type { ServiceSummary } from '../services/types';
@@ -10,6 +10,8 @@ import {
   type JobRunListItem,
   type WorkflowActivityRunEntry
 } from '../runs/api';
+import { listServices, searchRepositories } from '../core/api';
+import { INGEST_STATUSES } from '../core/constants';
 
 export type OverviewData = {
   apps: AppRecord[];
@@ -17,18 +19,6 @@ export type OverviewData = {
   services: ServiceSummary[];
   workflowRuns: WorkflowActivityRunEntry[];
   jobRuns: JobRunListItem[];
-};
-
-type AppsResponse = {
-  data?: unknown;
-  facets?: {
-    statuses?: unknown;
-  };
-};
-
-type AppsResult = {
-  apps: AppRecord[];
-  statusFacets: StatusFacet[];
 };
 
 type LoadState = {
@@ -45,28 +35,8 @@ const EMPTY_DATA: OverviewData = {
   jobRuns: []
 };
 
-function normalizeAppsPayload(payload: AppsResponse): AppsResult {
-  const data = Array.isArray(payload.data) ? (payload.data as AppRecord[]) : [];
-  const rawStatuses = Array.isArray(payload.facets?.statuses)
-    ? (payload.facets?.statuses as StatusFacet[])
-    : [];
-  return {
-    apps: data,
-    statusFacets: rawStatuses
-  };
-}
-
-function normalizeServicesPayload(payload: unknown): ServiceSummary[] {
-  if (!payload || typeof payload !== 'object') {
-    return [];
-  }
-  const record = payload as { data?: unknown };
-  const data = Array.isArray(record.data) ? (record.data as ServiceSummary[]) : [];
-  return data;
-}
-
 export function useOverviewData(): LoadState {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
   const [data, setData] = useState<OverviewData>(EMPTY_DATA);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,35 +45,39 @@ export function useOverviewData(): LoadState {
     let active = true;
 
     const load = async () => {
+      if (!authToken) {
+        setData(EMPTY_DATA);
+        setError(null);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       setError(null);
 
       const results = await Promise.allSettled([
         (async () => {
-          const response = await authorizedFetch(`${API_BASE_URL}/apps?sort=updated&limit=8`);
-          if (!response.ok) {
-            throw new Error(`Failed to load apps (status ${response.status})`);
-          }
-          const payload = (await response.json()) as AppsResponse;
-          return normalizeAppsPayload(payload);
+          const result = await searchRepositories(authToken, { sort: 'updated' });
+          const apps = result.repositories.slice(0, 8);
+          const counts = new Map(result.facets.statuses.map((item) => [item.status, item.count]));
+          const statusFacets = INGEST_STATUSES.map((status) => ({
+            status,
+            count: counts.get(status) ?? 0
+          }));
+          return { apps, statusFacets };
         })(),
         (async () => {
-          const response = await authorizedFetch(`${API_BASE_URL}/services`);
-          if (!response.ok) {
-            throw new Error(`Failed to load services (status ${response.status})`);
-          }
-          const payload = await response.json();
-          return normalizeServicesPayload(payload);
+          const services = await listServices(authToken);
+          return services;
         })(),
         (async () => {
-          const { items } = await fetchWorkflowActivity(authorizedFetch, {
+          const { items } = await fetchWorkflowActivity(authToken, {
             limit: 12,
             filters: { kinds: ['run'] }
           });
           return items.filter((entry): entry is WorkflowActivityRunEntry => entry.kind === 'run');
         })(),
         (async () => {
-          const { items } = await fetchJobRuns(authorizedFetch, { limit: 5 });
+          const { items } = await fetchJobRuns(authToken, { limit: 5 });
           return items;
         })()
       ]);
@@ -116,7 +90,7 @@ export function useOverviewData(): LoadState {
       const errors: string[] = [];
 
       const [appsResult, servicesResult, workflowRunsResult, jobRunsResult] = results as [
-        PromiseSettledResult<AppsResult>,
+        PromiseSettledResult<{ apps: AppRecord[]; statusFacets: StatusFacet[] }>,
         PromiseSettledResult<ServiceSummary[]>,
         PromiseSettledResult<WorkflowActivityRunEntry[]>,
         PromiseSettledResult<JobRunListItem[]>
@@ -157,7 +131,7 @@ export function useOverviewData(): LoadState {
     return () => {
       active = false;
     };
-  }, [authorizedFetch]);
+  }, [authToken]);
 
   return useMemo(() => ({ data, loading, error }), [data, loading, error]);
 }

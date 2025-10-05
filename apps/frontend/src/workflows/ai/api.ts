@@ -1,6 +1,8 @@
 import { API_BASE_URL } from '../../config';
-import { ApiError, ensureOk, parseJson } from '../api';
-import type { AuthorizedFetch, WorkflowCreateInput, JobDefinitionCreateInput, JobDefinitionSummary } from '../api';
+import { coreRequest, CoreApiError } from '../../core/api';
+import { ApiError } from '../api';
+import { createApiClient, type AuthorizedFetch, type QueryValue } from '../../lib/apiClient';
+import type { WorkflowCreateInput, JobDefinitionCreateInput, JobDefinitionSummary } from '../api';
 import type { AiBuilderProvider } from '../../ai/types';
 
 export type { AiBuilderProvider } from '../../ai/types';
@@ -169,94 +171,129 @@ export type AiGenerationState = {
   contextPreview?: AiContextPreview;
 };
 
-function buildError(message: string, status: number, details?: unknown): Error {
-  const error = new Error(message);
-  (error as Error & { status?: number; details?: unknown }).status = status;
-  (error as Error & { status?: number; details?: unknown }).details = details;
-  return error;
-}
-
-async function parseGenerationResponse(response: Response): Promise<AiGenerationState> {
-  const payload = (await response.json()) as { data?: unknown };
-  if (!payload || typeof payload !== 'object' || !('data' in payload)) {
+function parseGenerationPayload(payload: unknown): AiGenerationState {
+  if (!payload || typeof payload !== 'object') {
     throw new Error('Invalid AI generation response payload');
   }
-  const data = (payload as { data?: AiGenerationState }).data;
-  if (!data || typeof data !== 'object') {
+  const record = payload as { data?: unknown };
+  if (!record.data || typeof record.data !== 'object') {
     throw new Error('AI generation response missing data property');
   }
-  return data as AiGenerationState;
+  return record.data as AiGenerationState;
+}
+
+type Token = string | null | undefined;
+type TokenInput = Token | AuthorizedFetch;
+
+type CoreJsonOptions = {
+  method?: string;
+  url: string;
+  query?: Record<string, QueryValue>;
+  body?: unknown;
+  errorMessage: string;
+};
+
+function ensureToken(input: TokenInput): string {
+  if (typeof input === 'function') {
+    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
+    const candidate = fetcher.authToken;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+    if (typeof candidate === 'string') {
+      return candidate;
+    }
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  throw new Error('Authentication required for AI builder requests.');
+}
+
+function toApiError(error: CoreApiError, fallback: string): ApiError {
+  const message = error.message && error.message.trim().length > 0 ? error.message : fallback;
+  return new ApiError(message, error.status ?? 500, error.details ?? null);
+}
+
+async function coreJson<T>(token: TokenInput, options: CoreJsonOptions): Promise<T> {
+  if (typeof token === 'function') {
+    const client = createApiClient(token, { baseUrl: API_BASE_URL });
+    const bodyIsFormData = options.body instanceof FormData;
+    const result = await client.request(options.url, {
+      method: options.method,
+      query: options.query,
+      body: bodyIsFormData ? (options.body as FormData) : undefined,
+      json: !bodyIsFormData ? options.body : undefined,
+      errorMessage: options.errorMessage
+    });
+    return result as T;
+  }
+
+  try {
+    return (await coreRequest<T>(ensureToken(token), {
+      method: options.method,
+      url: options.url,
+      query: options.query,
+      body: options.body
+    })) as T;
+  } catch (error) {
+    if (error instanceof CoreApiError) {
+      throw toApiError(error, options.errorMessage);
+    }
+    throw error;
+  }
 }
 
 export async function startAiGeneration(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   input: AiSuggestRequest
 ): Promise<AiGenerationState> {
-  const response = await fetcher(`${API_BASE_URL}/ai/builder/generations`, {
+  const payload = await coreJson<{ data?: unknown }>(token, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+    url: '/ai/builder/generations',
+    body: input,
+    errorMessage: 'Failed to start AI generation'
   });
-
-  if (!response.ok) {
-    const fallback = (await response.text().catch(() => '')) ?? '';
-    throw buildError(fallback || 'Failed to start AI generation', response.status, fallback);
-  }
-
-  return parseGenerationResponse(response);
+  const data = parseGenerationPayload(payload);
+  return data;
 }
 
 export async function fetchAiGeneration(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   generationId: string
 ): Promise<AiGenerationState> {
-  const response = await fetcher(`${API_BASE_URL}/ai/builder/generations/${generationId}`, {
-    method: 'GET'
+  const payload = await coreJson<{ data?: unknown }>(token, {
+    url: `/ai/builder/generations/${encodeURIComponent(generationId)}`,
+    errorMessage: 'Failed to fetch AI generation status'
   });
-
-  if (!response.ok) {
-    const fallback = (await response.text().catch(() => '')) ?? '';
-    throw buildError(fallback || 'Failed to fetch AI generation status', response.status, fallback);
-  }
-
-  return parseGenerationResponse(response);
+  return parseGenerationPayload(payload);
 }
 
 export async function fetchAiContextPreview(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   params: {
     provider: AiBuilderProvider;
     mode: AiBuilderMode;
   }
 ): Promise<AiContextPreviewResponse> {
-  const searchParams = new URLSearchParams();
+  const query: Record<string, QueryValue> = {};
   if (params.provider) {
-    searchParams.set('provider', params.provider);
+    query.provider = params.provider;
   }
   if (params.mode) {
-    searchParams.set('mode', params.mode);
+    query.mode = params.mode;
   }
-  const response = await fetcher(
-    `${API_BASE_URL}/ai/builder/context${searchParams.size > 0 ? `?${searchParams.toString()}` : ''}`,
-    {
-      method: 'GET'
-    }
-  );
-
-  if (!response.ok) {
-    const fallback = (await response.text().catch(() => '')) ?? '';
-    throw buildError(fallback || 'Failed to load AI context preview', response.status, fallback);
-  }
-
-  const payload = (await response.json()) as { data?: unknown };
-  if (!payload || typeof payload !== 'object' || !('data' in payload)) {
+  const payload = await coreJson<{ data?: AiContextPreviewResponse }>(token, {
+    url: '/ai/builder/context',
+    query,
+    errorMessage: 'Failed to load AI context preview'
+  });
+  if (!payload || typeof payload !== 'object' || !('data' in payload) || !payload.data) {
     throw new Error('Invalid AI context preview payload');
   }
-  const data = (payload as { data?: AiContextPreviewResponse }).data;
-  if (!data || typeof data !== 'object') {
-    throw new Error('AI context preview response missing data property');
-  }
-  return data as AiContextPreviewResponse;
+  return payload.data;
 }
 
 export type AiGenerationMetadata = {
@@ -282,22 +319,21 @@ export type CreateJobWithBundleResponse = {
 };
 
 export async function createJobWithBundle(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   input: CreateJobWithBundleRequest
 ): Promise<CreateJobWithBundleResponse> {
-  const response = await fetcher(`${API_BASE_URL}/ai/builder/jobs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
-  });
-  await ensureOk(response, 'Failed to create job');
-  const payload = await parseJson<{
+  const payload = await coreJson<{
     data?: {
       job?: JobDefinitionSummary;
     };
-  }>(response);
+  }>(token, {
+    method: 'POST',
+    url: '/ai/builder/jobs',
+    body: input,
+    errorMessage: 'Failed to create job'
+  });
   if (!payload.data?.job) {
-    throw new ApiError('Invalid job response', response.status, payload);
+    throw new ApiError('Invalid job response', 500, payload);
   }
   return { job: payload.data.job };
 }

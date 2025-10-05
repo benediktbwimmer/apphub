@@ -50,7 +50,7 @@ describe('FilestoreHealthRail', () => {
   });
 
   it('renders health metrics and severity badge', () => {
-    render(<FilestoreHealthRail enabled />);
+    render(<FilestoreHealthRail enabled token={null} />);
 
     expect(screen.getByText(/filestore sync health/i)).toBeInTheDocument();
     expect(screen.getByText(/healthy/i)).toBeInTheDocument();
@@ -66,14 +66,14 @@ describe('FilestoreHealthRail', () => {
       thresholdSeconds: 100
     } satisfies MetastoreFilestoreHealth;
 
-    render(<FilestoreHealthRail enabled />);
+    render(<FilestoreHealthRail enabled token={null} />);
 
     expect(screen.getByText(/Lagging/i)).toBeInTheDocument();
   });
 
   it('shows access guidance when polling disabled', () => {
     mockPollingState.data = null;
-    render(<FilestoreHealthRail enabled={false} />);
+    render(<FilestoreHealthRail enabled={false} token={null} />);
 
     expect(screen.getByText(/Provide a token/i)).toBeInTheDocument();
   });

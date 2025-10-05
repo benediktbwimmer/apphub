@@ -1,8 +1,7 @@
 import classNames from 'classnames';
 import { useCallback, useState } from 'react';
-import { API_BASE_URL } from '../config';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useAuth } from '../auth/useAuth';
+import { coreRequest, CoreApiError } from '../core/api';
 import { getStatusToneClasses } from '../theme/statusTokens';
 import {
   SETTINGS_DANGER_BUTTON_CLASSES,
@@ -14,8 +13,7 @@ import {
 } from './settingsTokens';
 
 export default function AdminToolsPage() {
-  const authorizedFetch = useAuthorizedFetch();
-  const { identity, identityLoading } = useAuth();
+  const { identity, identityLoading, activeToken } = useAuth();
   const [isNukingRunData, setIsNukingRunData] = useState(false);
   const [isNukingCore, setIsNukingCore] = useState(false);
   const [isNukingEverything, setIsNukingEverything] = useState(false);
@@ -25,28 +23,6 @@ export default function AdminToolsPage() {
 
   const hasDangerScope = identity?.scopes?.includes('admin:danger-zone') ?? false;
   const canUseDangerZone = Boolean(identity?.authDisabled || hasDangerScope);
-
-  const parseErrorMessage = useCallback((raw: string | null | undefined, fallback: string) => {
-    if (!raw) {
-      return fallback;
-    }
-
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      return fallback;
-    }
-
-    try {
-      const parsed = JSON.parse(trimmed) as { error?: unknown };
-      if (parsed && typeof parsed.error === 'string' && parsed.error.trim().length > 0) {
-        return parsed.error.trim();
-      }
-    } catch {
-      // Best effort parse; fall back to trimmed text below.
-    }
-
-    return trimmed.slice(0, 200);
-  }, []);
 
   const handleNukeRunData = useCallback(async () => {
     if (!canUseDangerZone || isNukingRunData || isNukingCore || isNukingEverything) {
@@ -64,20 +40,20 @@ export default function AdminToolsPage() {
     setRunDataError(null);
 
     try {
-      const response = await authorizedFetch(`${API_BASE_URL}/admin/core/nuke/run-data`, { method: 'POST' });
-      if (!response.ok) {
-        const bodyText = await response.text();
-        throw new Error(parseErrorMessage(bodyText, 'Failed to delete core run data.'));
+      if (!activeToken) {
+        throw new Error('Authentication required to delete core run data.');
       }
+
+      await coreRequest(activeToken, { method: 'POST', url: '/admin/core/nuke/run-data' });
 
       window.location.reload();
     } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : 'Failed to delete core run data.';
+      const message = err instanceof CoreApiError ? err.message : err instanceof Error && err.message ? err.message : 'Failed to delete core run data.';
       setRunDataError(message);
     } finally {
       setIsNukingRunData(false);
     }
-  }, [authorizedFetch, canUseDangerZone, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
+  }, [activeToken, canUseDangerZone, isNukingCore, isNukingEverything, isNukingRunData]);
 
   const handleNukeCore = useCallback(async () => {
     if (!canUseDangerZone || isNukingCore || isNukingRunData || isNukingEverything) {
@@ -95,20 +71,20 @@ export default function AdminToolsPage() {
     setCoreError(null);
 
     try {
-      const response = await authorizedFetch(`${API_BASE_URL}/admin/core/nuke`, { method: 'POST' });
-      if (!response.ok) {
-        const bodyText = await response.text();
-        throw new Error(parseErrorMessage(bodyText, 'Failed to nuke the core database.'));
+      if (!activeToken) {
+        throw new Error('Authentication required to nuke the core database.');
       }
+
+      await coreRequest(activeToken, { method: 'POST', url: '/admin/core/nuke' });
 
       window.location.reload();
     } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : 'Failed to nuke the core database.';
+      const message = err instanceof CoreApiError ? err.message : err instanceof Error && err.message ? err.message : 'Failed to nuke the core database.';
       setCoreError(message);
     } finally {
       setIsNukingCore(false);
     }
-  }, [authorizedFetch, canUseDangerZone, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
+  }, [activeToken, canUseDangerZone, isNukingCore, isNukingEverything, isNukingRunData]);
 
   const handleNukeEverything = useCallback(async () => {
     if (!canUseDangerZone || isNukingEverything || isNukingCore || isNukingRunData) {
@@ -126,20 +102,20 @@ export default function AdminToolsPage() {
     setEverythingError(null);
 
     try {
-      const response = await authorizedFetch(`${API_BASE_URL}/admin/core/nuke/everything`, { method: 'POST' });
-      if (!response.ok) {
-        const bodyText = await response.text();
-        throw new Error(parseErrorMessage(bodyText, 'Failed to nuke the entire database.'));
+      if (!activeToken) {
+        throw new Error('Authentication required to nuke the entire database.');
       }
+
+      await coreRequest(activeToken, { method: 'POST', url: '/admin/core/nuke/everything' });
 
       window.location.reload();
     } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : 'Failed to nuke the entire database.';
+      const message = err instanceof CoreApiError ? err.message : err instanceof Error && err.message ? err.message : 'Failed to nuke the entire database.';
       setEverythingError(message);
     } finally {
       setIsNukingEverything(false);
     }
-  }, [authorizedFetch, canUseDangerZone, isNukingCore, isNukingEverything, isNukingRunData, parseErrorMessage]);
+  }, [activeToken, canUseDangerZone, isNukingCore, isNukingEverything, isNukingRunData]);
 
   const isBusy = isNukingRunData || isNukingCore || isNukingEverything;
   const controlsDisabled = isBusy || !canUseDangerZone;

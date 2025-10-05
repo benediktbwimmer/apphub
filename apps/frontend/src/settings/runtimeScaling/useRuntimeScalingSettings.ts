@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
+import { useAuth } from '../../auth/useAuth';
 import {
   fetchRuntimeScalingOverview,
   updateRuntimeScalingTarget
@@ -34,7 +34,7 @@ export type RuntimeScalingSettingsState = {
 };
 
 export function useRuntimeScalingSettings(): RuntimeScalingSettingsState {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
   const [targets, setTargets] = useState<RuntimeScalingTarget[]>([]);
   const [writesEnabled, setWritesEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -42,10 +42,16 @@ export function useRuntimeScalingSettings(): RuntimeScalingSettingsState {
   const [updating, setUpdating] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
+    if (!authToken) {
+      setLoading(false);
+      setError(null);
+      setTargets([]);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const result: RuntimeScalingOverview = await fetchRuntimeScalingOverview(authorizedFetch);
+      const result: RuntimeScalingOverview = await fetchRuntimeScalingOverview(authToken);
       setTargets(sortTargets(result.targets));
       setWritesEnabled(result.writesEnabled);
     } catch (err) {
@@ -55,7 +61,7 @@ export function useRuntimeScalingSettings(): RuntimeScalingSettingsState {
     } finally {
       setLoading(false);
     }
-  }, [authorizedFetch]);
+  }, [authToken]);
 
   useEffect(() => {
     void load();
@@ -65,7 +71,12 @@ export function useRuntimeScalingSettings(): RuntimeScalingSettingsState {
     async (targetKey: string, input: RuntimeScalingUpdateInput): Promise<RuntimeScalingTarget> => {
       setUpdating((prev) => ({ ...prev, [targetKey]: true }));
       try {
-        const result = await updateRuntimeScalingTarget(authorizedFetch, targetKey, input);
+        if (!authToken) {
+          const message = 'Authentication required';
+          setError(message);
+          throw new Error(message);
+        }
+        const result = await updateRuntimeScalingTarget(authToken, targetKey, input);
         setWritesEnabled(result.writesEnabled);
         setTargets((prev) => {
           const index = prev.findIndex((entry) => entry.target === result.target.target);
@@ -90,7 +101,7 @@ export function useRuntimeScalingSettings(): RuntimeScalingSettingsState {
         });
       }
     },
-    [authorizedFetch]
+    [authToken]
   );
 
   const refresh = useCallback(async () => {

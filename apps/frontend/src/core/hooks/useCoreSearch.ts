@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEventHandler } from 'react';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
+import { useAuth } from '../../auth/useAuth';
 import { useAppHubEvent, type AppHubSocketEvent } from '../../events/context';
-import { API_BASE_URL, INGEST_STATUSES } from '../constants';
+import { INGEST_STATUSES } from '../constants';
+import { searchRepositories, suggestTags } from '../api';
 import type {
   AppRecord,
   SearchMeta,
@@ -76,7 +77,7 @@ export function useCoreSearch(): UseCoreSearchResult {
   const [sortMode, setSortModeInternal] = useState<SearchSort>('relevance');
   const [sortManuallySet, setSortManuallySet] = useState(false);
   const [showHighlights, setShowHighlights] = useState(false);
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
 
   const autocompleteContext = useMemo(() => computeAutocompleteContext(inputValue), [inputValue]);
   const parsedQuery = useMemo(() => parseSearchInput(inputValue), [inputValue]);
@@ -115,46 +116,38 @@ export function useCoreSearch(): UseCoreSearchResult {
       try {
         setLoading(true);
         setError(null);
-        const params = new URLSearchParams();
-        if (parsedQuery.text) {
-          params.set('q', parsedQuery.text);
-        }
-        if (parsedQuery.tags.length > 0) {
-          params.set('tags', parsedQuery.tags.join(' '));
-        }
-        if (statusFilters.length > 0) {
-          params.set('status', statusFilters.join(','));
-        }
-        params.set('sort', sortMode);
-        const response = await authorizedFetch(`${API_BASE_URL}/apps?${params.toString()}`, {
-          signal: controller.signal
-        });
-        if (!response.ok) {
-          throw new Error(`Search failed with status ${response.status}`);
-        }
-        const payload = await response.json();
-        setApps(payload.data ?? []);
-        setTagFacets(payload.facets?.tags ?? []);
+        const result = await searchRepositories(
+          authToken,
+          {
+            query: parsedQuery.text || undefined,
+            tags: parsedQuery.tags,
+            statuses: statusFilters,
+            sort: sortMode
+          },
+          { signal: controller.signal }
+        );
+        setApps(result.repositories);
+        setTagFacets(result.facets.tags);
         setStatusFacets(() => {
-          const rawStatuses = (payload.facets?.statuses ?? []) as StatusFacet[];
-          const counts = new Map(rawStatuses.map((item) => [item.status, item.count]));
+          const counts = new Map(result.facets.statuses.map((item) => [item.status, item.count]));
           return INGEST_STATUSES.map((status) => ({
             status,
             count: counts.get(status) ?? 0
           }));
         });
-        setOwnerFacets(payload.facets?.owners ?? []);
-        setFrameworkFacets(payload.facets?.frameworks ?? []);
-        setSearchMeta(payload.meta ?? null);
-        if (payload.meta?.sort && payload.meta.sort !== sortMode) {
-          setSortModeInternal(payload.meta.sort);
+        setOwnerFacets(result.facets.owners);
+        setFrameworkFacets(result.facets.frameworks);
+        setSearchMeta(result.meta);
+        if (result.meta.sort && result.meta.sort !== sortMode) {
+          setSortModeInternal(result.meta.sort);
           setSortManuallySet(false);
         }
       } catch (err) {
-        if ((err as Error).name === 'AbortError') {
+        if (err instanceof DOMException && err.name === 'AbortError') {
           return;
         }
-        setError((err as Error).message);
+        const message = err instanceof Error ? err.message : 'Search failed';
+        setError(message);
       } finally {
         setLoading(false);
       }
@@ -164,12 +157,12 @@ export function useCoreSearch(): UseCoreSearchResult {
       controller.abort();
       clearTimeout(timeoutId);
     };
-  }, [authorizedFetch, searchSignature, parsedQuery, statusFilters, sortMode]);
+  }, [authToken, searchSignature, parsedQuery, statusFilters, sortMode]);
 
   useEffect(() => {
     const controller = new AbortController();
-    const { activeToken } = autocompleteContext;
-    if (!activeToken) {
+    const { activeToken: activeSuggestionToken } = autocompleteContext;
+    if (!activeSuggestionToken) {
       setSuggestions([]);
       setHighlightIndex(0);
       return () => {
@@ -179,18 +172,15 @@ export function useCoreSearch(): UseCoreSearchResult {
 
     const timeoutId = setTimeout(async () => {
       try {
-        const response = await authorizedFetch(
-          `${API_BASE_URL}/tags/suggest?prefix=${encodeURIComponent(activeToken)}&limit=12`,
+        const result = await suggestTags(
+          authToken,
+          { prefix: activeSuggestionToken, limit: 12 },
           { signal: controller.signal }
         );
-        if (!response.ok) {
-          throw new Error('Failed to fetch tag suggestions');
-        }
-        const payload = await response.json();
-        setSuggestions(payload.data ?? []);
+        setSuggestions(result);
         setHighlightIndex(0);
       } catch (err) {
-        if ((err as Error).name === 'AbortError') {
+        if (err instanceof DOMException && err.name === 'AbortError') {
           return;
         }
       }
@@ -200,7 +190,7 @@ export function useCoreSearch(): UseCoreSearchResult {
       controller.abort();
       clearTimeout(timeoutId);
     };
-  }, [autocompleteContext, authorizedFetch]);
+  }, [authToken, autocompleteContext]);
 
   useEffect(() => {
     if (suggestions.length === 0) {

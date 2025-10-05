@@ -53,11 +53,9 @@ type ToastHelpers = {
   showInfo: (title: string, description?: string) => void;
 };
 
-type AuthorizedFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-
 type AuditTrailPanelProps = {
   record: MetastoreRecordDetail;
-  authorizedFetch: AuthorizedFetch;
+  token: string | null;
   hasWriteScope: boolean;
   onRecordRestored: (record: MetastoreRecordDetail) => void;
   onRefreshRecords: () => void;
@@ -109,7 +107,7 @@ function formatVersionRange(entry: MetastoreAuditEntry): string {
 
 export function AuditTrailPanel({
   record,
-  authorizedFetch,
+  token,
   hasWriteScope,
   onRecordRestored,
   onRefreshRecords,
@@ -154,7 +152,7 @@ export function AuditTrailPanel({
     setLoading(true);
     setError(null);
 
-    fetchRecordAudits(authorizedFetch, record.namespace, record.recordKey, {
+    fetchRecordAudits(token, record.namespace, record.recordKey, {
       limit: AUDIT_PAGE_SIZE,
       offset: pageIndex * AUDIT_PAGE_SIZE,
       signal: controller.signal
@@ -183,7 +181,7 @@ export function AuditTrailPanel({
       cancelled = true;
       controller.abort();
     };
-  }, [authorizedFetch, record.namespace, record.recordKey, pageIndex, refreshToken]);
+  }, [token, record.namespace, record.recordKey, pageIndex, refreshToken]);
 
   const requestDiff = async (entry: MetastoreAuditEntry) => {
     diffAbortRef.current?.abort();
@@ -197,13 +195,9 @@ export function AuditTrailPanel({
     });
 
     try {
-      const diff = await fetchRecordAuditDiff(
-        authorizedFetch,
-        record.namespace,
-        record.recordKey,
-        entry.id,
-        { signal: controller.signal }
-      );
+      const diff = await fetchRecordAuditDiff(token, record.namespace, record.recordKey, entry.id, {
+        signal: controller.signal
+      });
       setDiffState((previous) => ({
         ...previous,
         loading: false,
@@ -263,12 +257,7 @@ export function AuditTrailPanel({
         auditId: diffState.target.id,
         expectedVersion: record.version
       } as const;
-      const response = await restoreRecordFromAudit(
-        authorizedFetch,
-        record.namespace,
-        record.recordKey,
-        payload
-      );
+      const response = await restoreRecordFromAudit(token, record.namespace, record.recordKey, payload);
       showSuccess('Record restored', `Restored from audit #${response.restoredFrom.auditId}`);
       onRecordRestored(response.record);
       onRefreshRecords();

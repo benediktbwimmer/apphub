@@ -11,7 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent
 } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
+import { useAuth } from '../../auth/useAuth';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useToastHelpers } from '../../components/toast';
 import { Spinner } from '../../components';
@@ -108,7 +108,7 @@ type NamespacePickerProps = {
 };
 
 export function NamespacePicker({ value, onChange, disabled = false }: NamespacePickerProps) {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken } = useAuth();
   const { showError } = useToastHelpers();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRequestRef = useRef<AbortController | null>(null);
@@ -284,7 +284,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
       setLastError(null);
       const previouslyLoaded = hasDiscoveryRef.current;
       try {
-        const response: MetastoreNamespaceListResponse = await listNamespaces(authorizedFetch, {
+        const response: MetastoreNamespaceListResponse = await listNamespaces(activeToken, {
           prefix: search ? search.trim() : undefined,
           limit: DEFAULT_NAMESPACE_LIMIT,
           signal: controller.signal
@@ -321,7 +321,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
         }
       }
     },
-    [authorizedFetch, showError]
+    [activeToken, showError]
   );
 
   useEffect(() => {

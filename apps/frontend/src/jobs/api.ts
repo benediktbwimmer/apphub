@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
-import { API_BASE_URL } from '../config';
-import { createApiClient, type AuthorizedFetch } from '../lib/apiClient';
+import { coreRequest } from '../core/api';
 import type { JobDefinitionSummary } from '../workflows/api';
 
 export type JobRunSummary = {
@@ -152,10 +151,6 @@ function toRecord(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
-}
-
-function createClient(fetcher: AuthorizedFetch) {
-  return createApiClient(fetcher, { baseUrl: API_BASE_URL });
 }
 
 function dataEnvelope<T extends z.ZodTypeAny>(schema: T) {
@@ -536,57 +531,69 @@ const pythonSnippetCreateResultSchema = z
 
 const pythonSnippetCreateEnvelope = dataEnvelope(pythonSnippetCreateResultSchema);
 
-export async function fetchJobs(fetcher: AuthorizedFetch): Promise<JobDefinitionSummary[]> {
-  const client = createClient(fetcher);
-  return client.get('/jobs', {
-    schema: jobDefinitionsSchema,
-    errorMessage: 'Failed to load job definitions'
-  });
+type Token = string | null | undefined;
+
+function ensureToken(token: Token): string {
+  if (typeof token === 'string' && token.trim().length > 0) {
+    return token.trim();
+  }
+  throw new Error('Authentication required for core job requests.');
 }
 
-export async function fetchJobRuntimeStatuses(fetcher: AuthorizedFetch): Promise<JobRuntimeStatus[]> {
-  const client = createClient(fetcher);
-  return client.get('/jobs/runtimes', {
-    schema: jobRuntimeStatusesSchema,
-    errorMessage: 'Failed to load job runtime readiness'
+export async function fetchJobs(token: Token, options: { signal?: AbortSignal } = {}): Promise<JobDefinitionSummary[]> {
+  const response = await coreRequest(ensureToken(token), {
+    url: '/jobs',
+    signal: options.signal
   });
+  return jobDefinitionsSchema.parse(response);
+}
+
+export async function fetchJobRuntimeStatuses(
+  token: Token,
+  options: { signal?: AbortSignal } = {}
+): Promise<JobRuntimeStatus[]> {
+  const response = await coreRequest(ensureToken(token), {
+    url: '/jobs/runtimes',
+    signal: options.signal
+  });
+  return jobRuntimeStatusesSchema.parse(response);
 }
 
 export async function fetchJobDetail(
-  fetcher: AuthorizedFetch,
-  slug: string
+  token: Token,
+  slug: string,
+  options: { signal?: AbortSignal } = {}
 ): Promise<JobDetailResponse> {
-  const client = createClient(fetcher);
-  return client.get(`/jobs/${encodeURIComponent(slug)}`, {
-    schema: jobDetailEnvelope,
-    errorMessage: 'Failed to load job details'
+  const response = await coreRequest(ensureToken(token), {
+    url: `/jobs/${encodeURIComponent(slug)}`,
+    signal: options.signal
   });
+  return jobDetailEnvelope.parse(response);
 }
 
 export async function fetchJobBundleEditor(
-  fetcher: AuthorizedFetch,
-  slug: string
+  token: Token,
+  slug: string,
+  options: { signal?: AbortSignal } = {}
 ): Promise<BundleEditorData> {
-  const client = createClient(fetcher);
-  return client.get(`/jobs/${encodeURIComponent(slug)}/bundle-editor`, {
-    schema: bundleEditorDataEnvelope,
-    errorMessage: 'Failed to load bundle editor'
+  const response = await coreRequest(ensureToken(token), {
+    url: `/jobs/${encodeURIComponent(slug)}/bundle-editor`,
+    signal: options.signal
   });
+  return bundleEditorDataEnvelope.parse(response);
 }
 
 export async function fetchBundleVersionDetail(
-  fetcher: AuthorizedFetch,
+  token: Token,
   slug: string,
-  version: string
+  version: string,
+  options: { signal?: AbortSignal } = {}
 ): Promise<BundleVersionDetail> {
-  const client = createClient(fetcher);
-  return client.get(
-    `/job-bundles/${encodeURIComponent(slug)}/versions/${encodeURIComponent(version)}`,
-    {
-      schema: bundleVersionDetailEnvelope,
-      errorMessage: 'Failed to load bundle version'
-    }
-  );
+  const response = await coreRequest(ensureToken(token), {
+    url: `/job-bundles/${encodeURIComponent(slug)}/versions/${encodeURIComponent(version)}`,
+    signal: options.signal
+  });
+  return bundleVersionDetailEnvelope.parse(response);
 }
 
 export type BundleRegenerateInput = {
@@ -607,16 +614,18 @@ export type BundleRegenerateInput = {
 };
 
 export async function regenerateJobBundle(
-  fetcher: AuthorizedFetch,
+  token: Token,
   slug: string,
-  input: BundleRegenerateInput
+  input: BundleRegenerateInput,
+  options: { signal?: AbortSignal } = {}
 ): Promise<BundleEditorData> {
-  const client = createClient(fetcher);
-  return client.post(`/jobs/${encodeURIComponent(slug)}/bundle/regenerate`, {
-    json: input,
-    schema: bundleEditorDataEnvelope,
-    errorMessage: 'Failed to regenerate bundle'
+  const response = await coreRequest(ensureToken(token), {
+    method: 'POST',
+    url: `/jobs/${encodeURIComponent(slug)}/bundle/regenerate`,
+    body: input,
+    signal: options.signal
   });
+  return bundleEditorDataEnvelope.parse(response);
 }
 
 export type BundleAiEditInput = {
@@ -633,44 +642,50 @@ export type BundleAiEditInput = {
 };
 
 export async function aiEditJobBundle(
-  fetcher: AuthorizedFetch,
+  token: Token,
   slug: string,
-  input: BundleAiEditInput
+  input: BundleAiEditInput,
+  options: { signal?: AbortSignal } = {}
 ): Promise<BundleEditorData> {
-  const client = createClient(fetcher);
-  return client.post(`/jobs/${encodeURIComponent(slug)}/bundle/ai-edit`, {
-    json: input,
-    schema: bundleEditorDataEnvelope,
-    errorMessage: 'Failed to edit bundle with AI'
+  const response = await coreRequest(ensureToken(token), {
+    method: 'POST',
+    url: `/jobs/${encodeURIComponent(slug)}/bundle/ai-edit`,
+    body: input,
+    signal: options.signal
   });
+  return bundleEditorDataEnvelope.parse(response);
 }
 
 export async function previewJobSchemas(
-  fetcher: AuthorizedFetch,
-  input: { entryPoint: string; runtime?: 'node' | 'python' }
+  token: Token,
+  input: { entryPoint: string; runtime?: 'node' | 'python' },
+  options: { signal?: AbortSignal } = {}
 ): Promise<SchemaPreview> {
-  const client = createClient(fetcher);
-  return client.post('/jobs/schema-preview', {
-    json: { entryPoint: input.entryPoint, runtime: input.runtime },
-    schema: schemaPreviewEnvelope,
-    errorMessage: 'Failed to inspect entry point schemas'
+  const response = await coreRequest(ensureToken(token), {
+    method: 'POST',
+    url: '/jobs/schema-preview',
+    body: { entryPoint: input.entryPoint, runtime: input.runtime },
+    signal: options.signal
   });
+  return schemaPreviewEnvelope.parse(response);
 }
 
 export async function previewPythonSnippet(
-  fetcher: AuthorizedFetch,
-  input: { snippet: string }
+  token: Token,
+  input: { snippet: string },
+  options: { signal?: AbortSignal } = {}
 ): Promise<PythonSnippetPreview> {
-  const client = createClient(fetcher);
-  return client.post('/jobs/python-snippet/preview', {
-    json: input,
-    schema: pythonSnippetPreviewEnvelope,
-    errorMessage: 'Failed to analyze Python snippet'
+  const response = await coreRequest(ensureToken(token), {
+    method: 'POST',
+    url: '/jobs/python-snippet/preview',
+    body: input,
+    signal: options.signal
   });
+  return pythonSnippetPreviewEnvelope.parse(response);
 }
 
 export async function createPythonSnippetJob(
-  fetcher: AuthorizedFetch,
+  token: Token,
   input: {
     slug: string;
     name: string;
@@ -682,12 +697,14 @@ export async function createPythonSnippetJob(
     bundleSlug?: string | null;
     bundleVersion?: string | null;
     jobVersion?: number | null;
-  }
+  },
+  options: { signal?: AbortSignal } = {}
 ): Promise<PythonSnippetCreateResult> {
-  const client = createClient(fetcher);
-  return client.post('/jobs/python-snippet', {
-    json: input,
-    schema: pythonSnippetCreateEnvelope,
-    errorMessage: 'Failed to create Python job'
+  const response = await coreRequest(ensureToken(token), {
+    method: 'POST',
+    url: '/jobs/python-snippet',
+    body: input,
+    signal: options.signal
   });
+  return pythonSnippetCreateEnvelope.parse(response);
 }

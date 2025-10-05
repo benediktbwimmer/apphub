@@ -1,10 +1,10 @@
 import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AuthorizedFetch } from '../workflows/api';
 import { Modal } from '../components';
 import { useAiBuilderSettings } from '../ai/useAiBuilderSettings';
 import type { AiBuilderProvider } from '../ai/types';
 import { aiEditJobBundle, type BundleEditorData, type BundleAiEditInput } from './api';
+import { useAuth } from '../auth/useAuth';
 import {
   JOB_DIALOG_BODY_CLASSES,
   JOB_DIALOG_CLOSE_BUTTON_CLASSES,
@@ -28,7 +28,6 @@ import {
 type JobAiEditDialogProps = {
   open: boolean;
   onClose: () => void;
-  authorizedFetch: AuthorizedFetch;
   job: {
     slug: string;
     name: string;
@@ -89,12 +88,12 @@ function pickInitialProvider(preferred: AiBuilderProvider, hasOpenAiKey: boolean
 export default function JobAiEditDialog({
   open,
   onClose,
-  authorizedFetch,
   job,
   bundle,
   onComplete,
   onBusyChange
 }: JobAiEditDialogProps) {
+  const { activeToken } = useAuth();
   const aiSettings = useAiBuilderSettings();
   const hasOpenAiKey = aiSettings.hasOpenAiApiKey;
   const hasOpenRouterKey = aiSettings.hasOpenRouterApiKey;
@@ -192,7 +191,10 @@ export default function JobAiEditDialog({
       setError(null);
       busyGuard(true);
       try {
-        const result = await aiEditJobBundle(authorizedFetch, job.slug, payload);
+        if (!activeToken) {
+          throw new Error('Authentication required to request AI edits.');
+        }
+        const result = await aiEditJobBundle(activeToken, job.slug, payload);
         onComplete(result);
         setPrompt('');
         close();
@@ -204,10 +206,10 @@ export default function JobAiEditDialog({
       }
     },
     [
-      authorizedFetch,
       job,
       prompt,
       provider,
+      activeToken,
       aiSettings.settings.openAiApiKey,
       aiSettings.settings.openAiMaxOutputTokens,
       aiSettings.settings.openRouterApiKey,

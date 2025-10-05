@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useAnalytics } from '../utils/useAnalytics';
+import { useAuth } from '../auth/useAuth';
+import { ApiError } from '../lib/apiClient';
 import type {
   SavedSearch,
   SavedSearchCreateInput,
   SavedSearchMutationState,
   SavedSearchUpdateInput
 } from './types';
+import {
+  applySavedSearch,
+  createSavedSearch as createSavedSearchRequest,
+  deleteSavedSearch as deleteSavedSearchRequest,
+  getSavedSearch as getSavedSearchRequest,
+  listSavedSearches,
+  shareSavedSearch,
+  updateSavedSearch as updateSavedSearchRequest
+} from './api';
 
 type AnalyticsOptions<TStatus extends string, TConfig> = {
   createdEvent?: string;
@@ -41,7 +51,7 @@ export type UseSavedSearchesResult<TStatus extends string, TConfig> = {
   refresh: () => Promise<void>;
 };
 
-const API_ROOT = `${API_BASE_URL}/saved-searches`;
+const AUTH_ERROR_MESSAGE = 'Authentication required for saved search requests.';
 
 function defaultComparator<TStatus extends string, TConfig>(
   a: SavedSearch<TStatus, TConfig>,
@@ -64,12 +74,24 @@ function mergeSearch<TStatus extends string, TConfig>(
   return updated.sort(comparator);
 }
 
+function extractErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return fallback;
+}
+
 export function useSavedSearches<TStatus extends string = string, TConfig = unknown>(
   options: UseSavedSearchesOptions<TStatus, TConfig>
 ): UseSavedSearchesResult<TStatus, TConfig> {
   const { category, analytics: analyticsOptions, sortComparator } = options;
   const authorizedFetch = useAuthorizedFetch();
+  const { activeToken } = useAuth();
   const analytics = useAnalytics();
+
   const comparatorRef = useRef<
     (a: SavedSearch<TStatus, TConfig>, b: SavedSearch<TStatus, TConfig>) => number
   >(sortComparator ?? defaultComparator<TStatus, TConfig>);
@@ -84,6 +106,13 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
   const [sharingSlug, setSharingSlug] = useState<string | null>(null);
   const [updatingSlug, setUpdatingSlug] = useState<string | null>(null);
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
+
+  const tokenInput = useCallback(() => {
+    if (activeToken && activeToken.trim().length > 0) {
+      return activeToken;
+    }
+    return authorizedFetch;
+  }, [activeToken, authorizedFetch]);
 
   const trackEvent = useCallback(
     (eventName: string | undefined, record: SavedSearch<TStatus, TConfig>) => {
@@ -103,23 +132,18 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
     setLoading(true);
     setError(null);
     try {
-      const query = new URLSearchParams();
-      if (category) {
-        query.set('category', category);
-      }
-      const response = await authorizedFetch(`${API_ROOT}?${query.toString()}`);
-      if (!response.ok) {
-        throw new Error(`Failed to load saved searches (${response.status})`);
-      }
-      const payload = await response.json();
-      const items = Array.isArray(payload?.data) ? (payload.data as SavedSearch<TStatus, TConfig>[]) : [];
+      const items = await listSavedSearches<TStatus, TConfig>(tokenInput(), { category });
       setSavedSearches(items.slice().sort(comparatorRef.current));
     } catch (err) {
-      setError((err as Error).message);
+      const message = extractErrorMessage(err, 'Failed to load saved searches');
+      setError(message);
+      if (message === AUTH_ERROR_MESSAGE) {
+        setSavedSearches([]);
+      }
     } finally {
       setLoading(false);
     }
-  }, [authorizedFetch, category]);
+  }, [category, tokenInput]);
 
   useEffect(() => {
     void refresh();
@@ -136,17 +160,7 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
           ...input,
           category: input.category ?? category
         } satisfies SavedSearchCreateInput<TStatus, TConfig>;
-        const response = await authorizedFetch(`${API_ROOT}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to create saved search (${response.status})`);
-        }
-        const body = await response.json();
-        const record = body?.data as SavedSearch<TStatus, TConfig> | undefined;
+        const record = await createSavedSearchRequest<TStatus, TConfig>(tokenInput(), payload);
         if (record) {
           setSavedSearches((current) => mergeSearch(current, record, comparatorRef.current));
           trackEvent(analyticsOptions?.createdEvent, record);
@@ -154,13 +168,14 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
         }
         return null;
       } catch (err) {
-        setError((err as Error).message);
+        const message = extractErrorMessage(err, 'Failed to create saved search');
+        setError(message);
         throw err;
       } finally {
         setCreating(false);
       }
     },
-    [analyticsOptions, authorizedFetch, category, trackEvent]
+    [analyticsOptions, category, tokenInput, trackEvent]
   );
 
   const updateSavedSearch = useCallback(
@@ -171,30 +186,21 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
       setUpdatingSlug(slug);
       setError(null);
       try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates)
-        });
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to update saved search (${response.status})`);
-        }
-        const body = await response.json();
-        const record = body?.data as SavedSearch<TStatus, TConfig> | undefined;
+        const record = await updateSavedSearchRequest<TStatus, TConfig>(tokenInput(), slug, updates);
         if (record) {
           setSavedSearches((current) => mergeSearch(current, record, comparatorRef.current));
           return record;
         }
         return null;
       } catch (err) {
-        setError((err as Error).message);
+        const message = extractErrorMessage(err, 'Failed to update saved search');
+        setError(message);
         throw err;
       } finally {
         setUpdatingSlug(null);
       }
     },
-    [authorizedFetch]
+    [tokenInput]
   );
 
   const deleteSavedSearch = useCallback(
@@ -202,23 +208,18 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
       setDeletingSlug(slug);
       setError(null);
       try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}`, {
-          method: 'DELETE'
-        });
-        if (response.status === 204 || response.status === 404) {
-          setSavedSearches((current) => current.filter((item) => item.slug !== slug));
-          return response.status === 204;
-        }
-        const detail = await response.json().catch(() => ({}));
-        throw new Error(detail?.error ?? `Failed to delete saved search (${response.status})`);
+        const result = await deleteSavedSearchRequest(tokenInput(), slug);
+        setSavedSearches((current) => current.filter((item) => item.slug !== slug));
+        return result === 'deleted';
       } catch (err) {
-        setError((err as Error).message);
+        const message = extractErrorMessage(err, 'Failed to delete saved search');
+        setError(message);
         throw err;
       } finally {
         setDeletingSlug(null);
       }
     },
-    [authorizedFetch]
+    [tokenInput]
   );
 
   const recordSavedSearchApplied = useCallback(
@@ -226,33 +227,23 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
       setApplyingSlug(slug);
       setError(null);
       try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}/apply`, {
-          method: 'POST'
-        });
-        if (response.status === 404) {
-          setSavedSearches((current) => current.filter((item) => item.slug !== slug));
-          return null;
-        }
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to record saved search usage (${response.status})`);
-        }
-        const body = await response.json();
-        const record = body?.data as SavedSearch<TStatus, TConfig> | undefined;
+        const record = await applySavedSearch<TStatus, TConfig>(tokenInput(), slug);
         if (record) {
           setSavedSearches((current) => mergeSearch(current, record, comparatorRef.current));
           trackEvent(analyticsOptions?.appliedEvent, record);
           return record;
         }
+        setSavedSearches((current) => current.filter((item) => item.slug !== slug));
         return null;
       } catch (err) {
-        setError((err as Error).message);
+        const message = extractErrorMessage(err, 'Failed to record saved search usage');
+        setError(message);
         throw err;
       } finally {
         setApplyingSlug(null);
       }
     },
-    [analyticsOptions, authorizedFetch, trackEvent]
+    [analyticsOptions, tokenInput, trackEvent]
   );
 
   const recordSavedSearchShared = useCallback(
@@ -260,54 +251,36 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
       setSharingSlug(slug);
       setError(null);
       try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}/share`, {
-          method: 'POST'
-        });
-        if (response.status === 404) {
-          setSavedSearches((current) => current.filter((item) => item.slug !== slug));
-          return null;
-        }
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to record saved search share (${response.status})`);
-        }
-        const body = await response.json();
-        const record = body?.data as SavedSearch<TStatus, TConfig> | undefined;
+        const record = await shareSavedSearch<TStatus, TConfig>(tokenInput(), slug);
         if (record) {
           setSavedSearches((current) => mergeSearch(current, record, comparatorRef.current));
           trackEvent(analyticsOptions?.sharedEvent, record);
           return record;
         }
+        setSavedSearches((current) => current.filter((item) => item.slug !== slug));
         return null;
       } catch (err) {
-        setError((err as Error).message);
+        const message = extractErrorMessage(err, 'Failed to record saved search share');
+        setError(message);
         throw err;
       } finally {
         setSharingSlug(null);
       }
     },
-    [analyticsOptions, authorizedFetch, trackEvent]
+    [analyticsOptions, tokenInput, trackEvent]
   );
 
   const getSavedSearch = useCallback(
     async (slug: string): Promise<SavedSearch<TStatus, TConfig> | null> => {
       try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}`);
-        if (response.status === 404) {
-          return null;
-        }
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to load saved search (${response.status})`);
-        }
-        const body = await response.json();
-        return (body?.data as SavedSearch<TStatus, TConfig>) ?? null;
+        return await getSavedSearchRequest<TStatus, TConfig>(tokenInput(), slug);
       } catch (err) {
-        setError((err as Error).message);
+        const message = extractErrorMessage(err, 'Failed to load saved search');
+        setError(message);
         throw err;
       }
     },
-    [authorizedFetch]
+    [tokenInput]
   );
 
   const mutationState = useMemo<SavedSearchMutationState>(

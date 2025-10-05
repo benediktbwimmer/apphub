@@ -1,31 +1,60 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSavedCoreSearches } from '../useSavedCoreSearches';
 import type { SavedCoreSearch } from '../../types';
 
-const mockAuthorizedFetch = vi.fn<
-  (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
->();
+const apiMocks = vi.hoisted(() => ({
+  listSavedSearchesMock: vi.fn(),
+  createSavedSearchMock: vi.fn(),
+  updateSavedSearchMock: vi.fn(),
+  deleteSavedSearchMock: vi.fn(),
+  applySavedSearchMock: vi.fn(),
+  shareSavedSearchMock: vi.fn(),
+  getSavedSearchMock: vi.fn()
+}));
 
-vi.mock('../../../auth/useAuthorizedFetch', () => ({
-  useAuthorizedFetch: () => mockAuthorizedFetch
+const authorizedFetchMock = vi.hoisted(() => {
+  const fn = vi.fn();
+  (fn as unknown as { authToken?: string | null }).authToken = 'test-token';
+  return fn;
+});
+
+vi.mock('../../../savedSearches/api', () => ({
+  listSavedSearches: apiMocks.listSavedSearchesMock,
+  createSavedSearch: apiMocks.createSavedSearchMock,
+  updateSavedSearch: apiMocks.updateSavedSearchMock,
+  deleteSavedSearch: apiMocks.deleteSavedSearchMock,
+  applySavedSearch: apiMocks.applySavedSearchMock,
+  shareSavedSearch: apiMocks.shareSavedSearchMock,
+  getSavedSearch: apiMocks.getSavedSearchMock
 }));
 
 vi.mock('../../utils/useAnalytics', () => ({
   useAnalytics: () => ({
-    trackEvent: () => {
-      // no-op
-    }
+    trackEvent: vi.fn()
   })
 }));
 
-const createResponse = (body: unknown, init?: { status?: number; ok?: boolean }) => ({
-  ok: init?.ok ?? true,
-  status: init?.status ?? 200,
-  async json() {
-    return body;
-  }
-}) as unknown as Response;
+vi.mock('../../../auth/useAuthorizedFetch', () => ({
+  useAuthorizedFetch: () => authorizedFetchMock
+}));
+
+vi.mock('../../../auth/useAuth', () => ({
+  useAuth: () => ({
+    activeToken: 'test-token',
+    setActiveToken: vi.fn(),
+    identity: null,
+    identityLoading: false,
+    identityError: null,
+    refreshIdentity: vi.fn(),
+    apiKeys: [],
+    apiKeysLoading: false,
+    apiKeysError: null,
+    refreshApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn()
+  })
+}));
 
 describe('useSavedCoreSearches', () => {
   const baseSearch: SavedCoreSearch = {
@@ -48,84 +77,54 @@ describe('useSavedCoreSearches', () => {
   };
 
   beforeEach(() => {
-    mockAuthorizedFetch.mockReset();
-    mockAuthorizedFetch.mockImplementation((input, init) => {
-      const url = typeof input === 'string' ? input : String(input);
-      if (url.includes('/saved-searches') && url.includes('category=core') && (!init || !init.method)) {
-        return Promise.resolve(createResponse({ data: [baseSearch] }));
-      }
-      if (url.endsWith('/saved-searches') && init?.method === 'POST') {
-        const created = {
-          ...baseSearch,
-          id: 'search-2',
-          slug: 'new-search',
-          name: 'My apps',
-          searchInput: 'framework:nextjs',
-          statusFilters: [],
-          appliedCount: 0,
-          sharedCount: 0
-        } satisfies SavedCoreSearch;
-        return Promise.resolve(createResponse({ data: created }));
-      }
-      if (url.includes('/saved-searches/new-search/apply')) {
-        const applied = {
-          ...baseSearch,
-          id: 'search-2',
-          slug: 'new-search',
-          name: 'My apps',
-          searchInput: 'framework:nextjs',
-          statusFilters: [],
-          appliedCount: 1,
-          sharedCount: 0,
-          lastAppliedAt: new Date().toISOString()
-        } satisfies SavedCoreSearch;
-        return Promise.resolve(createResponse({ data: applied }));
-      }
-      if (url.includes('/saved-searches/new-search/share')) {
-        const shared = {
-          ...baseSearch,
-          id: 'search-2',
-          slug: 'new-search',
-          name: 'My apps',
-          searchInput: 'framework:nextjs',
-          statusFilters: [],
-          appliedCount: 1,
-          sharedCount: 1,
-          lastSharedAt: new Date().toISOString()
-        } satisfies SavedCoreSearch;
-        return Promise.resolve(createResponse({ data: shared }));
-      }
-      if (url.includes('/saved-searches/new-search') && (!init || !init.method)) {
-        const created = {
-          ...baseSearch,
-          id: 'search-2',
-          slug: 'new-search',
-          name: 'My apps',
-          searchInput: 'framework:nextjs',
-          statusFilters: [],
-          appliedCount: 1,
-          sharedCount: 1
-        } satisfies SavedCoreSearch;
-        return Promise.resolve(createResponse({ data: created }));
-      }
-      if (url.includes('/saved-searches/new-search') && init?.method === 'PATCH') {
-        const updated = {
-          ...baseSearch,
-          id: 'search-2',
-          slug: 'new-search',
-          name: 'Renamed search',
-          searchInput: 'framework:nextjs',
-          statusFilters: [],
-          appliedCount: 1,
-          sharedCount: 1
-        } satisfies SavedCoreSearch;
-        return Promise.resolve(createResponse({ data: updated }));
-      }
-      if (url.includes('/saved-searches/new-search') && init?.method === 'DELETE') {
-        return Promise.resolve(createResponse({}, { status: 204 }));
-      }
-      return Promise.resolve(createResponse({ data: [] }));
-    });
+    apiMocks.listSavedSearchesMock.mockReset();
+    apiMocks.createSavedSearchMock.mockReset();
+    apiMocks.updateSavedSearchMock.mockReset();
+    apiMocks.deleteSavedSearchMock.mockReset();
+    apiMocks.applySavedSearchMock.mockReset();
+    apiMocks.shareSavedSearchMock.mockReset();
+    apiMocks.getSavedSearchMock.mockReset();
+    authorizedFetchMock.mockReset();
+    (authorizedFetchMock as unknown as { authToken?: string | null }).authToken = 'test-token';
+
+    apiMocks.listSavedSearchesMock.mockResolvedValue([baseSearch]);
+
+    const created: SavedCoreSearch = {
+      ...baseSearch,
+      id: 'search-2',
+      slug: 'new-search',
+      name: 'My apps',
+      searchInput: 'framework:nextjs',
+      statusFilters: [],
+      appliedCount: 0,
+      sharedCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    apiMocks.createSavedSearchMock.mockResolvedValue(created);
+
+    const applied: SavedCoreSearch = {
+      ...created,
+      appliedCount: 1,
+      lastAppliedAt: new Date().toISOString()
+    };
+    apiMocks.applySavedSearchMock.mockResolvedValue(applied);
+
+    const shared: SavedCoreSearch = {
+      ...applied,
+      sharedCount: 1,
+      lastSharedAt: new Date().toISOString()
+    };
+    apiMocks.shareSavedSearchMock.mockResolvedValue(shared);
+    apiMocks.getSavedSearchMock.mockResolvedValue(shared);
+
+    const updated: SavedCoreSearch = {
+      ...shared,
+      name: 'Renamed search'
+    };
+    apiMocks.updateSavedSearchMock.mockResolvedValue(updated);
+
+    apiMocks.deleteSavedSearchMock.mockResolvedValue('deleted');
   });
 
   afterEach(() => {
@@ -139,6 +138,7 @@ describe('useSavedCoreSearches', () => {
       await Promise.resolve();
     });
 
+    expect(apiMocks.listSavedSearchesMock).toHaveBeenCalledWith('test-token', { category: 'core' });
     expect(result.current.savedSearches).toHaveLength(1);
     expect(result.current.savedSearches[0].slug).toBe('ready-services');
 
@@ -152,6 +152,7 @@ describe('useSavedCoreSearches', () => {
       });
     });
 
+    expect(apiMocks.createSavedSearchMock).toHaveBeenCalled();
     expect(result.current.savedSearches).toHaveLength(2);
     expect(result.current.savedSearches.some((item) => item.slug === 'new-search')).toBe(true);
   });
@@ -164,29 +165,24 @@ describe('useSavedCoreSearches', () => {
     });
 
     await act(async () => {
-      await result.current.createSavedSearch({
-        name: 'My apps',
-        description: null,
-        searchInput: 'framework:nextjs',
-        statusFilters: [],
-        sort: 'name'
-      });
-    });
-
-    await act(async () => {
-      const fetched = await result.current.getSavedSearch('new-search');
-      expect(fetched?.slug).toBe('new-search');
-    });
-
-    await act(async () => {
       await result.current.recordSavedSearchApplied('new-search');
     });
+    expect(apiMocks.applySavedSearchMock).toHaveBeenCalledWith('test-token', 'new-search');
+    expect(result.current.savedSearches.find((item) => item.slug === 'new-search')?.appliedCount).toBe(1);
 
-    const applied = result.current.savedSearches.find((item) => item.slug === 'new-search');
-    expect(applied?.appliedCount).toBe(1);
+    await act(async () => {
+      await result.current.recordSavedSearchShared('new-search');
+    });
+    expect(apiMocks.shareSavedSearchMock).toHaveBeenCalledWith('test-token', 'new-search');
+    expect(result.current.savedSearches.find((item) => item.slug === 'new-search')?.sharedCount).toBe(1);
+
+    await act(async () => {
+      await result.current.getSavedSearch('new-search');
+    });
+    expect(apiMocks.getSavedSearchMock).toHaveBeenCalledWith('test-token', 'new-search');
   });
 
-  it('records share activity for a saved search', async () => {
+  it('updates and deletes saved searches', async () => {
     const { result } = renderHook(() => useSavedCoreSearches());
 
     await act(async () => {
@@ -194,20 +190,19 @@ describe('useSavedCoreSearches', () => {
     });
 
     await act(async () => {
-      await result.current.createSavedSearch({
-        name: 'My apps',
-        description: null,
-        searchInput: 'framework:nextjs',
-        statusFilters: [],
-        sort: 'name'
-      });
+      await result.current.updateSavedSearch('new-search', { name: 'Renamed search' });
     });
+    expect(apiMocks.updateSavedSearchMock).toHaveBeenCalledWith('test-token', 'new-search', {
+      name: 'Renamed search'
+    });
+    expect(result.current.savedSearches.find((item) => item.slug === 'new-search')?.name).toBe(
+      'Renamed search'
+    );
 
     await act(async () => {
-      await result.current.recordSavedSearchShared('new-search');
+      await result.current.deleteSavedSearch('new-search');
     });
-
-    const shared = result.current.savedSearches.find((item) => item.slug === 'new-search');
-    expect(shared?.sharedCount).toBe(1);
+    expect(apiMocks.deleteSavedSearchMock).toHaveBeenCalledWith('test-token', 'new-search');
+    expect(result.current.savedSearches.find((item) => item.slug === 'new-search')).toBeUndefined();
   });
 });

@@ -1,9 +1,64 @@
 import { API_BASE_URL } from '../config';
-import { ApiError } from '../lib/apiClient';
-import { ensureOk, parseJson, type AuthorizedFetch } from '../workflows/api';
+import { coreRequest, CoreApiError } from '../core/api';
+import { ApiError, createApiClient } from '../lib/apiClient';
+import type { AuthorizedFetch, QueryValue } from '../lib/apiClient';
 import { normalizeWorkflowRun } from '../workflows/normalizers';
 import type { JobRunSummary } from '../jobs/api';
 import type { WorkflowRun, WorkflowTriggerDelivery } from '../workflows/types';
+
+type Token = string | null | undefined;
+type TokenInput = Token | AuthorizedFetch;
+
+type CoreJsonOptions = {
+  method?: string;
+  url: string;
+  query?: Record<string, QueryValue>;
+  body?: unknown;
+  signal?: AbortSignal;
+  errorMessage: string;
+};
+
+function ensureToken(input: TokenInput): string {
+  if (typeof input === 'function') {
+    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
+    const candidate = fetcher.authToken;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+    if (typeof candidate === 'string') {
+      return candidate;
+    }
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  throw new Error('Authentication required for core run requests.');
+}
+
+async function coreJson<T = unknown>(token: TokenInput, options: CoreJsonOptions): Promise<T> {
+  if (typeof token === 'function') {
+    const client = createApiClient(token, { baseUrl: API_BASE_URL });
+    return client.request(options.url, {
+      method: options.method,
+      headers: options.headers,
+      query: options.query,
+      json: options.body,
+      errorMessage: options.errorMessage
+    }) as Promise<T>;
+  }
+
+  try {
+    return await coreRequest<T>(ensureToken(token), options);
+  } catch (error) {
+    if (error instanceof CoreApiError) {
+      const message = error.message && error.message.trim().length > 0 ? error.message : options.errorMessage;
+      throw new ApiError(message, error.status ?? 500, error.details ?? null);
+    }
+    throw error;
+  }
+}
 import type {
   WorkflowRunDiffPayload,
   WorkflowRunHistoryEntry,
@@ -305,13 +360,14 @@ function normalizeMeta(
 }
 
 export async function fetchJobRuns(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   options: { limit?: number; offset?: number; filters?: JobRunFilters } = {}
 ): Promise<{ items: JobRunListItem[]; meta: RunListMeta }> {
   const query = buildJobRunQuery(options);
-  const response = await fetcher(`${API_BASE_URL}/job-runs${query}`);
-  await ensureOk(response, 'Failed to load job runs');
-  const payload = await parseJson<JobRunListResponse>(response);
+  const payload = await coreJson<JobRunListResponse>(token, {
+    url: `/job-runs${query}`,
+    errorMessage: 'Failed to load job runs'
+  });
   const rawItems = Array.isArray(payload.data) ? payload.data : [];
   const items = rawItems
     .map((entry) => normalizeJobRunListItem(entry))
@@ -505,13 +561,14 @@ function normalizeWorkflowRunStaleAssetWarning(entry: unknown): WorkflowRunStale
 }
 
 export async function fetchWorkflowActivity(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   options: { limit?: number; offset?: number; filters?: WorkflowActivityFilters } = {}
 ): Promise<{ items: WorkflowActivityEntry[]; meta: RunListMeta }> {
   const query = buildWorkflowActivityQuery(options);
-  const response = await fetcher(`${API_BASE_URL}/workflow-activity${query}`);
-  await ensureOk(response, 'Failed to load workflow activity');
-  const payload = await parseJson<WorkflowActivityListResponse>(response);
+  const payload = await coreJson<WorkflowActivityListResponse>(token, {
+    url: `/workflow-activity${query}`,
+    errorMessage: 'Failed to load workflow activity'
+  });
   const rawItems = Array.isArray(payload.data) ? payload.data : [];
   const items = rawItems
     .map((entry) => normalizeWorkflowActivityEntry(entry))
@@ -525,7 +582,7 @@ export async function fetchWorkflowActivity(
   return { items, meta };
 }
 
-export async function retriggerJobRun(fetcher: AuthorizedFetch, entry: JobRunListItem): Promise<void> {
+export async function retriggerJobRun(token: TokenInput, entry: JobRunListItem): Promise<void> {
   const payload: Record<string, unknown> = {
     parameters: entry.run.parameters ?? {},
     timeoutMs: entry.run.timeoutMs ?? undefined,
@@ -541,16 +598,16 @@ export async function retriggerJobRun(fetcher: AuthorizedFetch, entry: JobRunLis
   if (payload.context === undefined || payload.context === null) {
     delete payload.context;
   }
-  const response = await fetcher(`${API_BASE_URL}/jobs/${encodeURIComponent(entry.job.slug)}/run`, {
+  await coreJson(token, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    url: `/jobs/${encodeURIComponent(entry.job.slug)}/run`,
+    body: payload,
+    errorMessage: 'Failed to trigger job run'
   });
-  await ensureOk(response, 'Failed to trigger job run');
 }
 
 export async function retriggerWorkflowRun(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   entry: WorkflowActivityRunEntry
 ): Promise<void> {
   const payload: Record<string, unknown> = {
@@ -568,15 +625,12 @@ export async function retriggerWorkflowRun(
   if (payload.triggeredBy === undefined || payload.triggeredBy === null) {
     delete payload.triggeredBy;
   }
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(entry.workflow.slug)}/run`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }
-  );
-  await ensureOk(response, 'Failed to trigger workflow run');
+  await coreJson(token, {
+    method: 'POST',
+    url: `/workflows/${encodeURIComponent(entry.workflow.slug)}/run`,
+    body: payload,
+    errorMessage: 'Failed to trigger workflow run'
+  });
 }
 
 export class WorkflowRunReplayBlockedError extends Error {
@@ -593,15 +647,16 @@ export class WorkflowRunReplayBlockedError extends Error {
 }
 
 export async function fetchWorkflowRunDiff(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   params: { runId: string; compareTo: string }
 ): Promise<WorkflowRunDiffPayload> {
-  const url = `${API_BASE_URL}/workflow-runs/${encodeURIComponent(params.runId)}/diff?compareTo=${encodeURIComponent(params.compareTo)}`;
-  const response = await fetcher(url);
-  await ensureOk(response, 'Failed to load workflow run diff');
-  const payload = await parseJson<{ data?: unknown }>(response);
+  const url = `/workflow-runs/${encodeURIComponent(params.runId)}/diff?compareTo=${encodeURIComponent(params.compareTo)}`;
+  const payload = await coreJson<{ data?: unknown }>(token, {
+    url,
+    errorMessage: 'Failed to load workflow run diff'
+  });
   if (!isRecord(payload) || !isRecord(payload.data)) {
-    throw new ApiError('Invalid workflow run diff payload', response.status, payload);
+    throw new ApiError('Invalid workflow run diff payload', 500, payload);
   }
 
   const baseRaw = isRecord(payload.data.base) ? payload.data.base : null;
@@ -612,7 +667,7 @@ export async function fetchWorkflowRunDiff(
   const baseRun = baseRaw ? normalizeWorkflowRun(baseRaw.run) : null;
   const compareRun = compareRaw ? normalizeWorkflowRun(compareRaw.run) : null;
   if (!baseRun || !compareRun) {
-    throw new ApiError('Invalid workflow run diff payload', response.status, payload);
+    throw new ApiError('Invalid workflow run diff payload', 500, payload);
   }
 
   const baseHistory = Array.isArray(baseRaw?.history)
@@ -670,7 +725,7 @@ export async function fetchWorkflowRunDiff(
 }
 
 export async function replayWorkflowRun(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   runId: string,
   options: { allowStaleAssets?: boolean } = {}
 ): Promise<WorkflowRunReplayResult> {
@@ -678,38 +733,44 @@ export async function replayWorkflowRun(
   if (options.allowStaleAssets) {
     payload.allowStaleAssets = true;
   }
+  try {
+    const payloadJson = await coreJson<{ data?: unknown }>(token, {
+      method: 'POST',
+      url: `/workflow-runs/${encodeURIComponent(runId)}/replay`,
+      body: payload,
+      errorMessage: 'Failed to enqueue workflow replay'
+    });
 
-  const response = await fetcher(`${API_BASE_URL}/workflow-runs/${encodeURIComponent(runId)}/replay`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+    if (!isRecord(payloadJson) || !isRecord(payloadJson.data)) {
+      throw new ApiError('Invalid workflow run replay response', 500, payloadJson);
+    }
 
-  if (response.status === 409) {
-    const body = await parseJson<{ error?: string; data?: unknown }>(response);
-    const staleAssetsRaw = isRecord(body?.data) && Array.isArray(body.data.staleAssets) ? body.data.staleAssets : [];
-    const staleAssets = staleAssetsRaw.map((entry) => normalizeWorkflowRunStaleAssetWarning(entry)).filter(isNotNull);
-    const message = typeof body?.error === 'string' ? body.error : 'Workflow replay blocked by stale assets';
-    throw new WorkflowRunReplayBlockedError(message, staleAssets, response.status);
+    const run = normalizeWorkflowRun(payloadJson.data.run);
+    if (!run) {
+      throw new ApiError('Invalid workflow run replay response', 500, payloadJson);
+    }
+
+    const staleAssets = Array.isArray(payloadJson.data.staleAssets)
+      ? payloadJson.data.staleAssets.map((entry) => normalizeWorkflowRunStaleAssetWarning(entry)).filter(isNotNull)
+      : [];
+
+    return {
+      run,
+      staleAssets
+    } satisfies WorkflowRunReplayResult;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      const details = isRecord(error.details) ? (error.details as Record<string, unknown>) : {};
+      const data = isRecord(details.data) ? (details.data as Record<string, unknown>) : {};
+      const staleAssetsRaw = Array.isArray(data.staleAssets)
+        ? data.staleAssets
+        : [];
+      const staleAssets = staleAssetsRaw
+        .map((entry) => normalizeWorkflowRunStaleAssetWarning(entry))
+        .filter(isNotNull);
+      const message = typeof details.error === 'string' ? (details.error as string) : 'Workflow replay blocked by stale assets';
+      throw new WorkflowRunReplayBlockedError(message, staleAssets, error.status);
+    }
+    throw error;
   }
-
-  await ensureOk(response, 'Failed to enqueue workflow replay');
-  const payloadJson = await parseJson<{ data?: unknown }>(response);
-  if (!isRecord(payloadJson) || !isRecord(payloadJson.data)) {
-    throw new ApiError('Invalid workflow run replay response', response.status, payloadJson);
-  }
-
-  const run = normalizeWorkflowRun(payloadJson.data.run);
-  if (!run) {
-    throw new ApiError('Invalid workflow run replay response', response.status, payloadJson);
-  }
-
-  const staleAssets = Array.isArray(payloadJson.data.staleAssets)
-    ? payloadJson.data.staleAssets.map((entry) => normalizeWorkflowRunStaleAssetWarning(entry)).filter(isNotNull)
-    : [];
-
-  return {
-    run,
-    staleAssets
-  } satisfies WorkflowRunReplayResult;
 }

@@ -1,10 +1,16 @@
 import { useCallback, useState } from 'react';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
+import { useAuth } from '../../auth/useAuth';
 import { useAppHubEvent, type AppHubSocketEvent } from '../../events/context';
 import { API_BASE_URL, BUILD_PAGE_SIZE } from '../constants';
-import type { BuildListMeta, BuildSummary, BuildTimelineState } from '../types';
+import type { BuildSummary, BuildTimelineState } from '../types';
 import { formatFetchError } from '../utils';
 import type { CoreRepositoryMutators } from './useCoreSearch';
+import {
+  fetchBuildLogs as fetchBuildLogsRequest,
+  listBuilds,
+  retryBuild as retryBuildRequest,
+  triggerBuild as triggerBuildRequest
+} from '../api';
 
 function createDefaultBuildTimelineState(): BuildTimelineState {
   return {
@@ -36,7 +42,7 @@ export type UseCoreBuildsResult = {
 
 export function useCoreBuilds(options: UseCoreBuildsOptions): UseCoreBuildsResult {
   const { repositories } = options;
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
   const [buildState, setBuildState] = useState<Record<string, BuildTimelineState>>({});
 
   const fetchBuilds = useCallback(
@@ -63,19 +69,7 @@ export function useCoreBuilds(options: UseCoreBuildsOptions): UseCoreBuildsResul
       });
 
       try {
-        const params = new URLSearchParams();
-        params.set('limit', String(limit));
-        if (offset > 0) {
-          params.set('offset', String(offset));
-        }
-        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/builds?${params.toString()}`);
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.error ?? `Failed to load builds (${response.status})`);
-        }
-
-        const builds = Array.isArray(payload?.data) ? (payload.data as BuildSummary[]) : [];
-        const meta = payload?.meta as BuildListMeta | undefined;
+        const { builds, meta } = await listBuilds(authToken, { appId: id, limit, offset });
 
         setBuildState((prev) => {
           const current = prev[id] ?? createDefaultBuildTimelineState();
@@ -109,7 +103,7 @@ export function useCoreBuilds(options: UseCoreBuildsOptions): UseCoreBuildsResul
         });
       }
     },
-    [authorizedFetch, buildState]
+    [authToken, buildState]
   );
 
   const toggleBuilds = useCallback(
@@ -187,18 +181,7 @@ export function useCoreBuilds(options: UseCoreBuildsOptions): UseCoreBuildsResul
       });
 
       try {
-        const response = await authorizedFetch(`${API_BASE_URL}/builds/${buildId}/logs`);
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.error ?? `Failed to load logs (${response.status})`);
-        }
-
-        const data = payload?.data as
-          | { logs?: string; size?: number; updatedAt?: string | null }
-          | undefined;
-        const logs = typeof data?.logs === 'string' ? data.logs : '';
-        const size = typeof data?.size === 'number' ? data.size : logs.length;
-        const updatedAt = data?.updatedAt ?? null;
+        const { logs, size, updatedAt } = await fetchBuildLogsRequest(authToken, buildId);
 
         setBuildState((prev) => {
           const current = prev[appId] ?? createDefaultBuildTimelineState();
@@ -244,7 +227,7 @@ export function useCoreBuilds(options: UseCoreBuildsOptions): UseCoreBuildsResul
         });
       }
     },
-    [authorizedFetch]
+    [authToken]
   );
 
   const toggleLogs = useCallback(
@@ -311,15 +294,7 @@ export function useCoreBuilds(options: UseCoreBuildsOptions): UseCoreBuildsResul
       });
 
       try {
-        const response = await authorizedFetch(`${API_BASE_URL}/builds/${buildId}/retry`, {
-          method: 'POST'
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.error ?? `Failed to retry build (${response.status})`);
-        }
-
-        const newBuild = payload?.data as BuildSummary | undefined;
+        const newBuild = await retryBuildRequest(authToken, buildId);
         if (newBuild) {
           repositories.update(appId, (app) => ({ ...app, latestBuild: newBuild }));
         }
@@ -351,7 +326,7 @@ export function useCoreBuilds(options: UseCoreBuildsOptions): UseCoreBuildsResul
         };
       });
     },
-    [authorizedFetch, fetchBuilds, repositories]
+    [authToken, fetchBuilds, repositories]
   );
 
   const triggerBuild = useCallback(
@@ -369,24 +344,10 @@ export function useCoreBuilds(options: UseCoreBuildsOptions): UseCoreBuildsResul
       });
 
       try {
-        const body: Record<string, string> = {};
-        if (options.branch) {
-          body.branch = options.branch;
-        }
-        if (options.ref) {
-          body.ref = options.ref;
-        }
-        const response = await authorizedFetch(`${API_BASE_URL}/apps/${appId}/builds`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
+        const newBuild = await triggerBuildRequest(authToken, appId, {
+          branch: options.branch,
+          ref: options.ref
         });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.error ?? `Failed to trigger build (${response.status})`);
-        }
-
-        const newBuild = payload?.data as BuildSummary | undefined;
         if (newBuild) {
           repositories.update(appId, (app) => ({ ...app, latestBuild: newBuild }));
         }
@@ -421,7 +382,7 @@ export function useCoreBuilds(options: UseCoreBuildsOptions): UseCoreBuildsResul
         return false;
       }
     },
-    [authorizedFetch, fetchBuilds, repositories]
+    [authToken, fetchBuilds, repositories]
   );
 
   const handleBuildUpdate = useCallback((build: BuildSummary) => {

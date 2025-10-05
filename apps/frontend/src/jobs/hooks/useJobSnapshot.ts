@@ -1,16 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
-import type { AuthorizedFetch } from '../../workflows/api';
+import { useAuth } from '../../auth/useAuth';
 import {
   fetchJobBundleEditor,
   fetchJobDetail,
   type BundleEditorData,
   type JobDetailResponse
 } from '../api';
-
-type UseJobSnapshotOptions = {
-  fetcher?: AuthorizedFetch;
-};
 
 export type UseJobSnapshotResult = {
   detail: JobDetailResponse | null;
@@ -32,11 +27,9 @@ const emptySnapshotState = {
 } as const satisfies Omit<UseJobSnapshotResult, 'refresh'>;
 
 export function useJobSnapshot(
-  slug: string | null,
-  options: UseJobSnapshotOptions = {}
+  slug: string | null
 ): UseJobSnapshotResult {
-  const authorizedFetch = useAuthorizedFetch();
-  const fetcher = options.fetcher ?? authorizedFetch;
+  const { activeToken } = useAuth();
   const [state, setState] = useState<Omit<UseJobSnapshotResult, 'refresh'>>(emptySnapshotState);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -49,6 +42,8 @@ export function useJobSnapshot(
       };
     }
 
+    const controller = new AbortController();
+
     setState({
       detail: null,
       detailLoading: true,
@@ -60,9 +55,12 @@ export function useJobSnapshot(
 
     const run = async () => {
       try {
+        if (!activeToken) {
+          throw new Error('Authentication required to load job detail');
+        }
         const [detail, bundle] = await Promise.all([
-          fetchJobDetail(fetcher, slug),
-          fetchJobBundleEditor(fetcher, slug)
+          fetchJobDetail(activeToken, slug, { signal: controller.signal }),
+          fetchJobBundleEditor(activeToken, slug, { signal: controller.signal })
         ]);
         if (!canceled) {
           setState({
@@ -93,8 +91,9 @@ export function useJobSnapshot(
 
     return () => {
       canceled = true;
+      controller.abort();
     };
-  }, [fetcher, slug, refreshToken]);
+  }, [activeToken, slug, refreshToken]);
 
   const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
 

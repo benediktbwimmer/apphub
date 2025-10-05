@@ -36,18 +36,17 @@ const baseRecord: MetastoreRecordDetail = {
   tags: ['pipelines']
 };
 
-const authorizedFetchMock = vi.fn(async () => new Response('{}'));
 const showSuccessMock = vi.fn();
 const showErrorMock = vi.fn();
 const showInfoMock = vi.fn();
 const onRecordRestoredMock = vi.fn();
 const onRefreshRecordsMock = vi.fn();
+const token = 'test-token';
 
 beforeEach(() => {
   fetchRecordAuditsMock.mockReset();
   fetchRecordAuditDiffMock.mockReset();
   restoreRecordFromAuditMock.mockReset();
-  authorizedFetchMock.mockClear();
   showSuccessMock.mockReset();
   showErrorMock.mockReset();
   showInfoMock.mockReset();
@@ -108,7 +107,7 @@ describe('AuditTrailPanel', () => {
     render(
       <AuditTrailPanel
         record={baseRecord}
-        authorizedFetch={authorizedFetchMock}
+        token={token}
         hasWriteScope={false}
         onRecordRestored={onRecordRestoredMock}
         onRefreshRecords={onRefreshRecordsMock}
@@ -188,7 +187,7 @@ describe('AuditTrailPanel', () => {
     render(
       <AuditTrailPanel
         record={baseRecord}
-        authorizedFetch={authorizedFetchMock}
+        token={token}
         hasWriteScope={false}
         onRecordRestored={onRecordRestoredMock}
         onRefreshRecords={onRefreshRecordsMock}
@@ -203,7 +202,7 @@ describe('AuditTrailPanel', () => {
     const viewDiffButton = await screen.findByRole('button', { name: /View diff/i });
     await userEvent.click(viewDiffButton);
 
-    await waitFor(() => expect(fetchRecordAuditDiffMock).toHaveBeenCalledWith(authorizedFetchMock, 'analytics', 'pipeline-1', 3, expect.any(Object)));
+    await waitFor(() => expect(fetchRecordAuditDiffMock).toHaveBeenCalledWith(token, 'analytics', 'pipeline-1', 3, expect.any(Object)));
 
     expect(await screen.findByText(/Metadata changes/i)).toBeInTheDocument();
     expect(screen.getByText(/Changed paths \(1\)/i)).toBeInTheDocument();
@@ -268,7 +267,7 @@ describe('AuditTrailPanel', () => {
     render(
       <AuditTrailPanel
         record={baseRecord}
-        authorizedFetch={authorizedFetchMock}
+        token={token}
         hasWriteScope={true}
         onRecordRestored={onRecordRestoredMock}
         onRefreshRecords={onRefreshRecordsMock}
@@ -291,7 +290,7 @@ describe('AuditTrailPanel', () => {
     await userEvent.click(confirmButton);
 
     await waitFor(() => expect(restoreRecordFromAuditMock).toHaveBeenCalled());
-    expect(restoreRecordFromAuditMock).toHaveBeenCalledWith(authorizedFetchMock, 'analytics', 'pipeline-1', {
+    expect(restoreRecordFromAuditMock).toHaveBeenCalledWith(token, 'analytics', 'pipeline-1', {
       auditId: 4,
       expectedVersion: 5
     });
@@ -355,7 +354,7 @@ describe('AuditTrailPanel', () => {
     render(
       <AuditTrailPanel
         record={baseRecord}
-        authorizedFetch={authorizedFetchMock}
+        token={token}
         hasWriteScope={true}
         onRecordRestored={onRecordRestoredMock}
         onRefreshRecords={onRefreshRecordsMock}

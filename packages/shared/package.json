@@ -68,6 +68,31 @@
       "types": "./dist/timestoreAdmin.d.ts",
       "require": "./dist/timestoreAdmin.js",
       "default": "./dist/timestoreAdmin.js"
+    },
+    "./api": {
+      "types": "./dist/api/index.d.ts",
+      "require": "./dist/api/index.js",
+      "default": "./dist/api/index.js"
+    },
+    "./api/core": {
+      "types": "./dist/api/core/index.d.ts",
+      "require": "./dist/api/core/index.js",
+      "default": "./dist/api/core/index.js"
+    },
+    "./api/metastore": {
+      "types": "./dist/api/metastore/index.d.ts",
+      "require": "./dist/api/metastore/index.js",
+      "default": "./dist/api/metastore/index.js"
+    },
+    "./api/filestore": {
+      "types": "./dist/api/filestore/index.d.ts",
+      "require": "./dist/api/filestore/index.js",
+      "default": "./dist/api/filestore/index.js"
+    },
+    "./api/timestore": {
+      "types": "./dist/api/timestore/index.d.ts",
+      "require": "./dist/api/timestore/index.js",
+      "default": "./dist/api/timestore/index.js"
     }
   },
   "scripts": {

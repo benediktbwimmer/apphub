@@ -7,6 +7,7 @@ import type { AuthContextValue } from '../../auth/context';
 
 export type WorkflowAccessContextValue = {
   authorizedFetch: AuthorizedFetch;
+  activeToken: string | null;
   pushToast: ReturnType<typeof useToasts>['pushToast'];
   identity: AuthContextValue['identity'];
   identityScopes: Set<string>;
@@ -22,7 +23,7 @@ const WorkflowAccessContext = createContext<WorkflowAccessContextValue | undefin
 export function WorkflowAccessProvider({ children }: { children: ReactNode }) {
   const authorizedFetch = useAuthorizedFetch();
   const { pushToast } = useToasts();
-  const { identity } = useAuth();
+  const { identity, activeToken } = useAuth();
 
   const identityScopes = useMemo(() => new Set(identity?.scopes ?? []), [identity]);
   const isAuthenticated = Boolean(identity);
@@ -41,6 +42,7 @@ export function WorkflowAccessProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WorkflowAccessContextValue>(
     () => ({
       authorizedFetch,
+      activeToken,
       pushToast,
       identity,
       identityScopes,
@@ -52,6 +54,7 @@ export function WorkflowAccessProvider({ children }: { children: ReactNode }) {
     }),
     [
       authorizedFetch,
+      activeToken,
       pushToast,
       identity,
       identityScopes,
