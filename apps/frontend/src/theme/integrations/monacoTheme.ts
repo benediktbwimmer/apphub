@@ -111,10 +111,10 @@ function createThemeColors(theme: ThemeDefinition): Record<string, string> {
     'minimapGutter.deletedBackground': withAlpha(danger, 0.75),
     'minimapGutter.modifiedBackground': withAlpha(info, 0.75),
     'minimap.background': withAlpha(background, scheme === 'dark' ? 0.85 : 1),
-    'diffEditor.insertedTextBackground': withAlpha(success, scheme === 'dark' ? 0.3 : 0.18),
-    'diffEditor.insertedTextBorder': withAlpha(success, scheme === 'dark' ? 0.65 : 0.45),
-    'diffEditor.removedTextBackground': withAlpha(danger, scheme === 'dark' ? 0.3 : 0.18),
-    'diffEditor.removedTextBorder': withAlpha(danger, scheme === 'dark' ? 0.65 : 0.45),
+    'diffEditor.insertedTextBackground': withAlpha(success, scheme === 'dark' ? 0.18 : 0.12),
+    'diffEditor.insertedTextBorder': withAlpha(success, scheme === 'dark' ? 0.35 : 0.24),
+    'diffEditor.removedTextBackground': withAlpha(danger, scheme === 'dark' ? 0.18 : 0.12),
+    'diffEditor.removedTextBorder': withAlpha(danger, scheme === 'dark' ? 0.35 : 0.24),
     'diffEditor.diagonalFill': withAlpha(neutralBorder, 0.6)
   };
 }

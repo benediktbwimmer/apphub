@@ -4052,14 +4052,18 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 ) : browseNodes.length === 0 ? (
                   <p className="text-scale-sm text-secondary">This directory is empty.</p>
                 ) : browseViewStyle === 'grid' ? (
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {browseDirectories.map((node) => renderBrowseCard(node))}
-                    {browseFiles.map((node) => renderBrowseCard(node))}
+                  <div className="max-h-[560px] overflow-y-auto pr-1">
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {browseDirectories.map((node) => renderBrowseCard(node))}
+                      {browseFiles.map((node) => renderBrowseCard(node))}
+                    </div>
                   </div>
                 ) : (
-                  <ul className="divide-y divide-subtle rounded-xl border border-subtle bg-surface-glass-soft">
-                    {[...browseDirectories, ...browseFiles].map((node) => renderBrowseRow(node))}
-                  </ul>
+                  <div className="max-h-[560px] overflow-y-auto">
+                    <ul className="divide-y divide-subtle rounded-xl border border-subtle bg-surface-glass-soft">
+                      {[...browseDirectories, ...browseFiles].map((node) => renderBrowseRow(node))}
+                    </ul>
+                  </div>
                 )}
               </div>
               {listErrorMessage ? <p className={STATUS_BANNER_DANGER}>{listErrorMessage}</p> : null}

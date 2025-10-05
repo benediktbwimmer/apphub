@@ -49,7 +49,13 @@ import {
   type LifecycleJobPayload,
   type LifecycleOperation
 } from '../lifecycle/types';
-import { authorizeAdminAccess, resolveRequestActor, getRequestScopes } from '../service/iam';
+import {
+  authorizeAdminAccess,
+  authorizeDatasetListAccess,
+  assertDatasetReadAccess,
+  resolveRequestActor,
+  getRequestScopes
+} from '../service/iam';
 import {
   invalidateSqlRuntimeCache,
   getSqlRuntimeCacheSnapshot,
@@ -604,7 +610,15 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/admin/datasets', async (request, reply) => {
-    await authorizeAdminAccess(request as FastifyRequest);
+    try {
+      authorizeDatasetListAccess(request as FastifyRequest);
+    } catch (error) {
+      const statusCode = (error as Error & { statusCode?: number }).statusCode ?? 403;
+      reply.status(statusCode);
+      return {
+        error: error instanceof Error ? error.message : 'Missing required scope'
+      };
+    }
     const query = datasetListQuerySchema.parse(request.query ?? {});
     const cursor = query.cursor ? decodeCursor(query.cursor) : null;
     if (query.cursor && !cursor) {
@@ -628,13 +642,22 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/admin/datasets/:datasetId/audit', async (request, reply) => {
-    await authorizeAdminAccess(request as FastifyRequest);
     const { datasetId } = datasetParamsSchema.parse(request.params);
     const dataset = await resolveDataset(datasetId);
     if (!dataset) {
       reply.status(404);
       return {
         error: `dataset ${datasetId} not found`
+      };
+    }
+
+    try {
+      assertDatasetReadAccess(request as FastifyRequest, dataset);
+    } catch (error) {
+      const statusCode = (error as Error & { statusCode?: number }).statusCode ?? 403;
+      reply.status(statusCode);
+      return {
+        error: error instanceof Error ? error.message : 'Missing required scope'
       };
     }
 
@@ -707,7 +730,6 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/admin/datasets/:datasetId', async (request, reply) => {
-    await authorizeAdminAccess(request as FastifyRequest);
     const { datasetId } = datasetParamsSchema.parse(request.params);
     const dataset = await resolveDataset(datasetId);
     if (!dataset) {
@@ -717,19 +739,38 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
+    try {
+      assertDatasetReadAccess(request as FastifyRequest, dataset);
+    } catch (error) {
+      const statusCode = (error as Error & { statusCode?: number }).statusCode ?? 403;
+      reply.status(statusCode);
+      return {
+        error: error instanceof Error ? error.message : 'Missing required scope'
+      };
+    }
+
     return {
       dataset
     };
   });
 
   app.get('/admin/datasets/:datasetId/manifest', async (request, reply) => {
-    await authorizeAdminAccess(request as FastifyRequest);
     const { datasetId } = datasetParamsSchema.parse(request.params);
     const dataset = await resolveDataset(datasetId);
     if (!dataset) {
       reply.status(404);
       return {
         error: `dataset ${datasetId} not found`
+      };
+    }
+
+    try {
+      assertDatasetReadAccess(request as FastifyRequest, dataset);
+    } catch (error) {
+      const statusCode = (error as Error & { statusCode?: number }).statusCode ?? 403;
+      reply.status(statusCode);
+      return {
+        error: error instanceof Error ? error.message : 'Missing required scope'
       };
     }
 

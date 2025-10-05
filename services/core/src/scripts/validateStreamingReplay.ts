@@ -13,15 +13,19 @@ async function main(): Promise<void> {
   console.log(`Dataset       : ${DATASET_SLUG}`);
   console.log('');
 
-  const readyz = await fetchJson(`${CORE_URL}/readyz`);
-  const streaming = readyz.features?.streaming;
-  if (!streaming || !streaming.enabled) {
-    throw new Error('Core streaming feature is disabled (expected /readyz.features.streaming.enabled=true).');
+  const readyz = await resolveCoreReadyPayload();
+  const streaming = readyz.features?.streaming ?? null;
+  if (!streaming) {
+    console.warn('⚠ Core did not report streaming status in /readyz payload; continuing validation assuming mirrors are enabled.');
+  } else {
+    if (!streaming.enabled) {
+      throw new Error('Core streaming feature is disabled (expected /readyz.features.streaming.enabled=true).');
+    }
+    if (!streaming.mirrors?.workflowEvents) {
+      throw new Error('Workflow event mirror flag is disabled; enable APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS before running validation.');
+    }
+    console.log('✓ Core streaming reported enabled');
   }
-  if (!streaming.mirrors?.workflowEvents) {
-    throw new Error('Workflow event mirror flag is disabled; enable APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS before running validation.');
-  }
-  console.log('✓ Core streaming reported enabled');
 
   const eventId = randomUUID();
   const occurredAt = new Date().toISOString();
@@ -71,16 +75,26 @@ async function main(): Promise<void> {
   } satisfies Record<string, unknown>;
 
   while (Date.now() < deadline) {
-    const queryResult = await fetchJson(
-      `${TIMESTORE_URL}/datasets/${DATASET_SLUG}/query`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify(queryBody)
+    let queryResult: any = null;
+    try {
+      queryResult = await fetchJson(
+        `${TIMESTORE_URL}/datasets/${DATASET_SLUG}/query`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify(queryBody)
+        }
+      );
+    } catch (error) {
+      if (!(error instanceof Error && /404/.test(error.message ?? ''))) {
+        throw error;
       }
-    );
+      console.log('Dataset not yet available; waiting for streaming batcher to create it...');
+      await delay(2000);
+      continue;
+    }
 
     const rows: Array<Record<string, unknown>> = Array.isArray(queryResult.rows)
       ? (queryResult.rows as Array<Record<string, unknown>>)
@@ -123,6 +137,17 @@ async function safeReadText(response: Response): Promise<string> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveCoreReadyPayload(): Promise<any> {
+  try {
+    return await fetchJson(`${CORE_URL}/readyz`);
+  } catch (error) {
+    if (error instanceof Error && /404/.test(error.message ?? '')) {
+      return fetchJson(`${CORE_URL}/health`);
+    }
+    throw error;
+  }
 }
 
 main().catch((error) => {
