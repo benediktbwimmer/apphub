@@ -13,6 +13,14 @@ Metrics are exposed via the Fastify `/metrics` endpoint and follow the `timestor
 | `timestore_ingest_queue_jobs` | Gauge | `state` | Bull queue depth across `waiting`, `active`, `completed`, `failed`, `delayed`, `paused`. |
 | `timestore_ingest_jobs_total` | Counter | `dataset`, `result` | Actual ingestion job execution results (inline + worker). |
 | `timestore_ingest_job_duration_seconds` | Histogram | `dataset` | Ingestion processing duration (driver write + metadata). |
+| `timestore_staging_queue_depth` | Gauge | `dataset`, `metric` | Pending staging backlog counts (`metric` is `batches` or `rows`). |
+| `timestore_staging_oldest_age_seconds` | Gauge | `dataset` | Flush lag represented as the age of the oldest staged batch. |
+| `timestore_staging_disk_usage_bytes` | Gauge | `dataset`, `component` | DuckDB staging footprint split by `database`, `wal`, and `total`. |
+| `timestore_staging_flush_duration_seconds` | Histogram | `dataset`, `result` | End-to-end duration for staging flushes (success vs failure). |
+| `timestore_staging_flush_batches_total` | Counter | `dataset`, `result` | Number of batches drained per flush attempt. |
+| `timestore_staging_flush_rows_total` | Counter | `dataset`, `result` | Row volume drained per flush attempt. |
+| `timestore_staging_dropped_batches_total` | Counter | `dataset`, `reason` | Batches rejected before staging (queue full, size guardrails, etc.). |
+| `timestore_staging_retried_batches_total` | Counter | `dataset`, `reason` | Batches returned to staging after a failed flush. |
 | `timestore_query_requests_total` | Counter | `dataset`, `mode`, `result` | Query throughput and failure counts. |
 | `timestore_query_duration_seconds` | Histogram | `dataset`, `mode` | End-to-end query execution time. |
 | `timestore_query_row_count` | Histogram | `dataset`, `mode` | Result row volume for sizing dashboards. |
@@ -35,11 +43,17 @@ Metrics are exposed via the Fastify `/metrics` endpoint and follow the `timestor
 | `timestore_http_requests_total` | Counter | `method`, `route`, `status` | HTTP observability for dashboards. |
 | `timestore_http_request_duration_seconds` | Histogram | `method`, `route` | HTTP latency SLI. |
 
+The staging pipeline metrics make backlog and flush health visible: use `timestore_staging_queue_depth` to watch pending batches/rows, `timestore_staging_oldest_age_seconds` for flush lag, `timestore_staging_disk_usage_bytes` for DuckDB footprint, and the flush/dropped/retried counters to pinpoint loss or retries. Add these widgets to the existing ingestion dashboard so operators see saturation before it impacts writers.
+
 ### Suggested Alerts
 
 - **Ingestion availability**: alert when `rate(timestore_ingest_requests_total{result="failure"}[5m]) / rate(timestore_ingest_requests_total[5m]) > 0.05` for 10 minutes.
 - **Ingestion latency**: track `histogram_quantile(0.95, rate(timestore_ingest_duration_seconds_bucket{mode="inline"}[5m]))` and page when above 5 seconds.
 - **Queue backlog**: warn if `timestore_ingest_queue_jobs{state="waiting"}` or `timestore_lifecycle_queue_jobs{state="waiting"}` exceeds 100 for more than 5 minutes.
+- **Staging backlog**: warn if `timestore_staging_queue_depth{metric="batches"}` exceeds 20 for 5 minutes (page above 50) — indicates the DuckDB spool is falling behind.
+- **Staging flush lag**: alert when `max_over_time(timestore_staging_oldest_age_seconds[10m]) > 120` while batches remain queued.
+- **Staging disk usage**: track `timestore_staging_disk_usage_bytes{component="total"} / TIMESTORE_STAGING_MAX_DATASET_BYTES` and warn when the ratio crosses 0.75; page at 0.9.
+- **Staging drop spikes**: investigate when `increase(timestore_staging_dropped_batches_total[15m]) > 0` (queue capacity pressure) or `timestore_staging_retried_batches_total` grows in the same window (flush retries).
 - **Query latency**: alert on `histogram_quantile(0.95, rate(timestore_query_duration_seconds_bucket[5m])) > 2` seconds.
 - **Lifecycle failures**: page when `increase(timestore_lifecycle_jobs_total{status="failed"}[30m]) >= 1`.
 - **Remote partition spikes**: track ratio `rate(timestore_query_remote_partitions_total[5m]) / rate(timestore_query_requests_total[5m])` to catch cache regressions.
