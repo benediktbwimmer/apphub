@@ -1,4 +1,4 @@
-import type { ApiRequestOptions } from '@apphub/shared/api/core/core/ApiRequestOptions';
+import type { ApiRequestOptions } from '@apphub/shared/api/core';
 import { ApiError } from '@apphub/shared/api/core';
 import { createCoreClient } from '@apphub/shared/api';
 
