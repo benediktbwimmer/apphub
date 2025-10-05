@@ -2,8 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fetchStatusesMock = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../auth/useAuthorizedFetch', () => ({
-  useAuthorizedFetch: () => vi.fn()
+vi.mock('../../../auth/useAuth', () => ({
+  useAuth: () => ({
+    activeToken: 'token-123',
+    identity: null,
+    identityLoading: false,
+    identityError: null,
+    refreshIdentity: vi.fn(),
+    apiKeys: [],
+    apiKeysLoading: false,
+    apiKeysError: null,
+    refreshApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    setActiveToken: vi.fn()
+  })
 }));
 
 vi.mock('../../api', () => ({
@@ -24,12 +37,11 @@ describe('useRuntimeStatuses', () => {
       { runtime: 'node', ready: true, reason: null, checkedAt: '2024-01-01T00:00:00Z', details: null }
     ];
     fetchStatusesMock.mockResolvedValueOnce(statuses);
-    const fetcher = vi.fn();
-
-    const { result } = renderHook(() => useRuntimeStatuses({ fetcher }));
+    const { result } = renderHook(() => useRuntimeStatuses());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
+    expect(fetchStatusesMock).toHaveBeenCalledWith('token-123', { signal: expect.any(AbortSignal) });
     expect(fetchStatusesMock).toHaveBeenCalledTimes(1);
     expect(result.current.statuses).toEqual(statuses);
     expect(result.current.error).toBeNull();
@@ -39,8 +51,7 @@ describe('useRuntimeStatuses', () => {
     fetchStatusesMock.mockResolvedValueOnce([
       { runtime: 'node', ready: true, reason: null, checkedAt: '2024-01-01T00:00:00Z', details: null }
     ] satisfies JobRuntimeStatus[]);
-    const fetcher = vi.fn();
-    const { result } = renderHook(() => useRuntimeStatuses({ fetcher }));
+    const { result } = renderHook(() => useRuntimeStatuses());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -60,9 +71,7 @@ describe('useRuntimeStatuses', () => {
 
   it('captures errors', async () => {
     fetchStatusesMock.mockRejectedValueOnce(new Error('nope'));
-    const fetcher = vi.fn();
-
-    const { result } = renderHook(() => useRuntimeStatuses({ fetcher }));
+    const { result } = renderHook(() => useRuntimeStatuses());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 

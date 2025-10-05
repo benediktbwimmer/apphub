@@ -1,7 +1,8 @@
 import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AuthorizedFetch, JobDefinitionSummary } from '../workflows/api';
+import type { JobDefinitionSummary } from '../workflows/api';
 import { createJobDefinition } from '../workflows/api';
+import type { AuthorizedFetch } from '../lib/apiClient';
 import { Modal } from '../components';
 import { Editor } from '../components/Editor';
 import {
@@ -224,7 +225,10 @@ export default function JobCreateDialog({
     }
     setPythonPreviewPending(true);
     try {
-      const preview = await previewPythonSnippet(authorizedFetch, { snippet: pythonSnippet });
+      if (!activeToken) {
+        throw new Error('Authentication required to analyze snippet.');
+      }
+      const preview = await previewPythonSnippet(activeToken, { snippet: pythonSnippet });
       setPythonPreview(preview);
       setParametersSchemaText(formatSchema(preview.inputModel.schema));
       setOutputSchemaText(formatSchema(preview.outputModel.schema));
@@ -236,7 +240,7 @@ export default function JobCreateDialog({
     } finally {
       setPythonPreviewPending(false);
     }
-  }, [authorizedFetch, pythonSnippet]);
+  }, [activeToken, pythonSnippet]);
 
   const handleAutoDetect = useCallback(async () => {
     setAutoDetectError(null);
@@ -246,7 +250,10 @@ export default function JobCreateDialog({
     }
     setAutoDetectPending(true);
     try {
-      const preview: SchemaPreview = await previewJobSchemas(authorizedFetch, {
+      if (!activeToken) {
+        throw new Error('Authentication required to inspect schemas.');
+      }
+      const preview: SchemaPreview = await previewJobSchemas(activeToken, {
         entryPoint: entryPoint.trim(),
         runtime
       });
@@ -268,7 +275,7 @@ export default function JobCreateDialog({
     } finally {
       setAutoDetectPending(false);
     }
-  }, [authorizedFetch, entryPoint, runtime]);
+  }, [activeToken, entryPoint, runtime]);
 
   const handleSubmit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -328,7 +335,10 @@ export default function JobCreateDialog({
         const dependencies = parseDependenciesText(pythonDependenciesText);
         setSubmitting(true);
         try {
-          const result = await createPythonSnippetJob(authorizedFetch, {
+          if (!activeToken) {
+            throw new Error('Authentication required to create Python jobs.');
+          }
+          const result = await createPythonSnippetJob(activeToken, {
             slug: trimmedSlug,
             name: trimmedName,
             type: jobType,
@@ -401,6 +411,7 @@ export default function JobCreateDialog({
       parametersSchemaText,
       defaultParametersText,
       outputSchemaText,
+      activeToken,
       authorizedFetch,
       onCreated
     ]

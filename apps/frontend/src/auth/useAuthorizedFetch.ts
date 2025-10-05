@@ -24,7 +24,7 @@ function resolveInput(input: FetchInput): FetchInput {
 export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => Promise<Response> {
   const { activeToken } = useAuth();
 
-  return useCallback(
+  const fetcher = useCallback(
     async (input: FetchInput, init?: FetchInit) => {
       const headers = new Headers(init?.headers ?? {});
       const tokenValue = activeToken?.trim();
@@ -42,5 +42,9 @@ export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => P
       });
     },
     [activeToken]
-  );
+  ) as ((input: FetchInput, init?: FetchInit) => Promise<Response>) & { authToken?: string | null };
+
+  fetcher.authToken = activeToken?.trim() ?? activeToken ?? null;
+
+  return fetcher;
 }

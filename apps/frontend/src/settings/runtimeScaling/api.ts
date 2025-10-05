@@ -1,4 +1,6 @@
-import { ensureOk, parseJson, type AuthorizedFetch } from '../../workflows/api';
+import { coreRequest, CoreApiError } from '../../core/api';
+import { ApiError, createApiClient, type AuthorizedFetch } from '../../lib/apiClient';
+import { API_BASE_URL } from '../../config';
 import {
   type RuntimeScalingAcknowledgement,
   type RuntimeScalingOverview,
@@ -145,12 +147,74 @@ function normalizeRuntimeScalingTarget(raw: unknown): RuntimeScalingTarget {
   } satisfies RuntimeScalingTarget;
 }
 
+type Token = string | null | undefined;
+type TokenInput = Token | AuthorizedFetch;
+
+type CoreJsonOptions = {
+  method?: string;
+  url: string;
+  body?: unknown;
+  errorMessage: string;
+};
+
+function ensureToken(input: TokenInput): string {
+  if (typeof input === 'function') {
+    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
+    const candidate = fetcher.authToken;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+    if (typeof candidate === 'string') {
+      return candidate;
+    }
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  throw new Error('Authentication required for runtime scaling requests.');
+}
+
+function toApiError(error: CoreApiError, fallback: string): ApiError {
+  const message = error.message && error.message.trim().length > 0 ? error.message : fallback;
+  return new ApiError(message, error.status ?? 500, error.details ?? null);
+}
+
+async function coreJson<T>(token: TokenInput, options: CoreJsonOptions): Promise<T> {
+  if (typeof token === 'function') {
+    const client = createApiClient(token, { baseUrl: API_BASE_URL });
+    const bodyIsFormData = options.body instanceof FormData;
+    const result = await client.request(options.url, {
+      method: options.method,
+      body: bodyIsFormData ? (options.body as FormData) : undefined,
+      json: !bodyIsFormData ? options.body : undefined,
+      errorMessage: options.errorMessage
+    });
+    return result as T;
+  }
+
+  try {
+    return (await coreRequest<T>(ensureToken(token), {
+      method: options.method,
+      url: options.url,
+      body: options.body
+    })) as T;
+  } catch (error) {
+    if (error instanceof CoreApiError) {
+      throw toApiError(error, options.errorMessage);
+    }
+    throw error;
+  }
+}
+
 export async function fetchRuntimeScalingOverview(
-  fetcher: AuthorizedFetch
+  token: TokenInput
 ): Promise<RuntimeScalingOverview> {
-  const response = await fetcher('/admin/runtime-scaling');
-  await ensureOk(response, 'Failed to load runtime scaling settings');
-  const payload = await parseJson<{ data?: unknown }>(response);
+  const payload = await coreJson<{ data?: unknown }>(token, {
+    url: '/admin/runtime-scaling',
+    errorMessage: 'Failed to load runtime scaling settings'
+  });
   const data = toRecord(payload?.data) ?? {};
   const targetsRaw = Array.isArray(data.targets) ? data.targets : [];
   const targets = targetsRaw.map((entry) => normalizeRuntimeScalingTarget(entry));
@@ -159,22 +223,21 @@ export async function fetchRuntimeScalingOverview(
 }
 
 export async function updateRuntimeScalingTarget(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   target: string,
   input: RuntimeScalingUpdateInput
 ): Promise<{ target: RuntimeScalingTarget; writesEnabled: boolean }> {
-  const response = await fetcher(`/admin/runtime-scaling/${encodeURIComponent(target)}`, {
+  const payload = await coreJson<{ data?: unknown; writesEnabled?: unknown }>(token, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      desiredConcurrency: Number.isFinite(input.desiredConcurrency) ? input.desiredConcurrency : Number(input.desiredConcurrency),
+    url: `/admin/runtime-scaling/${encodeURIComponent(target)}`,
+    body: {
+      desiredConcurrency: Number.isFinite(input.desiredConcurrency)
+        ? input.desiredConcurrency
+        : Number(input.desiredConcurrency),
       reason: input.reason
-    })
+    },
+    errorMessage: 'Failed to update runtime scaling settings'
   });
-  await ensureOk(response, 'Failed to update runtime scaling settings');
-  const payload = await parseJson<{ data?: unknown; writesEnabled?: unknown }>(response);
   const normalizedTarget = normalizeRuntimeScalingTarget(payload?.data);
   const writesEnabled = typeof payload?.writesEnabled === 'boolean' ? payload.writesEnabled : true;
   return { target: normalizedTarget, writesEnabled };

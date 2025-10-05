@@ -6,8 +6,8 @@ import {
   useState,
   type FormEventHandler
 } from 'react';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { API_BASE_URL } from '../config';
+import { useAuth } from '../auth/useAuth';
+import { fetchHistory as fetchRepositoryHistory, fetchRepository, submitRepository } from '../core/api';
 
 export type TagInput = {
   key: string;
@@ -153,7 +153,7 @@ function readDraft(): DraftPayload | null {
 }
 
 export function useImportApp(onAppRegistered?: (id: string) => void): UseImportAppResult {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken } = useAuth();
   const draftRef = useRef<DraftPayload | null>(readDraft());
   const [form, setFormState] = useState<ImportAppFormState>(() => {
     const draft = draftRef.current;
@@ -186,12 +186,11 @@ export function useImportApp(onAppRegistered?: (id: string) => void): UseImportA
     const controller = new AbortController();
     const interval = window.setInterval(async () => {
       try {
-        const res = await authorizedFetch(`${API_BASE_URL}/apps/${appId}`, { signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`Failed to load app status (${res.status})`);
-        }
-        const payload = await res.json();
-        setCurrentApp(payload.data);
+      if (!activeToken) {
+        throw new Error('Authentication required to load app status');
+      }
+      const payload = await fetchRepository(activeToken, appId, { signal: controller.signal });
+      setCurrentApp(payload);
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           return;
@@ -203,7 +202,7 @@ export function useImportApp(onAppRegistered?: (id: string) => void): UseImportA
       controller.abort();
       window.clearInterval(interval);
     };
-  }, [appId, authorizedFetch]);
+  }, [activeToken, appId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -254,22 +253,21 @@ export function useImportApp(onAppRegistered?: (id: string) => void): UseImportA
     });
   }, []);
 
-  const fetchHistory = useCallback(async (id: string) => {
+  const loadHistory = useCallback(async (id: string) => {
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const res = await authorizedFetch(`${API_BASE_URL}/apps/${id}/history`);
-      if (!res.ok) {
-        throw new Error(`Failed to load history (${res.status})`);
+      if (!activeToken) {
+        throw new Error('Authentication required to load history');
       }
-      const payload = await res.json();
-      setHistory(payload.data ?? []);
+      const events = await fetchRepositoryHistory(activeToken, id);
+      setHistory(events);
     } catch (err) {
       setHistoryError((err as Error).message);
     } finally {
       setHistoryLoading(false);
     }
-  }, [authorizedFetch]);
+  }, [activeToken]);
 
   const disableSubmit =
     submitting || !form.name || !form.description || !form.repoUrl || !form.dockerfilePath;
@@ -316,24 +314,17 @@ export function useImportApp(onAppRegistered?: (id: string) => void): UseImportA
           metadataStrategy: form.metadataStrategy
         };
 
-        const response = await authorizedFetch(`${API_BASE_URL}/apps`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          throw new Error(payload?.error ?? `Submission failed with status ${response.status}`);
+        if (!activeToken) {
+          throw new Error('Authentication required to submit repository');
         }
 
-        const payload = await response.json();
-        setCurrentApp(payload.data);
+        const payload = await submitRepository(activeToken, body);
+        setCurrentApp(payload);
         setHistory([]);
         setSubmissionVersion((prev) => prev + 1);
         onAppRegistered?.(id);
         clearDraft();
-        await fetchHistory(id);
+        await loadHistory(id);
       } catch (err) {
         setError((err as Error).message);
         setErrorVersion((prev) => prev + 1);
@@ -341,7 +332,7 @@ export function useImportApp(onAppRegistered?: (id: string) => void): UseImportA
         setSubmitting(false);
       }
     },
-    [authorizedFetch, clearDraft, fetchHistory, form, onAppRegistered, sourceType]
+    [activeToken, clearDraft, form, loadHistory, onAppRegistered, sourceType]
   );
 
   return {
@@ -362,7 +353,7 @@ export function useImportApp(onAppRegistered?: (id: string) => void): UseImportA
     handleTagChange,
     addTagField,
     removeTagField,
-    fetchHistory,
+    fetchHistory: loadHistory,
     resetForm,
     clearDraft,
     draftSavedAt

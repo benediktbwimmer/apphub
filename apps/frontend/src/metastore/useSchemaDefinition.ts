@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import type { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { fetchSchemaDefinition } from './api';
 import type { MetastoreSchemaDefinition } from './types';
 
@@ -19,10 +18,7 @@ const INITIAL_STATE: SchemaDefinitionHookState = {
   missingMessage: null
 };
 
-export function useSchemaDefinition(
-  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
-  schemaHash: string | null | undefined
-): SchemaDefinitionHookState {
+export function useSchemaDefinition(token: string | null, schemaHash: string | null | undefined): SchemaDefinitionHookState {
   const [state, setState] = useState<SchemaDefinitionHookState>(INITIAL_STATE);
 
   useEffect(() => {
@@ -42,7 +38,7 @@ export function useSchemaDefinition(
       missingMessage: null
     });
 
-    fetchSchemaDefinition(authorizedFetch, schemaHash, { signal: controller.signal })
+    fetchSchemaDefinition(token, schemaHash, { signal: controller.signal })
       .then((result) => {
         if (cancelled) {
           return;
@@ -83,7 +79,7 @@ export function useSchemaDefinition(
       cancelled = true;
       controller.abort();
     };
-  }, [authorizedFetch, schemaHash]);
+  }, [token, schemaHash]);
 
   return state;
 }

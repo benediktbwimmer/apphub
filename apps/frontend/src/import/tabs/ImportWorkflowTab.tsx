@@ -9,7 +9,7 @@ import {
 } from '../../components/form';
 import { Spinner } from '../../components';
 import { useToasts } from '../../components/toast';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
+import { useAuth } from '../../auth/useAuth';
 import { useAnalytics } from '../../utils/useAnalytics';
 import {
   createWorkflowDefinition,
@@ -49,7 +49,7 @@ function extractJobSlugs(spec: WorkflowCreateInput | null): string[] {
 }
 
 export default function ImportWorkflowTab() {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
   const { pushToast } = useToasts();
   const { trackEvent } = useAnalytics();
   const [inputText, setInputText] = useState('');
@@ -111,7 +111,10 @@ export default function ImportWorkflowTab() {
     setJobsLoading(true);
     setJobsError(null);
     try {
-      const jobs = await listJobDefinitions(authorizedFetch);
+      if (!authToken) {
+        throw new Error('Authentication required');
+      }
+      const jobs = await listJobDefinitions(authToken);
       setJobCore(jobs);
       return jobs;
     } catch (err) {
@@ -121,7 +124,7 @@ export default function ImportWorkflowTab() {
     } finally {
       setJobsLoading(false);
     }
-  }, [authorizedFetch]);
+  }, [authToken]);
 
   const validateDependencies = useCallback(async () => {
     if (!workflowSpec) {
@@ -153,7 +156,10 @@ export default function ImportWorkflowTab() {
     setImporting(true);
     setImportError(null);
     try {
-      const payload = await createWorkflowDefinition(authorizedFetch, workflowSpec);
+      if (!authToken) {
+        throw new Error('Authentication required');
+      }
+      const payload = await createWorkflowDefinition(authToken, workflowSpec);
       setImportResult(payload);
       trackEvent('import_workflow_definition.succeeded');
       pushToast({
@@ -168,7 +174,7 @@ export default function ImportWorkflowTab() {
     } finally {
       setImporting(false);
     }
-  }, [authorizedFetch, pushToast, trackEvent, workflowSpec]);
+  }, [authToken, pushToast, trackEvent, workflowSpec]);
 
   const handleTextChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value;

@@ -1,10 +1,6 @@
 import { API_BASE_URL } from '../config';
-import {
-  ApiError,
-  ensureOk,
-  parseJson,
-  type AuthorizedFetch
-} from '../workflows/api';
+import { coreRequest, CoreApiError } from '../core/api';
+import { ApiError, createApiClient, type AuthorizedFetch, type QueryValue } from '../lib/apiClient';
 import { normalizeWorkflowRun } from '../workflows/normalizers';
 import type { WorkflowRun } from '../workflows/types';
 import { normalizeAssetGraphResponse } from './normalizers';
@@ -18,19 +14,87 @@ export type SavedPartitionParameters = {
   updatedAt: string;
 };
 
-export async function fetchAssetGraph(fetcher: AuthorizedFetch): Promise<AssetGraphData> {
-  const response = await fetcher(`${API_BASE_URL}/assets/graph`);
-  await ensureOk(response, 'Failed to load asset graph');
-  const payload = await parseJson<{ data?: unknown }>(response);
+type Token = string | null | undefined;
+type TokenInput = Token | AuthorizedFetch;
+
+type CoreJsonOptions = {
+  method?: string;
+  url: string;
+  query?: Record<string, QueryValue>;
+  body?: unknown;
+  signal?: AbortSignal;
+  errorMessage: string;
+};
+
+function ensureToken(input: TokenInput): string {
+  if (typeof input === 'function') {
+    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
+    const candidate = fetcher.authToken;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+    if (typeof candidate === 'string') {
+      return candidate;
+    }
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  throw new Error('Authentication required for data asset requests.');
+}
+
+function toApiError(error: CoreApiError, fallback: string): ApiError {
+  const message = error.message && error.message.trim().length > 0 ? error.message : fallback;
+  return new ApiError(message, error.status ?? 500, error.details ?? null);
+}
+
+async function coreJson<T>(token: TokenInput, options: CoreJsonOptions): Promise<T> {
+  if (typeof token === 'function') {
+    const client = createApiClient(token, { baseUrl: API_BASE_URL });
+    const bodyIsFormData = options.body instanceof FormData;
+    const result = await client.request(options.url, {
+      method: options.method,
+      query: options.query,
+      body: bodyIsFormData ? (options.body as FormData) : undefined,
+      json: !bodyIsFormData ? options.body : undefined,
+      errorMessage: options.errorMessage,
+      signal: options.signal
+    });
+    return result as T;
+  }
+
+  try {
+    return (await coreRequest<T>(ensureToken(token), {
+      method: options.method,
+      url: options.url,
+      query: options.query,
+      body: options.body,
+      signal: options.signal
+    })) as T;
+  } catch (error) {
+    if (error instanceof CoreApiError) {
+      throw toApiError(error, options.errorMessage);
+    }
+    throw error;
+  }
+}
+
+export async function fetchAssetGraph(token: TokenInput): Promise<AssetGraphData> {
+  const payload = await coreJson<{ data?: unknown }>(token, {
+    url: '/assets/graph',
+    errorMessage: 'Failed to load asset graph'
+  });
   const normalized = normalizeAssetGraphResponse(payload);
   if (!normalized) {
-    throw new ApiError('Failed to parse asset graph', response.status, payload);
+    throw new ApiError('Failed to parse asset graph', 500, payload);
   }
   return normalized;
 }
 
 export async function markAssetPartitionStale(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   assetId: string,
   options: { partitionKey?: string | null; note?: string | null } = {}
@@ -42,29 +106,30 @@ export async function markAssetPartitionStale(
   if (options.note && options.note.length > 0) {
     body.note = options.note;
   }
-  const url = `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/stale`;
-  const response = await fetcher(url, {
+  await coreJson(token, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    url: `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/stale`,
+    body,
+    errorMessage: 'Failed to mark asset partition stale'
   });
-  await ensureOk(response, 'Failed to mark asset partition stale');
 }
 
 export async function clearAssetPartitionStale(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   assetId: string,
   partitionKey?: string | null
 ): Promise<void> {
-  const query = partitionKey ? `?partitionKey=${encodeURIComponent(partitionKey)}` : '';
-  const url = `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/stale${query}`;
-  const response = await fetcher(url, { method: 'DELETE' });
-  await ensureOk(response, 'Failed to clear asset partition stale flag');
+  await coreJson(token, {
+    method: 'DELETE',
+    url: `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/stale`,
+    query: partitionKey ? { partitionKey } : undefined,
+    errorMessage: 'Failed to clear asset partition stale flag'
+  });
 }
 
 export async function triggerWorkflowRun(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   options: { partitionKey?: string | null; triggeredBy?: string | null; parameters?: unknown } = {}
 ): Promise<WorkflowRun> {
@@ -77,27 +142,25 @@ export async function triggerWorkflowRun(
   if (options.parameters !== undefined) {
     body.parameters = options.parameters;
   }
-  const response = await fetcher(`${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/run`, {
+  const payload = await coreJson<{ data?: unknown }>(token, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    url: `/workflows/${encodeURIComponent(slug)}/run`,
+    body,
+    errorMessage: 'Failed to trigger workflow run'
   });
-  await ensureOk(response, 'Failed to trigger workflow run');
-  const payload = await parseJson<{ data?: unknown }>(response);
   const runRecord = normalizeWorkflowRun(payload?.data);
   if (!runRecord) {
-    throw new ApiError('Failed to parse workflow run response', response.status, payload);
+    throw new ApiError('Failed to parse workflow run response', 500, payload);
   }
   return runRecord;
 }
 
 export async function saveAssetPartitionParameters(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   assetId: string,
   input: { partitionKey?: string | null; parameters: unknown }
 ): Promise<SavedPartitionParameters> {
-  const url = `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/partition-parameters`;
   const body: Record<string, unknown> = {
     parameters: input.parameters
   };
@@ -106,13 +169,12 @@ export async function saveAssetPartitionParameters(
   } else if (typeof input.partitionKey === 'string' && input.partitionKey.length > 0) {
     body.partitionKey = input.partitionKey;
   }
-  const response = await fetcher(url, {
+  const payload = await coreJson<{ data?: unknown }>(token, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    url: `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/partition-parameters`,
+    body,
+    errorMessage: 'Failed to save partition parameters'
   });
-  await ensureOk(response, 'Failed to save partition parameters');
-  const payload = await parseJson<{ data?: unknown }>(response);
   const data = (payload?.data ?? null) as Record<string, unknown> | null;
   const partitionKey = typeof data?.partitionKey === 'string' && data.partitionKey.length > 0 ? data.partitionKey : null;
   return {
@@ -131,7 +193,7 @@ export async function saveAssetPartitionParameters(
 }
 
 export async function deleteAssetPartitionParameters(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   assetId: string,
   partitionKey?: string | null
@@ -141,7 +203,10 @@ export async function deleteAssetPartitionParameters(
     params.set('partitionKey', partitionKey);
   }
   const query = params.toString();
-  const url = `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/partition-parameters${query ? `?${query}` : ''}`;
-  const response = await fetcher(url, { method: 'DELETE' });
-  await ensureOk(response, 'Failed to delete partition parameters');
+  await coreJson(token, {
+    method: 'DELETE',
+    url: `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/partition-parameters`,
+    query: query ? Object.fromEntries(params.entries()) : undefined,
+    errorMessage: 'Failed to delete partition parameters'
+  });
 }

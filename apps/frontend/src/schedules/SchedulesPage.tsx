@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 import { Spinner } from '../components';
 import FormButton from '../components/form/FormButton';
 import { useToasts } from '../components/toast';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useAuth } from '../auth/useAuth';
 import {
   createSchedule,
   deleteSchedule,
@@ -54,7 +54,7 @@ type FormState = {
 };
 
 export default function SchedulesPage(): JSX.Element {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
   const { pushToast } = useToasts();
 
   const [loading, setLoading] = useState(false);
@@ -66,10 +66,13 @@ export default function SchedulesPage(): JSX.Element {
   const [submitting, setSubmitting] = useState(false);
 
   const loadSchedules = useCallback(async () => {
+    if (!authToken) {
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchSchedules(authorizedFetch);
+      const data = await fetchSchedules(authToken);
       setSchedules(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load schedules';
@@ -77,12 +80,15 @@ export default function SchedulesPage(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [authorizedFetch]);
+  }, [authToken]);
 
   const loadWorkflows = useCallback(async () => {
+    if (!authToken) {
+      return;
+    }
     setWorkflowsLoading(true);
     try {
-      const definitions = await fetchWorkflowDefinitions(authorizedFetch);
+      const definitions = await fetchWorkflowDefinitions(authToken);
       setWorkflows(definitions);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load workflows';
@@ -94,7 +100,7 @@ export default function SchedulesPage(): JSX.Element {
     } finally {
       setWorkflowsLoading(false);
     }
-  }, [authorizedFetch, pushToast]);
+  }, [authToken, pushToast]);
 
   useEffect(() => {
     void loadSchedules();
@@ -134,9 +140,13 @@ export default function SchedulesPage(): JSX.Element {
 
   const handleCreate = useCallback(
     async (input: Omit<ScheduleCreateInput, 'workflowSlug'> & { workflowSlug: string }) => {
+      if (!authToken) {
+        pushToast({ tone: 'error', title: 'Failed to create schedule', description: 'Authentication required' });
+        return;
+      }
       setSubmitting(true);
       try {
-        const summary = await createSchedule(authorizedFetch, input);
+        const summary = await createSchedule(authToken, input);
         setSchedules((current) => {
           const next = current.filter((entry) => entry.schedule.id !== summary.schedule.id);
           next.push(summary);
@@ -155,14 +165,18 @@ export default function SchedulesPage(): JSX.Element {
         setSubmitting(false);
       }
     },
-    [authorizedFetch, pushToast]
+    [authToken, pushToast]
   );
 
   const handleUpdate = useCallback(
     async (input: ScheduleUpdateInput) => {
+      if (!authToken) {
+        pushToast({ tone: 'error', title: 'Failed to update schedule', description: 'Authentication required' });
+        return;
+      }
       setSubmitting(true);
       try {
-        const summary = await updateSchedule(authorizedFetch, input);
+        const summary = await updateSchedule(authToken, input);
         setSchedules((current) =>
           current
             .map((entry) => (entry.schedule.id === summary.schedule.id ? summary : entry))
@@ -181,7 +195,7 @@ export default function SchedulesPage(): JSX.Element {
         setSubmitting(false);
       }
     },
-    [authorizedFetch, pushToast]
+    [authToken, pushToast]
   );
 
   const handleDelete = useCallback(
@@ -190,8 +204,12 @@ export default function SchedulesPage(): JSX.Element {
       if (!confirmed) {
         return;
       }
+      if (!authToken) {
+        pushToast({ tone: 'error', title: 'Failed to delete schedule', description: 'Authentication required' });
+        return;
+      }
       try {
-        await deleteSchedule(authorizedFetch, summary.schedule.id);
+        await deleteSchedule(authToken, summary.schedule.id);
         setSchedules((current) => current.filter((entry) => entry.schedule.id !== summary.schedule.id));
         pushToast({
           tone: 'success',
@@ -203,7 +221,7 @@ export default function SchedulesPage(): JSX.Element {
         pushToast({ tone: 'error', title: 'Failed to delete schedule', description: message });
       }
     },
-    [authorizedFetch, pushToast]
+    [authToken, pushToast]
   );
 
   return (

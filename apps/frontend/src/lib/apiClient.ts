@@ -26,6 +26,7 @@ export interface ApiRequestOptionsBase {
   body?: BodyInit;
   json?: unknown;
   errorMessage?: string;
+  signal?: AbortSignal;
 }
 
 export interface ApiRequestOptionsWithSchema<TSchema extends ZodTypeAny, TResult = z.infer<TSchema>>
@@ -206,7 +207,7 @@ class ApiClient {
       body = JSON.stringify(options.json);
     }
 
-    const response = await this.fetcher(requestUrl, { method, headers, body });
+    const response = await this.fetcher(requestUrl, { method, headers, body, signal: options.signal });
 
     if (!response.ok) {
       const errorMessage = options.errorMessage ?? 'Request failed';

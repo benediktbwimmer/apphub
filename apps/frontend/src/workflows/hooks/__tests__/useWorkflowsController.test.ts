@@ -9,7 +9,7 @@ import type {
   WorkflowRun,
   WorkflowRunStep
 } from '../../types';
-import type { AuthorizedFetch } from '../../api';
+import type { AuthorizedFetch } from '../../../lib/apiClient';
 import {
   AppHubEventsContext,
   type AppHubConnectionHandler,
@@ -273,7 +273,7 @@ function createAuthMockValue(): AuthContextValue {
       token: 'token'
     })),
     revokeApiKey: vi.fn<(id: string) => Promise<void>>(async () => {}),
-    activeToken: null,
+    activeToken: 'test-token',
     setActiveToken: vi.fn<(token: string | null) => void>(() => {})
   };
 }
@@ -296,7 +296,9 @@ const authorizedFetchMock = vi.fn(async (input: RequestInfo | URL, init?: Reques
     return new Response(JSON.stringify({ data: payload }), { status: 200 });
   }
   return new Response(JSON.stringify({ data: [] }), { status: 200 });
-});
+}) as AuthorizedFetch;
+
+(authorizedFetchMock as AuthorizedFetch & { authToken?: string | null }).authToken = 'test-token';
 
 let authValue = createAuthMockValue();
 
@@ -350,6 +352,7 @@ let wrapper: ({ children }: { children: ReactNode }) => ReactElement;
 beforeEach(() => {
   authValue = createAuthMockValue();
   authorizedFetchMock.mockClear();
+  (authorizedFetchMock as AuthorizedFetch & { authToken?: string | null }).authToken = 'test-token';
   pushToastMock.mockClear();
   listWorkflowDefinitionsMock.mockClear();
   listWorkflowRunsForSlugMock.mockClear();

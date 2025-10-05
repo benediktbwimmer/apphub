@@ -2,22 +2,10 @@ import type { WorkflowTopologyGraph } from '@apphub/shared/workflowTopology';
 import { z } from 'zod';
 
 import { API_BASE_URL } from '../config';
-import {
-  createApiClient,
-  type AuthorizedFetch,
-  type QueryValue,
-  ApiError,
-  ensureOk as ensureResponseOk,
-  parseJson as parseResponseJson
-} from '../lib/apiClient';
-
+import { coreRequest, CoreApiError } from '../core/api';
+import { ApiError, createApiClient } from '../lib/apiClient';
 export { ApiError } from '../lib/apiClient';
-export type { AuthorizedFetch } from '../lib/apiClient';
-
-const ensureOk = ensureResponseOk;
-const parseJson = parseResponseJson;
-
-export { ensureOk, parseJson };
+import type { AuthorizedFetch, QueryValue } from '../lib/apiClient';
 import type {
   WorkflowAssetDetail,
   WorkflowAssetInventoryEntry,
@@ -82,31 +70,81 @@ export type WorkflowGraphFetchResult = {
   meta: WorkflowGraphFetchMeta;
 };
 
-function createClient(fetcher: AuthorizedFetch) {
-  return createApiClient(fetcher, { baseUrl: API_BASE_URL });
-}
+type Token = string | null | undefined;
+type TokenInput = Token | AuthorizedFetch;
 
 type RequestJsonOptions<T> = {
   method?: string;
   headers?: HeadersInit;
   query?: Record<string, QueryValue>;
-  body?: BodyInit;
+  body?: unknown;
   json?: unknown;
   schema?: z.ZodType<T>;
   errorMessage: string;
+  signal?: AbortSignal;
 };
 
-async function requestJson<T = unknown>(
-  fetcher: AuthorizedFetch,
-  path: string,
-  options: RequestJsonOptions<T>
-): Promise<T> {
-  const client = createClient(fetcher);
-  const { method, headers, query, body, json, schema, errorMessage } = options;
-  if (schema) {
-    return client.request(path, { method, headers, query, body, json, schema, errorMessage });
+function ensureToken(input: TokenInput): string {
+  if (typeof input === 'function') {
+    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
+    const candidate = fetcher.authToken;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+    if (candidate && typeof candidate === 'string') {
+      return candidate;
+    }
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
   }
-  return client.request(path, { method, headers, query, body, json, errorMessage }) as Promise<T>;
+  throw new Error('Authentication required for core workflow requests.');
+}
+
+function toApiError(error: CoreApiError, fallback: string): ApiError {
+  const message = error.message && error.message.trim().length > 0 ? error.message : fallback;
+  return new ApiError(message, error.status ?? 500, error.details ?? null);
+}
+
+async function requestJson<T = unknown>(token: TokenInput, path: string, options: RequestJsonOptions<T>): Promise<T> {
+  const { method, headers, query, body, json, schema, errorMessage, signal } = options;
+  const requestBody = json !== undefined ? json : body;
+  if (typeof token === 'function') {
+    const client = createApiClient(token, { baseUrl: API_BASE_URL });
+    const baseOptions = {
+      method,
+      headers,
+      query,
+      body: json !== undefined ? undefined : (body as BodyInit | undefined),
+      json,
+      errorMessage
+    };
+    if (schema) {
+      return client.request(path, { ...baseOptions, schema });
+    }
+    return client.request(path, baseOptions) as Promise<T>;
+  }
+  try {
+    const response = await coreRequest(ensureToken(token), {
+      method,
+      url: path,
+      query,
+      body: requestBody,
+      headers,
+      signal
+    });
+    if (schema) {
+      return schema.parse(response);
+    }
+    return response as T;
+  } catch (error) {
+    if (error instanceof CoreApiError) {
+      throw toApiError(error, errorMessage);
+    }
+    throw error;
+  }
 }
 
 const optionalDataSchema = z.object({ data: z.unknown().optional() });
@@ -495,9 +533,9 @@ export type OperatorIdentity = {
 };
 
 export async function fetchWorkflowTopologyGraph(
-  fetcher: AuthorizedFetch
+  token: TokenInput
 ): Promise<WorkflowGraphFetchResult> {
-  const payload = await requestJson(fetcher, '/workflows/graph', {
+  const payload = await requestJson(token,  '/workflows/graph', {
     headers: {
       'Cache-Control': 'no-cache',
       Pragma: 'no-cache'
@@ -529,8 +567,8 @@ export async function fetchWorkflowTopologyGraph(
   };
 }
 
-export async function listWorkflowDefinitions(fetcher: AuthorizedFetch): Promise<WorkflowDefinition[]> {
-  const payload = await requestJson(fetcher, '/workflows', {
+export async function listWorkflowDefinitions(token: TokenInput): Promise<WorkflowDefinition[]> {
+  const payload = await requestJson(token,  '/workflows', {
     schema: optionalDataArraySchema,
     errorMessage: 'Failed to load workflows'
   });
@@ -549,7 +587,7 @@ export type WorkflowDefinitionRunListMeta = {
 };
 
 export async function listWorkflowRunsForSlug(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   params: { limit?: number; offset?: number } = {}
 ): Promise<{ runs: WorkflowRun[]; meta: WorkflowDefinitionRunListMeta }> {
@@ -561,7 +599,7 @@ export async function listWorkflowRunsForSlug(
     searchParams.set('offset', String(params.offset));
   }
   const query = searchParams.toString();
-  const response = await requestJson(fetcher, `/workflows/${encodeURIComponent(slug)}/runs${query ? `?${query}` : ''}`, {
+  const response = await requestJson(token,  `/workflows/${encodeURIComponent(slug)}/runs${query ? `?${query}` : ''}`, {
     errorMessage: 'Failed to load workflow runs'
   });
 
@@ -615,12 +653,12 @@ function buildAnalyticsQuery(params?: WorkflowAnalyticsQuery): string {
 }
 
 export async function getWorkflowStats(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   params?: WorkflowAnalyticsQuery
 ) {
   const query = buildAnalyticsQuery(params);
-  const payload = await requestJson(fetcher, `/workflows/${slug}/stats${query}`, {
+  const payload = await requestJson(token,  `/workflows/${slug}/stats${query}`, {
     schema: optionalDataSchema,
     errorMessage: 'Failed to load workflow stats'
   });
@@ -632,12 +670,12 @@ export async function getWorkflowStats(
 }
 
 export async function getWorkflowRunMetrics(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   params?: WorkflowAnalyticsQuery
 ) {
   const query = buildAnalyticsQuery(params);
-  const payload = await requestJson(fetcher, `/workflows/${slug}/run-metrics${query}`, {
+  const payload = await requestJson(token,  `/workflows/${slug}/run-metrics${query}`, {
     schema: optionalDataSchema,
     errorMessage: 'Failed to load workflow run metrics'
   });
@@ -649,7 +687,7 @@ export async function getWorkflowRunMetrics(
 }
 
 export async function getWorkflowAutoMaterializeOps(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   options: { limit?: number; offset?: number } = {}
 ): Promise<WorkflowAutoMaterializeOps> {
@@ -661,8 +699,7 @@ export async function getWorkflowAutoMaterializeOps(
     params.set('offset', String(options.offset));
   }
   const query = params.toString();
-  const payload = await requestJson(
-    fetcher,
+  const payload = await requestJson(token, 
     `/workflows/${encodeURIComponent(slug)}/auto-materialize${query ? `?${query}` : ''}`,
     {
       schema: optionalDataSchema,
@@ -677,10 +714,10 @@ export async function getWorkflowAutoMaterializeOps(
 }
 
 export async function getWorkflowDetail(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string
 ): Promise<{ workflow: WorkflowDefinition; runs: WorkflowRun[] }> {
-  const payload = await requestJson(fetcher, `/workflows/${slug}`, {
+  const payload = await requestJson(token,  `/workflows/${slug}`, {
     schema: z.object({
       data: z
         .object({
@@ -704,10 +741,10 @@ export async function getWorkflowDetail(
 }
 
 export async function listWorkflowRunSteps(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   runId: string
 ): Promise<{ run: WorkflowRun; steps: WorkflowRunStep[] }> {
-  const payload = await requestJson(fetcher, `/workflow-runs/${runId}/steps`, {
+  const payload = await requestJson(token,  `/workflow-runs/${runId}/steps`, {
     schema: z.object({
       data: z
         .object({
@@ -731,7 +768,7 @@ export async function listWorkflowRunSteps(
 }
 
 export async function listWorkflowEventTriggers(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   filters: WorkflowEventTriggerFilters = {}
 ): Promise<WorkflowEventTriggerListResponse> {
@@ -746,8 +783,7 @@ export async function listWorkflowEventTriggers(
     params.set('eventSource', filters.eventSource);
   }
   const query = params.toString();
-  const payload = await requestJson(
-    fetcher,
+  const payload = await requestJson(token, 
     `/workflows/${encodeURIComponent(slug)}/triggers${query ? `?${query}` : ''}`,
     {
       schema: z.object({
@@ -786,12 +822,11 @@ export async function listWorkflowEventTriggers(
 }
 
 export async function getWorkflowEventTrigger(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   triggerId: string
 ): Promise<WorkflowEventTrigger> {
-  const payload = await requestJson(
-    fetcher,
+  const payload = await requestJson(token, 
     `/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
     {
       schema: requiredDataSchema,
@@ -806,11 +841,11 @@ export async function getWorkflowEventTrigger(
 }
 
 export async function createWorkflowEventTrigger(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   input: WorkflowEventTriggerCreateInput
 ): Promise<WorkflowEventTrigger> {
-  const payload = await requestJson(fetcher, `/workflows/${encodeURIComponent(slug)}/triggers`, {
+  const payload = await requestJson(token,  `/workflows/${encodeURIComponent(slug)}/triggers`, {
     method: 'POST',
     json: input,
     schema: requiredDataSchema,
@@ -824,13 +859,12 @@ export async function createWorkflowEventTrigger(
 }
 
 export async function updateWorkflowEventTrigger(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   triggerId: string,
   input: WorkflowEventTriggerUpdateInput
 ): Promise<WorkflowEventTrigger> {
-  const payload = await requestJson(
-    fetcher,
+  const payload = await requestJson(token, 
     `/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
     {
       method: 'PATCH',
@@ -847,12 +881,11 @@ export async function updateWorkflowEventTrigger(
 }
 
 export async function deleteWorkflowEventTrigger(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   triggerId: string
 ): Promise<void> {
-  await requestJson(
-    fetcher,
+  await requestJson(token, 
     `/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
     {
       method: 'DELETE',
@@ -862,7 +895,7 @@ export async function deleteWorkflowEventTrigger(
 }
 
 export async function listWorkflowTriggerDeliveries(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   triggerId: string,
   query: WorkflowTriggerDeliveriesQuery = {}
@@ -881,20 +914,22 @@ export async function listWorkflowTriggerDeliveries(
     params.set('dedupeKey', query.dedupeKey);
   }
   const search = params.toString();
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}/deliveries${
-      search ? `?${search}` : ''
-    }`
-  );
-  await ensureOk(response, 'Failed to load workflow trigger deliveries');
-  const payload = await parseJson<{
+  const payload = await requestJson<{
     data?: unknown[];
     meta?: {
       workflow?: { id?: unknown; slug?: unknown; name?: unknown };
       trigger?: { id?: unknown; name?: unknown; eventType?: unknown; status?: unknown };
       limit?: unknown;
     };
-  }>(response);
+  }>(
+    token,
+    `/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}/deliveries${
+      search ? `?${search}` : ''
+    }`,
+    {
+      errorMessage: 'Failed to load workflow trigger deliveries'
+    }
+  );
   const deliveries = normalizeWorkflowTriggerDeliveries(payload.data);
   const workflowMeta = payload.meta?.workflow ?? {};
   const triggerMeta = payload.meta?.trigger ?? {};
@@ -908,7 +943,7 @@ export async function listWorkflowTriggerDeliveries(
     typeof triggerMeta.status === 'string' && triggerMeta.status === 'disabled' ? 'disabled' : 'active';
   const limit = Number(payload.meta?.limit ?? query.limit ?? 50);
   if (!workflowId || !workflowSlug || !triggerMetaId) {
-    throw new ApiError('Invalid trigger deliveries response', response.status, payload);
+    throw new ApiError('Invalid trigger deliveries response', 500, payload);
   }
   return {
     deliveries,
@@ -928,7 +963,7 @@ export async function listWorkflowTriggerDeliveries(
 }
 
 export async function listWorkflowEventSamples(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   query: WorkflowEventSampleQuery = {}
 ): Promise<WorkflowEventSamplesResponse> {
   const params = new URLSearchParams();
@@ -957,9 +992,13 @@ export async function listWorkflowEventSamples(
     params.set('cursor', query.cursor);
   }
   const search = params.toString();
-  const response = await fetcher(`${API_BASE_URL}/admin/events${search ? `?${search}` : ''}`);
-  await ensureOk(response, 'Failed to load workflow events');
-  const payload = await parseJson<{ data?: unknown; schema?: unknown }>(response);
+  const payload = await requestJson<{ data?: unknown; schema?: unknown }>(
+    token,
+    `/admin/events${search ? `?${search}` : ''}`,
+    {
+      errorMessage: 'Failed to load workflow events'
+    }
+  );
   let eventsSource: unknown = payload.data;
   let page: WorkflowEventSamplesResponse['page'] = null;
   if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
@@ -986,76 +1025,58 @@ export async function listWorkflowEventSamples(
 }
 
 export async function getWorkflowEventHealth(
-  fetcher: AuthorizedFetch
+  token: TokenInput
 ): Promise<WorkflowEventSchedulerHealth | null> {
-  const response = await fetcher(`${API_BASE_URL}/admin/event-health`);
-  await ensureOk(response, 'Failed to load workflow event health');
-  const payload = await parseJson<unknown>(response);
+  const payload = await requestJson<unknown>(token, '/admin/event-health', {
+    errorMessage: 'Failed to load workflow event health'
+  });
   return normalizeWorkflowEventHealth(payload);
 }
 
-export async function cancelEventRetry(fetcher: AuthorizedFetch, eventId: string): Promise<void> {
-  const response = await fetcher(
-    `${API_BASE_URL}/admin/retries/events/${encodeURIComponent(eventId)}/cancel`,
-    {
-      method: 'POST'
-    }
-  );
-  await ensureOk(response, 'Failed to cancel event retry');
+export async function cancelEventRetry(token: TokenInput, eventId: string): Promise<void> {
+  await requestJson(token, `/admin/retries/events/${encodeURIComponent(eventId)}/cancel`, {
+    method: 'POST',
+    errorMessage: 'Failed to cancel event retry'
+  });
 }
 
-export async function forceEventRetry(fetcher: AuthorizedFetch, eventId: string): Promise<void> {
-  const response = await fetcher(
-    `${API_BASE_URL}/admin/retries/events/${encodeURIComponent(eventId)}/force`,
-    {
-      method: 'POST'
-    }
-  );
-  await ensureOk(response, 'Failed to run event retry');
+export async function forceEventRetry(token: TokenInput, eventId: string): Promise<void> {
+  await requestJson(token, `/admin/retries/events/${encodeURIComponent(eventId)}/force`, {
+    method: 'POST',
+    errorMessage: 'Failed to run event retry'
+  });
 }
 
-export async function cancelTriggerRetry(fetcher: AuthorizedFetch, deliveryId: string): Promise<void> {
-  const response = await fetcher(
-    `${API_BASE_URL}/admin/retries/deliveries/${encodeURIComponent(deliveryId)}/cancel`,
-    {
-      method: 'POST'
-    }
-  );
-  await ensureOk(response, 'Failed to cancel trigger delivery retry');
+export async function cancelTriggerRetry(token: TokenInput, deliveryId: string): Promise<void> {
+  await requestJson(token, `/admin/retries/deliveries/${encodeURIComponent(deliveryId)}/cancel`, {
+    method: 'POST',
+    errorMessage: 'Failed to cancel trigger delivery retry'
+  });
 }
 
-export async function forceTriggerRetry(fetcher: AuthorizedFetch, deliveryId: string): Promise<void> {
-  const response = await fetcher(
-    `${API_BASE_URL}/admin/retries/deliveries/${encodeURIComponent(deliveryId)}/force`,
-    {
-      method: 'POST'
-    }
-  );
-  await ensureOk(response, 'Failed to run trigger delivery retry');
+export async function forceTriggerRetry(token: TokenInput, deliveryId: string): Promise<void> {
+  await requestJson(token, `/admin/retries/deliveries/${encodeURIComponent(deliveryId)}/force`, {
+    method: 'POST',
+    errorMessage: 'Failed to run trigger delivery retry'
+  });
 }
 
-export async function cancelWorkflowStepRetry(fetcher: AuthorizedFetch, stepId: string): Promise<void> {
-  const response = await fetcher(
-    `${API_BASE_URL}/admin/retries/workflow-steps/${encodeURIComponent(stepId)}/cancel`,
-    {
-      method: 'POST'
-    }
-  );
-  await ensureOk(response, 'Failed to cancel workflow step retry');
+export async function cancelWorkflowStepRetry(token: TokenInput, stepId: string): Promise<void> {
+  await requestJson(token, `/admin/retries/workflow-steps/${encodeURIComponent(stepId)}/cancel`, {
+    method: 'POST',
+    errorMessage: 'Failed to cancel workflow step retry'
+  });
 }
 
-export async function forceWorkflowStepRetry(fetcher: AuthorizedFetch, stepId: string): Promise<void> {
-  const response = await fetcher(
-    `${API_BASE_URL}/admin/retries/workflow-steps/${encodeURIComponent(stepId)}/force`,
-    {
-      method: 'POST'
-    }
-  );
-  await ensureOk(response, 'Failed to run workflow step retry');
+export async function forceWorkflowStepRetry(token: TokenInput, stepId: string): Promise<void> {
+  await requestJson(token, `/admin/retries/workflow-steps/${encodeURIComponent(stepId)}/force`, {
+    method: 'POST',
+    errorMessage: 'Failed to run workflow step retry'
+  });
 }
 
 export async function getWorkflowTimeline(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   query: WorkflowTimelineQuery = {}
 ): Promise<WorkflowTimelineResult> {
@@ -1080,25 +1101,27 @@ export async function getWorkflowTimeline(
     }
   }
   const search = params.toString();
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/timeline${search ? `?${search}` : ''}`
+  const payload = await requestJson<{ data?: unknown; meta?: unknown }>(
+    token,
+    `/workflows/${encodeURIComponent(slug)}/timeline${search ? `?${search}` : ''}`,
+    {
+      errorMessage: 'Failed to load workflow timeline'
+    }
   );
-  await ensureOk(response, 'Failed to load workflow timeline');
-  const payload = await parseJson<{ data?: unknown; meta?: unknown }>(response);
   const snapshot = normalizeWorkflowTimeline(payload.data);
   if (!snapshot) {
-    throw new ApiError('Invalid workflow timeline response', response.status, payload);
+    throw new ApiError('Invalid workflow timeline response', 500, payload);
   }
   const meta = normalizeWorkflowTimelineMeta(payload.meta);
   return { snapshot, meta } satisfies WorkflowTimelineResult;
 }
 
 export async function fetchWorkflowDefinitions(
-  fetcher: AuthorizedFetch
+  token: TokenInput
 ): Promise<WorkflowDefinition[]> {
-  const response = await fetcher(`${API_BASE_URL}/workflows`);
-  await ensureOk(response, 'Failed to load workflows');
-  const payload = await parseJson<{ data?: unknown }>(response);
+  const payload = await requestJson<{ data?: unknown }>(token, '/workflows', {
+    errorMessage: 'Failed to load workflows'
+  });
   if (!payload.data || !Array.isArray(payload.data)) {
     return [];
   }
@@ -1109,17 +1132,17 @@ export async function fetchWorkflowDefinitions(
 }
 
 export async function fetchWorkflowAssets(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string
 ): Promise<WorkflowAssetInventoryEntry[]> {
-  const response = await fetcher(`${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets`);
-  await ensureOk(response, 'Failed to load workflow assets');
-  const payload = await parseJson<unknown>(response);
+  const payload = await requestJson<unknown>(token, `/workflows/${encodeURIComponent(slug)}/assets`, {
+    errorMessage: 'Failed to load workflow assets'
+  });
   return normalizeWorkflowAssetInventoryResponse(payload);
 }
 
 export async function fetchWorkflowAssetHistory(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   assetId: string,
   options: { limit?: number } = {}
@@ -1129,21 +1152,27 @@ export async function fetchWorkflowAssetHistory(
     params.set('limit', String(options.limit));
   }
   const query = params.toString();
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/history${
-      query ? `?${query}` : ''
-    }`
-  );
-  if (response.status === 404) {
-    return null;
+  try {
+    const payload = await requestJson<unknown>(
+      token,
+      `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/history${
+        query ? `?${query}` : ''
+      }`,
+      {
+        errorMessage: 'Failed to load workflow asset history'
+      }
+    );
+    return normalizeWorkflowAssetDetailResponse(payload);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
   }
-  await ensureOk(response, 'Failed to load workflow asset history');
-  const payload = await parseJson<unknown>(response);
-  return normalizeWorkflowAssetDetailResponse(payload);
 }
 
 export async function fetchWorkflowAssetPartitions(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   assetId: string,
   options: { lookback?: number } = {}
@@ -1153,60 +1182,62 @@ export async function fetchWorkflowAssetPartitions(
     params.set('lookback', String(options.lookback));
   }
   const query = params.toString();
-  const response = await fetcher(
-    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/partitions${
-      query ? `?${query}` : ''
-    }`
-  );
-  if (response.status === 404) {
-    return null;
+  try {
+    const payload = await requestJson<unknown>(
+      token,
+      `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/partitions${
+        query ? `?${query}` : ''
+      }`,
+      {
+        errorMessage: 'Failed to load workflow asset partitions'
+      }
+    );
+    return normalizeWorkflowAssetPartitionsResponse(payload);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
   }
-  await ensureOk(response, 'Failed to load workflow asset partitions');
-  const payload = await parseJson<unknown>(response);
-  return normalizeWorkflowAssetPartitionsResponse(payload);
 }
 
 export async function createWorkflowDefinition(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   input: WorkflowCreateInput
 ): Promise<WorkflowDefinition> {
-  const response = await fetcher(`${API_BASE_URL}/workflows`, {
+  const payload = await requestJson<{ data?: unknown }>(token, '/workflows', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+    json: input,
+    errorMessage: 'Failed to create workflow'
   });
-  await ensureOk(response, 'Failed to create workflow');
-  const payload = await parseJson<{ data?: unknown }>(response);
   const workflow = normalizeWorkflowDefinition(payload.data);
   if (!workflow) {
-    throw new ApiError('Invalid workflow response', response.status, payload);
+    throw new ApiError('Invalid workflow response', 500, payload);
   }
   return workflow;
 }
 
 export async function updateWorkflowDefinition(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string,
   input: WorkflowUpdateInput
 ): Promise<WorkflowDefinition> {
-  const response = await fetcher(`${API_BASE_URL}/workflows/${slug}`, {
+  const payload = await requestJson<{ data?: unknown }>(token, `/workflows/${slug}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+    json: input,
+    errorMessage: 'Failed to update workflow'
   });
-  await ensureOk(response, 'Failed to update workflow');
-  const payload = await parseJson<{ data?: unknown }>(response);
   const workflow = normalizeWorkflowDefinition(payload.data);
   if (!workflow) {
-    throw new ApiError('Invalid workflow response', response.status, payload);
+    throw new ApiError('Invalid workflow response', 500, payload);
   }
   return workflow;
 }
 
-export async function listJobDefinitions(fetcher: AuthorizedFetch): Promise<JobDefinitionSummary[]> {
-  const response = await fetcher(`${API_BASE_URL}/jobs`);
-  await ensureOk(response, 'Failed to load job definitions');
-  const payload = await parseJson<{ data?: JobDefinitionSummary[] }>(response);
+export async function listJobDefinitions(token: TokenInput): Promise<JobDefinitionSummary[]> {
+  const payload = await requestJson<{ data?: JobDefinitionSummary[] }>(token, '/jobs', {
+    errorMessage: 'Failed to load job definitions'
+  });
   if (!Array.isArray(payload.data)) {
     return [];
   }
@@ -1218,18 +1249,16 @@ export async function listJobDefinitions(fetcher: AuthorizedFetch): Promise<JobD
 }
 
 export async function createJobDefinition(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   input: JobDefinitionCreateInput
 ): Promise<JobDefinitionSummary> {
-  const response = await fetcher(`${API_BASE_URL}/jobs`, {
+  const payload = await requestJson<{ data?: JobDefinitionSummary }>(token, '/jobs', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+    json: input,
+    errorMessage: 'Failed to create job definition'
   });
-  await ensureOk(response, 'Failed to create job definition');
-  const payload = await parseJson<{ data?: JobDefinitionSummary }>(response);
   if (!payload.data) {
-    throw new ApiError('Invalid job response', response.status, payload);
+    throw new ApiError('Invalid job response', 500, payload);
   }
   return {
     ...payload.data,
@@ -1238,10 +1267,14 @@ export async function createJobDefinition(
   } satisfies JobDefinitionSummary;
 }
 
-export async function listServices(fetcher: AuthorizedFetch): Promise<ServiceSummary[]> {
-  const response = await fetcher(`${API_BASE_URL}/services`);
-  await ensureOk(response, 'Failed to load services');
-  const payload = await parseJson<{ data?: ServiceSummary[] }>(response);
+export async function listServices(
+  token: TokenInput,
+  options: { signal?: AbortSignal } = {}
+): Promise<ServiceSummary[]> {
+  const payload = await requestJson<{ data?: ServiceSummary[] }>(token, '/services', {
+    errorMessage: 'Failed to load services',
+    signal: options.signal
+  });
   if (!Array.isArray(payload.data)) {
     return [];
   }
@@ -1256,14 +1289,14 @@ export async function listServices(fetcher: AuthorizedFetch): Promise<ServiceSum
 }
 
 export async function listJobBundleVersions(
-  fetcher: AuthorizedFetch,
+  token: TokenInput,
   slug: string
 ): Promise<JobBundleVersionSummary[]> {
-  const response = await fetcher(`${API_BASE_URL}/job-bundles/${encodeURIComponent(slug)}`);
-  await ensureOk(response, 'Failed to load job bundle versions');
-  const payload = await parseJson<{
+  const payload = await requestJson<{
     data?: { versions?: Array<Partial<JobBundleVersionSummary>> };
-  }>(response);
+  }>(token, `/job-bundles/${encodeURIComponent(slug)}`, {
+    errorMessage: 'Failed to load job bundle versions'
+  });
   const records = Array.isArray(payload.data?.versions) ? payload.data?.versions : [];
   return records
     .filter((entry): entry is JobBundleVersionSummary => typeof entry?.version === 'string' && typeof entry?.id === 'string')
@@ -1278,20 +1311,28 @@ export async function listJobBundleVersions(
     }));
 }
 
-export async function fetchOperatorIdentity(fetcher: AuthorizedFetch): Promise<OperatorIdentity | null> {
-  const response = await fetcher(`${API_BASE_URL}/auth/identity`);
-  if (!response.ok && (response.status === 401 || response.status === 403)) {
-    return null;
+export async function fetchOperatorIdentity(token: TokenInput): Promise<OperatorIdentity | null> {
+  try {
+    const payload = await requestJson<{ data?: { subject?: unknown; scopes?: unknown; kind?: unknown } }>(
+      token,
+      '/auth/identity',
+      {
+        errorMessage: 'Failed to load operator identity'
+      }
+    );
+    const data = payload.data;
+    if (!data) {
+      return null;
+    }
+    const subject = typeof data.subject === 'string' && data.subject.trim().length > 0 ? data.subject : 'operator';
+    const rawScopes = Array.isArray(data.scopes) ? data.scopes : [];
+    const scopes = rawScopes.filter((scope): scope is string => typeof scope === 'string');
+    const kind = data.kind === 'service' ? 'service' : 'user';
+    return { subject, scopes, kind } satisfies OperatorIdentity;
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      return null;
+    }
+    throw error;
   }
-  await ensureOk(response, 'Failed to load operator identity');
-  const payload = await parseJson<{ data?: { subject?: unknown; scopes?: unknown; kind?: unknown } }>(response);
-  const data = payload.data;
-  if (!data) {
-    return null;
-  }
-  const subject = typeof data.subject === 'string' && data.subject.trim().length > 0 ? data.subject : 'operator';
-  const rawScopes = Array.isArray(data.scopes) ? data.scopes : [];
-  const scopes = rawScopes.filter((scope): scope is string => typeof scope === 'string');
-  const kind = data.kind === 'service' ? 'service' : 'user';
-  return { subject, scopes, kind } satisfies OperatorIdentity;
 }

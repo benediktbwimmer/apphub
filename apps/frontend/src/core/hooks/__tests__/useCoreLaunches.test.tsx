@@ -3,14 +3,29 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { useCoreLaunches } from '../useCoreLaunches';
 import type { AppRecord, LaunchRequestDraft, LaunchSummary } from '../../types';
 
-const mockAuthorizedFetch = vi.fn<
-  (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+const eventHandlers: Record<string, (event: unknown) => void> = {};
+const mockAuthToken = 'token';
+const mockListLaunches = vi.fn<
+  Promise<LaunchSummary[]>,
+  [string | null | undefined, string, { signal?: AbortSignal; limit?: number }?]
+>();
+const mockLaunchApp = vi.fn<
+  Promise<{ repository?: AppRecord | null; launch?: LaunchSummary | null }>,
+  [string | null | undefined, string, LaunchRequestDraft]
+>();
+const mockStopLaunch = vi.fn<
+  Promise<{ repository?: AppRecord | null; launch?: LaunchSummary | null }>,
+  [string | null | undefined, string, string]
 >();
 
-const eventHandlers: Record<string, (event: unknown) => void> = {};
+vi.mock('../../../auth/useAuth', () => ({
+  useAuth: () => ({ activeToken: mockAuthToken })
+}));
 
-vi.mock('../../../auth/useAuthorizedFetch', () => ({
-  useAuthorizedFetch: () => mockAuthorizedFetch
+vi.mock('../../api', () => ({
+  listLaunches: (...args: unknown[]) => mockListLaunches(...args),
+  launchApp: (...args: unknown[]) => mockLaunchApp(...args),
+  stopLaunch: (...args: unknown[]) => mockStopLaunch(...args)
 }));
 
 vi.mock('../../../events/context', async () => {
@@ -25,14 +40,6 @@ vi.mock('../../../events/context', async () => {
     }
   };
 });
-
-const createResponse = (body: unknown, init?: { status?: number; ok?: boolean }) => ({
-  ok: init?.ok ?? true,
-  status: init?.status ?? 200,
-  async json() {
-    return body;
-  }
-}) as unknown as Response;
 
 const baseRepository: AppRecord = {
   id: 'app-1',
@@ -54,7 +61,9 @@ const baseRepository: AppRecord = {
 
 describe('useCoreLaunches', () => {
   beforeEach(() => {
-    mockAuthorizedFetch.mockReset();
+    mockListLaunches.mockReset();
+    mockLaunchApp.mockReset();
+    mockStopLaunch.mockReset();
     for (const key of Object.keys(eventHandlers)) {
       delete eventHandlers[key];
     }
@@ -79,10 +88,10 @@ describe('useCoreLaunches', () => {
       port: null
     };
 
-    mockAuthorizedFetch
-      .mockResolvedValueOnce(createResponse({ data: [] }))
-      .mockResolvedValueOnce(createResponse({ data: { repository: repositoryResult } }))
-      .mockResolvedValueOnce(createResponse({ data: [refreshedLaunch] }));
+    mockListLaunches
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([refreshedLaunch]);
+    mockLaunchApp.mockResolvedValueOnce({ repository: repositoryResult, launch: refreshedLaunch });
 
     const repositories = {
       replace: vi.fn(),
@@ -113,11 +122,8 @@ describe('useCoreLaunches', () => {
       await result.current.launchApp('app-1', draft);
     });
 
-    expect(mockAuthorizedFetch).toHaveBeenCalledTimes(3);
-    const [, launchInit] = mockAuthorizedFetch.mock.calls[1];
-    expect(launchInit?.method).toBe('POST');
-    const body = JSON.parse((launchInit?.body as string) ?? '{}');
-    expect(body).toEqual({
+    expect(mockListLaunches).toHaveBeenCalledTimes(2);
+    expect(mockLaunchApp).toHaveBeenCalledWith(mockAuthToken, 'app-1', {
       env: [{ key: 'FOO', value: 'bar' }],
       command: 'npm start',
       launchId: 'launch-123'
@@ -135,9 +141,7 @@ describe('useCoreLaunches', () => {
   });
 
   it('records failures from the launch workflow', async () => {
-    mockAuthorizedFetch.mockResolvedValueOnce(
-      createResponse({ error: 'launch exploded' }, { ok: false, status: 500 })
-    );
+    mockLaunchApp.mockRejectedValueOnce(new Error('launch exploded'));
 
     const repositories = {
       replace: vi.fn(),

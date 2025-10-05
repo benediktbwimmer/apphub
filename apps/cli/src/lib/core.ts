@@ -1,3 +1,7 @@
+import type { ApiRequestOptions } from '@apphub/shared/api/core';
+import { ApiError } from '@apphub/shared/api/core';
+import { createCoreClient } from '@apphub/shared/api';
+
 const DEFAULT_CORE_URL = 'http://127.0.0.1:4000';
 
 export class CoreError extends Error {
@@ -13,11 +17,15 @@ export class CoreError extends Error {
 }
 
 export type CoreRequestConfig = {
-  baseUrl: string;
-  token: string;
+  baseUrl?: string;
+  token?: string;
   path: string;
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
-  body?: unknown;
+  method?: ApiRequestOptions['method'];
+  body?: ApiRequestOptions['body'];
+  query?: ApiRequestOptions['query'];
+  mediaType?: ApiRequestOptions['mediaType'];
+  headers?: ApiRequestOptions['headers'];
+  responseHeader?: ApiRequestOptions['responseHeader'];
 };
 
 export function resolveCoreUrl(override?: string): string {
@@ -31,96 +39,72 @@ export function resolveCoreToken(override?: string): string {
   if (!token) {
     throw new Error('Core API token is required. Provide --token or set APPHUB_TOKEN.');
   }
-  return token;
-}
-
-function buildHeaders(token: string, hasBody: boolean): Record<string, string> {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`
-  };
-  if (hasBody) {
-    headers['Content-Type'] = 'application/json';
+  const normalized = token.trim();
+  if (!normalized) {
+    throw new Error('Core API token is required. Provide --token or set APPHUB_TOKEN.');
   }
-  return headers;
+  return normalized;
 }
 
-function buildUrl(baseUrl: string, path: string): string {
-  const normalizedBase = baseUrl.replace(/\/+$/, '');
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${normalizedBase}${normalizedPath}`;
+function createClient(config: CoreRequestConfig) {
+  const baseUrl = resolveCoreUrl(config.baseUrl);
+  const token = resolveCoreToken(config.token);
+
+  return createCoreClient({
+    baseUrl,
+    token,
+    headers: config.headers,
+    withCredentials: false
+  });
 }
 
 export async function coreRequest<T = unknown>(config: CoreRequestConfig): Promise<T> {
-  const url = buildUrl(config.baseUrl, config.path);
-  const method = config.method ?? 'GET';
-  const hasBody = config.body !== undefined && config.body !== null;
+  const client = createClient(config);
+  const requestOptions: ApiRequestOptions = {
+    method: config.method ?? 'GET',
+    url: config.path.startsWith('/') ? config.path : `/${config.path}`,
+    body: config.body,
+    query: config.query,
+    mediaType: config.mediaType,
+    headers: config.headers,
+    responseHeader: config.responseHeader
+  };
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers: buildHeaders(config.token, hasBody),
-      body: hasBody ? JSON.stringify(config.body) : undefined
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to contact core API at ${url}: ${message}`);
+  if (requestOptions.body !== undefined && !requestOptions.mediaType && !(requestOptions.body instanceof FormData)) {
+    requestOptions.mediaType = 'application/json';
   }
 
-  if (!response.ok) {
-    let message = `Core API responded with ${response.status}`;
-    let details: unknown = null;
-    try {
-      const text = await response.text();
-      if (text) {
-        try {
-          const parsed = JSON.parse(text) as Record<string, unknown> | null;
-          const container = parsed && typeof parsed === 'object' ? parsed : null;
-          const errorValue = container && 'error' in container ? container.error : parsed;
-          details = errorValue ?? parsed;
-          let candidate: unknown =
-            container && typeof container.error === 'string'
-              ? container.error
-              : container && typeof container.message === 'string'
-                ? container.message
-                : null;
-          if (!candidate && errorValue && typeof errorValue === 'object' && !Array.isArray(errorValue)) {
-            const record = errorValue as Record<string, unknown>;
-            const formErrors = record.formErrors;
-            if (Array.isArray(formErrors)) {
-              const first = formErrors.find(
-                (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
-              );
-              if (first) {
-                candidate = first;
-              }
-            }
-          }
-          if (typeof candidate === 'string' && candidate.trim().length > 0) {
-            message = candidate.trim();
-          }
-        } catch {
-          const trimmed = text.trim();
-          details = trimmed || text;
-          if (trimmed.length > 0) {
-            message = `${message}: ${trimmed}`;
+  try {
+    return await client.request.request<T>(requestOptions);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      const details = error.body ?? error;
+      let message = error.message;
+      const body = error.body;
+      if (typeof body === 'string') {
+        const trimmed = body.trim();
+        if (trimmed.length > 0) {
+          message = trimmed;
+        }
+      } else if (body && typeof body === 'object') {
+        const record = body as Record<string, unknown>;
+        const candidate = record.error ?? record.message;
+        if (typeof candidate === 'string' && candidate.trim().length > 0) {
+          message = candidate.trim();
+        } else {
+          const formErrors = Array.isArray(record.formErrors)
+            ? record.formErrors.find((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+            : undefined;
+          if (formErrors) {
+            message = formErrors;
           }
         }
       }
-    } catch {
-      // Ignore secondary parse errors.
+      throw new CoreError(message, error.status, details);
     }
-    throw new CoreError(message, response.status, details);
+    if (error instanceof Error) {
+      throw new CoreError(error.message, 500);
+    }
+    throw error;
   }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  const contentType = response.headers.get('content-type') ?? '';
-  if (contentType.includes('application/json')) {
-    return (await response.json()) as T;
-  }
-
-  return (await response.text()) as unknown as T;
 }

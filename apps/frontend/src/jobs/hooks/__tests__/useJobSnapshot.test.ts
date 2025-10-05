@@ -3,8 +3,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const fetchDetailMock = vi.hoisted(() => vi.fn());
 const fetchBundleMock = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../auth/useAuthorizedFetch', () => ({
-  useAuthorizedFetch: () => vi.fn()
+vi.mock('../../../auth/useAuth', () => ({
+  useAuth: () => ({
+    activeToken: 'token-123',
+    identity: null,
+    identityLoading: false,
+    identityError: null,
+    refreshIdentity: vi.fn(),
+    apiKeys: [],
+    apiKeysLoading: false,
+    apiKeysError: null,
+    refreshApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    setActiveToken: vi.fn()
+  })
 }));
 
 vi.mock('../../api', () => ({
@@ -86,11 +99,12 @@ describe('useJobSnapshot', () => {
   it('loads detail and bundle for a job', async () => {
     fetchDetailMock.mockResolvedValueOnce(buildDetail('job-1'));
     fetchBundleMock.mockResolvedValueOnce(buildBundle('job-1'));
-    const fetcher = vi.fn();
-
-    const { result } = renderHook(() => useJobSnapshot('job-1', { fetcher }));
+    const { result } = renderHook(() => useJobSnapshot('job-1'));
 
     await waitFor(() => expect(result.current.detailLoading).toBe(false));
+
+    expect(fetchDetailMock).toHaveBeenCalledWith('token-123', 'job-1', { signal: expect.any(AbortSignal) });
+    expect(fetchBundleMock).toHaveBeenCalledWith('token-123', 'job-1', { signal: expect.any(AbortSignal) });
 
     expect(result.current.detail?.job.slug).toBe('job-1');
     expect(result.current.bundle?.binding.slug).toBe('job-1');
@@ -99,12 +113,11 @@ describe('useJobSnapshot', () => {
   });
 
   it('resets state when slug is null', async () => {
-    const fetcher = vi.fn();
     fetchDetailMock.mockResolvedValueOnce(buildDetail('job-2'));
     fetchBundleMock.mockResolvedValueOnce(buildBundle('job-2'));
 
     const { result, rerender } = renderHook(
-      ({ slug }: { slug: string | null }) => useJobSnapshot(slug, { fetcher }),
+      ({ slug }: { slug: string | null }) => useJobSnapshot(slug),
       { initialProps: { slug: 'job-2' as string | null } }
     );
 
@@ -124,9 +137,7 @@ describe('useJobSnapshot', () => {
   it('records errors on failure', async () => {
     fetchDetailMock.mockRejectedValueOnce(new Error('uh oh'));
     fetchBundleMock.mockResolvedValueOnce(buildBundle('job-3'));
-    const fetcher = vi.fn();
-
-    const { result } = renderHook(() => useJobSnapshot('job-3', { fetcher }));
+    const { result } = renderHook(() => useJobSnapshot('job-3'));
 
     await waitFor(() => expect(result.current.detailLoading).toBe(false));
 

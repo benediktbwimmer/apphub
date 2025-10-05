@@ -18,6 +18,7 @@ import {
 
 type FilestoreHealthRailProps = {
   enabled: boolean;
+  token: string | null;
 };
 
 type HealthSeverity = 'unknown' | 'disabled' | 'ok' | 'warn' | 'critical';
@@ -99,17 +100,16 @@ function formatPollTimestamp(value: number | null): string {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
-export function FilestoreHealthRail({ enabled }: FilestoreHealthRailProps) {
+export function FilestoreHealthRail({ enabled, token }: FilestoreHealthRailProps) {
   const fetcher = useCallback(
     async ({
-      authorizedFetch,
       signal
     }: {
       authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
       signal: AbortSignal;
     }) =>
-      fetchFilestoreHealth(authorizedFetch, { signal }),
-    []
+      fetchFilestoreHealth(token, { signal }),
+    [token]
   );
 
   const { data: health, error, loading, lastUpdatedAt, refetch } = usePollingResource({

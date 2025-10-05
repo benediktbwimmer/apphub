@@ -1,6 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react';
-import { API_BASE_URL } from '../config';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useAuth } from '../auth/useAuth';
+import { coreRequest, CoreApiError } from '../core/api';
 
 export type ManifestPlaceholderOccurrence =
   | { kind: 'service'; serviceSlug: string; envKey: string; source: string }
@@ -142,7 +142,7 @@ function hydrateVariables(
 }
 
 export function useImportServiceManifest() {
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken } = useAuth();
   const [form, setForm] = useState<ImportManifestForm>({
     sourceType: 'git',
     repo: '',
@@ -169,37 +169,36 @@ export function useImportServiceManifest() {
 
   const importManifest = useCallback(
     async (body: NormalizedRequestBody) => {
-      const response = await authorizedFetch(`${API_BASE_URL}/service-networks/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        if (response.status === 400 && payload && Array.isArray(payload.placeholders)) {
-          const incoming = payload.placeholders as ManifestPlaceholder[];
-          setPlaceholders(incoming);
-          setVariables((prev) => hydrateVariables(incoming, prev));
-          const message =
-            typeof payload.error === 'string'
-              ? payload.error
-              : 'Import requires placeholder values';
-          throw new Error(message);
-        }
-
-        const message = payload?.error ?? `Import failed with status ${response.status}`;
-        throw new Error(typeof message === 'string' ? message : 'Import failed');
+      if (!activeToken) {
+        throw new Error('Authentication required to import service manifest');
       }
-
-      const payload = await response.json();
-      clearPlaceholders();
-      setResult(payload.data as ImportManifestResult);
-      setResultVersion((prev) => prev + 1);
-      setError(null);
-      setLastRequestBody(body);
+      try {
+        const payload = await coreRequest<{ data?: unknown; placeholders?: ManifestPlaceholder[] }>(activeToken, {
+          method: 'POST',
+          url: '/service-networks/import',
+          body
+        });
+        clearPlaceholders();
+        setResult((payload?.data as ImportManifestResult) ?? null);
+        setResultVersion((prev) => prev + 1);
+        setError(null);
+        setLastRequestBody(body);
+      } catch (err) {
+        if (err instanceof CoreApiError) {
+          const details = (err.details ?? null) as { placeholders?: unknown; error?: unknown } | null;
+          const placeholdersPayload = Array.isArray(details?.placeholders)
+            ? (details?.placeholders as ManifestPlaceholder[])
+            : null;
+          if (placeholdersPayload) {
+            setPlaceholders(placeholdersPayload);
+            setVariables((prev) => hydrateVariables(placeholdersPayload, prev));
+          }
+          throw new Error(err.message);
+        }
+        throw err;
+      }
     },
-    [authorizedFetch, clearPlaceholders]
+    [activeToken, clearPlaceholders]
   );
 
   const updateField = useCallback((field: keyof ImportManifestForm, value: string) => {

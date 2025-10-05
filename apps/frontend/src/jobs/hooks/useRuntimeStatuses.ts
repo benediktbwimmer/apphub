@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
-import type { AuthorizedFetch } from '../../workflows/api';
+import { useAuth } from '../../auth/useAuth';
 import { fetchJobRuntimeStatuses, type JobRuntimeStatus } from '../api';
 
 type UseRuntimeStatusesOptions = {
-  fetcher?: AuthorizedFetch;
   autoRefreshMs?: number | null;
 };
 
@@ -18,8 +16,7 @@ export type UseRuntimeStatusesResult = {
 export function useRuntimeStatuses(
   options: UseRuntimeStatusesOptions = {}
 ): UseRuntimeStatusesResult {
-  const authorizedFetch = useAuthorizedFetch();
-  const fetcher = options.fetcher ?? authorizedFetch;
+  const { activeToken } = useAuth();
   const autoRefreshMs = options.autoRefreshMs ?? null;
   const [statuses, setStatuses] = useState<JobRuntimeStatus[]>([]);
   const [loading, setLoading] = useState(false);
@@ -28,11 +25,20 @@ export function useRuntimeStatuses(
 
   useEffect(() => {
     let canceled = false;
+    if (!activeToken) {
+      setLoading(false);
+      setError('Authentication required to load runtime readiness');
+      setStatuses([]);
+      return () => {
+        canceled = true;
+      };
+    }
+    const controller = new AbortController();
     const run = async () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchJobRuntimeStatuses(fetcher);
+        const data = await fetchJobRuntimeStatuses(activeToken, { signal: controller.signal });
         if (!canceled) {
           setStatuses(data);
         }
@@ -53,8 +59,9 @@ export function useRuntimeStatuses(
 
     return () => {
       canceled = true;
+      controller.abort();
     };
-  }, [fetcher, refreshToken]);
+  }, [activeToken, refreshToken]);
 
   useEffect(() => {
     if (!autoRefreshMs || autoRefreshMs <= 0) {

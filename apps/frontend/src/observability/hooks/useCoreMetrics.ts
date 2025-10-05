@@ -1,8 +1,9 @@
 import { useCallback, useMemo } from 'react';
 import { API_BASE_URL } from '../../config';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
+import { useAuth } from '../../auth/useAuth';
 import { usePollingResource } from '../../hooks/usePollingResource';
 import { formatFetchError } from '../../core/utils';
+import { fetchCoreMetrics } from '../../core/api';
 import type { CoreRunMetrics } from '../types';
 
 export type UseCoreMetricsOptions = {
@@ -17,22 +18,23 @@ const DEFAULT_OPTIONS: Required<UseCoreMetricsOptions> = {
 
 export function useCoreMetrics(options: UseCoreMetricsOptions = {}) {
   const { intervalMs, enabled } = { ...DEFAULT_OPTIONS, ...options };
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken } = useAuth();
 
   const fetcher = useCallback(
-    async ({ signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
-      const response = await authorizedFetch(`${API_BASE_URL}/metrics`, { signal });
-      if (!response.ok) {
-        const detail = await response.text().catch(() => null);
-        throw new Error(detail || `Failed to load core metrics (status ${response.status})`);
+    async ({ signal }: { authorizedFetch: unknown; signal: AbortSignal }) => {
+      if (!activeToken) {
+        throw new Error('Authentication required to load core metrics');
       }
-      const payload = (await response.json().catch(() => null)) as { data?: CoreRunMetrics } | null;
-      if (!payload?.data) {
-        throw new Error('Malformed core metrics payload');
+      const payload = await fetchCoreMetrics(activeToken, { signal });
+      if (payload && typeof payload === 'object' && 'data' in (payload as { data?: unknown })) {
+        const envelope = payload as { data?: CoreRunMetrics };
+        if (envelope.data) {
+          return envelope.data;
+        }
       }
-      return payload.data;
+      return payload as CoreRunMetrics;
     },
-    [authorizedFetch]
+    [activeToken]
   );
 
   const { data, error, loading, refetch, lastUpdatedAt } = usePollingResource<CoreRunMetrics>({

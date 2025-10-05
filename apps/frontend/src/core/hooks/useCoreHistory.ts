@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
+import { useAuth } from '../../auth/useAuth';
 import { useAppHubEvent, type AppHubSocketEvent } from '../../events/context';
-import { API_BASE_URL } from '../constants';
 import type { AppRecord, HistoryState, IngestionEvent } from '../types';
 import type { CoreRepositoryMutators } from './useCoreSearch';
+import { fetchHistory as fetchHistoryRequest, retryIngestion as retryIngestionRequest } from '../api';
 
 export type UseCoreHistoryOptions = {
   repositories: CoreRepositoryMutators;
@@ -21,7 +21,7 @@ export function useCoreHistory(options: UseCoreHistoryOptions): UseCoreHistoryRe
   const { repositories, setGlobalError } = options;
   const [historyState, setHistoryState] = useState<HistoryState>({});
   const [retryingId, setRetryingId] = useState<string | null>(null);
-  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken: authToken } = useAuth();
 
   const fetchHistory = useCallback(
     async (id: string, force = false) => {
@@ -36,19 +36,14 @@ export function useCoreHistory(options: UseCoreHistoryOptions): UseCoreHistoryRe
       }));
 
       try {
-        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/history`);
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          throw new Error(payload?.error ?? `Failed to load history (${response.status})`);
-        }
-        const payload = await response.json();
+        const events = await fetchHistoryRequest(authToken, id);
         setHistoryState((prev) => ({
           ...prev,
           [id]: {
             open: true,
             loading: false,
             error: null,
-            events: payload?.data ?? []
+            events
           }
         }));
       } catch (err) {
@@ -63,7 +58,7 @@ export function useCoreHistory(options: UseCoreHistoryOptions): UseCoreHistoryRe
         }));
       }
     },
-    [authorizedFetch]
+    [authToken]
   );
 
   const toggleHistory = useCallback(
@@ -106,14 +101,7 @@ export function useCoreHistory(options: UseCoreHistoryOptions): UseCoreHistoryRe
     async (id: string) => {
       setRetryingId(id);
       try {
-        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/retry`, {
-          method: 'POST'
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.error ?? `Retry failed with status ${response.status}`);
-        }
-        const repository = payload?.data as Partial<AppRecord> | undefined;
+        const repository = (await retryIngestionRequest(authToken, id)) as Partial<AppRecord> | null;
         if (repository) {
           repositories.merge(id, repository);
           if (historyState[id]?.open) {
@@ -126,7 +114,7 @@ export function useCoreHistory(options: UseCoreHistoryOptions): UseCoreHistoryRe
         setRetryingId(null);
       }
     },
-    [authorizedFetch, fetchHistory, historyState, repositories, setGlobalError]
+    [authToken, fetchHistory, historyState, repositories, setGlobalError]
   );
 
   const handleIngestionEvent = useCallback((event: IngestionEvent) => {

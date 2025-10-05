@@ -1,4 +1,6 @@
 import { Command } from 'commander';
+import { ApiError } from '@apphub/shared/api/core';
+import { createCoreClient } from '@apphub/shared/api';
 import { resolveCoreUrl } from '../lib/core';
 
 type StreamingOverallState = 'disabled' | 'ready' | 'degraded' | 'unconfigured';
@@ -56,39 +58,27 @@ interface HealthPayload {
   warnings?: string[];
   features?: {
     streaming?: StreamingStatus;
+    [feature: string]: unknown;
   };
 }
 
 async function fetchHealth(coreUrl: string): Promise<{ statusCode: number; payload: HealthPayload | null }> {
-  const url = `${coreUrl.replace(/\/+$/, '')}/health`;
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: {
-        Accept: 'application/json'
-      }
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to contact core health endpoint at ${url}: ${message}`);
-  }
-
-  if (response.status === 204) {
-    return { statusCode: response.status, payload: null };
-  }
-
-  const contentType = response.headers.get('content-type') ?? '';
-  if (!contentType.includes('application/json')) {
-    return { statusCode: response.status, payload: null };
-  }
+  const client = createCoreClient({
+    baseUrl: coreUrl,
+    withCredentials: false
+  });
 
   try {
-    const body = (await response.json()) as HealthPayload;
-    return { statusCode: response.status, payload: body };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to parse JSON response from ${url}: ${message}`);
+    const payload = await client.system.getHealth();
+    return { statusCode: 200, payload: payload ?? null };
+  } catch (error) {
+    if (error instanceof ApiError) {
+      const statusCode = error.status ?? 500;
+      const payload = typeof error.body === 'object' && error.body !== null ? (error.body as HealthPayload) : null;
+      return { statusCode, payload };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to contact core health endpoint at ${coreUrl}: ${message}`);
   }
 }
 
@@ -106,7 +96,7 @@ function renderHealth(payload: HealthPayload | null, statusCode: number): void {
     }
   }
 
-  const streaming = payload.features?.streaming;
+  const streaming: StreamingStatus | undefined = payload.features?.streaming;
   if (streaming) {
     const stateLabel = streaming.enabled ? streaming.state : 'disabled';
     console.log(`Streaming: ${stateLabel}`);

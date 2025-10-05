@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
+import { useAuth } from '../../auth/useAuth';
 import { fetchJobs } from '../api';
-import type { AuthorizedFetch, JobDefinitionSummary } from '../../workflows/api';
-
-type UseJobsListOptions = {
-  fetcher?: AuthorizedFetch;
-};
+import type { JobDefinitionSummary } from '../../workflows/api';
 
 export type UseJobsListResult = {
   jobs: JobDefinitionSummary[];
@@ -15,9 +11,8 @@ export type UseJobsListResult = {
   refresh: () => void;
 };
 
-export function useJobsList(options: UseJobsListOptions = {}): UseJobsListResult {
-  const authorizedFetch = useAuthorizedFetch();
-  const fetcher = options.fetcher ?? authorizedFetch;
+export function useJobsList(): UseJobsListResult {
+  const { activeToken } = useAuth();
   const [jobs, setJobs] = useState<JobDefinitionSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,11 +20,21 @@ export function useJobsList(options: UseJobsListOptions = {}): UseJobsListResult
 
   useEffect(() => {
     let canceled = false;
+    if (!activeToken) {
+      setLoading(false);
+      setError('Authentication required to load jobs');
+      setJobs([]);
+      return () => {
+        canceled = true;
+      };
+    }
+
+    const controller = new AbortController();
     const run = async () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchJobs(fetcher);
+        const data = await fetchJobs(activeToken, { signal: controller.signal });
         if (!canceled) {
           setJobs(data);
         }
@@ -49,8 +54,9 @@ export function useJobsList(options: UseJobsListOptions = {}): UseJobsListResult
 
     return () => {
       canceled = true;
+      controller.abort();
     };
-  }, [fetcher, refreshToken]);
+  }, [activeToken, refreshToken]);
 
   const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
 

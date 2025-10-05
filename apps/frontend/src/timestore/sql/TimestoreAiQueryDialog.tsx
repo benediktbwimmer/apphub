@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AuthorizedFetch } from '../../workflows/api';
+import type { AuthorizedFetch } from '../../lib/apiClient';
 import { Modal } from '../../components';
 import { useAiBuilderSettings } from '../../ai/useAiBuilderSettings';
 import { useToastHelpers } from '../../components/toast';

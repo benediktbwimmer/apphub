@@ -1,10 +1,8 @@
 import { API_BASE_URL } from '../config';
-import type { AuthorizedFetch } from '../workflows/api';
-import { ApiError } from '../workflows/api';
+import { coreRequest, CoreApiError } from '../core/api';
+import { ApiError, createApiClient, type AuthorizedFetch } from '../lib/apiClient';
 import { normalizeWorkflowSchedule, toRecord } from '../workflows/normalizers';
 import type { WorkflowSchedule } from '../workflows/types';
-
-type FetchOptions = Parameters<typeof fetch>[1];
 
 type WorkflowSummary = {
   id: string;
@@ -43,19 +41,6 @@ export type ScheduleUpdateInput = {
   isActive?: boolean;
 };
 
-async function fetchJson(
-  authorizedFetch: AuthorizedFetch,
-  input: RequestInfo,
-  init?: FetchOptions
-): Promise<Response> {
-  const response = await authorizedFetch(input, init);
-  if (!response.ok) {
-    const message = `Request failed with status ${response.status}`;
-    throw new ApiError(message, response.status);
-  }
-  return response;
-}
-
 function parseWorkflowSummary(raw: unknown): WorkflowSummary | null {
   const record = toRecord(raw);
   if (!record) {
@@ -70,11 +55,72 @@ function parseWorkflowSummary(raw: unknown): WorkflowSummary | null {
   return { id, slug, name } satisfies WorkflowSummary;
 }
 
-export async function fetchSchedules(
-  authorizedFetch: AuthorizedFetch
-): Promise<WorkflowScheduleSummary[]> {
-  const response = await fetchJson(authorizedFetch, `${API_BASE_URL}/workflow-schedules`);
-  const payload = (await response.json()) as { data?: unknown };
+type Token = string | null | undefined;
+type TokenInput = Token | AuthorizedFetch;
+
+type CoreJsonOptions = {
+  method?: string;
+  url: string;
+  body?: unknown;
+  signal?: AbortSignal;
+  errorMessage: string;
+};
+
+function ensureToken(input: TokenInput): string {
+  if (typeof input === 'function') {
+    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
+    const candidate = fetcher.authToken;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+    if (typeof candidate === 'string') {
+      return candidate;
+    }
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  throw new Error('Authentication required for schedule requests.');
+}
+
+function toApiError(error: CoreApiError, fallback: string): ApiError {
+  const message = error.message && error.message.trim().length > 0 ? error.message : fallback;
+  return new ApiError(message, error.status ?? 500, error.details ?? null);
+}
+
+async function coreJson<T>(token: TokenInput, options: CoreJsonOptions): Promise<T> {
+  if (typeof token === 'function') {
+    const client = createApiClient(token, { baseUrl: API_BASE_URL });
+    const result = await client.request(options.url, {
+      method: options.method,
+      json: options.body,
+      errorMessage: options.errorMessage,
+      signal: options.signal
+    });
+    return result as T;
+  }
+  try {
+    return (await coreRequest<T>(ensureToken(token), {
+      method: options.method,
+      url: options.url,
+      body: options.body,
+      signal: options.signal
+    })) as T;
+  } catch (error) {
+    if (error instanceof CoreApiError) {
+      throw toApiError(error, options.errorMessage);
+    }
+    throw error;
+  }
+}
+
+export async function fetchSchedules(token: TokenInput): Promise<WorkflowScheduleSummary[]> {
+  const payload = await coreJson<{ data?: unknown }>(token, {
+    url: '/workflow-schedules',
+    errorMessage: 'Failed to load workflow schedules'
+  });
   if (!payload || !Array.isArray(payload.data)) {
     return [];
   }
@@ -98,7 +144,7 @@ export async function fetchSchedules(
 }
 
 export async function createSchedule(
-  authorizedFetch: AuthorizedFetch,
+  token: TokenInput,
   input: ScheduleCreateInput
 ): Promise<WorkflowScheduleSummary> {
   const body = {
@@ -113,31 +159,26 @@ export async function createSchedule(
     isActive: input.isActive
   } satisfies Record<string, unknown>;
 
-  const response = await fetchJson(
-    authorizedFetch,
-    `${API_BASE_URL}/workflows/${encodeURIComponent(input.workflowSlug)}/schedules`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }
-  );
-
-  const payload = (await response.json()) as { data?: unknown };
+  const payload = await coreJson<{ data?: unknown }>(token, {
+    method: 'POST',
+    url: `/workflows/${encodeURIComponent(input.workflowSlug)}/schedules`,
+    body,
+    errorMessage: 'Failed to create schedule'
+  });
   const dataRecord = toRecord(payload?.data);
   if (!dataRecord) {
-    throw new ApiError('Malformed create schedule response', response.status);
+    throw new ApiError('Malformed create schedule response', 500, payload);
   }
   const schedule = normalizeWorkflowSchedule(dataRecord.schedule);
   const workflow = parseWorkflowSummary(dataRecord.workflow);
   if (!schedule || !workflow) {
-    throw new ApiError('Malformed create schedule response', response.status);
+    throw new ApiError('Malformed create schedule response', 500, payload);
   }
   return { schedule, workflow };
 }
 
 export async function updateSchedule(
-  authorizedFetch: AuthorizedFetch,
+  token: TokenInput,
   input: ScheduleUpdateInput
 ): Promise<WorkflowScheduleSummary> {
   const body: Record<string, unknown> = {};
@@ -169,40 +210,31 @@ export async function updateSchedule(
     body.isActive = input.isActive;
   }
 
-  const response = await fetchJson(
-    authorizedFetch,
-    `${API_BASE_URL}/workflow-schedules/${encodeURIComponent(input.scheduleId)}`,
-    {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }
-  );
-
-  const payload = (await response.json()) as { data?: unknown };
+  const payload = await coreJson<{ data?: unknown }>(token, {
+    method: 'PATCH',
+    url: `/workflow-schedules/${encodeURIComponent(input.scheduleId)}`,
+    body,
+    errorMessage: 'Failed to update schedule'
+  });
   const dataRecord = toRecord(payload?.data);
   if (!dataRecord) {
-    throw new ApiError('Malformed update schedule response', response.status);
+    throw new ApiError('Malformed update schedule response', 500, payload);
   }
   const schedule = normalizeWorkflowSchedule(dataRecord.schedule);
   const workflow = parseWorkflowSummary(dataRecord.workflow);
   if (!schedule || !workflow) {
-    throw new ApiError('Malformed update schedule response', response.status);
+    throw new ApiError('Malformed update schedule response', 500, payload);
   }
   return { schedule, workflow };
 }
 
 export async function deleteSchedule(
-  authorizedFetch: AuthorizedFetch,
+  token: TokenInput,
   scheduleId: string
 ): Promise<void> {
-  const response = await authorizedFetch(
-    `${API_BASE_URL}/workflow-schedules/${encodeURIComponent(scheduleId)}`,
-    {
-      method: 'DELETE'
-    }
-  );
-  if (!response.ok) {
-    throw new ApiError('Failed to delete schedule', response.status);
-  }
+  await coreJson(token, {
+    method: 'DELETE',
+    url: `/workflow-schedules/${encodeURIComponent(scheduleId)}`,
+    errorMessage: 'Failed to delete schedule'
+  });
 }

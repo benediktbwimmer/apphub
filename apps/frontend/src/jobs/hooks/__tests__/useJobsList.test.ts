@@ -2,8 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fetchJobsMock = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../auth/useAuthorizedFetch', () => ({
-  useAuthorizedFetch: () => vi.fn()
+vi.mock('../../../auth/useAuth', () => ({
+  useAuth: () => ({
+    activeToken: 'token-123',
+    identity: null,
+    identityLoading: false,
+    identityError: null,
+    refreshIdentity: vi.fn(),
+    apiKeys: [],
+    apiKeysLoading: false,
+    apiKeysError: null,
+    refreshApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    setActiveToken: vi.fn()
+  })
 }));
 
 vi.mock('../../api', () => ({
@@ -51,14 +64,13 @@ describe('useJobsList', () => {
       makeJob('alpha', { runtime: 'python' })
     ];
     fetchJobsMock.mockResolvedValueOnce(jobs);
-    const fetcher = vi.fn();
-
-    const { result } = renderHook(() => useJobsList({ fetcher }));
+    const { result } = renderHook(() => useJobsList());
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
 
+    expect(fetchJobsMock).toHaveBeenCalledWith('token-123', { signal: expect.any(AbortSignal) });
     expect(fetchJobsMock).toHaveBeenCalledTimes(1);
     expect(result.current.jobs).toEqual(jobs);
     expect(result.current.sortedJobs.map((job) => job.slug)).toEqual(['alpha', 'bravo']);
@@ -70,8 +82,7 @@ describe('useJobsList', () => {
     const second = [makeJob('two')];
 
     fetchJobsMock.mockResolvedValueOnce(first);
-    const fetcher = vi.fn();
-    const { result } = renderHook(() => useJobsList({ fetcher }));
+    const { result } = renderHook(() => useJobsList());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.jobs).toEqual(first);
@@ -89,9 +100,7 @@ describe('useJobsList', () => {
 
   it('captures errors from the API', async () => {
     fetchJobsMock.mockRejectedValueOnce(new Error('boom'));
-    const fetcher = vi.fn();
-
-    const { result } = renderHook(() => useJobsList({ fetcher }));
+    const { result } = renderHook(() => useJobsList());
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);

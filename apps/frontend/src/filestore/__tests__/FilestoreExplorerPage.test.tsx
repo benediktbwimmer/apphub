@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => {
   const listBackendMountsMock = vi.fn<ListBackendMountsMock>();
   const listNodesMock = vi.fn();
   const subscribeToFilestoreEventsMock = vi.fn<
-    (authorizedFetch: unknown, handler: unknown, options?: Record<string, unknown>) => {
+    (token: unknown, handler: unknown, options?: Record<string, unknown>) => {
       close: () => void;
     }
   >(() => ({ close: vi.fn() }));
@@ -98,6 +98,21 @@ const writableIdentity: AuthIdentity = {
   displayName: 'Tester',
   email: 'tester@example.com',
   roles: []
+};
+
+const authStateMock = {
+  activeToken: 'mock-token',
+  identity: writableIdentity,
+  identityLoading: false,
+  identityError: null,
+  refreshIdentity: vi.fn(),
+  apiKeys: [] as unknown[],
+  apiKeysLoading: false,
+  apiKeysError: null,
+  refreshApiKeys: vi.fn(),
+  createApiKey: vi.fn(),
+  revokeApiKey: vi.fn(),
+  setActiveToken: vi.fn()
 };
 
 const originalAnchorClick = HTMLAnchorElement.prototype.click;
@@ -265,6 +280,7 @@ function setupPollingResourcesForNode(node: FilestoreNode) {
 
 function renderExplorer(options: { identity?: AuthIdentity | null; initialEntries?: string[] } = {}) {
   const { identity = null, initialEntries = ['/'] } = options;
+  authStateMock.identity = identity;
   return render(
     <MemoryRouter initialEntries={initialEntries}>
       <FilestoreExplorerPage identity={identity} />
@@ -283,6 +299,10 @@ const toastHelpersMock = {
 
 vi.mock('../../auth/useAuthorizedFetch', () => ({
   useAuthorizedFetch: () => mocks.authorizedFetchMock
+}));
+
+vi.mock('../../auth/useAuth', () => ({
+  useAuth: () => authStateMock
 }));
 
 vi.mock('../../hooks/usePollingResource', () => ({
@@ -758,7 +778,8 @@ describe('FilestoreExplorerPage mount discovery', () => {
     if (!initialCall) {
       throw new Error('subscribeToFilestoreEvents should be called');
     }
-    const [, , initialOptions] = initialCall;
+    const [initialToken, , initialOptions] = initialCall;
+    expect(initialToken).toBe('mock-token');
     expect(initialOptions).toBeTruthy();
     const typedInitialOptions = initialOptions as Record<string, unknown>;
     expect(typedInitialOptions.backendMountId).toBe(sampleMount.id);
@@ -791,7 +812,8 @@ describe('FilestoreExplorerPage mount discovery', () => {
     if (!afterPathCall) {
       throw new Error('Expected additional subscribe call after applying path filter');
     }
-    const afterPathOptions = afterPathCall[2];
+    const [afterPathToken, , afterPathOptions] = afterPathCall;
+    expect(afterPathToken).toBe('mock-token');
     expect(afterPathOptions).toBeTruthy();
     const typedAfterPathOptions = afterPathOptions as Record<string, unknown>;
     expect(typedAfterPathOptions.backendMountId).toBe(sampleMount.id);
@@ -811,7 +833,8 @@ describe('FilestoreExplorerPage mount discovery', () => {
     if (!afterToggleCall) {
       throw new Error('Expected subscribe call after toggling category');
     }
-    const afterToggleOptions = afterToggleCall[2];
+    const [afterToggleToken, , afterToggleOptions] = afterToggleCall;
+    expect(afterToggleToken).toBe('mock-token');
     expect(afterToggleOptions).toBeTruthy();
     const typedAfterToggleOptions = afterToggleOptions as Record<string, unknown>;
     expect(typedAfterToggleOptions.eventTypes).toEqual(

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { JobDefinitionSummary } from '../workflows/api';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useAuth } from '../auth/useAuth';
 import { Spinner } from '../components';
 import { useToasts } from '../components/toast';
 import JobCreateDialog from './JobCreateDialog';
@@ -46,6 +47,7 @@ export default function JobsPage() {
   const initialJobSlug = searchParams.get('job');
   const initialJobSlugRef = useRef<string | null>(initialJobSlug);
   const authorizedFetch = useAuthorizedFetch();
+  const { activeToken } = useAuth();
   const { pushToast } = useToasts();
 
   const {
@@ -241,7 +243,10 @@ export default function JobsPage() {
     setRegenerateError(null);
     setRegenerateSuccess(null);
     try {
-      const response = await regenerateJobBundle(authorizedFetch, selectedSlug, payload);
+      if (!activeToken) {
+        throw new Error('Authentication required to regenerate bundles.');
+      }
+      const response = await regenerateJobBundle(activeToken, selectedSlug, payload);
       loadSnapshot(response);
       setRegenerateSuccess(`Published ${response.binding.slug}@${response.bundle.version}`);
       refreshJobs();
@@ -391,7 +396,6 @@ export default function JobsPage() {
       <JobAiEditDialog
         open={aiDialogOpen}
         onClose={() => setAiDialogOpen(false)}
-        authorizedFetch={authorizedFetch}
         job={currentJobForAi}
         bundle={currentBundleForAi}
         onComplete={handleAiEditComplete}

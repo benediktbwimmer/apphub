@@ -7,7 +7,7 @@ export type TagKV = {
   value: string;
 };
 
-export type BuildStatus = 'pending' | 'running' | 'succeeded' | 'failed';
+export type BuildStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
 export type BuildSummary = {
   id: string;

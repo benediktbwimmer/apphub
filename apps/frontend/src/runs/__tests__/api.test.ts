@@ -39,6 +39,11 @@ function createRunPayload(id: string) {
   } satisfies Record<string, unknown>;
 }
 
+function withToken<T extends AuthorizedFetch>(fetcher: T): T {
+  (fetcher as T & { authToken?: string | null }).authToken = 'test-token';
+  return fetcher;
+}
+
 describe('runs api', () => {
   it('normalizes workflow run diff payloads', async () => {
     const responseBody = {
@@ -130,9 +135,11 @@ describe('runs api', () => {
       }
     } satisfies Record<string, unknown>;
 
-    const fetcher: AuthorizedFetch = vi.fn(async () => {
-      return new Response(JSON.stringify(responseBody), { status: 200 });
-    });
+    const fetcher = withToken(
+      vi.fn(async () => {
+        return new Response(JSON.stringify(responseBody), { status: 200 });
+      }) as AuthorizedFetch
+    );
 
     const diff = await fetchWorkflowRunDiff(fetcher, {
       runId: 'run-base',
@@ -148,26 +155,28 @@ describe('runs api', () => {
   });
 
   it('throws replay blocked error when stale assets are detected', async () => {
-    const fetcher: AuthorizedFetch = vi.fn(async () => {
-      return new Response(
-        JSON.stringify({
-          error: 'stale assets detected',
-          data: {
-            staleAssets: [
-              {
-                assetId: 'dataset.users',
-                partitionKey: '2024-01-01',
-                stepId: 'extract',
-                requestedAt: ISO,
-                requestedBy: 'ops@example.com',
-                note: 'Manual refresh pending'
-              }
-            ]
-          }
-        }),
-        { status: 409 }
-      );
-    });
+    const fetcher = withToken(
+      vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            error: 'stale assets detected',
+            data: {
+              staleAssets: [
+                {
+                  assetId: 'dataset.users',
+                  partitionKey: '2024-01-01',
+                  stepId: 'extract',
+                  requestedAt: ISO,
+                  requestedBy: 'ops@example.com',
+                  note: 'Manual refresh pending'
+                }
+              ]
+            }
+          }),
+          { status: 409 }
+        );
+      }) as AuthorizedFetch
+    );
 
     await expect(replayWorkflowRun(fetcher, 'run-base')).rejects.toBeInstanceOf(WorkflowRunReplayBlockedError);
 

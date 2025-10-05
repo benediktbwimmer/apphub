@@ -3,8 +3,10 @@ import {
   encodeFilestoreNodeFiltersParam,
   type FilestoreNodeFilters
 } from '@apphub/shared/filestoreFilters';
+import { ApiError } from '@apphub/shared/api/filestore';
+import { createFilestoreClient } from '@apphub/shared/api';
+import { resolveCancelable } from '../api/cancelable';
 import { FILESTORE_BASE_URL } from '../config';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import {
   filestoreBackendMountListEnvelopeSchema,
   filestoreCommandResponseEnvelopeSchema,
@@ -36,25 +38,18 @@ import {
   type FilestoreReconciliationJobStatus
 } from './types';
 
-type AuthorizedFetch = ReturnType<typeof useAuthorizedFetch>;
+interface RequestOptions {
+  signal?: AbortSignal;
+}
+
+type Token = string | null | undefined;
 
 type JsonHeadersOptions = {
   idempotencyKey?: string;
   principal?: string;
+  checksum?: string;
+  contentHash?: string;
 };
-
-type RequestOptions = {
-  signal?: AbortSignal;
-};
-
-function appendQueryValues(params: URLSearchParams, key: string, values?: readonly string[]) {
-  if (!values || values.length === 0) {
-    return;
-  }
-  for (const value of values) {
-    params.append(key, value);
-  }
-}
 
 export type ListBackendMountsParams = {
   limit?: number;
@@ -157,6 +152,8 @@ export type EnqueueReconciliationInput = {
   reason?: FilestoreReconciliationReason;
   detectChildren?: boolean;
   requestedHash?: boolean;
+  principal?: string;
+  idempotencyKey?: string;
 };
 
 export type ListReconciliationJobsParams = {
@@ -175,28 +172,41 @@ export type FilestoreEventStreamOptions = {
   backendMountId?: number | null;
   pathPrefix?: string | null;
   onError?: (error: Error) => void;
+  fetchImpl?: typeof fetch;
 };
 
 export type FilestoreEventSubscription = {
   close: () => void;
 };
 
-function buildFilestoreUrl(path: string): string {
-  const normalizedPath = path.replace(/^\/+/, '');
-  const base = FILESTORE_BASE_URL.endsWith('/') ? FILESTORE_BASE_URL : `${FILESTORE_BASE_URL}/`;
-  return new URL(normalizedPath, base).toString();
+type FilestoreClientInstance = ReturnType<typeof createFilestoreClient>;
+
+function createClient(token: Token): FilestoreClientInstance {
+  return createFilestoreClient({
+    baseUrl: FILESTORE_BASE_URL,
+    token: token ?? undefined,
+    withCredentials: true
+  });
 }
 
-function buildJsonHeaders(options: JsonHeadersOptions = {}): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'application/json'
-  };
+function parseEnvelope<T>(schema: z.ZodSchema<{ data: T }>, payload: unknown): T {
+  const parsed = schema.parse(payload);
+  return parsed.data;
+}
+
+function buildCommandHeaders(options: JsonHeadersOptions = {}): Record<string, string> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.idempotencyKey) {
     headers['Idempotency-Key'] = options.idempotencyKey;
   }
   if (options.principal) {
     headers['x-filestore-principal'] = options.principal;
+  }
+  if (options.checksum) {
+    headers['x-filestore-checksum'] = options.checksum;
+  }
+  if (options.contentHash) {
+    headers['x-filestore-content-hash'] = options.contentHash;
   }
   return headers;
 }
@@ -209,480 +219,451 @@ function extractFilestoreErrorMessage(raw: string, status: number): string {
       if (typeof candidate === 'string' && candidate.trim().length > 0) {
         return candidate;
       }
-      if (
-        candidate &&
-        typeof candidate === 'object' &&
-        'message' in (candidate as Record<string, unknown>) &&
-        typeof (candidate as Record<string, unknown>).message === 'string'
-      ) {
-        return ((candidate as Record<string, unknown>).message as string) || `Filestore request failed with status ${status}`;
-      }
     } catch {
-      // ignore JSON parse errors
+      // Ignore parse errors and fall through to default message.
     }
   }
   return `Filestore request failed with status ${status}`;
 }
 
-async function parseJsonOrThrow<T>(response: Response, schema: z.ZodSchema<T>): Promise<T> {
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(extractFilestoreErrorMessage(text, response.status));
+function handleApiError(error: unknown): never {
+  if (error instanceof ApiError) {
+    const status = error.status ?? 500;
+    if (typeof error.body === 'string') {
+      throw new Error(extractFilestoreErrorMessage(error.body, status));
+    }
+    if (error.body && typeof error.body === 'object') {
+      const record = error.body as Record<string, unknown>;
+      const candidate = record.message ?? record.error;
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        throw new Error(candidate.trim());
+      }
+      throw new Error(extractFilestoreErrorMessage(JSON.stringify(record), status));
+    }
+    throw new Error(extractFilestoreErrorMessage('', status));
   }
-  const payload = text ? (JSON.parse(text) as unknown) : {};
-  return schema.parse(payload);
+  if (error instanceof Error) {
+    throw error;
+  }
+  throw new Error(String(error));
+}
+
+async function execute<T>(promise: { cancel(): void; then: Promise<T>["then"]; catch: Promise<T>["catch"]; finally: Promise<T>["finally"] }, signal?: AbortSignal): Promise<T> {
+  try {
+    return await resolveCancelable(promise, signal);
+  } catch (error) {
+    handleApiError(error);
+  }
+}
+
+function buildFilestoreUrl(path: string): string {
+  const normalizedPath = path.replace(/^\/+/, '');
+  const base = FILESTORE_BASE_URL.endsWith('/') ? FILESTORE_BASE_URL : `${FILESTORE_BASE_URL}/`;
+  return new URL(normalizedPath, base).toString();
 }
 
 export async function listBackendMounts(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   params: ListBackendMountsParams = {},
   options: RequestOptions = {}
 ): Promise<FilestoreBackendMountList> {
-  const url = new URL(buildFilestoreUrl('/v1/backend-mounts'));
-  const searchParams = new URLSearchParams();
-  if (params.limit !== undefined) {
-    searchParams.set('limit', String(params.limit));
-  }
-  if (params.offset !== undefined) {
-    searchParams.set('offset', String(params.offset));
-  }
-  appendQueryValues(searchParams, 'kinds', params.kinds);
-  appendQueryValues(searchParams, 'states', params.states);
-  appendQueryValues(searchParams, 'accessModes', params.accessModes);
-  if (params.search && params.search.trim().length > 0) {
-    searchParams.set('search', params.search.trim());
-  }
-  const finalUrl = searchParams.toString().length > 0 ? `${url.toString()}?${searchParams.toString()}` : url.toString();
-  const response = await authorizedFetch(finalUrl, {
-    method: 'GET',
-    signal: options.signal
-  });
-  const payload = await parseJsonOrThrow(response, filestoreBackendMountListEnvelopeSchema);
-  return payload.data;
+  const client = createClient(token);
+  const response = await execute(
+    client.backendMounts.getV1BackendMounts({
+      limit: params.limit,
+      offset: params.offset,
+      kinds: params.kinds,
+      states: params.states,
+      accessModes: params.accessModes,
+      search: params.search ?? undefined
+    }),
+    options.signal
+  );
+  return parseEnvelope(filestoreBackendMountListEnvelopeSchema, response);
 }
 
 export async function createDirectory(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   input: CreateDirectoryInput,
   options: RequestOptions = {}
 ): Promise<FilestoreCommandResponse> {
-  const response = await authorizedFetch(buildFilestoreUrl('/v1/directories'), {
-    method: 'POST',
-    headers: buildJsonHeaders({ idempotencyKey: input.idempotencyKey, principal: input.principal }),
-    body: JSON.stringify({
-      backendMountId: input.backendMountId,
-      path: input.path,
-      metadata: input.metadata,
-      idempotencyKey: input.idempotencyKey
+  const client = createClient(token);
+  const response = await execute(
+    client.request.request({
+      method: 'POST',
+      url: '/v1/directories',
+      body: {
+        backendMountId: input.backendMountId,
+        path: input.path,
+        metadata: input.metadata,
+        idempotencyKey: input.idempotencyKey
+      },
+      mediaType: 'application/json',
+      headers: buildCommandHeaders({
+        idempotencyKey: input.idempotencyKey,
+        principal: input.principal
+      })
     }),
-    signal: options.signal
-  });
-  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
-  return envelope.data;
+    options.signal
+  );
+  return parseEnvelope(filestoreCommandResponseEnvelopeSchema, response);
 }
 
 export async function deleteNode(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   input: DeleteNodeInput,
   options: RequestOptions = {}
 ): Promise<FilestoreCommandResponse> {
-  const response = await authorizedFetch(buildFilestoreUrl('/v1/nodes'), {
-    method: 'DELETE',
-    headers: buildJsonHeaders({ idempotencyKey: input.idempotencyKey, principal: input.principal }),
-    body: JSON.stringify({
-      backendMountId: input.backendMountId,
-      path: input.path,
-      recursive: input.recursive ?? false,
-      idempotencyKey: input.idempotencyKey
+  const client = createClient(token);
+  const response = await execute(
+    client.request.request({
+      method: 'DELETE',
+      url: '/v1/nodes',
+      body: {
+        backendMountId: input.backendMountId,
+        path: input.path,
+        recursive: input.recursive ?? false,
+        idempotencyKey: input.idempotencyKey
+      },
+      mediaType: 'application/json',
+      headers: buildCommandHeaders({
+        idempotencyKey: input.idempotencyKey,
+        principal: input.principal
+      })
     }),
-    signal: options.signal
-  });
-  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
-  return envelope.data;
+    options.signal
+  );
+  return parseEnvelope(filestoreCommandResponseEnvelopeSchema, response);
 }
 
 export async function updateNodeMetadata(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   input: UpdateNodeMetadataInput,
   options: RequestOptions = {}
 ): Promise<FilestoreCommandResponse> {
-  const response = await authorizedFetch(buildFilestoreUrl(`/v1/nodes/${input.nodeId}/metadata`), {
-    method: 'PATCH',
-    headers: buildJsonHeaders({
-      idempotencyKey: input.idempotencyKey,
-      principal: input.principal
+  const client = createClient(token);
+  const response = await execute(
+    client.request.request({
+      method: 'PATCH',
+      url: `/v1/nodes/${input.nodeId}/metadata`,
+      body: {
+        backendMountId: input.backendMountId,
+        set: input.set,
+        unset: input.unset,
+        idempotencyKey: input.idempotencyKey
+      },
+      mediaType: 'application/json',
+      headers: buildCommandHeaders({
+        idempotencyKey: input.idempotencyKey,
+        principal: input.principal
+      })
     }),
-    body: JSON.stringify({
-      backendMountId: input.backendMountId,
-      set: input.set,
-      unset: input.unset
-    }),
-    signal: options.signal
-  });
-  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
-  return envelope.data;
+    options.signal
+  );
+  return parseEnvelope(filestoreCommandResponseEnvelopeSchema, response);
 }
 
 export async function moveNode(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   input: MoveNodeInput,
   options: RequestOptions = {}
 ): Promise<FilestoreCommandResponse> {
-  const response = await authorizedFetch(buildFilestoreUrl('/v1/nodes/move'), {
-    method: 'POST',
-    headers: buildJsonHeaders({
-      idempotencyKey: input.idempotencyKey,
-      principal: input.principal
+  const client = createClient(token);
+  const response = await execute(
+    client.request.request({
+      method: 'POST',
+      url: '/v1/nodes/move',
+      body: {
+        backendMountId: input.backendMountId,
+        path: input.path,
+        targetPath: input.targetPath,
+        targetBackendMountId: input.targetBackendMountId,
+        overwrite: input.overwrite,
+        idempotencyKey: input.idempotencyKey
+      },
+      mediaType: 'application/json',
+      headers: buildCommandHeaders({
+        idempotencyKey: input.idempotencyKey,
+        principal: input.principal
+      })
     }),
-    body: JSON.stringify({
-      backendMountId: input.backendMountId,
-      path: input.path,
-      targetPath: input.targetPath,
-      targetBackendMountId: input.targetBackendMountId,
-      overwrite: input.overwrite
-    }),
-    signal: options.signal
-  });
-  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
-  return envelope.data;
+    options.signal
+  );
+  return parseEnvelope(filestoreCommandResponseEnvelopeSchema, response);
 }
 
 export async function copyNode(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   input: CopyNodeInput,
   options: RequestOptions = {}
 ): Promise<FilestoreCommandResponse> {
-  const response = await authorizedFetch(buildFilestoreUrl('/v1/nodes/copy'), {
-    method: 'POST',
-    headers: buildJsonHeaders({
-      idempotencyKey: input.idempotencyKey,
-      principal: input.principal
+  const client = createClient(token);
+  const response = await execute(
+    client.request.request({
+      method: 'POST',
+      url: '/v1/nodes/copy',
+      body: {
+        backendMountId: input.backendMountId,
+        path: input.path,
+        targetPath: input.targetPath,
+        targetBackendMountId: input.targetBackendMountId,
+        overwrite: input.overwrite,
+        idempotencyKey: input.idempotencyKey
+      },
+      mediaType: 'application/json',
+      headers: buildCommandHeaders({
+        idempotencyKey: input.idempotencyKey,
+        principal: input.principal
+      })
     }),
-    body: JSON.stringify({
-      backendMountId: input.backendMountId,
-      path: input.path,
-      targetPath: input.targetPath,
-      targetBackendMountId: input.targetBackendMountId,
-      overwrite: input.overwrite
-    }),
-    signal: options.signal
-  });
-  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
-  return envelope.data;
+    options.signal
+  );
+  return parseEnvelope(filestoreCommandResponseEnvelopeSchema, response);
 }
 
 export async function uploadFile(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   input: UploadFileInput,
   options: RequestOptions = {}
 ): Promise<FilestoreCommandResponse> {
-  const formData = new FormData();
-  formData.set('backendMountId', String(input.backendMountId));
-  formData.set('path', input.path);
-  if (input.overwrite) {
-    formData.set('overwrite', 'true');
-  }
-  if (input.metadata) {
-    formData.set('metadata', JSON.stringify(input.metadata));
-  }
-  if (input.idempotencyKey) {
-    formData.set('idempotencyKey', input.idempotencyKey);
-  }
+  const client = createClient(token);
+  const formData: Record<string, unknown> = {
+    file: input.file,
+    backendMountId: input.backendMountId,
+    path: input.path,
+    overwrite: input.overwrite === true ? 'true' : undefined,
+    metadata: input.metadata ? JSON.stringify(input.metadata) : undefined,
+    idempotencyKey: input.idempotencyKey
+  };
 
-  const candidateName = (input.file as { name?: string }).name;
-  const inferredName = typeof candidateName === 'string' && candidateName.trim().length > 0 ? candidateName : 'upload.bin';
-  formData.append('file', input.file, inferredName);
+  const response = await execute(
+    client.request.request({
+      method: 'POST',
+      url: '/v1/files',
+      formData,
+      mediaType: 'multipart/form-data',
+      headers: buildCommandHeaders({
+        idempotencyKey: input.idempotencyKey,
+        principal: input.principal,
+        checksum: input.checksum,
+        contentHash: input.contentHash
+      })
+    }),
+    options.signal
+  );
 
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (input.idempotencyKey) {
-    headers['Idempotency-Key'] = input.idempotencyKey;
-  }
-  if (input.principal) {
-    headers['x-filestore-principal'] = input.principal;
-  }
-  if (input.checksum) {
-    headers['x-filestore-checksum'] = input.checksum;
-  }
-  if (input.contentHash) {
-    headers['x-filestore-content-hash'] = input.contentHash;
-  }
-
-  const response = await authorizedFetch(buildFilestoreUrl('/v1/files'), {
-    method: 'POST',
-    headers,
-    body: formData,
-    signal: options.signal
-  });
-
-  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
-  return envelope.data;
+  return parseEnvelope(filestoreCommandResponseEnvelopeSchema, response);
 }
 
 export async function fetchNodeById(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   nodeId: number,
   options: RequestOptions = {}
 ): Promise<FilestoreNode> {
-  const response = await authorizedFetch(buildFilestoreUrl(`/v1/nodes/${nodeId}`), {
-    signal: options.signal
-  });
-  const payload = await parseJsonOrThrow(response, filestoreNodeResponseSchema);
-  return payload.data;
+  const client = createClient(token);
+  const response = await execute(client.nodes.getV1Nodes1({ id: nodeId }), options.signal);
+  return parseEnvelope(filestoreNodeResponseSchema, response);
 }
 
 export async function presignNodeDownload(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   nodeId: number,
   options: { expiresInSeconds?: number } = {},
   requestOptions: RequestOptions = {}
 ): Promise<FilestorePresignPayload> {
-  const params = new URLSearchParams();
-  if (options.expiresInSeconds && options.expiresInSeconds > 0) {
-    params.set('expiresIn', String(options.expiresInSeconds));
-  }
-  const suffix = params.size > 0 ? `?${params.toString()}` : '';
-  const response = await authorizedFetch(buildFilestoreUrl(`/v1/files/${nodeId}/presign${suffix}`), {
-    method: 'GET',
-    signal: requestOptions.signal
-  });
-  const text = await response.text().catch(() => '');
-  if (!response.ok) {
-    throw new Error(extractFilestoreErrorMessage(text, response.status));
-  }
-  const payload = filestorePresignEnvelopeSchema.parse(JSON.parse(text));
-  return payload.data;
+  const client = createClient(token);
+  const response = await execute(
+    client.files.getV1FilesPresign({ id: nodeId, expiresIn: options.expiresInSeconds }),
+    requestOptions.signal
+  );
+  return parseEnvelope(filestorePresignEnvelopeSchema, response);
 }
 
 export async function fetchNodeByPath(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   input: GetNodeByPathInput,
   options: RequestOptions = {}
 ): Promise<FilestoreNode> {
-  const url = new URL(buildFilestoreUrl('/v1/nodes/by-path'));
-  url.searchParams.set('backendMountId', String(input.backendMountId));
-  url.searchParams.set('path', input.path);
-  const response = await authorizedFetch(url.toString(), { signal: options.signal });
-  const payload = await parseJsonOrThrow(response, filestoreNodeResponseSchema);
-  return payload.data;
+  const client = createClient(token);
+  const response = await execute(
+    client.nodes.getV1NodesByPath({ backendMountId: input.backendMountId, path: input.path }),
+    options.signal
+  );
+  return parseEnvelope(filestoreNodeResponseSchema, response);
 }
 
 export async function listNodes(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   params: ListNodesParams,
   options: RequestOptions = {}
 ): Promise<FilestoreNodeList> {
-  const url = new URL(buildFilestoreUrl('/v1/nodes'));
-  url.searchParams.set('backendMountId', String(params.backendMountId));
-  if (params.limit && params.limit > 0) {
-    url.searchParams.set('limit', String(params.limit));
-  }
-  if (params.offset && params.offset > 0) {
-    url.searchParams.set('offset', String(params.offset));
-  }
-  if (params.path && params.path.trim().length > 0) {
-    url.searchParams.set('path', params.path.trim());
-  }
-  if (typeof params.depth === 'number' && Number.isFinite(params.depth)) {
-    url.searchParams.set('depth', String(params.depth));
-  }
-  const searchValue = params.filters?.query ?? params.search;
-  if (searchValue && searchValue.trim().length > 0) {
-    url.searchParams.set('search', searchValue.trim());
-  }
-  if (params.driftOnly) {
-    url.searchParams.set('driftOnly', 'true');
-  }
-  appendQueryValues(url.searchParams, 'states', params.states);
-  appendQueryValues(url.searchParams, 'kinds', params.kinds);
-  const encodedFilters = encodeFilestoreNodeFiltersParam(params.filters ?? null);
-  if (encodedFilters) {
-    url.searchParams.set('filters', encodedFilters);
-  }
-
-  const response = await authorizedFetch(url.toString(), { signal: options.signal });
-  const payload = await parseJsonOrThrow(response, filestoreNodeListEnvelopeSchema);
-  return payload.data;
+  const client = createClient(token);
+  const response = await execute(
+    client.nodes.getV1Nodes({
+      backendMountId: params.backendMountId,
+      limit: params.limit,
+      offset: params.offset,
+      path: params.path ?? undefined,
+      depth: params.depth ?? undefined,
+      search: (params.filters?.query ?? params.search) ?? undefined,
+      states: params.states,
+      kinds: params.kinds,
+      driftOnly: params.driftOnly,
+      filters: encodeFilestoreNodeFiltersParam(params.filters ?? null) ?? undefined
+    }),
+    options.signal
+  );
+  return parseEnvelope(filestoreNodeListEnvelopeSchema, response);
 }
 
 export async function fetchNodeChildren(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   nodeId: number,
   params: FetchNodeChildrenParams = {},
   options: RequestOptions = {}
 ): Promise<FilestoreNodeChildren> {
-  const url = new URL(buildFilestoreUrl(`/v1/nodes/${nodeId}/children`));
-  if (params.limit && params.limit > 0) {
-    url.searchParams.set('limit', String(params.limit));
-  }
-  if (params.offset && params.offset > 0) {
-    url.searchParams.set('offset', String(params.offset));
-  }
-  const searchValue = params.filters?.query ?? params.search;
-  if (searchValue && searchValue.trim().length > 0) {
-    url.searchParams.set('search', searchValue.trim());
-  }
-  if (params.driftOnly) {
-    url.searchParams.set('driftOnly', 'true');
-  }
-  appendQueryValues(url.searchParams, 'states', params.states);
-  appendQueryValues(url.searchParams, 'kinds', params.kinds);
-  const encodedFilters = encodeFilestoreNodeFiltersParam(params.filters ?? null);
-  if (encodedFilters) {
-    url.searchParams.set('filters', encodedFilters);
-  }
-
-  const response = await authorizedFetch(url.toString(), { signal: options.signal });
-  const payload = await parseJsonOrThrow(response, filestoreNodeChildrenEnvelopeSchema);
-  return payload.data;
+  const client = createClient(token);
+  const response = await execute(
+    client.nodes.getV1NodesChildren({
+      id: nodeId,
+      limit: params.limit,
+      offset: params.offset,
+      search: (params.filters?.query ?? params.search) ?? undefined,
+      states: params.states,
+      kinds: params.kinds,
+      driftOnly: params.driftOnly,
+      filters: encodeFilestoreNodeFiltersParam(params.filters ?? null) ?? undefined
+    }),
+    options.signal
+  );
+  return parseEnvelope(filestoreNodeChildrenEnvelopeSchema, response);
 }
 
 export async function enqueueReconciliation(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   input: EnqueueReconciliationInput,
   options: RequestOptions = {}
 ): Promise<FilestoreReconciliationResult> {
-  const response = await authorizedFetch(buildFilestoreUrl('/v1/reconciliation'), {
-    method: 'POST',
-    headers: buildJsonHeaders(),
-    body: JSON.stringify({
-      backendMountId: input.backendMountId,
-      path: input.path,
-      nodeId: input.nodeId ?? null,
-      reason: input.reason ?? 'manual',
-      detectChildren: input.detectChildren ?? false,
-      requestedHash: input.requestedHash ?? false
+  const client = createClient(token);
+  const response = await execute(
+    client.request.request({
+      method: 'POST',
+      url: '/v1/reconciliation',
+      body: {
+        backendMountId: input.backendMountId,
+        path: input.path,
+        nodeId: input.nodeId,
+        reason: input.reason,
+        detectChildren: input.detectChildren,
+        requestedHash: input.requestedHash,
+        idempotencyKey: input.idempotencyKey
+      },
+      mediaType: 'application/json',
+      headers: buildCommandHeaders({
+        idempotencyKey: input.idempotencyKey,
+        principal: input.principal
+      })
     }),
-    signal: options.signal
-  });
-  const payload = await parseJsonOrThrow(response, filestoreReconciliationEnvelopeSchema);
-  return payload.data;
+    options.signal
+  );
+  return parseEnvelope(filestoreReconciliationEnvelopeSchema, response);
 }
 
 export async function listReconciliationJobs(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   params: ListReconciliationJobsParams,
   options: RequestOptions = {}
 ): Promise<FilestoreReconciliationJobList> {
-  const url = new URL(buildFilestoreUrl('/v1/reconciliation/jobs'));
-  url.searchParams.set('backendMountId', String(params.backendMountId));
-  if (params.limit && params.limit > 0) {
-    url.searchParams.set('limit', String(params.limit));
-  }
-  if (params.offset && params.offset > 0) {
-    url.searchParams.set('offset', String(params.offset));
-  }
-  if (params.path && params.path.trim().length > 0) {
-    url.searchParams.set('path', params.path.trim());
-  }
-  appendQueryValues(url.searchParams, 'status', params.statuses);
-
-  const response = await authorizedFetch(url.toString(), {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    signal: options.signal
-  });
-  const payload = await parseJsonOrThrow(response, filestoreReconciliationJobListEnvelopeSchema);
-  return payload.data;
+  const client = createClient(token);
+  const response = await execute(
+    client.reconciliation.getV1ReconciliationJobs({
+      backendMountId: params.backendMountId,
+      status: params.statuses,
+      path: params.path ?? undefined,
+      limit: params.limit,
+      offset: params.offset
+    }),
+    options.signal
+  );
+  return parseEnvelope(filestoreReconciliationJobListEnvelopeSchema, response);
 }
 
 export async function fetchReconciliationJob(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   jobId: number,
   options: RequestOptions = {}
 ): Promise<FilestoreReconciliationJobDetail> {
-  const response = await authorizedFetch(buildFilestoreUrl(`/v1/reconciliation/jobs/${jobId}`), {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    signal: options.signal
-  });
-  const payload = await parseJsonOrThrow(response, filestoreReconciliationJobDetailEnvelopeSchema);
-  return payload.data;
+  const client = createClient(token);
+  const response = await execute(client.reconciliation.getV1ReconciliationJobs1({ id: jobId }), options.signal);
+  return parseEnvelope(filestoreReconciliationJobDetailEnvelopeSchema, response);
 }
 
-export function parseFilestoreEventFrame(
-  frame: string,
-  eventTypes?: FilestoreEventType[]
-): FilestoreEvent | null {
-  if (!frame.trim()) {
-    return null;
-  }
-  const lines = frame.split(/\n/);
-  let eventName: string | null = null;
-  const dataLines: string[] = [];
+function parseFilestoreEventFrameInternal(frame: string): FilestoreEvent | null {
+  const lines = frame.split('\n');
+  let eventType: string | null = null;
+  let dataPayload = '';
 
-  for (const rawLine of lines) {
-    if (!rawLine.trim()) {
-      continue;
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      eventType = line.slice('event:'.length).trim();
     }
-    if (rawLine.startsWith(':')) {
-      continue;
-    }
-    if (rawLine.startsWith('event:')) {
-      eventName = rawLine.slice(6).trim();
-      continue;
-    }
-    if (rawLine.startsWith('data:')) {
-      dataLines.push(rawLine.slice(5).trim());
+    if (line.startsWith('data:')) {
+      dataPayload += `${line.slice('data:'.length).trim()}`;
     }
   }
 
-  if (!eventName || dataLines.length === 0) {
+  if (!eventType || !dataPayload) {
     return null;
   }
 
-  if (eventTypes && !eventTypes.includes(eventName as FilestoreEventType)) {
-    return null;
-  }
-
-  const payloadText = dataLines.join('\n');
   try {
-    const parsed = JSON.parse(payloadText) as { data?: unknown } | undefined;
-    const candidate = {
-      type: eventName,
-      data: parsed?.data ?? parsed
-    };
-    return filestoreEventSchema.parse(candidate);
+    const parsed = JSON.parse(dataPayload) as unknown;
+    const event = filestoreEventSchema.parse(parsed);
+    return event;
   } catch {
     return null;
   }
 }
 
+export function parseFilestoreEventFrame(frame: string, allowedEvents?: FilestoreEventType[]): FilestoreEvent | null {
+  const event = parseFilestoreEventFrameInternal(frame);
+  if (!event) {
+    return null;
+  }
+  if (allowedEvents && allowedEvents.length > 0 && !allowedEvents.includes(event.type)) {
+    return null;
+  }
+  return event;
+}
+
 export function subscribeToFilestoreEvents(
-  authorizedFetch: AuthorizedFetch,
+  token: Token,
   handler: FilestoreEventHandler,
   options: FilestoreEventStreamOptions = {}
 ): FilestoreEventSubscription {
   const controller = new AbortController();
-  const { signal, eventTypes, backendMountId, pathPrefix, onError } = options;
-  const normalizedEventTypes =
-    eventTypes && eventTypes.length > 0 ? Array.from(new Set(eventTypes)) : undefined;
-  const normalizedMountId =
-    typeof backendMountId === 'number' && Number.isFinite(backendMountId) ? backendMountId : null;
-  const normalizedPathPrefix = typeof pathPrefix === 'string' ? pathPrefix.trim() : '';
+  const signal = options.signal;
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const normalizedMountId = options.backendMountId ?? null;
+  const normalizedPathPrefix = options.pathPrefix ?? null;
+  const normalizedEventTypes = options.eventTypes ?? null;
 
   const notifyError = (error: unknown) => {
-    const err = error instanceof Error ? error : new Error(String(error));
-    if (onError) {
-      onError(err);
-      return;
-    }
-    console.error('[filestore] event stream error', err);
-  };
-
-  const abortWithReason = (reason?: unknown) => {
-    if (!controller.signal.aborted) {
-      controller.abort(reason);
+    if (typeof options.onError === 'function') {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      options.onError(normalized);
     }
   };
 
   if (signal) {
     if (signal.aborted) {
-      abortWithReason(signal.reason);
+      controller.abort(signal.reason);
     } else {
       signal.addEventListener(
         'abort',
         () => {
-          abortWithReason(signal.reason);
+          controller.abort(signal.reason);
         },
         { once: true }
       );
@@ -695,7 +676,7 @@ export function subscribeToFilestoreEvents(
     while (separatorIndex !== -1) {
       const frame = working.slice(0, separatorIndex);
       working = working.slice(separatorIndex + 2);
-      const event = parseFilestoreEventFrame(frame, normalizedEventTypes);
+      const event = parseFilestoreEventFrame(frame, normalizedEventTypes ?? undefined);
       if (event) {
         try {
           await handler(event);
@@ -727,9 +708,15 @@ export function subscribeToFilestoreEvents(
         }
       }
 
-      const response = await authorizedFetch(streamUrl.toString(), {
+      const headers: Record<string, string> = { Accept: 'text/event-stream' };
+      const trimmedToken = token?.trim();
+      if (trimmedToken) {
+        headers.Authorization = `Bearer ${trimmedToken}`;
+      }
+
+      const response = await fetchImpl(streamUrl.toString(), {
         method: 'GET',
-        headers: { Accept: 'text/event-stream' },
+        headers,
         signal: controller.signal
       });
 
@@ -761,10 +748,9 @@ export function subscribeToFilestoreEvents(
         reader.releaseLock();
       }
     } catch (error) {
-      if (controller.signal.aborted) {
-        return;
+      if (!controller.signal.aborted) {
+        notifyError(error);
       }
-      notifyError(error);
     }
   };
 
@@ -774,7 +760,7 @@ export function subscribeToFilestoreEvents(
 
   return {
     close: () => {
-      abortWithReason();
+      controller.abort();
     }
   };
 }
@@ -798,11 +784,16 @@ export type {
   FilestoreCommandCompletedPayload,
   FilestoreCommandResponse,
   FilestoreDriftDetectedPayload,
-  FilestoreNodeEventPayload,
-  FilestoreNodeReconciledPayload,
-  FilestoreReconciliationReason,
-  FilestoreReconciliationResult,
-  FilestorePresignPayload,
-  FilestoreReconciliationJobList,
-  FilestoreReconciliationJobDetail
+  FilestoreEventBase,
+  FilestoreEventPayload,
+  FilestoreNodeCreatedPayload,
+  FilestoreNodeDeletedPayload,
+  FilestoreNodeMovedPayload,
+  FilestoreNodeCopiedPayload,
+  FilestoreNodeUpdatedPayload,
+  FilestoreNodeUploadedPayload,
+  FilestoreNodeDownloadedPayload,
+  FilestoreReconciliationJobDetail,
+  FilestoreReconciliationJobList
 } from './types';
+export { describeFilestoreEvent } from './eventSummaries';

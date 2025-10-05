@@ -4,11 +4,24 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const authorizedFetchMock = vi.fn();
 const showErrorMock = vi.fn();
+const activeToken = 'namespace-token';
 
-vi.mock('../../auth/useAuthorizedFetch', () => ({
-  useAuthorizedFetch: () => authorizedFetchMock
+vi.mock('../../auth/useAuth', () => ({
+  useAuth: () => ({
+    activeToken,
+    identity: null,
+    identityLoading: false,
+    identityError: null,
+    refreshIdentity: vi.fn(),
+    apiKeys: [],
+    apiKeysLoading: false,
+    apiKeysError: null,
+    refreshApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    setActiveToken: vi.fn()
+  })
 }));
 
 vi.mock('../../components/toast', () => ({
@@ -63,8 +76,6 @@ function Wrapper({ initial, onSelect }: { initial: string; onSelect?: (value: st
 }
 
 beforeEach(() => {
-  authorizedFetchMock.mockReset();
-  authorizedFetchMock.mockImplementation(async () => new Response('{}'));
   listNamespacesMock.mockReset();
   showErrorMock.mockReset();
   window.localStorage.clear();

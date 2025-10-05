@@ -4,7 +4,8 @@ import DiffViewer from '../components/DiffViewer';
 import { Spinner } from '../components';
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import type { AuthorizedFetch } from '../workflows/api';
+import { useAuth } from '../auth/useAuth';
+import type { AuthorizedFetch } from '../lib/apiClient';
 import type { BundleEditorData } from './api';
 import { fetchBundleVersionDetail } from './api';
 import { extractBundleArchive, type BundleArchiveFile } from './bundleArchive';
@@ -54,16 +55,18 @@ function resolveDownloadUrl(url: string): string {
 }
 
 async function loadVersionSnapshot(
+  token: string,
   fetcher: AuthorizedFetch,
   slug: string,
-  version: string
+  version: string,
+  signal?: AbortSignal
 ): Promise<VersionSnapshot> {
-  const detail = await fetchBundleVersionDetail(fetcher, slug, version);
+  const detail = await fetchBundleVersionDetail(token, slug, version, { signal });
   const downloadUrl = detail.version.download?.url;
   if (!downloadUrl) {
     throw new Error('Bundle version does not include a downloadable artifact.');
   }
-  const response = await fetcher(resolveDownloadUrl(downloadUrl));
+  const response = await fetcher(resolveDownloadUrl(downloadUrl), { signal });
   if (!response.ok) {
     throw new Error('Failed to download bundle artifact');
   }
@@ -73,6 +76,7 @@ async function loadVersionSnapshot(
 }
 
 function useBundleVersionSnapshot(
+  token: string | null,
   fetcher: AuthorizedFetch,
   slug: string,
   version: string | null
@@ -85,17 +89,18 @@ function useBundleVersionSnapshot(
       return;
     }
 
+    if (!token) {
+      setState({ snapshot: null, loading: false, error: 'Authentication required to compare bundle versions.' });
+      return;
+    }
+
     const controller = new AbortController();
     let canceled = false;
     setState({ snapshot: null, loading: true, error: null });
 
     const run = async () => {
       try {
-        const snapshot = await loadVersionSnapshot(
-          (input, init) => fetcher(input, { ...init, signal: controller.signal }),
-          slug,
-          version
-        );
+        const snapshot = await loadVersionSnapshot(token, fetcher, slug, version, controller.signal);
         if (!canceled) {
           setState({ snapshot, loading: false, error: null });
         }
@@ -117,7 +122,7 @@ function useBundleVersionSnapshot(
       canceled = true;
       controller.abort();
     };
-  }, [fetcher, slug, version]);
+  }, [fetcher, slug, token, version]);
 
   return state;
 }
@@ -165,6 +170,7 @@ type BundleVersionCompareProps = {
 
 export function BundleVersionCompare({ bundle, className }: BundleVersionCompareProps) {
   const authorizedFetch = useAuthorizedFetch();
+  const { activeToken } = useAuth();
   const slug = bundle.binding.slug;
   const versions = bundle.availableVersions;
   const [selection, setSelection] = useState<{ left: string | null; right: string | null }>({
@@ -206,8 +212,8 @@ export function BundleVersionCompare({ bundle, className }: BundleVersionCompare
     });
   }, [slug, versionsKey, versions]);
 
-  const leftState = useBundleVersionSnapshot(authorizedFetch, slug, selection.left);
-  const rightState = useBundleVersionSnapshot(authorizedFetch, slug, selection.right);
+  const leftState = useBundleVersionSnapshot(activeToken, authorizedFetch, slug, selection.left);
+  const rightState = useBundleVersionSnapshot(activeToken, authorizedFetch, slug, selection.right);
 
   const diffItems = useMemo<DiffItem[]>(() => {
     const leftFiles = leftState.snapshot?.files ?? [];

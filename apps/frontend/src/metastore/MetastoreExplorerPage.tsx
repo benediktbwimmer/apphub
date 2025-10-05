@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import type { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
 import { useToastHelpers } from '../components/toast';
 import { CollapsibleSection, Spinner } from '../components';
@@ -126,8 +126,7 @@ function parseFilterFromText(raw: string): FilterNodeInput | undefined {
 }
 
 export default function MetastoreExplorerPage() {
-  const { identity } = useAuth();
-  const authorizedFetch = useAuthorizedFetch();
+  const { identity, activeToken } = useAuth();
   const { showSuccess, showError, showInfo } = useToastHelpers();
   const scopes = identity?.scopes ?? [];
   const hasAdminScope = scopes.includes('metastore:admin');
@@ -222,7 +221,7 @@ export default function MetastoreExplorerPage() {
   const schemaHashDisplay = useMemo(() => schemaHashText.trim(), [schemaHashText]);
   const schemaLookupHash = useMemo(() => (schemaHashDisplay.length >= 6 ? schemaHashDisplay : null), [schemaHashDisplay]);
 
-  const schemaState = useSchemaDefinition(authorizedFetch, schemaLookupHash);
+  const schemaState = useSchemaDefinition(activeToken, schemaLookupHash);
 
   const resetEditors = useCallback(
     (detail: MetastoreRecordDetail) => {
@@ -447,7 +446,7 @@ export default function MetastoreExplorerPage() {
   }, [appliedQuery.mode, applyBuilder, updateUrlParams]);
 
   const searchFetcher = useCallback(
-    async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+    async ({ signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
       if (!hasReadScope) {
         return null;
       }
@@ -484,11 +483,13 @@ export default function MetastoreExplorerPage() {
         requestBody.preset = appliedQuery.preset;
       }
 
-      const payload = await searchRecords(authorizedFetch, requestBody, { signal });
+      const payload = await searchRecords(activeToken, requestBody as Parameters<typeof searchRecords>[1], {
+        signal
+      });
 
       return payload;
     },
-    [hasReadScope, namespace, includeDeleted, offset, appliedQuery]
+    [hasReadScope, namespace, includeDeleted, offset, appliedQuery, activeToken]
   );
 
   const {
@@ -550,7 +551,7 @@ export default function MetastoreExplorerPage() {
     setDetailLoading(true);
     setDetailError(null);
     const controller = new AbortController();
-    fetchRecord(authorizedFetch, recordSummary.namespace, recordSummary.recordKey, {
+    fetchRecord(activeToken, recordSummary.namespace, recordSummary.recordKey, {
       includeDeleted,
       signal: controller.signal
     })
@@ -577,7 +578,7 @@ export default function MetastoreExplorerPage() {
     return () => {
       controller.abort();
     };
-  }, [authorizedFetch, includeDeleted, selectedRecordId, records, resetEditors, showError]);
+  }, [activeToken, includeDeleted, selectedRecordId, records, resetEditors, showError]);
 
   const handleRecordUpdate = async () => {
     if (!recordDetail) {
@@ -622,7 +623,7 @@ export default function MetastoreExplorerPage() {
         expectedVersion: recordDetail.version
       } satisfies MetastoreUpsertPayload;
 
-      const updated = await upsertRecord(authorizedFetch, recordDetail.namespace, recordDetail.recordKey, payload);
+      const updated = await upsertRecord(activeToken, recordDetail.namespace, recordDetail.recordKey, payload);
       showSuccess('Record updated', `Version ${updated.version}`);
       resetEditors(updated);
       refetchSearch();
@@ -652,7 +653,7 @@ export default function MetastoreExplorerPage() {
         expectedVersion: recordDetail.version
       };
 
-      const updated = await patchRecord(authorizedFetch, recordDetail.namespace, recordDetail.recordKey, payload);
+      const updated = await patchRecord(activeToken, recordDetail.namespace, recordDetail.recordKey, payload);
       showSuccess('Patch applied', `Version ${updated.version}`);
       resetEditors(updated);
       refetchSearch();
@@ -675,7 +676,7 @@ export default function MetastoreExplorerPage() {
       return;
     }
     try {
-      const deleted = await deleteRecord(authorizedFetch, recordDetail.namespace, recordDetail.recordKey, {
+      const deleted = await deleteRecord(activeToken, recordDetail.namespace, recordDetail.recordKey, {
         expectedVersion: recordDetail.version
       });
       showSuccess('Record soft deleted');
@@ -691,7 +692,7 @@ export default function MetastoreExplorerPage() {
       return;
     }
     try {
-      const restored = await upsertRecord(authorizedFetch, recordDetail.namespace, recordDetail.recordKey, {
+      const restored = await upsertRecord(activeToken, recordDetail.namespace, recordDetail.recordKey, {
         metadata: recordDetail.metadata,
         tags: recordDetail.tags,
         owner: recordDetail.owner,
@@ -718,7 +719,7 @@ export default function MetastoreExplorerPage() {
       return;
     }
     try {
-      await purgeRecord(authorizedFetch, recordDetail.namespace, recordDetail.recordKey, {
+      await purgeRecord(activeToken, recordDetail.namespace, recordDetail.recordKey, {
         expectedVersion: recordDetail.version
       });
       showSuccess('Record purged');
@@ -731,7 +732,7 @@ export default function MetastoreExplorerPage() {
   };
 
   const bulkSubmit = async (payload: BulkRequestPayload) => {
-    const response = await bulkOperate(authorizedFetch, payload);
+    const response = await bulkOperate(activeToken, payload);
     refetchSearch();
     return response;
   };
@@ -1204,7 +1205,7 @@ export default function MetastoreExplorerPage() {
 
                 <AuditTrailPanel
                   record={currentRecord}
-                  authorizedFetch={authorizedFetch}
+                  token={activeToken}
                   hasWriteScope={hasWriteScope}
                   onRecordRestored={(restored) => {
                     resetEditors(restored);
@@ -1232,7 +1233,7 @@ export default function MetastoreExplorerPage() {
 
         <div className="flex flex-col gap-4 xl:sticky xl:top-24">
           <RealtimeActivityRail namespace={namespace} enabled={hasReadScope} />
-          <FilestoreHealthRail enabled={hasReadScope} />
+          <FilestoreHealthRail enabled={hasReadScope} token={activeToken} />
         </div>
       </div>
 
