@@ -634,8 +634,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "Repository": {
         "type": "object",
         "required": [
@@ -1164,8 +1165,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "RepositoryResponse": {
         "type": "object",
         "required": [
@@ -1353,8 +1355,9 @@
                 "nullable": true
               }
             }
+          }
         }
-            },
+      },
       "SavedCoreSearch": {
         "type": "object",
         "required": [
@@ -1556,8 +1559,9 @@
                 "format": "date-time"
               }
             }
+          }
         }
-            },
+      },
       "SavedCoreSearchListResponse": {
         "type": "object",
         "required": [
@@ -1664,8 +1668,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "SavedCoreSearchCreateRequest": {
         "type": "object",
         "required": [
@@ -2247,8 +2252,9 @@
                 "nullable": true
               }
             }
+          }
         }
-            },
+      },
       "EventSavedViewListResponse": {
         "type": "object",
         "required": [
@@ -2451,8 +2457,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "EventSavedViewCreateRequest": {
         "type": "object",
         "required": [
@@ -2811,36 +2818,84 @@
             "nullable": true
           },
           "env": {
-            "description": "Environment variables declared for the service in manifests, including placeholder metadata.",
-            "nullable": true,
-            "allOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {}
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": true
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "key"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "$var"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "$var": {
+                          "type": "object",
+                          "required": [
+                            "name"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "default": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "fromService": {
+                  "type": "object",
+                  "required": [
+                    "service",
+                    "property"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "service": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "property": {
+                      "type": "string",
+                      "enum": [
+                        "instanceUrl",
+                        "baseUrl",
+                        "host",
+                        "port"
+                      ]
+                    },
+                    "fallback": {
+                      "type": "string"
+                    }
                   }
-                ]
-              }
-            ]
+                }
+              },
+              "description": "Environment variable declared in a service manifest."
+            },
+            "nullable": true,
+            "description": "Environment variables declared for the service in manifests, including placeholder metadata."
           },
           "apps": {
             "type": "array",
@@ -2934,77 +2989,7 @@
       "ServiceMetadata": {
         "type": "object",
         "description": "Structured metadata describing how a service is sourced, linked, and executed.",
-        "properties": {
-          "resourceType": {
-            "type": "string",
-            "enum": [
-              "service"
-            ],
-            "description": "Discriminator indicating this metadata payload represents a service resource."
-          },
-          "manifest": {
-            "nullable": true,
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/def-31"
-              }
-            ]
-          },
-          "config": {
-            "nullable": true,
-            "allOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "nullable": true,
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {}
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": true
-                  }
-                ]
-              }
-            ],
-            "description": "Raw metadata block forwarded from manifests or config files."
-          },
-          "runtime": {
-            "nullable": true,
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/def-32"
-              }
-            ]
-          },
-          "linkedApps": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "nullable": true,
-            "description": "Explicit list of app IDs linked to this service beyond manifest hints."
-          },
-          "notes": {
-            "type": "string",
-            "maxLength": 2000,
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "Service": {
         "type": "object",
@@ -3085,77 +3070,7 @@
           "metadata": {
             "type": "object",
             "description": "Structured metadata describing how a service is sourced, linked, and executed.",
-            "properties": {
-              "resourceType": {
-                "type": "string",
-                "enum": [
-                  "service"
-                ],
-                "description": "Discriminator indicating this metadata payload represents a service resource."
-              },
-              "manifest": {
-                "nullable": true,
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/def-31"
-                  }
-                ]
-              },
-              "config": {
-                "nullable": true,
-                "allOf": [
-                  {
-                    "description": "Arbitrary JSON value.",
-                    "nullable": true,
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "array",
-                        "items": {}
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    ]
-                  }
-                ],
-                "description": "Raw metadata block forwarded from manifests or config files."
-              },
-              "runtime": {
-                "nullable": true,
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/def-32"
-                  }
-                ]
-              },
-              "linkedApps": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "nullable": true,
-                "description": "Explicit list of app IDs linked to this service beyond manifest hints."
-              },
-              "notes": {
-                "type": "string",
-                "maxLength": 2000,
-                "nullable": true
-              }
-            },
-            "additionalProperties": false,
+            "additionalProperties": true,
             "nullable": true
           },
           "openapi": {
@@ -3327,77 +3242,7 @@
                 "metadata": {
                   "type": "object",
                   "description": "Structured metadata describing how a service is sourced, linked, and executed.",
-                  "properties": {
-                    "resourceType": {
-                      "type": "string",
-                      "enum": [
-                        "service"
-                      ],
-                      "description": "Discriminator indicating this metadata payload represents a service resource."
-                    },
-                    "manifest": {
-                      "nullable": true,
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/def-31"
-                        }
-                      ]
-                    },
-                    "config": {
-                      "nullable": true,
-                      "allOf": [
-                        {
-                          "description": "Arbitrary JSON value.",
-                          "nullable": true,
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "number"
-                            },
-                            {
-                              "type": "integer"
-                            },
-                            {
-                              "type": "boolean"
-                            },
-                            {
-                              "type": "array",
-                              "items": {}
-                            },
-                            {
-                              "type": "object",
-                              "additionalProperties": true
-                            }
-                          ]
-                        }
-                      ],
-                      "description": "Raw metadata block forwarded from manifests or config files."
-                    },
-                    "runtime": {
-                      "nullable": true,
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/def-32"
-                        }
-                      ]
-                    },
-                    "linkedApps": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "nullable": true,
-                      "description": "Explicit list of app IDs linked to this service beyond manifest hints."
-                    },
-                    "notes": {
-                      "type": "string",
-                      "maxLength": 2000,
-                      "nullable": true
-                    }
-                  },
-                  "additionalProperties": false,
+                  "additionalProperties": true,
                   "nullable": true
                 },
                 "openapi": {
@@ -3535,8 +3380,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "ServiceResponse": {
         "type": "object",
         "required": [
@@ -3622,77 +3468,7 @@
               "metadata": {
                 "type": "object",
                 "description": "Structured metadata describing how a service is sourced, linked, and executed.",
-                "properties": {
-                  "resourceType": {
-                    "type": "string",
-                    "enum": [
-                      "service"
-                    ],
-                    "description": "Discriminator indicating this metadata payload represents a service resource."
-                  },
-                  "manifest": {
-                    "nullable": true,
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/def-31"
-                      }
-                    ]
-                  },
-                  "config": {
-                    "nullable": true,
-                    "allOf": [
-                      {
-                        "description": "Arbitrary JSON value.",
-                        "nullable": true,
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "array",
-                            "items": {}
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": true
-                          }
-                        ]
-                      }
-                    ],
-                    "description": "Raw metadata block forwarded from manifests or config files."
-                  },
-                  "runtime": {
-                    "nullable": true,
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/def-32"
-                      }
-                    ]
-                  },
-                  "linkedApps": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    },
-                    "nullable": true,
-                    "description": "Explicit list of app IDs linked to this service beyond manifest hints."
-                  },
-                  "notes": {
-                    "type": "string",
-                    "maxLength": 2000,
-                    "nullable": true
-                  }
-                },
-                "additionalProperties": false,
+                "additionalProperties": true,
                 "nullable": true
               },
               "openapi": {
@@ -3775,8 +3551,9 @@
                 "nullable": true
               }
             }
+          }
         }
-            },
+      },
       "ServiceRegistrationRequest": {
         "type": "object",
         "required": [
@@ -3815,46 +3592,98 @@
             "nullable": true
           },
           "capabilities": {
-            "description": "Arbitrary JSON value.",
+            "type": "object",
             "nullable": true,
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "array",
-                "items": {}
-              },
-              {
-                "type": "object",
-                "additionalProperties": true
-              }
-            ]
+            "additionalProperties": true,
+            "description": "Optional capability metadata exposed by the service."
           },
           "metadata": {
+            "type": "object",
             "nullable": true,
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/def-33"
-              }
-            ],
+            "additionalProperties": true,
             "description": "Optional metadata describing manifest provenance, linked apps, and runtime expectations."
           },
           "source": {
             "type": "string",
             "enum": [
-              "external"
+              "external",
+              "module"
             ],
             "description": "Source type. External registrations must use \"external\"."
+          }
+        }
+      },
+      "ModuleArtifactUploadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "moduleId",
+          "moduleVersion",
+          "manifest",
+          "artifact"
+        ],
+        "properties": {
+          "moduleId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "moduleVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "manifest": {
+            "type": "object"
+          },
+          "artifact": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "filename": {
+                "type": "string",
+                "minLength": 1
+              },
+              "contentType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "data": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Base64-encoded module bundle contents."
+              }
+            }
+          }
+        }
+      },
+      "ModuleArtifactResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "module": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "artifact": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -3936,7 +3765,8 @@
             "enum": [
               "node",
               "python",
-              "docker"
+              "docker",
+              "module"
             ]
           },
           "entryPoint": {
@@ -4069,7 +3899,8 @@
             "enum": [
               "node",
               "python",
-              "docker"
+              "docker",
+              "module"
             ],
             "default": "node"
           },
@@ -4185,7 +4016,8 @@
             "enum": [
               "node",
               "python",
-              "docker"
+              "docker",
+              "module"
             ]
           },
           "entryPoint": {
@@ -4323,7 +4155,8 @@
                 "enum": [
                   "node",
                   "python",
-                  "docker"
+                  "docker",
+                  "module"
                 ]
               },
               "entryPoint": {
@@ -4420,8 +4253,9 @@
                 "format": "date-time"
               }
             }
+          }
         }
-            },
+      },
       "JobDefinitionListResponse": {
         "type": "object",
         "required": [
@@ -4472,7 +4306,8 @@
                   "enum": [
                     "node",
                     "python",
-                    "docker"
+                    "docker",
+                    "module"
                   ]
                 },
                 "entryPoint": {
@@ -4570,8 +4405,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "JobRun": {
         "type": "object",
         "required": [
@@ -4810,12 +4646,14 @@
                 "enum": [
                   "node",
                   "python",
-                  "docker"
+                  "docker",
+                  "module"
                 ]
               }
             }
+          }
         }
-            },
+      },
       "JobRunListResponse": {
         "type": "object",
         "required": [
@@ -4966,7 +4804,8 @@
                       "enum": [
                         "node",
                         "python",
-                        "docker"
+                        "docker",
+                        "module"
                       ]
                     }
                   }
@@ -5001,8 +4840,9 @@
                 "minimum": 0
               }
             }
+          }
         }
-            },
+      },
       "JobDetailResponse": {
         "type": "object",
         "required": [
@@ -5059,7 +4899,8 @@
                     "enum": [
                       "node",
                       "python",
-                      "docker"
+                      "docker",
+                      "module"
                     ]
                   },
                   "entryPoint": {
@@ -5276,8 +5117,9 @@
                 "minimum": 0
               }
             }
+          }
         }
-            },
+      },
       "RuntimeReadiness": {
         "type": "object",
         "required": [
@@ -5293,7 +5135,8 @@
             "enum": [
               "node",
               "python",
-              "docker"
+              "docker",
+              "module"
             ]
           },
           "ready": {
@@ -5335,7 +5178,8 @@
                   "enum": [
                     "node",
                     "python",
-                    "docker"
+                    "docker",
+                    "module"
                   ]
                 },
                 "ready": {
@@ -5354,8 +5198,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "JobSchemaPreview": {
         "type": "object",
         "required": [
@@ -5411,8 +5256,9 @@
                 "nullable": true
               }
             }
+          }
         }
-            },
+      },
       "JobBundleFile": {
         "type": "object",
         "required": [
@@ -5638,8 +5484,9 @@
                 "type": "string"
               }
             }
+          }
         }
-            },
+      },
       "BundleEditorResponse": {
         "type": "object",
         "required": [
@@ -5660,7 +5507,7 @@
             ],
             "properties": {
               "job": {
-                "$ref": "#/components/schemas/def-39"
+                "$ref": "#/components/schemas/def-41"
               },
               "binding": {
                 "type": "object",
@@ -6225,8 +6072,9 @@
                 "description": "Previously published bundle versions available for selection."
               }
             }
+          }
         }
-            },
+      },
       "AiBundleEditRequest": {
         "type": "object",
         "required": [
@@ -6757,8 +6605,9 @@
                 ]
               }
             }
+          }
         }
-            },
+      },
       "WorkflowFanOutStep": {
         "type": "object",
         "required": [
@@ -10512,8 +10361,9 @@
                 "format": "date-time"
               }
             }
+          }
         }
-            },
+      },
       "WorkflowDefinitionListResponse": {
         "type": "object",
         "required": [
@@ -11389,8 +11239,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "WorkflowRun": {
         "type": "object",
         "required": [
@@ -11689,13 +11540,13 @@
               "runs": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/def-67"
+                  "$ref": "#/components/schemas/def-69"
                 }
               },
               "inFlight": {
                 "allOf": [
                   {
-                    "$ref": "#/components/schemas/def-68"
+                    "$ref": "#/components/schemas/def-70"
                   }
                 ],
                 "nullable": true
@@ -11703,7 +11554,7 @@
               "cooldown": {
                 "allOf": [
                   {
-                    "$ref": "#/components/schemas/def-69"
+                    "$ref": "#/components/schemas/def-71"
                   }
                 ],
                 "nullable": true
@@ -11746,8 +11597,9 @@
                 "minimum": 0
               }
             }
+          }
         }
-            },
+      },
       "ApiKey": {
         "type": "object",
         "required": [
@@ -11816,12 +11668,13 @@
               "keys": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/def-71"
+                  "$ref": "#/components/schemas/def-73"
                 }
               }
             }
+          }
         }
-            },
+      },
       "ApiKeyCreateResponse": {
         "type": "object",
         "required": [
@@ -11836,15 +11689,16 @@
             ],
             "properties": {
               "key": {
-                "$ref": "#/components/schemas/def-71"
+                "$ref": "#/components/schemas/def-73"
               },
               "token": {
                 "type": "string",
                 "description": "Full API key token. This value is only returned once at creation time."
               }
             }
+          }
         }
-            },
+      },
       "PythonSnippetPreview": {
         "type": "object",
         "required": [
@@ -11889,8 +11743,9 @@
                 "$ref": "#/components/schemas/def-0"
               }
             }
+          }
         }
-            },
+      },
       "PythonSnippetCreateResponse": {
         "type": "object",
         "required": [
@@ -11947,7 +11802,8 @@
                     "enum": [
                       "node",
                       "python",
-                      "docker"
+                      "docker",
+                      "module"
                     ]
                   },
                   "entryPoint": {
@@ -12108,8 +11964,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "AssetGraphProducer": {
         "type": "object",
         "required": [
@@ -12759,8 +12616,9 @@
             "items": {
               "type": "string"
             }
+          }
         }
-            },
+      },
       "AssetGraphEdge": {
         "type": "object",
         "required": [
@@ -13234,8 +13092,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "AssetMarkStaleRequest": {
         "type": "object",
         "properties": {
@@ -14541,8 +14400,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "WorkflowGraphCacheMeta": {
         "type": "object",
         "required": [
@@ -15975,8 +15835,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "StreamingBrokerStatus": {
         "type": "object",
         "required": [
@@ -16169,8 +16030,9 @@
                 }
               }
             }
+          }
         }
-            },
+      },
       "StreamingStatus": {
         "type": "object",
         "required": [
@@ -16609,12 +16471,36 @@
                         "nullable": true
                       }
                     }
+                  },
+                  "mirrors": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "properties": {
+                      "workflowRuns": {
+                        "type": "boolean"
+                      },
+                      "workflowEvents": {
+                        "type": "boolean"
+                      },
+                      "jobRuns": {
+                        "type": "boolean"
+                      },
+                      "ingestion": {
+                        "type": "boolean"
+                      },
+                      "coreEvents": {
+                        "type": "boolean"
+                      }
+                    }
                   }
                 }
               }
             }
+          }
         }
-            },
+      },
       "HealthUnavailableResponse": {
         "type": "object",
         "required": [
@@ -16834,12 +16720,36 @@
                         "nullable": true
                       }
                     }
+                  },
+                  "mirrors": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "properties": {
+                      "workflowRuns": {
+                        "type": "boolean"
+                      },
+                      "workflowEvents": {
+                        "type": "boolean"
+                      },
+                      "jobRuns": {
+                        "type": "boolean"
+                      },
+                      "ingestion": {
+                        "type": "boolean"
+                      },
+                      "coreEvents": {
+                        "type": "boolean"
+                      }
+                    }
                   }
                 }
               }
             }
+          }
         }
-            },
+      },
       "ReadyResponse": {
         "type": "object",
         "required": [
@@ -17059,12 +16969,36 @@
                         "nullable": true
                       }
                     }
+                  },
+                  "mirrors": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "properties": {
+                      "workflowRuns": {
+                        "type": "boolean"
+                      },
+                      "workflowEvents": {
+                        "type": "boolean"
+                      },
+                      "jobRuns": {
+                        "type": "boolean"
+                      },
+                      "ingestion": {
+                        "type": "boolean"
+                      },
+                      "coreEvents": {
+                        "type": "boolean"
+                      }
+                    }
                   }
                 }
               }
             }
+          }
         }
-            },
+      },
       "ReadyUnavailableResponse": {
         "type": "object",
         "required": [
@@ -17284,12 +17218,36 @@
                         "nullable": true
                       }
                     }
+                  },
+                  "mirrors": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "properties": {
+                      "workflowRuns": {
+                        "type": "boolean"
+                      },
+                      "workflowEvents": {
+                        "type": "boolean"
+                      },
+                      "jobRuns": {
+                        "type": "boolean"
+                      },
+                      "ingestion": {
+                        "type": "boolean"
+                      },
+                      "coreEvents": {
+                        "type": "boolean"
+                      }
+                    }
                   }
                 }
               }
             }
+          }
         }
-            },
+      },
       "ErrorResponse": {
         "type": "object",
         "required": [
@@ -20444,48 +20402,86 @@
             ]
           },
           "env": {
-            "anyOf": [
-              {
-                "description": "Environment variables declared for the service in manifests, including placeholder metadata.",
-                "allOf": [
-                  {
-                    "anyOf": [
-                      {
-                        "description": "Arbitrary JSON value.",
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "array",
-                            "items": {}
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": true
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "required": [
+                "key"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "$var"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "$var": {
+                          "type": "object",
+                          "required": [
+                            "name"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "default": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            }
                           }
-                        ]
-                      },
-                      {
-                        "type": "null"
+                        }
                       }
-                    ]
+                    }
+                  ]
+                },
+                "fromService": {
+                  "type": "object",
+                  "required": [
+                    "service",
+                    "property"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "service": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "property": {
+                      "type": "string",
+                      "enum": [
+                        "instanceUrl",
+                        "baseUrl",
+                        "host",
+                        "port"
+                      ]
+                    },
+                    "fallback": {
+                      "type": "string"
+                    }
                   }
-                ]
+                }
               },
-              {
-                "type": "null"
-              }
-            ]
+              "description": "Environment variable declared in a service manifest."
+            },
+            "description": "Environment variables declared for the service in manifests, including placeholder metadata."
           },
           "apps": {
             "type": [
@@ -20607,105 +20603,7 @@
       "def-33": {
         "type": "object",
         "description": "Structured metadata describing how a service is sourced, linked, and executed.",
-        "properties": {
-          "resourceType": {
-            "type": "string",
-            "enum": [
-              "service"
-            ],
-            "description": "Discriminator indicating this metadata payload represents a service resource."
-          },
-          "manifest": {
-            "anyOf": [
-              {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/def-31"
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "config": {
-            "anyOf": [
-              {
-                "allOf": [
-                  {
-                    "anyOf": [
-                      {
-                        "description": "Arbitrary JSON value.",
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "array",
-                            "items": {}
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": true
-                          }
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                ],
-                "description": "Raw metadata block forwarded from manifests or config files."
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "runtime": {
-            "anyOf": [
-              {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/def-32"
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "linkedApps": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            },
-            "description": "Explicit list of app IDs linked to this service beyond manifest hints."
-          },
-          "notes": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "maxLength": 2000
-          }
-        },
-        "additionalProperties": false,
+        "additionalProperties": true,
         "title": "https://core.apphub/schemas/ServiceMetadata.json"
       },
       "def-34": {
@@ -20798,105 +20696,7 @@
               "null"
             ],
             "description": "Structured metadata describing how a service is sourced, linked, and executed.",
-            "properties": {
-              "resourceType": {
-                "type": "string",
-                "enum": [
-                  "service"
-                ],
-                "description": "Discriminator indicating this metadata payload represents a service resource."
-              },
-              "manifest": {
-                "anyOf": [
-                  {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/def-31"
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "config": {
-                "anyOf": [
-                  {
-                    "allOf": [
-                      {
-                        "anyOf": [
-                          {
-                            "description": "Arbitrary JSON value.",
-                            "anyOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "integer"
-                              },
-                              {
-                                "type": "boolean"
-                              },
-                              {
-                                "type": "array",
-                                "items": {}
-                              },
-                              {
-                                "type": "object",
-                                "additionalProperties": true
-                              }
-                            ]
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      }
-                    ],
-                    "description": "Raw metadata block forwarded from manifests or config files."
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "runtime": {
-                "anyOf": [
-                  {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/def-32"
-                      }
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "linkedApps": {
-                "type": [
-                  "array",
-                  "null"
-                ],
-                "items": {
-                  "type": "string"
-                },
-                "description": "Explicit list of app IDs linked to this service beyond manifest hints."
-              },
-              "notes": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "maxLength": 2000
-              }
-            },
-            "additionalProperties": false
+            "additionalProperties": true
           },
           "openapi": {
             "anyOf": [
@@ -21101,105 +20901,7 @@
                     "object"
                   ],
                   "description": "Structured metadata describing how a service is sourced, linked, and executed.",
-                  "properties": {
-                    "resourceType": {
-                      "type": "string",
-                      "enum": [
-                        "service"
-                      ],
-                      "description": "Discriminator indicating this metadata payload represents a service resource."
-                    },
-                    "manifest": {
-                      "anyOf": [
-                        {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/def-31"
-                            }
-                          ]
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "config": {
-                      "anyOf": [
-                        {
-                          "allOf": [
-                            {
-                              "anyOf": [
-                                {
-                                  "description": "Arbitrary JSON value.",
-                                  "anyOf": [
-                                    {
-                                      "type": "string"
-                                    },
-                                    {
-                                      "type": "number"
-                                    },
-                                    {
-                                      "type": "integer"
-                                    },
-                                    {
-                                      "type": "boolean"
-                                    },
-                                    {
-                                      "type": "array",
-                                      "items": {}
-                                    },
-                                    {
-                                      "type": "object",
-                                      "additionalProperties": true
-                                    }
-                                  ]
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            }
-                          ],
-                          "description": "Raw metadata block forwarded from manifests or config files."
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "runtime": {
-                      "anyOf": [
-                        {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/def-32"
-                            }
-                          ]
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "linkedApps": {
-                      "type": [
-                        "null",
-                        "array"
-                      ],
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Explicit list of app IDs linked to this service beyond manifest hints."
-                    },
-                    "notes": {
-                      "type": [
-                        "null",
-                        "string"
-                      ],
-                      "maxLength": 2000
-                    }
-                  },
-                  "additionalProperties": false
+                  "additionalProperties": true
                 },
                 "openapi": {
                   "anyOf": [
@@ -21460,105 +21162,7 @@
                   "object"
                 ],
                 "description": "Structured metadata describing how a service is sourced, linked, and executed.",
-                "properties": {
-                  "resourceType": {
-                    "type": "string",
-                    "enum": [
-                      "service"
-                    ],
-                    "description": "Discriminator indicating this metadata payload represents a service resource."
-                  },
-                  "manifest": {
-                    "anyOf": [
-                      {
-                        "allOf": [
-                          {
-                            "$ref": "#/components/schemas/def-31"
-                          }
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "config": {
-                    "anyOf": [
-                      {
-                        "allOf": [
-                          {
-                            "anyOf": [
-                              {
-                                "description": "Arbitrary JSON value.",
-                                "anyOf": [
-                                  {
-                                    "type": "string"
-                                  },
-                                  {
-                                    "type": "number"
-                                  },
-                                  {
-                                    "type": "integer"
-                                  },
-                                  {
-                                    "type": "boolean"
-                                  },
-                                  {
-                                    "type": "array",
-                                    "items": {}
-                                  },
-                                  {
-                                    "type": "object",
-                                    "additionalProperties": true
-                                  }
-                                ]
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          }
-                        ],
-                        "description": "Raw metadata block forwarded from manifests or config files."
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "runtime": {
-                    "anyOf": [
-                      {
-                        "allOf": [
-                          {
-                            "$ref": "#/components/schemas/def-32"
-                          }
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "linkedApps": {
-                    "type": [
-                      "null",
-                      "array"
-                    ],
-                    "items": {
-                      "type": "string"
-                    },
-                    "description": "Explicit list of app IDs linked to this service beyond manifest hints."
-                  },
-                  "notes": {
-                    "type": [
-                      "null",
-                      "string"
-                    ],
-                    "maxLength": 2000
-                  }
-                },
-                "additionalProperties": false
+                "additionalProperties": true
               },
               "openapi": {
                 "anyOf": [
@@ -21706,56 +21310,26 @@
             ]
           },
           "capabilities": {
-            "anyOf": [
-              {
-                "description": "Arbitrary JSON value.",
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "array",
-                    "items": {}
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": true
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "description": "Optional capability metadata exposed by the service."
           },
           "metadata": {
-            "anyOf": [
-              {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/def-33"
-                  }
-                ],
-                "description": "Optional metadata describing manifest provenance, linked apps, and runtime expectations."
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "description": "Optional metadata describing manifest provenance, linked apps, and runtime expectations."
           },
           "source": {
             "type": "string",
             "enum": [
-              "external"
+              "external",
+              "module"
             ],
             "description": "Source type. External registrations must use \"external\"."
           }
@@ -21763,6 +21337,86 @@
         "title": "https://core.apphub/schemas/ServiceRegistrationRequest.json"
       },
       "def-38": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "moduleId",
+          "moduleVersion",
+          "manifest",
+          "artifact"
+        ],
+        "properties": {
+          "moduleId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "moduleVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "manifest": {
+            "type": "object"
+          },
+          "artifact": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "filename": {
+                "type": "string",
+                "minLength": 1
+              },
+              "contentType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "data": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Base64-encoded module bundle contents."
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/ModuleArtifactUploadRequest.json"
+      },
+      "def-39": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "module": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "artifact": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "title": "https://core.apphub/schemas/ModuleArtifactResponse.json"
+      },
+      "def-40": {
         "type": "object",
         "properties": {
           "maxAttempts": {
@@ -21799,7 +21453,7 @@
         },
         "title": "https://core.apphub/schemas/JobRetryPolicy.json"
       },
-      "def-39": {
+      "def-41": {
         "type": "object",
         "required": [
           "id",
@@ -21841,7 +21495,8 @@
             "enum": [
               "node",
               "python",
-              "docker"
+              "docker",
+              "module"
             ]
           },
           "entryPoint": {
@@ -21956,7 +21611,7 @@
         },
         "title": "https://core.apphub/schemas/JobDefinition.json"
       },
-      "def-40": {
+      "def-42": {
         "type": "object",
         "required": [
           "slug",
@@ -21991,7 +21646,8 @@
             "enum": [
               "node",
               "python",
-              "docker"
+              "docker",
+              "module"
             ],
             "default": "node"
           },
@@ -22095,7 +21751,7 @@
         },
         "title": "https://core.apphub/schemas/JobDefinitionCreateRequest.json"
       },
-      "def-41": {
+      "def-43": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -22120,7 +21776,8 @@
             "enum": [
               "node",
               "python",
-              "docker"
+              "docker",
+              "module"
             ]
           },
           "entryPoint": {
@@ -22223,7 +21880,7 @@
         },
         "title": "https://core.apphub/schemas/JobDefinitionUpdateRequest.json"
       },
-      "def-42": {
+      "def-44": {
         "type": "object",
         "required": [
           "data"
@@ -22271,7 +21928,8 @@
                 "enum": [
                   "node",
                   "python",
-                  "docker"
+                  "docker",
+                  "module"
                 ]
               },
               "entryPoint": {
@@ -22388,7 +22046,7 @@
         },
         "title": "https://core.apphub/schemas/JobDefinitionResponse.json"
       },
-      "def-43": {
+      "def-45": {
         "type": "object",
         "required": [
           "data"
@@ -22438,7 +22096,8 @@
                   "enum": [
                     "node",
                     "python",
-                    "docker"
+                    "docker",
+                    "module"
                   ]
                 },
                 "entryPoint": {
@@ -22556,7 +22215,7 @@
         },
         "title": "https://core.apphub/schemas/JobDefinitionListResponse.json"
       },
-      "def-44": {
+      "def-46": {
         "type": "object",
         "required": [
           "id",
@@ -22670,7 +22329,7 @@
         },
         "title": "https://core.apphub/schemas/JobRun.json"
       },
-      "def-45": {
+      "def-47": {
         "type": "object",
         "required": [
           "run",
@@ -22827,7 +22486,8 @@
                 "enum": [
                   "node",
                   "python",
-                  "docker"
+                  "docker",
+                  "module"
                 ]
               }
             }
@@ -22835,7 +22495,7 @@
         },
         "title": "https://core.apphub/schemas/JobRunWithDefinition.json"
       },
-      "def-46": {
+      "def-48": {
         "type": "object",
         "required": [
           "data",
@@ -23001,7 +22661,8 @@
                       "enum": [
                         "node",
                         "python",
-                        "docker"
+                        "docker",
+                        "module"
                       ]
                     }
                   }
@@ -23042,7 +22703,7 @@
         },
         "title": "https://core.apphub/schemas/JobRunListResponse.json"
       },
-      "def-47": {
+      "def-49": {
         "type": "object",
         "required": [
           "data",
@@ -23098,7 +22759,8 @@
                     "enum": [
                       "node",
                       "python",
-                      "docker"
+                      "docker",
+                      "module"
                     ]
                   },
                   "entryPoint": {
@@ -23351,7 +23013,7 @@
         },
         "title": "https://core.apphub/schemas/JobDetailResponse.json"
       },
-      "def-48": {
+      "def-50": {
         "type": "object",
         "required": [
           "runtime",
@@ -23366,7 +23028,8 @@
             "enum": [
               "node",
               "python",
-              "docker"
+              "docker",
+              "module"
             ]
           },
           "ready": {
@@ -23388,7 +23051,7 @@
         },
         "title": "https://core.apphub/schemas/RuntimeReadiness.json"
       },
-      "def-49": {
+      "def-51": {
         "type": "object",
         "required": [
           "data"
@@ -23411,7 +23074,8 @@
                   "enum": [
                     "node",
                     "python",
-                    "docker"
+                    "docker",
+                    "module"
                   ]
                 },
                 "ready": {
@@ -23436,7 +23100,7 @@
         },
         "title": "https://core.apphub/schemas/RuntimeReadinessListResponse.json"
       },
-      "def-50": {
+      "def-52": {
         "type": "object",
         "required": [
           "parametersSchema",
@@ -23466,7 +23130,7 @@
         },
         "title": "https://core.apphub/schemas/JobSchemaPreview.json"
       },
-      "def-51": {
+      "def-53": {
         "type": "object",
         "required": [
           "data"
@@ -23504,7 +23168,7 @@
         },
         "title": "https://core.apphub/schemas/JobSchemaPreviewResponse.json"
       },
-      "def-52": {
+      "def-54": {
         "type": "object",
         "required": [
           "path",
@@ -23534,7 +23198,7 @@
         },
         "title": "https://core.apphub/schemas/JobBundleFile.json"
       },
-      "def-53": {
+      "def-55": {
         "type": "object",
         "required": [
           "id",
@@ -23762,7 +23426,7 @@
         },
         "title": "https://core.apphub/schemas/JobBundleVersion.json"
       },
-      "def-54": {
+      "def-56": {
         "type": "object",
         "required": [
           "data"
@@ -23782,7 +23446,7 @@
             ],
             "properties": {
               "job": {
-                "$ref": "#/components/schemas/def-39"
+                "$ref": "#/components/schemas/def-41"
               },
               "binding": {
                 "type": "object",
@@ -24421,7 +24085,7 @@
         },
         "title": "https://core.apphub/schemas/BundleEditorResponse.json"
       },
-      "def-55": {
+      "def-57": {
         "type": "object",
         "required": [
           "prompt"
@@ -24482,7 +24146,7 @@
         },
         "title": "https://core.apphub/schemas/AiBundleEditRequest.json"
       },
-      "def-56": {
+      "def-58": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -24567,7 +24231,7 @@
         },
         "title": "https://core.apphub/schemas/BundleRegenerateRequest.json"
       },
-      "def-57": {
+      "def-59": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -24589,7 +24253,7 @@
         },
         "title": "https://core.apphub/schemas/JobRunRequest.json"
       },
-      "def-58": {
+      "def-60": {
         "type": "object",
         "required": [
           "type"
@@ -24633,7 +24297,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowTrigger.json"
       },
-      "def-59": {
+      "def-61": {
         "type": "object",
         "required": [
           "id",
@@ -24757,7 +24421,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowJobStep.json"
       },
-      "def-60": {
+      "def-62": {
         "type": "object",
         "required": [
           "id",
@@ -25002,7 +24666,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowServiceStep.json"
       },
-      "def-61": {
+      "def-63": {
         "type": "object",
         "required": [
           "id",
@@ -25462,7 +25126,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowFanOutStep.json"
       },
-      "def-62": {
+      "def-64": {
         "oneOf": [
           {
             "type": "object",
@@ -26293,7 +25957,7 @@
         ],
         "title": "https://core.apphub/schemas/WorkflowStep.json"
       },
-      "def-63": {
+      "def-65": {
         "type": "object",
         "required": [
           "id",
@@ -27255,7 +26919,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowDefinition.json"
       },
-      "def-64": {
+      "def-66": {
         "type": "object",
         "required": [
           "slug",
@@ -28191,7 +27855,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowDefinitionCreateRequest.json"
       },
-      "def-65": {
+      "def-67": {
         "type": "object",
         "required": [
           "data"
@@ -29161,7 +28825,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowDefinitionResponse.json"
       },
-      "def-66": {
+      "def-68": {
         "type": "object",
         "required": [
           "data"
@@ -30134,7 +29798,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowDefinitionListResponse.json"
       },
-      "def-67": {
+      "def-69": {
         "type": "object",
         "required": [
           "id",
@@ -30381,7 +30045,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowRun.json"
       },
-      "def-68": {
+      "def-70": {
         "type": "object",
         "required": [
           "reason",
@@ -30457,7 +30121,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowAutoMaterializeInFlight.json"
       },
-      "def-69": {
+      "def-71": {
         "type": "object",
         "required": [
           "failures"
@@ -30477,7 +30141,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowAutoMaterializeCooldown.json"
       },
-      "def-70": {
+      "def-72": {
         "type": "object",
         "required": [
           "data"
@@ -30495,7 +30159,7 @@
               "runs": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/def-67"
+                  "$ref": "#/components/schemas/def-69"
                 }
               },
               "inFlight": {
@@ -30503,7 +30167,7 @@
                   {
                     "allOf": [
                       {
-                        "$ref": "#/components/schemas/def-68"
+                        "$ref": "#/components/schemas/def-70"
                       }
                     ]
                   },
@@ -30517,7 +30181,7 @@
                   {
                     "allOf": [
                       {
-                        "$ref": "#/components/schemas/def-69"
+                        "$ref": "#/components/schemas/def-71"
                       }
                     ]
                   },
@@ -30568,7 +30232,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowAutoMaterializeOpsResponse.json"
       },
-      "def-71": {
+      "def-73": {
         "type": "object",
         "required": [
           "id",
@@ -30630,7 +30294,7 @@
         },
         "title": "https://core.apphub/schemas/ApiKey.json"
       },
-      "def-72": {
+      "def-74": {
         "type": "object",
         "required": [
           "data"
@@ -30645,7 +30309,7 @@
               "keys": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/def-71"
+                  "$ref": "#/components/schemas/def-73"
                 }
               }
             }
@@ -30653,7 +30317,7 @@
         },
         "title": "https://core.apphub/schemas/ApiKeyListResponse.json"
       },
-      "def-73": {
+      "def-75": {
         "type": "object",
         "required": [
           "data"
@@ -30667,7 +30331,7 @@
             ],
             "properties": {
               "key": {
-                "$ref": "#/components/schemas/def-71"
+                "$ref": "#/components/schemas/def-73"
               },
               "token": {
                 "type": "string",
@@ -30678,7 +30342,7 @@
         },
         "title": "https://core.apphub/schemas/ApiKeyCreateResponse.json"
       },
-      "def-74": {
+      "def-76": {
         "type": "object",
         "required": [
           "handlerName",
@@ -30726,7 +30390,7 @@
         },
         "title": "https://core.apphub/schemas/PythonSnippetPreview.json"
       },
-      "def-75": {
+      "def-77": {
         "type": "object",
         "required": [
           "data"
@@ -30782,7 +30446,8 @@
                     "enum": [
                       "node",
                       "python",
-                      "docker"
+                      "docker",
+                      "module"
                     ]
                   },
                   "entryPoint": {
@@ -30963,7 +30628,7 @@
         },
         "title": "https://core.apphub/schemas/PythonSnippetCreateResponse.json"
       },
-      "def-76": {
+      "def-78": {
         "type": "object",
         "required": [
           "workflowId",
@@ -31099,7 +30764,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphProducer.json"
       },
-      "def-77": {
+      "def-79": {
         "type": "object",
         "required": [
           "workflowId",
@@ -31136,7 +30801,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphConsumer.json"
       },
-      "def-78": {
+      "def-80": {
         "type": "object",
         "required": [
           "workflowId",
@@ -31260,7 +30925,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphMaterialization.json"
       },
-      "def-79": {
+      "def-81": {
         "type": "object",
         "required": [
           "workflowId",
@@ -31306,7 +30971,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphStalePartition.json"
       },
-      "def-80": {
+      "def-82": {
         "type": "object",
         "required": [
           "assetId",
@@ -31692,7 +31357,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphNode.json"
       },
-      "def-81": {
+      "def-83": {
         "type": "object",
         "required": [
           "fromAssetId",
@@ -31745,7 +31410,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphEdge.json"
       },
-      "def-82": {
+      "def-84": {
         "type": "object",
         "required": [
           "data"
@@ -32206,7 +31871,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphResponse.json"
       },
-      "def-83": {
+      "def-85": {
         "type": "object",
         "properties": {
           "partitionKey": {
@@ -32223,7 +31888,7 @@
         "additionalProperties": false,
         "title": "https://core.apphub/schemas/AssetMarkStaleRequest.json"
       },
-      "def-84": {
+      "def-86": {
         "type": "object",
         "required": [
           "version",
@@ -33728,7 +33393,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowTopologyGraph.json"
       },
-      "def-85": {
+      "def-87": {
         "type": "object",
         "required": [
           "hit",
@@ -33793,7 +33458,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowGraphCacheMeta.json"
       },
-      "def-86": {
+      "def-88": {
         "type": "object",
         "required": [
           "hits",
@@ -33813,7 +33478,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowGraphCacheStats.json"
       },
-      "def-87": {
+      "def-89": {
         "type": "object",
         "required": [
           "data"
@@ -35398,7 +35063,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowGraphResponse.json"
       },
-      "def-88": {
+      "def-90": {
         "type": "object",
         "required": [
           "configured",
@@ -35432,7 +35097,7 @@
         },
         "title": "https://core.apphub/schemas/StreamingBrokerStatus.json"
       },
-      "def-89": {
+      "def-91": {
         "type": "object",
         "required": [
           "connectorId",
@@ -35509,7 +35174,7 @@
         },
         "title": "https://core.apphub/schemas/StreamingBatcherConnectorStatus.json"
       },
-      "def-90": {
+      "def-92": {
         "type": "object",
         "required": [
           "configured",
@@ -35618,7 +35283,7 @@
         },
         "title": "https://core.apphub/schemas/StreamingBatcherStatus.json"
       },
-      "def-91": {
+      "def-93": {
         "type": "object",
         "required": [
           "enabled",
@@ -35831,11 +35496,34 @@
                 "format": "date-time"
               }
             }
+          },
+          "mirrors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "properties": {
+              "workflowRuns": {
+                "type": "boolean"
+              },
+              "workflowEvents": {
+                "type": "boolean"
+              },
+              "jobRuns": {
+                "type": "boolean"
+              },
+              "ingestion": {
+                "type": "boolean"
+              },
+              "coreEvents": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "title": "https://core.apphub/schemas/StreamingStatus.json"
       },
-      "def-92": {
+      "def-94": {
         "type": "object",
         "required": [
           "status",
@@ -36074,6 +35762,29 @@
                         "format": "date-time"
                       }
                     }
+                  },
+                  "mirrors": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "properties": {
+                      "workflowRuns": {
+                        "type": "boolean"
+                      },
+                      "workflowEvents": {
+                        "type": "boolean"
+                      },
+                      "jobRuns": {
+                        "type": "boolean"
+                      },
+                      "ingestion": {
+                        "type": "boolean"
+                      },
+                      "coreEvents": {
+                        "type": "boolean"
+                      }
+                    }
                   }
                 }
               }
@@ -36081,500 +35792,6 @@
           }
         },
         "title": "https://core.apphub/schemas/HealthResponse.json"
-      },
-      "def-93": {
-        "type": "object",
-        "required": [
-          "status",
-          "features"
-        ],
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "unavailable",
-              "degraded"
-            ]
-          },
-          "warnings": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "features": {
-            "type": "object",
-            "required": [
-              "streaming"
-            ],
-            "properties": {
-              "streaming": {
-                "type": "object",
-                "required": [
-                  "enabled",
-                  "state",
-                  "reason",
-                  "broker",
-                  "batchers",
-                  "hotBuffer"
-                ],
-                "properties": {
-                  "enabled": {
-                    "type": "boolean"
-                  },
-                  "state": {
-                    "type": "string",
-                    "enum": [
-                      "disabled",
-                      "ready",
-                      "degraded",
-                      "unconfigured"
-                    ]
-                  },
-                  "reason": {
-                    "type": [
-                      "null",
-                      "string"
-                    ]
-                  },
-                  "broker": {
-                    "type": "object",
-                    "required": [
-                      "configured",
-                      "reachable",
-                      "lastCheckedAt",
-                      "error"
-                    ],
-                    "properties": {
-                      "configured": {
-                        "type": "boolean"
-                      },
-                      "reachable": {
-                        "type": [
-                          "null",
-                          "boolean"
-                        ]
-                      },
-                      "lastCheckedAt": {
-                        "type": [
-                          "null",
-                          "string"
-                        ],
-                        "format": "date-time"
-                      },
-                      "error": {
-                        "type": [
-                          "null",
-                          "string"
-                        ]
-                      }
-                    }
-                  },
-                  "batchers": {
-                    "type": "object",
-                    "required": [
-                      "configured",
-                      "running",
-                      "failing",
-                      "state",
-                      "connectors"
-                    ],
-                    "properties": {
-                      "configured": {
-                        "type": "integer"
-                      },
-                      "running": {
-                        "type": "integer"
-                      },
-                      "failing": {
-                        "type": "integer"
-                      },
-                      "state": {
-                        "type": "string",
-                        "enum": [
-                          "disabled",
-                          "ready",
-                          "degraded"
-                        ]
-                      },
-                      "connectors": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "required": [
-                            "connectorId",
-                            "datasetSlug",
-                            "topic",
-                            "groupId",
-                            "state",
-                            "bufferedWindows",
-                            "bufferedRows",
-                            "openWindows",
-                            "lastMessageAt",
-                            "lastFlushAt",
-                            "lastEventTimestamp",
-                            "lastError"
-                          ],
-                          "properties": {
-                            "connectorId": {
-                              "type": "string"
-                            },
-                            "datasetSlug": {
-                              "type": "string"
-                            },
-                            "topic": {
-                              "type": "string"
-                            },
-                            "groupId": {
-                              "type": "string"
-                            },
-                            "state": {
-                              "type": "string",
-                              "enum": [
-                                "starting",
-                                "running",
-                                "stopped",
-                                "error"
-                              ]
-                            },
-                            "bufferedWindows": {
-                              "type": "integer"
-                            },
-                            "bufferedRows": {
-                              "type": "integer"
-                            },
-                            "openWindows": {
-                              "type": "integer"
-                            },
-                            "lastMessageAt": {
-                              "type": [
-                                "null",
-                                "string"
-                              ],
-                              "format": "date-time"
-                            },
-                            "lastFlushAt": {
-                              "type": [
-                                "null",
-                                "string"
-                              ],
-                              "format": "date-time"
-                            },
-                            "lastEventTimestamp": {
-                              "type": [
-                                "null",
-                                "string"
-                              ],
-                              "format": "date-time"
-                            },
-                            "lastError": {
-                              "type": [
-                                "null",
-                                "string"
-                              ]
-                            }
-                          }
-                        }
-                      }
-                    }
-                  },
-                  "hotBuffer": {
-                    "type": "object",
-                    "required": [
-                      "enabled",
-                      "state",
-                      "datasets",
-                      "healthy",
-                      "lastRefreshAt",
-                      "lastIngestAt"
-                    ],
-                    "properties": {
-                      "enabled": {
-                        "type": "boolean"
-                      },
-                      "state": {
-                        "type": "string",
-                        "enum": [
-                          "disabled",
-                          "ready",
-                          "unavailable"
-                        ]
-                      },
-                      "datasets": {
-                        "type": "integer"
-                      },
-                      "healthy": {
-                        "type": "boolean"
-                      },
-                      "lastRefreshAt": {
-                        "type": [
-                          "null",
-                          "string"
-                        ],
-                        "format": "date-time"
-                      },
-                      "lastIngestAt": {
-                        "type": [
-                          "null",
-                          "string"
-                        ],
-                        "format": "date-time"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "title": "https://core.apphub/schemas/HealthUnavailableResponse.json"
-      },
-      "def-94": {
-        "type": "object",
-        "required": [
-          "status",
-          "features"
-        ],
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "ready"
-            ]
-          },
-          "warnings": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "default": []
-          },
-          "features": {
-            "type": "object",
-            "required": [
-              "streaming"
-            ],
-            "properties": {
-              "streaming": {
-                "type": "object",
-                "required": [
-                  "enabled",
-                  "state",
-                  "reason",
-                  "broker",
-                  "batchers",
-                  "hotBuffer"
-                ],
-                "properties": {
-                  "enabled": {
-                    "type": "boolean"
-                  },
-                  "state": {
-                    "type": "string",
-                    "enum": [
-                      "disabled",
-                      "ready",
-                      "degraded",
-                      "unconfigured"
-                    ]
-                  },
-                  "reason": {
-                    "type": [
-                      "null",
-                      "string"
-                    ]
-                  },
-                  "broker": {
-                    "type": "object",
-                    "required": [
-                      "configured",
-                      "reachable",
-                      "lastCheckedAt",
-                      "error"
-                    ],
-                    "properties": {
-                      "configured": {
-                        "type": "boolean"
-                      },
-                      "reachable": {
-                        "type": [
-                          "null",
-                          "boolean"
-                        ]
-                      },
-                      "lastCheckedAt": {
-                        "type": [
-                          "null",
-                          "string"
-                        ],
-                        "format": "date-time"
-                      },
-                      "error": {
-                        "type": [
-                          "null",
-                          "string"
-                        ]
-                      }
-                    }
-                  },
-                  "batchers": {
-                    "type": "object",
-                    "required": [
-                      "configured",
-                      "running",
-                      "failing",
-                      "state",
-                      "connectors"
-                    ],
-                    "properties": {
-                      "configured": {
-                        "type": "integer"
-                      },
-                      "running": {
-                        "type": "integer"
-                      },
-                      "failing": {
-                        "type": "integer"
-                      },
-                      "state": {
-                        "type": "string",
-                        "enum": [
-                          "disabled",
-                          "ready",
-                          "degraded"
-                        ]
-                      },
-                      "connectors": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "required": [
-                            "connectorId",
-                            "datasetSlug",
-                            "topic",
-                            "groupId",
-                            "state",
-                            "bufferedWindows",
-                            "bufferedRows",
-                            "openWindows",
-                            "lastMessageAt",
-                            "lastFlushAt",
-                            "lastEventTimestamp",
-                            "lastError"
-                          ],
-                          "properties": {
-                            "connectorId": {
-                              "type": "string"
-                            },
-                            "datasetSlug": {
-                              "type": "string"
-                            },
-                            "topic": {
-                              "type": "string"
-                            },
-                            "groupId": {
-                              "type": "string"
-                            },
-                            "state": {
-                              "type": "string",
-                              "enum": [
-                                "starting",
-                                "running",
-                                "stopped",
-                                "error"
-                              ]
-                            },
-                            "bufferedWindows": {
-                              "type": "integer"
-                            },
-                            "bufferedRows": {
-                              "type": "integer"
-                            },
-                            "openWindows": {
-                              "type": "integer"
-                            },
-                            "lastMessageAt": {
-                              "type": [
-                                "null",
-                                "string"
-                              ],
-                              "format": "date-time"
-                            },
-                            "lastFlushAt": {
-                              "type": [
-                                "null",
-                                "string"
-                              ],
-                              "format": "date-time"
-                            },
-                            "lastEventTimestamp": {
-                              "type": [
-                                "null",
-                                "string"
-                              ],
-                              "format": "date-time"
-                            },
-                            "lastError": {
-                              "type": [
-                                "null",
-                                "string"
-                              ]
-                            }
-                          }
-                        }
-                      }
-                    }
-                  },
-                  "hotBuffer": {
-                    "type": "object",
-                    "required": [
-                      "enabled",
-                      "state",
-                      "datasets",
-                      "healthy",
-                      "lastRefreshAt",
-                      "lastIngestAt"
-                    ],
-                    "properties": {
-                      "enabled": {
-                        "type": "boolean"
-                      },
-                      "state": {
-                        "type": "string",
-                        "enum": [
-                          "disabled",
-                          "ready",
-                          "unavailable"
-                        ]
-                      },
-                      "datasets": {
-                        "type": "integer"
-                      },
-                      "healthy": {
-                        "type": "boolean"
-                      },
-                      "lastRefreshAt": {
-                        "type": [
-                          "null",
-                          "string"
-                        ],
-                        "format": "date-time"
-                      },
-                      "lastIngestAt": {
-                        "type": [
-                          "null",
-                          "string"
-                        ],
-                        "format": "date-time"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "title": "https://core.apphub/schemas/ReadyResponse.json"
       },
       "def-95": {
         "type": "object",
@@ -36815,6 +36032,569 @@
                         "format": "date-time"
                       }
                     }
+                  },
+                  "mirrors": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "properties": {
+                      "workflowRuns": {
+                        "type": "boolean"
+                      },
+                      "workflowEvents": {
+                        "type": "boolean"
+                      },
+                      "jobRuns": {
+                        "type": "boolean"
+                      },
+                      "ingestion": {
+                        "type": "boolean"
+                      },
+                      "coreEvents": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/HealthUnavailableResponse.json"
+      },
+      "def-96": {
+        "type": "object",
+        "required": [
+          "status",
+          "features"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "features": {
+            "type": "object",
+            "required": [
+              "streaming"
+            ],
+            "properties": {
+              "streaming": {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "state",
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "disabled",
+                      "ready",
+                      "degraded",
+                      "unconfigured"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastIngestAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      }
+                    }
+                  },
+                  "mirrors": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "properties": {
+                      "workflowRuns": {
+                        "type": "boolean"
+                      },
+                      "workflowEvents": {
+                        "type": "boolean"
+                      },
+                      "jobRuns": {
+                        "type": "boolean"
+                      },
+                      "ingestion": {
+                        "type": "boolean"
+                      },
+                      "coreEvents": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/ReadyResponse.json"
+      },
+      "def-97": {
+        "type": "object",
+        "required": [
+          "status",
+          "features"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unavailable",
+              "degraded"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "features": {
+            "type": "object",
+            "required": [
+              "streaming"
+            ],
+            "properties": {
+              "streaming": {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "state",
+                  "reason",
+                  "broker",
+                  "batchers",
+                  "hotBuffer"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "disabled",
+                      "ready",
+                      "degraded",
+                      "unconfigured"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "broker": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "reachable",
+                      "lastCheckedAt",
+                      "error"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "reachable": {
+                        "type": [
+                          "null",
+                          "boolean"
+                        ]
+                      },
+                      "lastCheckedAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "batchers": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "running",
+                      "failing",
+                      "state",
+                      "connectors"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "integer"
+                      },
+                      "running": {
+                        "type": "integer"
+                      },
+                      "failing": {
+                        "type": "integer"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "degraded"
+                        ]
+                      },
+                      "connectors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "connectorId",
+                            "datasetSlug",
+                            "topic",
+                            "groupId",
+                            "state",
+                            "bufferedWindows",
+                            "bufferedRows",
+                            "openWindows",
+                            "lastMessageAt",
+                            "lastFlushAt",
+                            "lastEventTimestamp",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "connectorId": {
+                              "type": "string"
+                            },
+                            "datasetSlug": {
+                              "type": "string"
+                            },
+                            "topic": {
+                              "type": "string"
+                            },
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "starting",
+                                "running",
+                                "stopped",
+                                "error"
+                              ]
+                            },
+                            "bufferedWindows": {
+                              "type": "integer"
+                            },
+                            "bufferedRows": {
+                              "type": "integer"
+                            },
+                            "openWindows": {
+                              "type": "integer"
+                            },
+                            "lastMessageAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFlushAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastEventTimestamp": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "hotBuffer": {
+                    "type": "object",
+                    "required": [
+                      "enabled",
+                      "state",
+                      "datasets",
+                      "healthy",
+                      "lastRefreshAt",
+                      "lastIngestAt"
+                    ],
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "ready",
+                          "unavailable"
+                        ]
+                      },
+                      "datasets": {
+                        "type": "integer"
+                      },
+                      "healthy": {
+                        "type": "boolean"
+                      },
+                      "lastRefreshAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastIngestAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      }
+                    }
+                  },
+                  "mirrors": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "properties": {
+                      "workflowRuns": {
+                        "type": "boolean"
+                      },
+                      "workflowEvents": {
+                        "type": "boolean"
+                      },
+                      "jobRuns": {
+                        "type": "boolean"
+                      },
+                      "ingestion": {
+                        "type": "boolean"
+                      },
+                      "coreEvents": {
+                        "type": "boolean"
+                      }
+                    }
                   }
                 }
               }
@@ -36823,7 +36603,7 @@
         },
         "title": "https://core.apphub/schemas/ReadyUnavailableResponse.json"
       },
-      "def-96": {
+      "def-98": {
         "type": "object",
         "required": [
           "error"
@@ -36898,8 +36678,9 @@
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/v1/events": {
       "post": {
@@ -36923,7 +36704,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-92"
+                  "$ref": "#/components/schemas/def-94"
                 }
               }
             }
@@ -36933,12 +36714,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-93"
+                  "$ref": "#/components/schemas/def-95"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/readyz": {
       "get": {
@@ -36953,7 +36735,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-94"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36963,12 +36745,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-95"
+                  "$ref": "#/components/schemas/def-97"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/metrics": {
       "get": {
@@ -37022,7 +36805,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37032,7 +36815,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37042,12 +36825,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/auth/callback": {
       "get": {
@@ -37092,7 +36876,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37102,7 +36886,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37112,7 +36896,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37122,12 +36906,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/auth/logout": {
       "post": {
@@ -37151,8 +36936,9 @@
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/auth/identity": {
       "get": {
@@ -37182,7 +36968,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37192,12 +36978,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/auth/api-keys": {
       "get": {
@@ -37217,7 +37004,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-72"
+                  "$ref": "#/components/schemas/def-74"
                 }
               }
             }
@@ -37227,7 +37014,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37237,7 +37024,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37247,12 +37034,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "post": {
         "summary": "Create API key",
         "tags": [
@@ -37310,7 +37098,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-73"
+                  "$ref": "#/components/schemas/def-75"
                 }
               }
             }
@@ -37320,7 +37108,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37330,7 +37118,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37340,7 +37128,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37350,12 +37138,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/auth/api-keys/{id}": {
       "delete": {
@@ -37396,7 +37185,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37406,7 +37195,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37416,7 +37205,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37426,7 +37215,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37436,12 +37225,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs": {
       "get": {
@@ -37455,12 +37245,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-43"
+                  "$ref": "#/components/schemas/def-45"
                 }
               }
             }
+          }
         }
-            },
+      },
       "post": {
         "summary": "Create a job definition",
         "tags": [
@@ -37471,7 +37262,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-40"
+                "$ref": "#/components/schemas/def-42"
               }
             }
           }
@@ -37487,7 +37278,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-42"
+                  "$ref": "#/components/schemas/def-44"
                 }
               }
             }
@@ -37497,7 +37288,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37507,7 +37298,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37517,7 +37308,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37527,7 +37318,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37537,12 +37328,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs/runtimes": {
       "get": {
@@ -37557,7 +37349,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-49"
+                  "$ref": "#/components/schemas/def-51"
                 }
               }
             }
@@ -37567,12 +37359,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/job-runs": {
       "get": {
@@ -37625,7 +37418,7 @@
             "in": "query",
             "name": "runtime",
             "required": false,
-            "description": "Comma-separated list of runtimes to filter (node,python,docker)."
+            "description": "Comma-separated list of runtimes to filter (node,python,docker,module)."
           },
           {
             "schema": {
@@ -37648,7 +37441,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-46"
+                  "$ref": "#/components/schemas/def-48"
                 }
               }
             }
@@ -37658,7 +37451,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37668,7 +37461,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37678,12 +37471,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs/{slug}": {
       "patch": {
@@ -37696,7 +37490,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-41"
+                "$ref": "#/components/schemas/def-43"
               }
             }
           }
@@ -37723,7 +37517,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-42"
+                  "$ref": "#/components/schemas/def-44"
                 }
               }
             }
@@ -37733,7 +37527,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37743,7 +37537,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37753,7 +37547,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37763,7 +37557,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37773,7 +37567,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37783,12 +37577,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "get": {
         "summary": "Get job definition with recent runs",
         "tags": [
@@ -37839,7 +37634,7 @@
             "in": "query",
             "name": "runtime",
             "required": false,
-            "description": "Comma-separated list of runtimes to filter (node,python,docker)."
+            "description": "Comma-separated list of runtimes to filter (node,python,docker,module)."
           },
           {
             "schema": {
@@ -37866,7 +37661,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-47"
+                  "$ref": "#/components/schemas/def-49"
                 }
               }
             }
@@ -37876,7 +37671,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37886,7 +37681,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37896,12 +37691,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs/schema-preview": {
       "post": {
@@ -37930,7 +37726,8 @@
                     "enum": [
                       "node",
                       "python",
-                      "docker"
+                      "docker",
+                      "module"
                     ]
                   }
                 }
@@ -37950,7 +37747,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-51"
+                  "$ref": "#/components/schemas/def-53"
                 }
               }
             }
@@ -37960,7 +37757,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37970,7 +37767,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37980,7 +37777,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -37990,12 +37787,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs/python-snippet/preview": {
       "post": {
@@ -38036,7 +37834,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-74"
+                  "$ref": "#/components/schemas/def-76"
                 }
               }
             }
@@ -38046,7 +37844,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38056,7 +37854,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38066,7 +37864,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38076,12 +37874,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs/python-snippet": {
       "post": {
@@ -38180,7 +37979,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-75"
+                  "$ref": "#/components/schemas/def-77"
                 }
               }
             }
@@ -38190,7 +37989,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38200,7 +37999,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38210,7 +38009,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38220,12 +38019,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs/{slug}/bundle-editor": {
       "get": {
@@ -38250,7 +38050,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-54"
+                  "$ref": "#/components/schemas/def-56"
                 }
               }
             }
@@ -38260,7 +38060,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38270,7 +38070,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38280,12 +38080,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs/{slug}/bundle/ai-edit": {
       "post": {
@@ -38298,7 +38099,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-55"
+                "$ref": "#/components/schemas/def-57"
               }
             }
           }
@@ -38325,7 +38126,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-54"
+                  "$ref": "#/components/schemas/def-56"
                 }
               }
             }
@@ -38335,7 +38136,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38345,7 +38146,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38355,7 +38156,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38365,7 +38166,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38375,7 +38176,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38385,7 +38186,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38395,7 +38196,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38405,12 +38206,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs/{slug}/bundle/regenerate": {
       "post": {
@@ -38423,7 +38225,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-56"
+                "$ref": "#/components/schemas/def-58"
               }
             }
           }
@@ -38450,7 +38252,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-54"
+                  "$ref": "#/components/schemas/def-56"
                 }
               }
             }
@@ -38460,7 +38262,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38470,7 +38272,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38480,7 +38282,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38490,7 +38292,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38500,7 +38302,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38510,7 +38312,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38520,12 +38322,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/jobs/{slug}/run": {
       "post": {
@@ -38538,7 +38341,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-57"
+                "$ref": "#/components/schemas/def-59"
               }
             }
           }
@@ -38565,7 +38368,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-44"
+                  "$ref": "#/components/schemas/def-46"
                 }
               }
             }
@@ -38575,7 +38378,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38585,7 +38388,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38595,7 +38398,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38605,7 +38408,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -38615,12 +38418,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/job-bundles": {
       "get": {
@@ -38985,7 +38789,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-87"
+                  "$ref": "#/components/schemas/def-89"
                 }
               }
             }
@@ -38995,7 +38799,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39005,7 +38809,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39015,12 +38819,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/workflows": {
       "get": {
@@ -39034,7 +38839,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-66"
+                  "$ref": "#/components/schemas/def-68"
                 }
               }
             }
@@ -39044,12 +38849,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "post": {
         "summary": "Create a workflow definition",
         "tags": [
@@ -39067,7 +38873,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-65"
+                  "$ref": "#/components/schemas/def-67"
                 }
               }
             }
@@ -39077,7 +38883,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39087,7 +38893,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39097,7 +38903,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39107,7 +38913,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39117,7 +38923,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39131,8 +38937,9 @@
                 "$ref": "https://core.apphub/schemas/WorkflowDefinitionCreateRequest.json"
               }
             }
+          }
         }
-            }
+      }
     },
     "/workflow-schedules": {
       "get": {
@@ -39360,7 +39167,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-70"
+                  "$ref": "#/components/schemas/def-72"
                 }
               }
             }
@@ -39370,7 +39177,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39380,12 +39187,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/workflow-schedules/{scheduleId}": {
       "patch": {
@@ -39694,7 +39502,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-82"
+                  "$ref": "#/components/schemas/def-84"
                 }
               }
             }
@@ -39704,12 +39512,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/workflows/{slug}/assets/{assetId}/stale": {
       "post": {
@@ -39722,7 +39531,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-83"
+                "$ref": "#/components/schemas/def-85"
               }
             }
           }
@@ -39768,7 +39577,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39778,7 +39587,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39788,7 +39597,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39798,7 +39607,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39808,12 +39617,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "delete": {
         "summary": "Clear stale asset status",
         "tags": [
@@ -39871,7 +39681,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39881,7 +39691,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39891,7 +39701,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39901,7 +39711,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -39911,12 +39721,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/services": {
       "get": {
@@ -39954,94 +39765,20 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "post": {
-        "summary": "Register or update a service",
-        "tags": [
-          "Services"
-        ],
-        "description": "Adds a new service entry or updates the metadata for an existing service. Requires the service registry bearer token.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/def-37"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ServiceRegistryToken": []
-          }
-        ],
         "responses": {
           "200": {
-            "description": "The service metadata was updated.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/def-36"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "A new service was registered.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/def-36"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The service payload failed validation.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/def-96"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authorization header was missing.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/def-96"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Authorization header was rejected.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/def-96"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service registry support is disabled on this deployment.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/def-96"
-                }
-              }
-            }
+            "description": "Default Response"
+          }
         }
-            }
+      }
     },
     "/services/{slug}/preview": {
       "get": {
@@ -40085,6 +39822,245 @@
         "responses": {
           "200": {
             "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/services/module": {
+      "post": {
+        "summary": "Register or update a module-managed service",
+        "tags": [
+          "Services"
+        ],
+        "description": "Adds or updates a service provisioned via the AppHub module runtime.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceRegistryToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module service updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-36"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Module service registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-36"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The service payload failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-98"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization header was missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-98"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization header was rejected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-98"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service registry support is disabled on this deployment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-98"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/module-runtime/artifacts": {
+      "post": {
+        "summary": "Publish a module artifact",
+        "tags": [
+          "Modules"
+        ],
+        "description": "Stores a module bundle on disk and registers it for module runtime execution.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "moduleId",
+                  "moduleVersion",
+                  "manifest",
+                  "artifact"
+                ],
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "moduleVersion": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "description": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "keywords": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "manifest": {
+                    "type": "object"
+                  },
+                  "artifact": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "data"
+                    ],
+                    "properties": {
+                      "filename": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "contentType": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "data": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Base64-encoded module bundle contents."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "ServiceRegistryToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module artifact registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-39"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Module artifact registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-39"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The module artifact payload failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-98"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization header was missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-98"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization header was rejected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-98"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to store the module artifact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-98"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service registry support is disabled on this deployment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-98"
+                }
+              }
+            }
           }
         }
       }
@@ -40186,7 +40162,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -40196,7 +40172,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -40206,7 +40182,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -40216,7 +40192,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -40226,7 +40202,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -40236,12 +40212,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/metastore": {
       "get": {
@@ -40926,12 +40903,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "post": {
         "summary": "Submit a repository for ingestion",
         "tags": [
@@ -40963,12 +40941,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/apps/{id}": {
       "get": {
@@ -41004,7 +40983,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41014,12 +40993,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/apps/{id}/history": {
       "get": {
@@ -41255,7 +41235,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41265,7 +41245,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41275,12 +41255,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "post": {
         "summary": "Create a saved core search",
         "tags": [
@@ -41317,7 +41298,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41327,7 +41308,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41337,7 +41318,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41347,12 +41328,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/saved-searches/{slug}": {
       "get": {
@@ -41393,7 +41375,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41403,7 +41385,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41413,7 +41395,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41423,12 +41405,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "patch": {
         "summary": "Update a saved core search",
         "tags": [
@@ -41476,7 +41459,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41486,7 +41469,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41496,7 +41479,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41506,12 +41489,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "delete": {
         "summary": "Delete a saved core search",
         "tags": [
@@ -41550,7 +41534,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41560,7 +41544,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41570,7 +41554,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41580,12 +41564,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/saved-searches/{slug}/apply": {
       "post": {
@@ -41626,7 +41611,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41636,7 +41621,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41646,7 +41631,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41656,12 +41641,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/saved-searches/{slug}/share": {
       "post": {
@@ -41702,7 +41688,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41712,7 +41698,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41722,7 +41708,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41732,12 +41718,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/events/saved-views": {
       "get": {
@@ -41767,7 +41754,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41777,12 +41764,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "post": {
         "summary": "Create a saved event view",
         "tags": [
@@ -41819,7 +41807,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41829,7 +41817,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41839,7 +41827,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41849,12 +41837,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/events/saved-views/{slug}": {
       "get": {
@@ -41895,7 +41884,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41905,7 +41894,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41915,7 +41904,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41925,12 +41914,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "patch": {
         "summary": "Update a saved event view",
         "tags": [
@@ -41978,7 +41968,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41988,7 +41978,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -41998,7 +41988,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42008,7 +41998,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42018,12 +42008,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            },
+      },
       "delete": {
         "summary": "Delete a saved event view",
         "tags": [
@@ -42062,7 +42053,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42072,7 +42063,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42082,7 +42073,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42092,12 +42083,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/events/saved-views/{slug}/apply": {
       "post": {
@@ -42138,7 +42130,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42148,7 +42140,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42158,7 +42150,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42168,12 +42160,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/events/saved-views/{slug}/share": {
       "post": {
@@ -42214,7 +42207,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42224,7 +42217,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42234,7 +42227,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -42244,12 +42237,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
+          }
         }
-            }
+      }
     },
     "/admin/event-health": {
       "get": {

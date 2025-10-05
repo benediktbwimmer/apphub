@@ -90,9 +90,11 @@ x-core-service: &core-service
   restart: unless-stopped
   volumes:
     - ${APPHUB_E2E_REPO_ROOT}:${APPHUB_E2E_REPO_ROOT}:ro
+    - module-artifacts:/tmp/apphub
 
 x-runtime-volume: &runtime-volume
   - ${APPHUB_E2E_REPO_ROOT}:${APPHUB_E2E_REPO_ROOT}:ro
+  - module-artifacts:/tmp/apphub
 
 services:
   postgres:
@@ -251,4 +253,5 @@ services:
 
 volumes:
   minio-data:
+  module-artifacts:
     driver: local

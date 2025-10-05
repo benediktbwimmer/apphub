@@ -93,7 +93,7 @@ const serviceMetadataShape = z
   .object({
     resourceType: z.literal('service').default('service'),
     manifest: z.union([serviceManifestMetadataSchema, z.null()]).optional(),
-    config: z.union([jsonValueSchema, z.null()]).optional(),
+    config: z.union([z.unknown(), z.null()]).optional(),
     runtime: z.union([serviceRuntimeMetadataSchema, z.null()]).optional(),
     health: z.union([serviceHealthMetadataSchema, z.null()]).optional(),
     openapi: z.union([serviceOpenApiMetadataSchema, z.null()]).optional(),
