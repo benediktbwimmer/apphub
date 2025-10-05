@@ -104,7 +104,7 @@ export function FullscreenOverlay({ preview, onClose }: FullscreenOverlayProps) 
         <div className="relative flex-1 overflow-hidden rounded-3xl border core-fullscreen-frame">
           {content ?? (
             <div className="flex h-full w-full items-center justify-center px-6 text-center text-scale-sm core-fullscreen-message">
-              Preview unavailable. Try opening the app preview in a new tab from the card instead.
+              Preview unavailable. Try opening the build preview in a new tab from the card instead.
             </div>
           )}
         </div>

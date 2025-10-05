@@ -19,7 +19,7 @@ type IconComponent = (props: IconProps) => JSX.Element;
 const NAV_ICON_MAP: Record<PrimaryNavKey, IconComponent> = {
   overview: OverviewIcon,
   observability: ObservabilityIcon,
-  core: AppsIcon,
+  core: BuildsIcon,
   events: EventsIcon,
   assets: AssetsIcon,
   services: ServicesIcon,
@@ -231,7 +231,7 @@ function EventsIcon({ className }: IconProps) {
   );
 }
 
-function AppsIcon({ className }: IconProps) {
+function BuildsIcon({ className }: IconProps) {
   return (
     <svg
       aria-hidden="true"

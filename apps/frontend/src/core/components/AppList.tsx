@@ -110,7 +110,7 @@ function AppList({
       <table className="min-w-full divide-y divide-subtle">
         <thead className="bg-surface-muted text-left text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
           <tr>
-            <th scope="col" className="px-6 py-4">App</th>
+            <th scope="col" className="px-6 py-4">Build</th>
             <th scope="col" className="px-6 py-4">Ingestion</th>
             <th scope="col" className="px-6 py-4">Latest build</th>
             <th scope="col" className="px-6 py-4">Latest launch</th>
@@ -185,7 +185,7 @@ function AppList({
                   role="button"
                   tabIndex={0}
                   aria-expanded={isSelected}
-                  aria-label={`View details for ${app.name}`}
+                  aria-label={`View build details for ${app.name}`}
                 >
                   <td className="max-w-xs px-6 py-4 align-top">
                     <div className="space-y-2">

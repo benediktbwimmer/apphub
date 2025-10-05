@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../auth/useAuth';
-import type { AppRecord, StatusFacet } from '../core/types';
 import { formatFetchError } from '../core/utils';
 import type { ServiceSummary } from '../services/types';
 import {
@@ -10,12 +9,12 @@ import {
   type JobRunListItem,
   type WorkflowActivityRunEntry
 } from '../runs/api';
-import { listServices, searchRepositories } from '../core/api';
-import { INGEST_STATUSES } from '../core/constants';
+import { listServices } from '../core/api';
+import { getWorkflowEventHealth } from '../workflows/api';
+import type { WorkflowEventSchedulerHealth } from '../workflows/types';
 
 export type OverviewData = {
-  apps: AppRecord[];
-  statusFacets: StatusFacet[];
+  eventHealth: WorkflowEventSchedulerHealth | null;
   services: ServiceSummary[];
   workflowRuns: WorkflowActivityRunEntry[];
   jobRuns: JobRunListItem[];
@@ -28,8 +27,7 @@ type LoadState = {
 };
 
 const EMPTY_DATA: OverviewData = {
-  apps: [],
-  statusFacets: [],
+  eventHealth: null,
   services: [],
   workflowRuns: [],
   jobRuns: []
@@ -56,14 +54,8 @@ export function useOverviewData(): LoadState {
 
       const results = await Promise.allSettled([
         (async () => {
-          const result = await searchRepositories(authToken, { sort: 'updated' });
-          const apps = result.repositories.slice(0, 8);
-          const counts = new Map(result.facets.statuses.map((item) => [item.status, item.count]));
-          const statusFacets = INGEST_STATUSES.map((status) => ({
-            status,
-            count: counts.get(status) ?? 0
-          }));
-          return { apps, statusFacets };
+          const health = await getWorkflowEventHealth(authToken);
+          return health;
         })(),
         (async () => {
           const services = await listServices(authToken);
@@ -89,18 +81,17 @@ export function useOverviewData(): LoadState {
       const next: OverviewData = { ...EMPTY_DATA };
       const errors: string[] = [];
 
-      const [appsResult, servicesResult, workflowRunsResult, jobRunsResult] = results as [
-        PromiseSettledResult<{ apps: AppRecord[]; statusFacets: StatusFacet[] }>,
+      const [eventHealthResult, servicesResult, workflowRunsResult, jobRunsResult] = results as [
+        PromiseSettledResult<WorkflowEventSchedulerHealth | null>,
         PromiseSettledResult<ServiceSummary[]>,
         PromiseSettledResult<WorkflowActivityRunEntry[]>,
         PromiseSettledResult<JobRunListItem[]>
       ];
 
-      if (appsResult.status === 'fulfilled') {
-        next.apps = appsResult.value.apps;
-        next.statusFacets = appsResult.value.statusFacets;
+      if (eventHealthResult.status === 'fulfilled') {
+        next.eventHealth = eventHealthResult.value;
       } else {
-        errors.push(formatFetchError(appsResult.reason, 'Failed to load apps overview', API_BASE_URL));
+        errors.push(formatFetchError(eventHealthResult.reason, 'Failed to load event scheduler snapshot', API_BASE_URL));
       }
 
       if (servicesResult.status === 'fulfilled') {
