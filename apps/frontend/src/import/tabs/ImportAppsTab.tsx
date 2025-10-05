@@ -44,7 +44,7 @@ const STATUS_BADGE_MAP: Record<string, string> = {
 
 const resolveStatusBadge = (status: string) => STATUS_BADGE_MAP[status] ?? STATUS_BADGE_NEUTRAL;
 
-const APP_DOC_URL = 'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#apps';
+const BUILD_DOC_URL = 'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#apps';
 
 function formatRelativeTime(timestamp: number | null) {
   if (!timestamp) {
@@ -106,8 +106,10 @@ export default function ImportAppsTab({ onAppRegistered, onViewCore }: ImportApp
     const appName = currentApp?.name ?? form.name;
     pushToast({
       tone: 'success',
-      title: 'App registration submitted',
-      description: appName ? `AppHub queued ingestion for ${appName}.` : 'AppHub queued ingestion for the new app.'
+      title: 'Build registration submitted',
+      description: appName
+        ? `AppHub queued ingestion for build ${appName}.`
+        : 'AppHub queued ingestion for the new build.'
     });
     lastSubmissionVersion.current = submissionVersion;
   }, [currentApp?.name, form.name, pushToast, submissionVersion]);
@@ -116,7 +118,7 @@ export default function ImportAppsTab({ onAppRegistered, onViewCore }: ImportApp
     if (!error || errorVersion === lastErrorVersion.current) {
       return;
     }
-    pushToast({ tone: 'error', title: 'App registration failed', description: error });
+    pushToast({ tone: 'error', title: 'Build registration failed', description: error });
     lastErrorVersion.current = errorVersion;
   }, [error, errorVersion, pushToast]);
 
@@ -148,7 +150,7 @@ export default function ImportAppsTab({ onAppRegistered, onViewCore }: ImportApp
           </div>
           <div className="flex flex-wrap gap-2">
             <FormButton size="sm" type="button" variant="secondary" onClick={resetForm}>
-              New app
+              New build
             </FormButton>
             {onViewCore ? (
               <FormButton size="sm" type="button" onClick={() => onViewCore()}>
@@ -183,7 +185,7 @@ export default function ImportAppsTab({ onAppRegistered, onViewCore }: ImportApp
             </ul>
           </div>
         ) : (
-          <p className={STATUS_META}>No ingestion history for this app yet.</p>
+          <p className={STATUS_META}>No ingestion history for this build yet.</p>
         )}
       </div>
     );
@@ -191,19 +193,19 @@ export default function ImportAppsTab({ onAppRegistered, onViewCore }: ImportApp
 
   return (
     <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-      <FormSection as="form" onSubmit={handleSubmit} aria-label="Register application">
+      <FormSection as="form" onSubmit={handleSubmit} aria-label="Register build">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className={HEADING_SECONDARY}>Application details</h2>
+          <h2 className={HEADING_SECONDARY}>Build details</h2>
           {draftStatus ? <span className={STATUS_META}>Draft saved {draftStatus}</span> : null}
         </div>
         <div className={`${CARD_SECTION} text-scale-sm`}>
           <p className={BODY_TEXT}>
-            <strong>Apps</strong> represent container workloads that AppHub builds from a Dockerfile. Provide the repository URL
+            <strong>Builds</strong> represent container workloads that AppHub constructs from a Dockerfile. Provide the repository URL
             and the Dockerfile path relative to the repo root. For registering network endpoints or shared manifests, use the
             <strong> Service manifests</strong> tab.
           </p>
-          <a className={LINK_ACCENT} href={APP_DOC_URL} target="_blank" rel="noreferrer">
-            View app onboarding guide
+          <a className={LINK_ACCENT} href={BUILD_DOC_URL} target="_blank" rel="noreferrer">
+            View build onboarding guide
             <span aria-hidden="true">&rarr;</span>
           </a>
         </div>
@@ -223,30 +225,30 @@ export default function ImportAppsTab({ onAppRegistered, onViewCore }: ImportApp
             Local workspace
           </button>
         </div>
-        <FormField label="Application name" htmlFor="app-name">
+        <FormField label="Build name" htmlFor="build-name">
           <input
-            id="app-name"
+            id="build-name"
             className={INPUT}
             value={form.name}
             onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-            placeholder="My Awesome App"
+            placeholder="My Awesome Build"
             required
           />
         </FormField>
-        <FormField label="Description" htmlFor="app-description">
+        <FormField label="Description" htmlFor="build-description">
           <textarea
-            id="app-description"
+            id="build-description"
             className={TEXTAREA}
             value={form.description}
             onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-            placeholder="Describe the application so teammates recognize it in the catalog"
+            placeholder="Describe the build so teammates recognize it in the catalog"
             required
           />
         </FormField>
         <div className="grid gap-4 md:grid-cols-2">
-          <FormField label="Repository URL" htmlFor="app-repo">
+          <FormField label="Repository URL" htmlFor="build-repo">
             <input
-              id="app-repo"
+              id="build-repo"
               className={INPUT}
               value={form.repoUrl}
               onChange={(event) => setForm((prev) => ({ ...prev, repoUrl: event.target.value }))}
@@ -254,9 +256,9 @@ export default function ImportAppsTab({ onAppRegistered, onViewCore }: ImportApp
               required
             />
           </FormField>
-          <FormField label="Dockerfile path" htmlFor="app-dockerfile">
+          <FormField label="Dockerfile path" htmlFor="build-dockerfile">
             <input
-              id="app-dockerfile"
+              id="build-dockerfile"
               className={INPUT}
               value={form.dockerfilePath}
               onChange={(event) => setForm((prev) => ({ ...prev, dockerfilePath: event.target.value }))}
@@ -293,9 +295,9 @@ export default function ImportAppsTab({ onAppRegistered, onViewCore }: ImportApp
             </button>
           </div>
         </div>
-        <FormField label="Metadata strategy" htmlFor="app-metadata">
+        <FormField label="Metadata strategy" htmlFor="build-metadata">
           <select
-            id="app-metadata"
+            id="build-metadata"
             className={INPUT}
             value={form.metadataStrategy}
             onChange={(event) => setForm((prev) => ({ ...prev, metadataStrategy: event.target.value as 'auto' | 'explicit' }))}
@@ -307,7 +309,7 @@ export default function ImportAppsTab({ onAppRegistered, onViewCore }: ImportApp
         {error ? <FormFeedback tone="error">{error}</FormFeedback> : null}
         <FormActions>
           <FormButton type="submit" disabled={submitting || disableSubmit}>
-            {submitting ? 'Submitting...' : 'Register app'}
+            {submitting ? 'Submitting...' : 'Register build'}
           </FormButton>
           <FormButton type="button" variant="secondary" onClick={resetForm}>
             Reset form

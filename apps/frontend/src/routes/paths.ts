@@ -78,16 +78,16 @@ export type PrimaryNavigationItem = {
 
 export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   { key: 'overview', label: 'Overview', path: ROUTE_PATHS.overview },
-  { key: 'observability', label: 'Observability', path: ROUTE_PATHS.observability },
-  { key: 'core', label: 'Apps', path: ROUTE_PATHS.core },
-  { key: 'events', label: 'Events', path: ROUTE_PATHS.events },
-  { key: 'assets', label: 'Assets', path: ROUTE_PATHS.assets },
-  { key: 'services', label: 'Services', path: ROUTE_PATHS.services },
   { key: 'runs', label: 'Runs', path: ROUTE_PATHS.runs },
-  { key: 'jobs', label: 'Jobs', path: ROUTE_PATHS.jobs },
-  { key: 'workflows', label: 'Workflows', path: ROUTE_PATHS.workflows },
+  { key: 'events', label: 'Events', path: ROUTE_PATHS.events },
+  { key: 'services', label: 'Services', path: ROUTE_PATHS.services },
   { key: 'topology', label: 'Topology', path: ROUTE_PATHS.topology },
+  { key: 'workflows', label: 'Workflows', path: ROUTE_PATHS.workflows },
+  { key: 'jobs', label: 'Jobs', path: ROUTE_PATHS.jobs },
   { key: 'schedules', label: 'Schedules', path: ROUTE_PATHS.schedules },
+  { key: 'assets', label: 'Assets', path: ROUTE_PATHS.assets },
+  { key: 'observability', label: 'Observability', path: ROUTE_PATHS.observability },
+  { key: 'core', label: 'Builds', path: ROUTE_PATHS.core },
   { key: 'settings', label: 'Settings', path: ROUTE_PATHS.settings }
 ] as const;
 

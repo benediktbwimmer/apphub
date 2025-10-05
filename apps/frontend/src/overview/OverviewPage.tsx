@@ -1,12 +1,11 @@
 import { useMemo, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import { useOverviewData } from './useOverviewData';
 import { ROUTE_PATHS } from '../routes/paths';
 import { Spinner } from '../components';
-import type { AppRecord, StatusFacet } from '../core/types';
 import type { ServiceSummary } from '../services/types';
 import type { JobRunListItem, WorkflowActivityRunEntry } from '../runs/api';
 import { getStatusToneClasses } from '../theme/statusTokens';
+import type { WorkflowEventSchedulerHealth } from '../workflows/types';
 
 const BADGE_BASE =
   'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.25em]';
@@ -17,25 +16,11 @@ const SECONDARY_BADGE_BASE =
 const CARD_CONTAINER_CLASSES =
   'flex flex-col gap-4 rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-xl backdrop-blur-md transition-colors';
 
-const ACCENT_LINK_CLASSES =
-  'rounded-full border border-accent-soft px-3 py-1 text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-accent transition-colors hover:bg-accent-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-
 const EMPTY_STATE_CLASSES =
   'flex h-28 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-subtle bg-surface-muted text-scale-sm text-muted';
 
 function buildStatusBadge(status: string, baseClass = BADGE_BASE): string {
   return `${baseClass} ${getStatusToneClasses(status)}`;
-}
-
-function totalAppsFromFacets(facets: StatusFacet[]): number {
-  return facets.reduce((sum, facet) => sum + (facet.count ?? 0), 0);
-}
-
-function sumFacets(facets: StatusFacet[], statuses: string[]): number {
-  const statusSet = new Set(statuses);
-  return facets
-    .filter((facet) => statusSet.has(facet.status))
-    .reduce((sum, facet) => sum + (facet.count ?? 0), 0);
 }
 
 function formatDateTime(value: string | null | undefined): string {
@@ -64,17 +49,6 @@ function getServiceStatusLabel(status: string): string {
   }
 }
 
-function sortRecentApps(apps: AppRecord[]): AppRecord[] {
-  return [...apps].sort((a, b) => {
-    const left = Date.parse(b.updatedAt ?? '');
-    const right = Date.parse(a.updatedAt ?? '');
-    if (Number.isNaN(left) || Number.isNaN(right)) {
-      return (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '');
-    }
-    return left - right;
-  });
-}
-
 function countServicesByStatus(services: ServiceSummary[], status: string): number {
   return services.filter((service) => service.status === status).length;
 }
@@ -89,33 +63,211 @@ function runsTitle(run: WorkflowActivityRunEntry | JobRunListItem): string {
   return 'Unknown';
 }
 
+type QueueSummary = {
+  mode: 'inline' | 'queue' | 'disabled';
+  total: number | null;
+  description: string;
+  metricsDescription: string | null;
+};
+
+type RetrySummaryItem = {
+  label: string;
+  total: number;
+  overdue: number;
+  nextAttemptAt: string | null;
+};
+
+function formatDurationMs(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return '—';
+  }
+  if (value < 1_000) {
+    return `${value} ms`;
+  }
+  const seconds = value / 1_000;
+  if (seconds < 60) {
+    return `${Math.round(seconds * 10) / 10}s`;
+  }
+  const minutes = seconds / 60;
+  if (minutes < 60) {
+    return `${Math.round(minutes * 10) / 10}m`;
+  }
+  const hours = minutes / 60;
+  if (hours < 24) {
+    return `${Math.round(hours * 10) / 10}h`;
+  }
+  const days = hours / 24;
+  if (days < 7) {
+    return `${Math.round(days * 10) / 10}d`;
+  }
+  const weeks = days / 7;
+  return `${Math.round(weeks * 10) / 10}w`;
+}
+
+function describeQueueCounts(counts?: Record<string, number>): string {
+  if (!counts) {
+    return 'No queue data';
+  }
+  const entries: string[] = [];
+  for (const key of ['waiting', 'active', 'failed', 'delayed', 'completed']) {
+    const value = counts[key];
+    if (typeof value === 'number' && value > 0) {
+      const label = key.charAt(0).toUpperCase() + key.slice(1);
+      entries.push(`${label} ${value}`);
+    }
+  }
+  return entries.length > 0 ? entries.join(' · ') : 'All clear';
+}
+
+function summarizeQueue(
+  queue: WorkflowEventSchedulerHealth['queues']['ingress'] | undefined
+): QueueSummary {
+  if (!queue) {
+    return {
+      mode: 'disabled',
+      total: null,
+      description: 'No queue data',
+      metricsDescription: null
+    } satisfies QueueSummary;
+  }
+  if (queue.mode === 'inline') {
+    return {
+      mode: 'inline',
+      total: null,
+      description: 'Inline execution',
+      metricsDescription: null
+    } satisfies QueueSummary;
+  }
+  const counts = queue.counts ?? {};
+  const total = Object.values(counts).reduce<number>((sum, value) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return sum;
+    }
+    return sum + value;
+  }, 0);
+  const metrics = queue.metrics ?? null;
+  const metricParts: string[] = [];
+  if (metrics && metrics.waitingAvgMs != null) {
+    metricParts.push(`Avg wait ${formatDurationMs(metrics.waitingAvgMs)}`);
+  }
+  if (metrics && metrics.processingAvgMs != null) {
+    metricParts.push(`Avg processing ${formatDurationMs(metrics.processingAvgMs)}`);
+  }
+  return {
+    mode: queue.mode,
+    total,
+    description: describeQueueCounts(counts),
+    metricsDescription: metricParts.length > 0 ? metricParts.join(' · ') : null
+  } satisfies QueueSummary;
+}
+
+function summarizeQueues(health: WorkflowEventSchedulerHealth | null) {
+  return {
+    ingress: summarizeQueue(health?.queues.ingress),
+    triggers: summarizeQueue(health?.queues.triggers)
+  } as const;
+}
+
+function summarizeRetries(health: WorkflowEventSchedulerHealth | null) {
+  const items: RetrySummaryItem[] = [];
+  let total = 0;
+  let overdue = 0;
+
+  if (health?.retries.events) {
+    const summary = health.retries.events.summary;
+    items.push({
+      label: 'Ingress events',
+      total: summary.total,
+      overdue: summary.overdue,
+      nextAttemptAt: summary.nextAttemptAt
+    });
+    total += summary.total;
+    overdue += summary.overdue;
+  }
+
+  if (health?.retries.triggers) {
+    const summary = health.retries.triggers.summary;
+    items.push({
+      label: 'Trigger deliveries',
+      total: summary.total,
+      overdue: summary.overdue,
+      nextAttemptAt: summary.nextAttemptAt
+    });
+    total += summary.total;
+    overdue += summary.overdue;
+  }
+
+  if (health?.retries.workflowSteps) {
+    const summary = health.retries.workflowSteps.summary;
+    items.push({
+      label: 'Workflow steps',
+      total: summary.total,
+      overdue: summary.overdue,
+      nextAttemptAt: summary.nextAttemptAt
+    });
+    total += summary.total;
+    overdue += summary.overdue;
+  }
+
+  return { items, total, overdue } as const;
+}
+
+function collectTopSources(health: WorkflowEventSchedulerHealth | null, limit = 5) {
+  if (!health) {
+    return [];
+  }
+  return Object.entries(health.sources)
+    .map(([source, metrics]) => ({ source, metrics }))
+    .sort((a, b) => (b.metrics.averageLagMs ?? 0) - (a.metrics.averageLagMs ?? 0))
+    .slice(0, limit);
+}
+
 
 export default function OverviewPage() {
   const { data, loading, error } = useOverviewData();
 
-  const stats = useMemo(() => {
-    const totalApps = totalAppsFromFacets(data.statusFacets);
-    const readyApps = sumFacets(data.statusFacets, ['ready']);
-    const failedApps = sumFacets(data.statusFacets, ['failed']);
-    const buildingApps = sumFacets(data.statusFacets, ['pending', 'processing']);
+  const queueStats = useMemo(() => summarizeQueues(data.eventHealth), [data.eventHealth]);
+  const retryStats = useMemo(() => summarizeRetries(data.eventHealth), [data.eventHealth]);
+  const pausedSummary = useMemo(
+    () => ({
+      sources: data.eventHealth?.pausedSources.length ?? 0,
+      triggers: data.eventHealth ? Object.keys(data.eventHealth.pausedTriggers).length : 0
+    }),
+    [data.eventHealth]
+  );
+  const topSources = useMemo(() => collectTopSources(data.eventHealth, 3), [data.eventHealth]);
+  const serviceStats = useMemo(() => {
     const healthyServices = countServicesByStatus(data.services, 'healthy');
     const degradedServices = countServicesByStatus(data.services, 'degraded');
     const totalServices = data.services.length;
-    return {
-      totalApps,
-      readyApps,
-      failedApps,
-      buildingApps,
-      totalServices,
-      healthyServices,
-      degradedServices,
+    return { totalServices, healthyServices, degradedServices };
+  }, [data.services]);
+  const runStats = useMemo(
+    () => ({
       workflowRuns: data.workflowRuns.length,
       jobRuns: data.jobRuns.length
-    };
-  }, [data]);
-
-  const recentApps = useMemo(() => sortRecentApps(data.apps).slice(0, 6), [data.apps]);
+    }),
+    [data.workflowRuns, data.jobRuns]
+  );
   const recentServices = useMemo(() => data.services.slice(0, 6), [data.services]);
+  const snapshotGeneratedAt = data.eventHealth?.generatedAt ?? null;
+
+  const retrySummaryDescription = useMemo(() => {
+    if (retryStats.items.length === 0) {
+      return 'All clear';
+    }
+    return retryStats.items
+      .map((item) => {
+        const shortLabel =
+          item.label === 'Ingress events'
+            ? 'Events'
+            : item.label === 'Trigger deliveries'
+              ? 'Triggers'
+              : 'Steps';
+        return `${shortLabel} ${item.total}`;
+      })
+      .join(' · ');
+  }, [retryStats.items]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -133,42 +285,127 @@ export default function OverviewPage() {
       )}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total apps" value={stats.totalApps} description={`${stats.readyApps} ready · ${stats.buildingApps} building`} loading={loading} />
-        <StatCard label="Problem apps" value={stats.failedApps} description="Failed ingestion or builds" tone="warning" loading={loading} />
-        <StatCard label="Services" value={stats.totalServices} description={`${stats.healthyServices} healthy · ${stats.degradedServices} degraded`} loading={loading} />
-        <StatCard label="Recent runs" value={stats.workflowRuns + stats.jobRuns} description={`${stats.workflowRuns} workflows · ${stats.jobRuns} jobs`} loading={loading} />
+        <StatCard
+          label="Ingress queue"
+          value={queueStats.ingress.total}
+          description={`${queueStats.ingress.description}${queueStats.ingress.mode === 'queue' ? '' : ` · Mode ${queueStats.ingress.mode}`}`}
+          loading={loading}
+        />
+        <StatCard
+          label="Retry backlog"
+          value={retryStats.total}
+          description={retrySummaryDescription}
+          tone={retryStats.overdue > 0 ? 'warning' : 'default'}
+          loading={loading}
+        />
+        <StatCard
+          label="Services"
+          value={serviceStats.totalServices}
+          description={`${serviceStats.healthyServices} healthy · ${serviceStats.degradedServices} degraded`}
+          loading={loading}
+        />
+        <StatCard
+          label="Recent runs"
+          value={runStats.workflowRuns + runStats.jobRuns}
+          description={`${runStats.workflowRuns} workflows · ${runStats.jobRuns} jobs`}
+          loading={loading}
+        />
       </section>
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Card title="Recently updated apps" actionLabel="View core" actionHref={ROUTE_PATHS.core} loading={loading && recentApps.length === 0}>
-          {recentApps.length === 0 ? (
-            <EmptyState message="No apps available yet." />
+        <Card
+          title="Event scheduler snapshot"
+          actionLabel="View events"
+          actionHref={ROUTE_PATHS.events}
+          loading={loading && !data.eventHealth}
+        >
+          {data.eventHealth ? (
+            <div className="flex flex-col gap-4">
+              <div className="text-scale-xs text-muted">
+                {snapshotGeneratedAt ? `Snapshot generated ${formatDateTime(snapshotGeneratedAt)}` : 'Snapshot timing unavailable'}
+              </div>
+              <section className="flex flex-col gap-3">
+                <h3 className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted">Queues</h3>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(['ingress', 'triggers'] as const).map((key) => {
+                    const queue = queueStats[key];
+                    const title = key === 'ingress' ? 'Ingress' : 'Triggers';
+                    return (
+                      <div
+                        key={key}
+                        className="rounded-xl border border-subtle bg-surface-glass px-3 py-2 text-scale-xs text-secondary"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-weight-semibold text-primary">{title}</span>
+                          <span className="text-muted capitalize">Mode {queue.mode}</span>
+                        </div>
+                        <div className="mt-1">{queue.description}</div>
+                        {queue.metricsDescription ? (
+                          <div className="mt-1 text-[11px] text-muted">{queue.metricsDescription}</div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+              <section className="flex flex-col gap-3">
+                <h3 className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted">Retry backlog</h3>
+                {retryStats.items.length === 0 ? (
+                  <p className="text-scale-xs text-muted">No retries waiting for attention.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {retryStats.items.map((item) => (
+                      <li
+                        key={item.label}
+                        className="rounded-xl border border-subtle bg-surface-glass px-3 py-2 text-scale-xs text-secondary"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-weight-semibold text-primary">{item.label}</span>
+                          <span>Total {item.total}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center justify-between gap-3 text-muted">
+                          <span>Overdue {item.overdue}</span>
+                          <span>Next attempt {item.nextAttemptAt ? formatDateTime(item.nextAttemptAt) : '—'}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+              {(pausedSummary.sources > 0 || pausedSummary.triggers > 0) && (
+                <div className="rounded-xl border border-status-warning bg-status-warning-soft px-3 py-2 text-scale-xs text-status-warning">
+                  <strong>Paused routing:</strong> {pausedSummary.sources} sources · {pausedSummary.triggers} triggers
+                </div>
+              )}
+              <section className="flex flex-col gap-3">
+                <h3 className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted">Top sources</h3>
+                {topSources.length === 0 ? (
+                  <p className="text-scale-xs text-muted">No source metrics recorded yet.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {topSources.map(({ source, metrics }) => (
+                      <li
+                        key={source}
+                        className="rounded-xl border border-subtle bg-surface-glass px-3 py-2 text-scale-xs text-secondary"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-weight-semibold text-primary">{source}</span>
+                          <span className="text-muted">Avg lag {formatDurationMs(metrics.averageLagMs)}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-3 text-muted">
+                          <span>Total {metrics.total}</span>
+                          <span>Throttled {metrics.throttled ?? 0}</span>
+                          <span>Dropped {metrics.dropped ?? 0}</span>
+                          <span>Failures {metrics.failures ?? 0}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
           ) : (
-            <ul className="flex flex-col gap-3">
-              {recentApps.map((app) => (
-                <li
-                  key={app.id}
-                  className="rounded-xl border border-subtle bg-surface-glass px-4 py-3 text-scale-sm shadow-elevation-md transition-colors hover:border-accent-soft hover:bg-accent-soft"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-weight-semibold text-primary">{app.name}</div>
-                    <span className={buildStatusBadge(app.ingestStatus, SECONDARY_BADGE_BASE)}>{app.ingestStatus}</span>
-                  </div>
-                  {app.description && (
-                    <p className="mt-1 line-clamp-2 text-scale-xs text-muted">{app.description}</p>
-                  )}
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-[0.25em] text-muted">
-                    <span>Updated {formatDateTime(app.updatedAt)}</span>
-                    <Link
-                      to={`${ROUTE_PATHS.core}?seed=${encodeURIComponent(app.id)}`}
-                      className={ACCENT_LINK_CLASSES}
-                    >
-                      Inspect
-                    </Link>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <EmptyState message="Scheduler metrics unavailable." />
           )}
         </Card>
 
@@ -217,7 +454,7 @@ export default function OverviewPage() {
 
 type StatCardProps = {
   label: string;
-  value: number;
+  value: number | null;
   description?: string;
   tone?: 'default' | 'warning';
   loading?: boolean;
@@ -229,10 +466,12 @@ function StatCard({ label, value, description, tone = 'default', loading }: Stat
       ? 'border-status-danger bg-status-danger-soft text-status-danger'
       : 'border-subtle bg-surface-glass text-primary';
 
+  const displayValue = loading || value === null ? '—' : value.toLocaleString();
+
   return (
     <div className={`rounded-2xl border px-4 py-5 shadow-elevation-md transition-colors ${toneClasses}`}>
       <div className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">{label}</div>
-      <div className="mt-2 text-scale-2xl font-weight-bold">{loading ? '—' : value.toLocaleString()}</div>
+      <div className="mt-2 text-scale-2xl font-weight-bold">{displayValue}</div>
       {description && <div className="mt-1 text-scale-xs text-muted">{description}</div>}
     </div>
   );

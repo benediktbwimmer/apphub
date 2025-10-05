@@ -157,7 +157,7 @@ function PreviewMedia({ tile }: { tile: AppRecord['previewTiles'][number] }) {
       <img
         className="h-full w-full object-cover"
         src={tile.src}
-        alt={tile.title ?? 'Application preview frame'}
+        alt={tile.title ?? 'Build preview frame'}
         loading="lazy"
       />
     );
@@ -968,7 +968,7 @@ function LaunchSummarySection({
           }}
           disabled={isLaunching || !canLaunch || canStop}
         >
-          {isLaunching ? 'Launching…' : 'Launch app'}
+          {isLaunching ? 'Launching…' : 'Launch build'}
         </button>
         <button
           type="button"
@@ -1520,7 +1520,7 @@ function AppDetailsPanel({
               type="button"
               aria-haspopup="dialog"
               aria-expanded={infoOpen}
-              aria-label={infoOpen ? 'Hide app info' : 'Show app info'}
+              aria-label={infoOpen ? 'Hide build info' : 'Show build info'}
               className="inline-flex items-center justify-center rounded-full border border-subtle bg-surface-glass p-2 text-muted transition-colors hover:border-accent hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               onClick={() => setInfoOpen((open) => !open)}
             >
