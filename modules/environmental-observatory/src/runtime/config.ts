@@ -60,6 +60,8 @@ export type ObservatoryWorkflowGeneratorConfig = {
 export type ObservatoryWorkflowDashboardConfig = {
   overviewDirName?: string;
   lookbackMinutes?: number;
+  burstQuietMillis?: number;
+  snapshotFreshnessMillis?: number;
 };
 
 export type ObservatoryWorkflowConfig = {

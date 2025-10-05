@@ -3,6 +3,7 @@ import {
   inheritModuleSettings,
   inheritModuleSecrets,
   selectFilestore,
+  selectEventBus,
   selectMetastore,
   sanitizeIdentifier,
   toTemporalKey,
@@ -13,6 +14,7 @@ import { z } from 'zod';
 import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
+import { createObservatoryEventPublisher, publishAssetMaterialized } from '../runtime/events';
 
 const visualizationArtifactSchema = z
   .object({
@@ -253,12 +255,12 @@ export const reportPublisherJob = createJobHandler<
   ObservatoryModuleSecrets,
   ReportPublisherResult,
   ReportPublisherParameters,
-  ['filestore', 'metastore.reports']
+  ['filestore', 'metastore.reports', 'events.default']
 >({
   name: 'observatory-report-publisher',
   settings: inheritModuleSettings(),
   secrets: inheritModuleSecrets(),
-  requires: ['filestore', 'metastore.reports'] as const,
+  requires: ['filestore', 'metastore.reports', 'events.default'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
@@ -269,6 +271,16 @@ export const reportPublisherJob = createJobHandler<
     }
     const filestore: FilestoreCapability = filestoreCapabilityCandidate;
     const metastore = selectMetastore(context.capabilities, 'reports');
+
+    const eventsCapability = selectEventBus(context.capabilities, 'default');
+    if (!eventsCapability) {
+      throw new Error('Event bus capability is required for the report publisher');
+    }
+
+    const publisher = createObservatoryEventPublisher({
+      capability: eventsCapability,
+      source: context.settings.events.source || 'observatory.report-publisher'
+    });
 
     const principal = context.settings.principals.dashboardAggregator?.trim() || undefined;
     const backendMountId = await ensureResolvedBackendId(filestore, {
@@ -417,6 +429,22 @@ export const reportPublisherJob = createJobHandler<
           siteFilter: metrics.siteFilter ?? null
         }
       });
+    }
+
+    try {
+      await publishAssetMaterialized(publisher, {
+        assetId: 'observatory.reports.status',
+        partitionKey: assetPartitionKey,
+        producedAt: generatedAt,
+        metadata: {
+          storagePrefix,
+          instrumentId: context.parameters.instrumentId ?? metrics.instrumentId ?? null,
+          visualizationPartition: context.parameters.visualizationAsset.partitionKey,
+          lookbackMinutes: context.parameters.visualizationAsset.lookbackMinutes
+        }
+      });
+    } finally {
+      await publisher.close().catch(() => undefined);
     }
 
     context.logger.info('Published observatory status report', {

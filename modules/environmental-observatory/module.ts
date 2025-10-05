@@ -2,7 +2,7 @@ import { defineModule, namedCapabilities, secretsRef, settingsRef } from '@apphu
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from './src/runtime/settings';
 import { defaultObservatorySettings, defaultObservatorySecrets } from './src/runtime/settings';
 import { dataGeneratorJob } from './src/jobs/dataGenerator';
-import { inboxNormalizerJob } from './src/jobs/inboxNormalizer';
+import { minutePreprocessorJob } from './src/jobs/minutePreprocessor';
 import { timestoreLoaderJob } from './src/jobs/timestoreLoader';
 import { visualizationRunnerJob } from './src/jobs/visualizationRunner';
 import { dashboardAggregatorJob } from './src/jobs/dashboardAggregator';
@@ -10,12 +10,14 @@ import { reportPublisherJob } from './src/jobs/reportPublisher';
 import { calibrationImporterJob } from './src/jobs/calibrationImporter';
 import { calibrationPlannerJob } from './src/jobs/calibrationPlanner';
 import { calibrationReprocessorJob } from './src/jobs/calibrationReprocessor';
+import { burstFinalizerJob } from './src/jobs/burstFinalizer';
 import { dashboardService, adminService } from './src/services';
 import {
   minuteDataGeneratorWorkflow,
   minuteIngestWorkflow,
   dailyPublicationWorkflow,
   dashboardAggregateWorkflow,
+  burstFinalizeWorkflow,
   calibrationImportWorkflow,
   calibrationReprocessWorkflow
 } from './src/workflows';
@@ -23,7 +25,7 @@ import {
 export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>({
   metadata: {
     name: 'environmental-observatory',
-    version: '0.1.5',
+    version: '0.1.6',
     displayName: 'Environmental Observatory',
     description:
       'Reference implementation of the environmental observatory scenario using the AppHub module runtime.'
@@ -82,11 +84,12 @@ export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>
   },
   targets: [
     dataGeneratorJob,
-    inboxNormalizerJob,
+    minutePreprocessorJob,
     timestoreLoaderJob,
     visualizationRunnerJob,
     dashboardAggregatorJob,
     reportPublisherJob,
+    burstFinalizerJob,
     calibrationImporterJob,
     calibrationPlannerJob,
     calibrationReprocessorJob,
@@ -96,6 +99,7 @@ export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>
     minuteIngestWorkflow,
     dailyPublicationWorkflow,
     dashboardAggregateWorkflow,
+    burstFinalizeWorkflow,
     calibrationImportWorkflow,
     calibrationReprocessWorkflow
   ]

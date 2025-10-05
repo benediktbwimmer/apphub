@@ -40,7 +40,18 @@ const definition: WorkflowDefinition = {
         siteFilter: '{{ parameters.siteFilter | default: "" }}',
         lookbackMinutes: '{{ parameters.lookbackMinutes | default: defaultParameters.lookbackMinutes }}'
       },
-      storeResultAs: 'visualizations'
+      storeResultAs: 'visualizations',
+      produces: [
+        {
+          assetId: 'observatory.visualizations.minute',
+          partitioning: {
+            type: 'timeWindow',
+            granularity: 'minute',
+            format: 'YYYY-MM-DDTHH:mm',
+            lookbackWindows: 1440
+          }
+        }
+      ]
     },
     {
       id: 'publish-reports',
@@ -75,27 +86,29 @@ const definition: WorkflowDefinition = {
 
 const triggers = [
   createWorkflowTrigger({
-    name: 'Publish on observatory partition',
-    description: 'Generate plots and publish reports when the ingest workflow marks a partition ready.',
-    eventType: 'observatory.minute.partition-ready',
+    name: 'Publish on timestore asset',
+    description: 'Generate plots when a timestore asset materializes.',
+    eventType: 'observatory.asset.materialized',
     eventSource: 'observatory.events',
     predicates: [
       {
-        path: '$.payload.datasetSlug',
+        path: '$.payload.assetId',
         operator: 'equals',
-        value: moduleSetting('timestore.datasetSlug')
+        value: 'observatory.timeseries.timestore'
       }
     ],
     parameterTemplate: {
-      partitionKey:
-        "{{ event.payload.partitionKeyFields.window | default: event.payload.minute | default: event.payload.partitionKey }}",
+      partitionKey: '{{ event.payload.partitionKey }}',
       partitionWindow:
-        "{{ event.payload.partitionKeyFields.window | default: event.payload.minute | default: event.payload.partitionKey | slice: 0, 16 }}",
-      instrumentId: '{{ event.payload.instrumentId }}',
+        "{{ event.payload.metadata.partitionKeyFields.window | default: event.payload.metadata.minute | default: event.payload.partitionKey | slice: 0, 16 }}",
+      instrumentId: '{{ event.payload.metadata.instrumentId }}',
+      lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
+    },
+    metadata: {
       lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
     },
     idempotencyKeyExpression:
-      'observatory-publication-{{ event.payload.partitionKeyFields.window | default: event.payload.minute | default: event.payload.partitionKey }}'
+      'observatory-publication-{{ event.payload.partitionKey }}'
   })
 ];
 

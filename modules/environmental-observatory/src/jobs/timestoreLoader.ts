@@ -47,7 +47,7 @@ const parametersSchema = z
     storageTargetId: z.string().min(1).nullable().optional(),
     partitionNamespace: z.string().min(1).optional(),
     idempotencyKey: z.string().min(1).optional(),
-    filestoreBackendId: z.number().int().positive().optional(),
+    filestoreBackendId: z.number().int().positive().nullable().optional(),
     filestoreBackendKey: z.string().min(1).optional(),
     rawAsset: z.unknown().optional()
   })
@@ -996,30 +996,28 @@ export const timestoreLoaderJob = createJobHandler<
           }
         });
 
-        await publisher.publish({
-          type: 'observatory.minute.partition-ready',
-          occurredAt: ingestedAt,
-          payload: {
-            minute,
-            instrumentId,
-            partitionKey,
-            partitionKeyFields,
-            datasetSlug,
-            datasetId: summary.datasetId,
-            manifestId: summary.manifestId,
-            storageTargetId: summary.storageTargetId,
-            rowsIngested: summary.rowsIngested,
-            ingestedAt,
-            ingestionMode: summary.ingestionMode,
-            calibrationId: summary.calibrationId,
-            calibrationEffectiveAt: summary.calibrationEffectiveAt,
-            calibrationMetastoreVersion: summary.calibrationMetastoreVersion
-          }
-        });
       }
     } finally {
       await publisher.close().catch(() => undefined);
     }
+
+    const windowProducedAt = new Date().toISOString();
+    assets.push({
+      assetId: 'observatory.burst.window',
+      partitionKey: minute,
+      producedAt: windowProducedAt,
+      payload: {
+        minute,
+        instrumentCount: instrumentBuckets.size,
+        filesIngested: rawAsset.files.length,
+        partitions: summaries,
+        rowsIngested: totalRows,
+        ingestedAt: windowProducedAt,
+        stagingPrefix: rawAsset.stagingMinutePrefix,
+        backendMountId: rawAsset.backendMountId,
+        backendMountKey: rawAsset.backendMountKey
+      }
+    });
 
     context.logger.info('Completed timestore ingestion', {
       instrumentCount: instrumentBuckets.size,

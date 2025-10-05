@@ -1,6 +1,9 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, createWriteStream } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { createHash } from 'node:crypto';
 import Module from 'module';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import {
   getModuleArtifact,
   getModuleTarget
@@ -46,6 +49,67 @@ const moduleResolveCandidates: string[] = (process.env.APPHUB_MODULE_RESOLVE_PAT
   .filter((entry: string) => entry.length > 0)
   .map((entry: string) => path.resolve(entry));
 
+const moduleArtifactCacheRoot = (() => {
+  const artifactsRoot = (process.env.APPHUB_MODULE_ARTIFACTS_DIR ?? '').trim();
+  if (artifactsRoot) {
+    return path.resolve(artifactsRoot);
+  }
+  const scratchRoot = (process.env.APPHUB_SCRATCH_ROOT ?? '').trim();
+  if (scratchRoot) {
+    return path.resolve(scratchRoot, 'module-artifacts');
+  }
+  return path.join(os.tmpdir(), 'apphub-modules');
+})();
+
+const moduleArtifactS3Region =
+  process.env.APPHUB_MODULE_ARTIFACT_REGION?.trim() ||
+  process.env.APPHUB_MODULE_ARTIFACT_S3_REGION?.trim() ||
+  process.env.APPHUB_BUNDLE_STORAGE_REGION?.trim() ||
+  process.env.AWS_REGION?.trim() ||
+  'us-east-1';
+
+const moduleArtifactS3Endpoint =
+  process.env.APPHUB_MODULE_ARTIFACT_ENDPOINT?.trim() ||
+  process.env.APPHUB_MODULE_ARTIFACT_S3_ENDPOINT?.trim() ||
+  process.env.APPHUB_BUNDLE_STORAGE_ENDPOINT?.trim() ||
+  process.env.APPHUB_JOB_BUNDLE_S3_ENDPOINT?.trim() ||
+  undefined;
+
+const moduleArtifactS3ForcePathStyle =
+  (process.env.APPHUB_MODULE_ARTIFACT_FORCE_PATH_STYLE ??
+    process.env.APPHUB_MODULE_ARTIFACT_S3_FORCE_PATH_STYLE ??
+    process.env.APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE ??
+    process.env.APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE ??
+    'false')
+    .toLowerCase()
+    .trim() === 'true';
+
+const moduleArtifactS3AccessKeyId =
+  process.env.APPHUB_MODULE_ARTIFACT_ACCESS_KEY_ID ??
+  process.env.APPHUB_MODULE_ARTIFACT_S3_ACCESS_KEY_ID ??
+  process.env.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ??
+  process.env.APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID ??
+  process.env.AWS_ACCESS_KEY_ID ??
+  undefined;
+
+const moduleArtifactS3SecretAccessKey =
+  process.env.APPHUB_MODULE_ARTIFACT_SECRET_ACCESS_KEY ??
+  process.env.APPHUB_MODULE_ARTIFACT_S3_SECRET_ACCESS_KEY ??
+  process.env.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ??
+  process.env.APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY ??
+  process.env.AWS_SECRET_ACCESS_KEY ??
+  undefined;
+
+const moduleArtifactS3SessionToken =
+  process.env.APPHUB_MODULE_ARTIFACT_SESSION_TOKEN ??
+  process.env.APPHUB_MODULE_ARTIFACT_S3_SESSION_TOKEN ??
+  process.env.APPHUB_BUNDLE_STORAGE_SESSION_TOKEN ??
+  process.env.APPHUB_JOB_BUNDLE_S3_SESSION_TOKEN ??
+  process.env.AWS_SESSION_TOKEN ??
+  undefined;
+
+let moduleArtifactS3Client: S3Client | null = null;
+
 function ensureModuleResolutionPaths(): void {
   if (moduleResolveCandidates.length === 0) {
     return;
@@ -67,6 +131,115 @@ function ensureModuleResolutionPaths(): void {
     process.env.NODE_PATH = Array.from(merged).join(path.delimiter);
     moduleConstructor._initPaths();
   }
+}
+
+function sanitizeForPathSegment(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .toLowerCase();
+}
+
+function sanitizeFilename(value: string): string {
+  const base = path.basename(value || 'module.js');
+  return base.replace(/[^a-zA-Z0-9._-]+/g, '-');
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function computeFileChecksum(filePath: string): Promise<string> {
+  const data = await fs.readFile(filePath);
+  return createHash('sha256').update(data).digest('hex');
+}
+
+function parseS3ArtifactPath(artifactPath: string): { bucket: string; key: string } {
+  const trimmed = artifactPath.trim();
+  if (!trimmed) {
+    throw new Error('Module artifact path is empty');
+  }
+
+  if (trimmed.startsWith('s3://')) {
+    const url = new URL(trimmed);
+    const key = url.pathname.replace(/^\/+/, '');
+    if (!url.hostname || !key) {
+      throw new Error(`Invalid S3 artifact path: ${artifactPath}`);
+    }
+    return { bucket: url.hostname, key };
+  }
+
+  const slashIndex = trimmed.indexOf('/');
+  if (slashIndex <= 0 || slashIndex === trimmed.length - 1) {
+    throw new Error(`Invalid S3 artifact path: ${artifactPath}`);
+  }
+  const bucket = trimmed.slice(0, slashIndex);
+  const key = trimmed.slice(slashIndex + 1);
+  return { bucket, key };
+}
+
+function getModuleArtifactS3Client(): S3Client {
+  if (!moduleArtifactS3Client) {
+    const config: ConstructorParameters<typeof S3Client>[0] = {
+      region: moduleArtifactS3Region,
+      forcePathStyle: moduleArtifactS3ForcePathStyle
+    };
+    if (moduleArtifactS3Endpoint) {
+      config.endpoint = moduleArtifactS3Endpoint;
+    }
+    if (moduleArtifactS3AccessKeyId && moduleArtifactS3SecretAccessKey) {
+      config.credentials = {
+        accessKeyId: moduleArtifactS3AccessKeyId,
+        secretAccessKey: moduleArtifactS3SecretAccessKey,
+        sessionToken: moduleArtifactS3SessionToken
+      };
+    }
+    moduleArtifactS3Client = new S3Client(config);
+  }
+  return moduleArtifactS3Client;
+}
+
+async function downloadS3ObjectToFile(params: { bucket: string; key: string; destination: string }): Promise<void> {
+  const client = getModuleArtifactS3Client();
+  const command = new GetObjectCommand({ Bucket: params.bucket, Key: params.key });
+  const response = await client.send(command);
+  const body = response.Body;
+  if (!body) {
+    throw new Error(`Empty response body when downloading module artifact s3://${params.bucket}/${params.key}`);
+  }
+
+  await fs.mkdir(path.dirname(params.destination), { recursive: true });
+
+  if (typeof (body as any).pipe === 'function') {
+    await new Promise<void>((resolve, reject) => {
+      const stream = createWriteStream(params.destination);
+      stream.on('error', reject);
+      stream.on('close', resolve);
+      (body as NodeJS.ReadableStream).on('error', reject).pipe(stream);
+    });
+    return;
+  }
+
+  if (typeof (body as any).transformToByteArray === 'function') {
+    const array = await (body as any).transformToByteArray();
+    await fs.writeFile(params.destination, Buffer.from(array));
+    return;
+  }
+
+  if (typeof (body as any).arrayBuffer === 'function') {
+    const buffer = await (body as any).arrayBuffer();
+    await fs.writeFile(params.destination, Buffer.from(buffer));
+    return;
+  }
+
+  throw new Error('Unsupported S3 response body type for module artifact download');
 }
 
 export class ModuleRuntimeLoader {
@@ -182,15 +355,22 @@ export class ModuleRuntimeLoader {
       throw new Error(`Module artifact not found for ${moduleId}@${moduleVersion}`);
     }
 
-    if (!artifact.artifactPath || artifact.artifactStorage !== 'filesystem') {
+    let modulePath: string;
+    if (!artifact.artifactPath) {
+      throw new Error(`Module artifact ${artifact.id} is missing an artifact path`);
+    }
+
+    if (artifact.artifactStorage === 'filesystem') {
+      await this.ensureArtifactExists(artifact.artifactPath);
+      modulePath = path.resolve(artifact.artifactPath);
+    } else if (artifact.artifactStorage === 's3') {
+      modulePath = await this.ensureS3ArtifactMaterialized(moduleId, moduleVersion, artifact);
+    } else {
       throw new Error(
-        `Module artifact ${artifact.id} is not stored on the local filesystem and cannot be loaded`
+        `Module artifact ${artifact.id} uses unsupported storage backend ${artifact.artifactStorage}`
       );
     }
 
-    await this.ensureArtifactExists(artifact.artifactPath);
-
-    const modulePath = path.resolve(artifact.artifactPath);
     ensureModuleResolutionPaths();
     const imported = await import(modulePath);
     const definition: ModuleDefinition | undefined = (imported?.default ?? imported) as ModuleDefinition;
@@ -242,6 +422,46 @@ export class ModuleRuntimeLoader {
       targetMap,
       loadedAt: Date.now()
     } satisfies LoadedModuleInstance;
+  }
+
+  private async ensureS3ArtifactMaterialized(
+    moduleId: string,
+    moduleVersion: string,
+    artifact: ModuleArtifactRecord
+  ): Promise<string> {
+    const { bucket, key } = parseS3ArtifactPath(artifact.artifactPath);
+    const sanitizedModule = sanitizeForPathSegment(moduleId);
+    const sanitizedVersion = sanitizeForPathSegment(moduleVersion);
+    const filename = sanitizeFilename(path.basename(key) || 'module.js');
+    const cacheDir = path.join(moduleArtifactCacheRoot, sanitizedModule, sanitizedVersion);
+    const cachePath = path.join(cacheDir, filename);
+
+    const expectedChecksum = artifact.artifactChecksum?.trim() || null;
+    let checksumMatches = false;
+
+    if (await fileExists(cachePath)) {
+      if (!expectedChecksum) {
+        checksumMatches = true;
+      } else {
+        const currentChecksum = await computeFileChecksum(cachePath);
+        checksumMatches = currentChecksum === expectedChecksum;
+      }
+    }
+
+    if (!checksumMatches) {
+      await downloadS3ObjectToFile({ bucket, key, destination: cachePath });
+      if (expectedChecksum) {
+        const downloadedChecksum = await computeFileChecksum(cachePath);
+        if (downloadedChecksum !== expectedChecksum) {
+          await fs.rm(cachePath, { force: true }).catch(() => undefined);
+          throw new Error(
+            `Downloaded module artifact checksum mismatch for ${artifact.id} (${downloadedChecksum} !== ${expectedChecksum})`
+          );
+        }
+      }
+    }
+
+    return cachePath;
   }
 
   private async ensureArtifactExists(artifactPath: string): Promise<void> {

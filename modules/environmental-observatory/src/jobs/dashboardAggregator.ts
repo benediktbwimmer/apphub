@@ -13,7 +13,7 @@ import {
 } from '@apphub/module-sdk';
 import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
-import { createObservatoryEventPublisher } from '../runtime/events';
+import { createObservatoryEventPublisher, publishAssetMaterialized } from '../runtime/events';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
 type SelectedTimestore = NonNullable<ReturnType<typeof selectTimestore>>;
@@ -26,7 +26,9 @@ const parametersSchema = z
   .object({
     partitionKey: z.string().min(1, 'partitionKey is required'),
     lookbackMinutes: z.number().int().positive().optional(),
-    timestoreDatasetSlug: z.string().min(1).optional()
+    timestoreDatasetSlug: z.string().min(1).optional(),
+    burstReason: z.string().optional(),
+    burstFinishedAt: z.string().optional()
   })
   .strip();
 
@@ -73,6 +75,11 @@ type TrendPoint = {
   samples: number;
 };
 
+type BurstContext = {
+  reason: string | null;
+  finishedAt: string | null;
+};
+
 type DashboardSummary = {
   samples: number;
   instrumentCount: number;
@@ -82,26 +89,46 @@ type DashboardSummary = {
   maxPm25: number;
 };
 
+type DashboardSnapshotNode = {
+  path: string;
+  nodeId: number | null;
+  mediaType: string;
+  sizeBytes: number | null;
+  checksum: string | null;
+};
+
+type DashboardSnapshotAssetPayload = {
+  generatedAt: string;
+  partitionKey: string;
+  lookbackMinutes: number;
+  overviewPrefix: string;
+  dashboard: DashboardSnapshotNode;
+  data: DashboardSnapshotNode;
+  summary: DashboardSummary;
+  window: {
+    start: string;
+    end: string;
+    startIso: string;
+    endIso: string;
+  };
+  burst: BurstContext;
+};
+
 type DashboardAggregatorResult = {
   generatedAt: string;
   samples: number;
   instrumentCount: number;
   siteCount: number;
-  dashboard: {
-    path: string;
-    nodeId: number | null;
-    mediaType: string;
-    sizeBytes: number | null;
-    checksum: string | null;
-  };
-  data: {
-    path: string;
-    nodeId: number | null;
-    mediaType: string;
-    sizeBytes: number | null;
-    checksum: string | null;
-  };
+  dashboard: DashboardSnapshotNode;
+  data: DashboardSnapshotNode;
   overviewPrefix: string;
+  burst: BurstContext;
+  assets: Array<{
+    assetId: string;
+    partitionKey: string;
+    producedAt: string;
+    payload: DashboardSnapshotAssetPayload;
+  }>;
 };
 
 function resolveTimeWindow(
@@ -537,6 +564,10 @@ export const dashboardAggregatorJob = createJobHandler<
     const partitionKey = context.parameters.partitionKey.trim();
     const lookbackMinutes = context.parameters.lookbackMinutes ?? context.settings.dashboard.lookbackMinutes;
     const datasetSlug = context.parameters.timestoreDatasetSlug ?? context.settings.timestore.datasetSlug;
+    const burst: BurstContext = {
+      reason: context.parameters.burstReason?.trim() || null,
+      finishedAt: context.parameters.burstFinishedAt ?? null
+    };
 
     const backendParams = {
       filestoreBackendId: context.settings.filestore.backendId,
@@ -599,7 +630,8 @@ export const dashboardAggregatorJob = createJobHandler<
       summary,
       instruments,
       sites,
-      trends
+      trends,
+      burst
     } satisfies Record<string, unknown>;
 
     const dashboardJsonPath = `${normalizedOverviewPrefix}/dashboard.json`;
@@ -648,7 +680,54 @@ export const dashboardAggregatorJob = createJobHandler<
     }
 
     const publisher = createObservatoryEventPublisher({ capability: eventsCapability, source: context.settings.events.source });
+
+    const dashboardSnapshotPayload: DashboardSnapshotAssetPayload = {
+      generatedAt,
+      partitionKey,
+      lookbackMinutes,
+      overviewPrefix: normalizedOverviewPrefix,
+      dashboard: {
+        path: htmlNode.path,
+        nodeId: htmlNode.node?.id ?? htmlNode.nodeId ?? null,
+        mediaType: 'text/html',
+        sizeBytes: htmlNode.node?.sizeBytes ?? null,
+        checksum: htmlNode.node?.checksum ?? null
+      },
+      data: {
+        path: dataNode.path,
+        nodeId: dataNode.node?.id ?? dataNode.nodeId ?? null,
+        mediaType: 'application/json',
+        sizeBytes: dataNode.node?.sizeBytes ?? null,
+        checksum: dataNode.node?.checksum ?? null
+      },
+      summary,
+      window: timeWindow,
+      burst
+    };
+
+    const snapshotAsset = {
+      assetId: 'observatory.dashboard.snapshot',
+      partitionKey,
+      producedAt: generatedAt,
+      payload: dashboardSnapshotPayload
+    } satisfies DashboardAggregatorResult['assets'][number];
+
     try {
+      await publishAssetMaterialized(publisher, {
+        assetId: snapshotAsset.assetId,
+        partitionKey,
+        producedAt: generatedAt,
+        metadata: {
+          overviewPrefix: normalizedOverviewPrefix,
+          lookbackMinutes,
+          datasetSlug,
+          windowStart: timeWindow.start,
+          windowEnd: timeWindow.end,
+          burstReason: burst.reason,
+          burstFinishedAt: burst.finishedAt
+        }
+      });
+
       await publisher.publish({
         type: 'observatory.dashboard.updated',
         occurredAt: generatedAt,
@@ -672,7 +751,8 @@ export const dashboardAggregatorJob = createJobHandler<
             checksum: dataNode.node?.checksum ?? null
           },
           metrics: summary,
-          window: timeWindow
+          window: timeWindow,
+          burst
         }
       });
     } finally {
@@ -690,21 +770,11 @@ export const dashboardAggregatorJob = createJobHandler<
       samples: summary.samples,
       instrumentCount: summary.instrumentCount,
       siteCount: summary.siteCount,
-      dashboard: {
-        path: htmlNode.path,
-        nodeId: htmlNode.node?.id ?? htmlNode.nodeId ?? null,
-        mediaType: 'text/html',
-        sizeBytes: htmlNode.node?.sizeBytes ?? null,
-        checksum: htmlNode.node?.checksum ?? null
-      },
-      data: {
-        path: dataNode.path,
-        nodeId: dataNode.node?.id ?? dataNode.nodeId ?? null,
-        mediaType: 'application/json',
-        sizeBytes: dataNode.node?.sizeBytes ?? null,
-        checksum: dataNode.node?.checksum ?? null
-      },
-      overviewPrefix: normalizedOverviewPrefix
+      dashboard: dashboardSnapshotPayload.dashboard,
+      data: dashboardSnapshotPayload.data,
+      overviewPrefix: normalizedOverviewPrefix,
+      burst,
+      assets: [snapshotAsset]
     } satisfies DashboardAggregatorResult;
   }
 });
