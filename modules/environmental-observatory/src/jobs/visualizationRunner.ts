@@ -2,6 +2,7 @@ import {
   createJobHandler,
   inheritModuleSecrets,
   inheritModuleSettings,
+  selectEventBus,
   selectFilestore,
   selectTimestore,
   sanitizeIdentifier,
@@ -12,6 +13,7 @@ import {
 import { z } from 'zod';
 import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
+import { createObservatoryEventPublisher, publishAssetMaterialized } from '../runtime/events';
 
 const MAX_ROWS = 10_000;
 
@@ -331,12 +333,12 @@ export const visualizationRunnerJob = createJobHandler<
   ObservatoryModuleSecrets,
   VisualizationResult,
   VisualizationRunnerParameters,
-  ['filestore', 'timestore']
+  ['filestore', 'timestore', 'events.default']
 >({
   name: 'observatory-visualization-runner',
   settings: inheritModuleSettings(),
   secrets: inheritModuleSecrets(),
-  requires: ['filestore', 'timestore'] as const,
+  requires: ['filestore', 'timestore', 'events.default'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
@@ -542,6 +544,34 @@ export const visualizationRunnerJob = createJobHandler<
       artifacts,
       metrics
     } satisfies VisualizationResult['visualization'];
+
+    const eventsCapability = selectEventBus(context.capabilities, 'default');
+    if (!eventsCapability) {
+      throw new Error('Event bus capability is required for the visualization runner');
+    }
+
+    const publisher = createObservatoryEventPublisher({
+      capability: eventsCapability,
+      source: context.settings.events.source || 'observatory.visualization-runner'
+    });
+
+    try {
+      await publishAssetMaterialized(publisher, {
+        assetId: 'observatory.visualizations.minute',
+        partitionKey: context.parameters.partitionKey,
+        producedAt: generatedAt,
+        metadata: {
+          storagePrefix,
+          partitionWindow,
+          lookbackMinutes,
+          dataset: metrics.dataset ?? null,
+          instrumentId: metrics.instrumentId ?? null,
+          siteFilter: metrics.siteFilter ?? null
+        }
+      });
+    } finally {
+      await publisher.close().catch(() => undefined);
+    }
 
     return {
       partitionKey: context.parameters.partitionKey,

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -116,6 +117,162 @@ function resolveArtifactPath(directory: string, filename: string): string {
     return path.join(resolvedDirectory, filename);
   }
   return candidate;
+}
+
+function normalizeInlineArtifact(
+  artifact: InlineModuleArtifactPayload
+): { buffer: Buffer; filename: string; contentType: string; size: number; checksum?: string } {
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(artifact.data, 'base64');
+  } catch (error) {
+    throw new FastifyReplyError(400, 'artifact data must be base64 encoded');
+  }
+
+  if (buffer.length === 0) {
+    throw new FastifyReplyError(400, 'artifact data payload was empty');
+  }
+
+  let filename = sanitizeArtifactFilename(artifact.filename);
+  let contentType = (artifact.contentType ?? 'application/javascript').trim();
+  const shouldDecompress = contentType.toLowerCase().includes('gzip') || filename.toLowerCase().endsWith('.gz');
+
+  if (shouldDecompress) {
+    try {
+      buffer = gunzipSync(buffer);
+    } catch (error) {
+      throw new FastifyReplyError(400, 'failed to decompress gzip artifact payload');
+    }
+    contentType = 'application/javascript';
+    if (filename.toLowerCase().endsWith('.gz')) {
+      filename = sanitizeArtifactFilename(filename.replace(/\.gz$/i, ''));
+    }
+  }
+
+  const size = artifact.size ?? buffer.length;
+  const checksum = artifact.checksum;
+
+  return { buffer, filename, contentType, size, checksum };
+}
+
+function getAllowedModuleArtifactBuckets(): string[] {
+  const candidates = [
+    process.env.APPHUB_MODULE_ARTIFACT_BUCKET,
+    process.env.APPHUB_MODULE_ARTIFACT_S3_BUCKET,
+    process.env.APPHUB_BUNDLE_STORAGE_BUCKET,
+    process.env.APPHUB_JOB_BUNDLE_S3_BUCKET
+  ];
+  const buckets = new Set<string>();
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    const normalized = candidate.trim();
+    if (normalized) {
+      buckets.add(normalized);
+    }
+  }
+  return Array.from(buckets);
+}
+
+function buildS3ArtifactPath(bucket: string, key: string): string {
+  const normalizedBucket = bucket.trim();
+  const normalizedKey = key.replace(/^\/+/, '');
+  if (!normalizedBucket) {
+    throw new FastifyReplyError(400, 'artifact bucket must be provided');
+  }
+  if (!normalizedKey) {
+    throw new FastifyReplyError(400, 'artifact key must be provided');
+  }
+  return `${normalizedBucket}/${normalizedKey}`;
+}
+
+async function handleInlineModuleArtifact(params: {
+  payload: ModuleArtifactUploadPayload;
+  artifact: InlineModuleArtifactPayload;
+  directory: string;
+  manifestPath: string;
+}): Promise<{ data: { module: unknown; artifact: { id: string; version: string } } }> {
+  const normalized = normalizeInlineArtifact(params.artifact);
+  const artifactPath = resolveArtifactPath(params.directory, normalized.filename);
+  await fs.writeFile(artifactPath, normalized.buffer);
+  await fs.writeFile(params.manifestPath, `${JSON.stringify(params.payload.manifest, null, 2)}\n`, 'utf8');
+
+  const checksum = normalized.checksum ?? createHash('sha256').update(normalized.buffer).digest('hex');
+  const result = await publishModuleArtifact({
+    moduleId: params.payload.moduleId,
+    moduleVersion: params.payload.moduleVersion,
+    displayName: params.payload.displayName ?? null,
+    description: params.payload.description ?? null,
+    keywords: params.payload.keywords ?? [],
+    manifest: params.payload.manifest as ModuleManifest,
+    artifactPath,
+    artifactChecksum: checksum,
+    artifactStorage: 'filesystem',
+    artifactContentType: normalized.contentType,
+    artifactSize: normalized.size
+  });
+
+  return {
+    data: {
+      module: result.module,
+      artifact: {
+        id: result.artifact.id,
+        version: result.artifact.version
+      }
+    }
+  };
+}
+
+async function handleS3ModuleArtifact(params: {
+  payload: ModuleArtifactUploadPayload;
+  artifact: S3ModuleArtifactPayload;
+  manifestPath: string;
+}): Promise<{ data: { module: unknown; artifact: { id: string; version: string } } }> {
+  const bucket = params.artifact.bucket.trim();
+  const key = params.artifact.key.replace(/^\/+/, '');
+  if (!bucket) {
+    throw new FastifyReplyError(400, 'artifact bucket must be provided');
+  }
+  if (!key) {
+    throw new FastifyReplyError(400, 'artifact key must be provided');
+  }
+
+  const allowedBuckets = getAllowedModuleArtifactBuckets();
+  if (allowedBuckets.length > 0 && !allowedBuckets.includes(bucket)) {
+    throw new FastifyReplyError(400, 'artifact bucket is not allowed by server configuration');
+  }
+
+  if (!params.artifact.checksum) {
+    throw new FastifyReplyError(400, 'artifact checksum must be provided');
+  }
+
+  await fs.writeFile(params.manifestPath, `${JSON.stringify(params.payload.manifest, null, 2)}\n`, 'utf8');
+
+  const artifactPath = buildS3ArtifactPath(bucket, key);
+  const result = await publishModuleArtifact({
+    moduleId: params.payload.moduleId,
+    moduleVersion: params.payload.moduleVersion,
+    displayName: params.payload.displayName ?? null,
+    description: params.payload.description ?? null,
+    keywords: params.payload.keywords ?? [],
+    manifest: params.payload.manifest as ModuleManifest,
+    artifactPath,
+    artifactChecksum: params.artifact.checksum,
+    artifactStorage: 's3',
+    artifactContentType: params.artifact.contentType ?? null,
+    artifactSize: params.artifact.size
+  });
+
+  return {
+    data: {
+      module: result.module,
+      artifact: {
+        id: result.artifact.id,
+        version: result.artifact.version
+      }
+    }
+  };
 }
 
 async function upsertModuleWorkflows(
@@ -242,6 +399,28 @@ export const serviceRegistrationSchema = z
   })
   .strict();
 
+const inlineModuleArtifactSchema = z
+  .object({
+    storage: z.literal('inline').optional(),
+    filename: z.string().min(1).optional(),
+    contentType: z.string().min(1).optional(),
+    data: z.string().min(1),
+    size: z.number().int().positive().optional(),
+    checksum: z.string().min(1).optional()
+  })
+  .strict();
+
+const s3ModuleArtifactSchema = z
+  .object({
+    storage: z.literal('s3'),
+    bucket: z.string().min(1),
+    key: z.string().min(1),
+    contentType: z.string().min(1).optional(),
+    size: z.number().int().positive(),
+    checksum: z.string().min(1)
+  })
+  .strict();
+
 const moduleArtifactUploadSchema = z
   .object({
     moduleId: z.string().min(1),
@@ -250,15 +429,22 @@ const moduleArtifactUploadSchema = z
     description: z.string().min(1).nullable().optional(),
     keywords: z.array(z.string().min(1)).optional(),
     manifest: z.unknown(),
-    artifact: z
-      .object({
-        filename: z.string().min(1).optional(),
-        contentType: z.string().min(1).optional(),
-        data: z.string().min(1)
-      })
-      .strict()
+    artifact: z.union([inlineModuleArtifactSchema, s3ModuleArtifactSchema])
   })
   .strict();
+
+type ModuleArtifactUploadPayload = z.infer<typeof moduleArtifactUploadSchema>;
+type InlineModuleArtifactPayload = z.infer<typeof inlineModuleArtifactSchema>;
+type S3ModuleArtifactPayload = z.infer<typeof s3ModuleArtifactSchema>;
+
+class FastifyReplyError extends Error {
+  readonly statusCode: 400 | 401 | 403 | 500 | 503;
+
+  constructor(statusCode: 400 | 401 | 403 | 500 | 503, message: string) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
 
 const moduleArtifactUploadOpenApiSchema = {
   type: 'object',
@@ -275,18 +461,42 @@ const moduleArtifactUploadOpenApiSchema = {
     },
     manifest: { type: 'object' },
     artifact: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['data'],
-      properties: {
-        filename: { type: 'string', minLength: 1 },
-        contentType: { type: 'string', minLength: 1 },
-        data: {
-          type: 'string',
-          minLength: 1,
-          description: 'Base64-encoded module bundle contents.'
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['data'],
+          properties: {
+            storage: { type: 'string', enum: ['inline'] },
+            filename: { type: 'string', minLength: 1 },
+            contentType: { type: 'string', minLength: 1 },
+            data: {
+              type: 'string',
+              minLength: 1,
+              description: 'Base64-encoded module bundle contents.'
+            },
+            size: { type: 'integer', minimum: 1 },
+            checksum: { type: 'string', minLength: 1 }
+          }
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['storage', 'bucket', 'key', 'size', 'checksum'],
+          properties: {
+            storage: { type: 'string', enum: ['s3'] },
+            bucket: { type: 'string', minLength: 1 },
+            key: { type: 'string', minLength: 1 },
+            contentType: { type: 'string', minLength: 1 },
+            size: { type: 'integer', minimum: 1 },
+            checksum: {
+              type: 'string',
+              minLength: 1,
+              description: 'Hex-encoded SHA-256 checksum of the stored artifact.'
+            }
+          }
         }
-      }
+      ]
     }
   }
 } as const;
@@ -832,57 +1042,39 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
         return { error: 'module manifest must be an object' };
       }
 
-      let artifactBuffer: Buffer;
-      try {
-        artifactBuffer = Buffer.from(payload.artifact.data, 'base64');
-      } catch (error) {
-        request.log.warn({ error, moduleId: payload.moduleId }, 'failed to decode module artifact payload');
-        reply.status(400);
-        return { error: 'artifact data must be base64 encoded' };
-      }
-
-      if (artifactBuffer.length === 0) {
-        reply.status(400);
-        return { error: 'artifact data payload was empty' };
-      }
-
-      const filename = sanitizeArtifactFilename(payload.artifact.filename);
       const directory = resolveModuleArtifactDirectory(payload.moduleId, payload.moduleVersion);
-
       try {
         await fs.mkdir(directory, { recursive: true });
-        const artifactPath = resolveArtifactPath(directory, filename);
-        await fs.writeFile(artifactPath, artifactBuffer);
-        const manifestPath = path.join(directory, 'module.json');
-        await fs.writeFile(manifestPath, `${JSON.stringify(payload.manifest, null, 2)}\n`, 'utf8');
+      } catch (error) {
+        request.log.error({ err: error, moduleId: payload.moduleId, moduleVersion: payload.moduleVersion }, 'failed to prepare module artifact directory');
+        reply.status(500);
+        return { error: 'failed to publish module artifact' };
+      }
 
-        const checksum = createHash('sha256').update(artifactBuffer).digest('hex');
-        const result = await publishModuleArtifact({
-          moduleId: payload.moduleId,
-          moduleVersion: payload.moduleVersion,
-          displayName: payload.displayName ?? null,
-          description: payload.description ?? null,
-          keywords: payload.keywords ?? [],
-          manifest: payload.manifest as ModuleManifest,
-          artifactPath,
-          artifactChecksum: checksum,
-          artifactStorage: 'filesystem',
-          artifactContentType: payload.artifact.contentType ?? 'application/javascript',
-          artifactSize: artifactBuffer.length
-        });
+      const manifestPath = path.join(directory, 'module.json');
+
+      try {
+        const responsePayload =
+          payload.artifact.storage === 's3'
+            ? await handleS3ModuleArtifact({
+                payload,
+                artifact: payload.artifact,
+                manifestPath
+              })
+            : await handleInlineModuleArtifact({
+                payload,
+                artifact: payload.artifact,
+                directory,
+                manifestPath
+              });
 
         reply.status(201);
-
-        return {
-          data: {
-            module: result.module,
-            artifact: {
-              id: result.artifact.id,
-              version: result.artifact.version
-            }
-          }
-        };
+        return responsePayload;
       } catch (error) {
+        if (error instanceof FastifyReplyError) {
+          reply.status(error.statusCode);
+          return { error: error.message };
+        }
         request.log.error({ err: error, moduleId: payload.moduleId, moduleVersion: payload.moduleVersion }, 'failed to publish module artifact');
         reply.status(500);
         return { error: 'failed to publish module artifact' };

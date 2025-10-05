@@ -8,7 +8,6 @@ import {
   inheritModuleSettings,
   inheritModuleSecrets,
   sanitizeIdentifier,
-  selectEventBus,
   selectFilestore,
   selectMetastore,
   toTemporalKey,
@@ -26,17 +25,13 @@ import {
   type CalibrationLookupResult,
   type CalibrationSnapshot
 } from '../runtime/calibrations';
-import {
-  createObservatoryEventPublisher,
-  toJsonRecord
-} from '../runtime/events';
+import { toJsonRecord } from '../runtime/events';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
 enforceScratchOnlyWrites();
 
 const MAX_FILES_LIMIT = 200;
 const INGEST_RECORD_TYPE = 'observatory.ingest.file';
-const DEFAULT_EVENT_SOURCE = 'observatory.inbox-normalizer';
 
 const parametersSchema = z
   .object({
@@ -46,9 +41,9 @@ const parametersSchema = z
   })
   .strip();
 
-export type InboxNormalizerParameters = z.infer<typeof parametersSchema>;
+export type MinutePreprocessorParameters = z.infer<typeof parametersSchema>;
 
-export interface InboxNormalizerFile {
+export interface MinutePreprocessorFile {
   path: string;
   nodeId: number | null;
   site: string | null;
@@ -72,14 +67,14 @@ export interface RawAssetPayload {
   backendMountId: number;
   stagingPrefix: string;
   stagingMinutePrefix: string;
-  files: InboxNormalizerFile[];
+  files: MinutePreprocessorFile[];
   instrumentCount: number;
   recordCount: number;
   normalizedAt: string;
   calibrationsApplied: CalibrationReference[];
 }
 
-export interface InboxNormalizerJobResult {
+export interface MinutePreprocessorJobResult {
   partitionKey: string;
   normalized: RawAssetPayload;
   assets: Array<{
@@ -90,10 +85,10 @@ export interface InboxNormalizerJobResult {
   }>;
 }
 
-type InboxNormalizerContext = JobContext<
+type MinutePreprocessorContext = JobContext<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
-  InboxNormalizerParameters
+  MinutePreprocessorParameters
 >;
 
 type CachedCalibration = {
@@ -210,7 +205,7 @@ function serializeCalibration(reference: CalibrationReference | null): Record<st
   } satisfies Record<string, unknown>;
 }
 
-function collectAppliedCalibrations(files: InboxNormalizerFile[]): CalibrationReference[] {
+function collectAppliedCalibrations(files: MinutePreprocessorFile[]): CalibrationReference[] {
   const map = new Map<string, CalibrationReference>();
   for (const file of files) {
     if (file.calibration && !map.has(file.calibration.calibrationId)) {
@@ -234,7 +229,7 @@ function toNumber(value: unknown): number | null {
 }
 
 async function resolveCalibration(
-  context: InboxNormalizerContext,
+  context: MinutePreprocessorContext,
   cache: Map<string, CachedCalibration>,
   lookupConfig: CalibrationLookupConfig | null,
   instrumentId: string,
@@ -285,7 +280,7 @@ async function resolveCalibration(
 }
 
 function maybeWarnCalibration(
-  context: InboxNormalizerContext,
+  context: MinutePreprocessorContext,
   instrumentId: string,
   entry: CachedCalibration,
   asOf: string
@@ -389,28 +384,26 @@ function buildChecksum(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
-export const inboxNormalizerJob = createJobHandler<
+export const minutePreprocessorJob = createJobHandler<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets,
-  InboxNormalizerJobResult,
-  InboxNormalizerParameters,
-  ['filestore', 'events.default', 'metastore.reports']
+  MinutePreprocessorJobResult,
+  MinutePreprocessorParameters,
+  ['filestore', 'metastore.reports']
 >({
-  name: 'observatory-inbox-normalizer',
+  name: 'observatory-minute-preprocessor',
   settings: inheritModuleSettings(),
   secrets: inheritModuleSecrets(),
-  requires: ['filestore', 'events.default', 'metastore.reports'] as const,
+  requires: ['filestore', 'metastore.reports'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
-  handler: async (context: InboxNormalizerContext): Promise<InboxNormalizerJobResult> => {
+  handler: async (context: MinutePreprocessorContext): Promise<MinutePreprocessorJobResult> => {
     const filestoreCapabilityCandidate = selectFilestore(context.capabilities);
     if (!filestoreCapabilityCandidate) {
       throw new Error('Filestore capability is required for the inbox normalizer job');
     }
     const filestore: FilestoreCapability = filestoreCapabilityCandidate;
-    const eventsCapability = selectEventBus(context.capabilities, 'default');
-
     const minute = context.parameters.minute.trim();
     if (!minute) {
       throw new Error('minute parameter is required');
@@ -421,7 +414,7 @@ export const inboxNormalizerJob = createJobHandler<
       throw new Error(`maxFiles must be between 1 and ${MAX_FILES_LIMIT}`);
     }
 
-    const principal = context.settings.principals.inboxNormalizer;
+    const principal = context.settings.principals.minutePreprocessor;
     const normalizedPrincipal = principal?.trim() || undefined;
 
     const backendMountId = await ensureResolvedBackendId(filestore, {
@@ -433,8 +426,15 @@ export const inboxNormalizerJob = createJobHandler<
     const stagingPrefix = normalizePrefix(context.settings.filestore.stagingPrefix);
     const archivePrefix = normalizePrefix(context.settings.filestore.archivePrefix);
 
-    await ensureFilestoreHierarchy(filestore, backendMountId, stagingPrefix, normalizedPrincipal);
-    await ensureFilestoreHierarchy(filestore, backendMountId, archivePrefix, normalizedPrincipal);
+    const shouldCopyToStaging = stagingPrefix !== inboxPrefix;
+    const shouldArchive = archivePrefix !== inboxPrefix;
+
+    if (shouldCopyToStaging) {
+      await ensureFilestoreHierarchy(filestore, backendMountId, stagingPrefix, normalizedPrincipal);
+    }
+    if (shouldArchive) {
+      await ensureFilestoreHierarchy(filestore, backendMountId, archivePrefix, normalizedPrincipal);
+    }
 
     const commandPath = context.parameters.commandPath?.trim() ?? null;
     if (commandPath && !commandPath.startsWith(`${inboxPrefix}/`)) {
@@ -457,7 +457,7 @@ export const inboxNormalizerJob = createJobHandler<
           calibrationsApplied: []
         },
         assets: []
-      } satisfies InboxNormalizerJobResult;
+      } satisfies MinutePreprocessorJobResult;
     }
 
     const ingestMetastore = selectMetastore(context.capabilities, 'reports');
@@ -546,13 +546,15 @@ export const inboxNormalizerJob = createJobHandler<
           calibrationsApplied: []
         },
         assets: []
-      } satisfies InboxNormalizerJobResult;
+      } satisfies MinutePreprocessorJobResult;
     }
 
     const stagingMinutePrefix = `${stagingPrefix}/${toTemporalKey(minute)}`;
-    await ensureFilestoreHierarchy(filestore, backendMountId, stagingMinutePrefix, normalizedPrincipal);
+    if (shouldCopyToStaging) {
+      await ensureFilestoreHierarchy(filestore, backendMountId, stagingMinutePrefix, normalizedPrincipal);
+    }
 
-    const observedFiles: InboxNormalizerFile[] = [];
+    const observedFiles: MinutePreprocessorFile[] = [];
     const instrumentation = new Map<string, string | null>();
     let totalRows = 0;
     let normalizedAt = new Date().toISOString();
@@ -561,19 +563,23 @@ export const inboxNormalizerJob = createJobHandler<
       const filename = node.path.split('/').pop() ?? 'file.csv';
       const stagingTargetPath = `${stagingMinutePrefix}/${filename}`;
 
-      await filestore.copyNode({
-        backendMountId,
-        path: node.path,
-        targetPath: stagingTargetPath,
-        overwrite: true,
-        principal: normalizedPrincipal
-      });
+      let stagingNode = node;
 
-      const stagingNode = await filestore.getNodeByPath({
-        backendMountId,
-        path: stagingTargetPath,
-        principal: normalizedPrincipal
-      });
+      if (shouldCopyToStaging) {
+        await filestore.copyNode({
+          backendMountId,
+          path: node.path,
+          targetPath: stagingTargetPath,
+          overwrite: true,
+          principal: normalizedPrincipal
+        });
+
+        stagingNode = await filestore.getNodeByPath({
+          backendMountId,
+          path: stagingTargetPath,
+          principal: normalizedPrincipal
+        });
+      }
 
       const download = await filestore.downloadFile({
         nodeId: stagingNode.id,
@@ -642,31 +648,33 @@ export const inboxNormalizerJob = createJobHandler<
         normalizedPrincipal
       );
 
-      const archivePath = normalizeArchivePath(archivePrefix, instrumentId, minute, filename);
-      const archiveDir = archivePath.split('/').slice(0, -1).join('/');
-      await ensureFilestoreHierarchy(filestore, backendMountId, archiveDir, normalizedPrincipal);
+      if (shouldArchive) {
+        const archivePath = normalizeArchivePath(archivePrefix, instrumentId, minute, filename);
+        const archiveDir = archivePath.split('/').slice(0, -1).join('/');
+        await ensureFilestoreHierarchy(filestore, backendMountId, archiveDir, normalizedPrincipal);
 
-      try {
-        await filestore.moveNode({
-          backendMountId,
-          path: node.path,
-          targetPath: archivePath,
-          overwrite: true,
-          principal: normalizedPrincipal
-        });
-      } catch (error) {
-        if (!(error instanceof CapabilityRequestError && error.status === 409)) {
-          throw error;
+        try {
+          await filestore.moveNode({
+            backendMountId,
+            path: node.path,
+            targetPath: archivePath,
+            overwrite: true,
+            principal: normalizedPrincipal
+          });
+        } catch (error) {
+          if (!(error instanceof CapabilityRequestError && error.status === 409)) {
+            throw error;
+          }
+          await filestore.deleteNode({
+            backendMountId,
+            path: node.path,
+            recursive: false,
+            principal: normalizedPrincipal
+          });
         }
-        await filestore.deleteNode({
-          backendMountId,
-          path: node.path,
-          recursive: false,
-          principal: normalizedPrincipal
-        });
       }
 
-      const fileRecord: InboxNormalizerFile = {
+      const fileRecord: MinutePreprocessorFile = {
         path: stagingNode.path,
         nodeId: stagingNode.id ?? null,
         site: parsedCsv.site ?? (typeof metadata.site === 'string' ? metadata.site : null),
@@ -701,38 +709,6 @@ export const inboxNormalizerJob = createJobHandler<
       calibrationsApplied
     } satisfies RawAssetPayload;
 
-    const publisher = createObservatoryEventPublisher({
-      capability: eventsCapability,
-      source: context.settings.events.source || DEFAULT_EVENT_SOURCE
-    });
-
-    try {
-      for (const file of observedFiles) {
-        await publisher.publish({
-          type: 'observatory.minute.raw-uploaded',
-          payload: {
-            minute,
-            observedAt: normalizedAt,
-            backendMountId,
-            nodeId: file.nodeId,
-            path: file.path,
-            instrumentId: file.instrumentId,
-            site: file.site,
-            metadata: toJsonRecord({
-              minute,
-              stagingPath: file.path,
-              files: observedFiles
-            }),
-            principal: normalizedPrincipal ?? null,
-            sizeBytes: file.sizeBytes,
-            checksum: file.checksum ?? null
-          }
-        });
-      }
-    } finally {
-      await publisher.close().catch(() => undefined);
-    }
-
     context.logger.info('Normalized observatory inbox files', {
       minute,
       filesProcessed: observedFiles.length,
@@ -745,12 +721,12 @@ export const inboxNormalizerJob = createJobHandler<
       normalized: normalizedPayload,
       assets: [
         {
-          assetId: 'observatory.timeseries.raw',
+          assetId: 'observatory.inbox.normalized',
           partitionKey: minute,
           producedAt: normalizedAt,
           payload: normalizedPayload
         }
       ]
-    } satisfies InboxNormalizerJobResult;
+    } satisfies MinutePreprocessorJobResult;
   }
 });

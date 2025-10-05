@@ -50,7 +50,7 @@ export type JobManifestTemplate = {
 
 export type ModuleJobSlug =
   | 'observatory-data-generator'
-  | 'observatory-inbox-normalizer'
+  | 'observatory-minute-preprocessor'
   | 'observatory-timestore-loader'
   | 'observatory-visualization-runner'
   | 'observatory-dashboard-aggregator'

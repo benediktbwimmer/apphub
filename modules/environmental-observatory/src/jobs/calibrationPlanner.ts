@@ -6,6 +6,7 @@ import {
   createJobHandler,
   createMetastoreCapability,
   selectCoreWorkflows,
+  selectEventBus,
   selectFilestore,
   selectMetastore,
   inheritModuleSettings,
@@ -19,6 +20,7 @@ import { z } from 'zod';
 
 import { ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
+import { createObservatoryEventPublisher, publishAssetMaterialized } from '../runtime/events';
 import {
   buildPlanStorage,
   buildPlanSummary,
@@ -747,12 +749,12 @@ export const calibrationPlannerJob = createJobHandler<
   ObservatoryModuleSecrets,
   CalibrationPlannerResult,
   PlannerOverrides,
-  ['filestore', 'coreWorkflows', 'metastore.calibrations']
+  ['filestore', 'coreWorkflows', 'metastore.calibrations', 'events.default']
 >({
   name: 'observatory-calibration-planner',
   settings: inheritModuleSettings(),
   secrets: inheritModuleSecrets(),
-  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations'] as const,
+  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations', 'events.default'] as const,
   parameters: {
     resolve: (raw) => resolvePlannerOverrides(raw)
   },
@@ -775,33 +777,44 @@ export const calibrationPlannerJob = createJobHandler<
       throw new Error('Core workflows capability is required for the calibration planner');
     }
 
-    const ingestWorkflowSlug =
-      context.parameters.ingestWorkflowSlug ?? context.settings.reprocess.ingestWorkflowSlug;
-    const ingestAssetId = context.parameters.ingestAssetId ?? context.settings.reprocess.ingestAssetId;
-    const downstreamWorkflows =
-      context.parameters.downstreamWorkflows ?? context.settings.reprocess.downstreamWorkflows;
-    const plansPrefix =
-      context.parameters.plansPrefix ?? context.settings.filestore.plansPrefix ?? 'datasets/observatory/calibrations/plans';
-    const lookbackMinutes =
-      context.parameters.lookbackMinutes ?? context.settings.timestore.lookbackMinutes ?? null;
-    const metastoreNamespace =
-      context.parameters.metastoreNamespace ?? context.settings.reprocess.metastoreNamespace;
-    const metastoreBaseUrl =
-      (context.parameters.metastoreBaseUrl ?? context.settings.metastore.baseUrl)?.trim() || null;
-    const fallbackMetastore = selectMetastore(context.capabilities, 'calibrations');
-    const principal = context.parameters.principal ?? context.settings.principals.calibrationPlanner;
+    const eventsCapability = selectEventBus(context.capabilities, 'default');
+    if (!eventsCapability) {
+      throw new Error('Event bus capability is required for the calibration planner');
+    }
 
-    const backendParams = {
-      filestoreBackendId: context.parameters.filestoreBackendId ?? context.settings.filestore.backendId ?? null,
-      filestoreBackendKey:
-        context.parameters.filestoreBackendKey ?? context.settings.filestore.backendKey ?? null
-    } satisfies {
-      filestoreBackendId?: number | null;
-      filestoreBackendKey?: string | null;
-    };
+    const publisher = createObservatoryEventPublisher({
+      capability: eventsCapability,
+      source: context.settings.events.source || 'observatory.calibration-planner'
+    });
 
-    const backendMountId = await ensureResolvedBackendId(filestore, backendParams);
-    const backendMountKey = backendParams.filestoreBackendKey ?? DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY;
+    try {
+      const ingestWorkflowSlug =
+        context.parameters.ingestWorkflowSlug ?? context.settings.reprocess.ingestWorkflowSlug;
+      const ingestAssetId = context.parameters.ingestAssetId ?? context.settings.reprocess.ingestAssetId;
+      const downstreamWorkflows =
+        context.parameters.downstreamWorkflows ?? context.settings.reprocess.downstreamWorkflows;
+      const plansPrefix =
+        context.parameters.plansPrefix ?? context.settings.filestore.plansPrefix ?? 'datasets/observatory/calibrations/plans';
+      const lookbackMinutes =
+        context.parameters.lookbackMinutes ?? context.settings.timestore.lookbackMinutes ?? null;
+      const metastoreNamespace =
+        context.parameters.metastoreNamespace ?? context.settings.reprocess.metastoreNamespace;
+      const metastoreBaseUrl =
+        (context.parameters.metastoreBaseUrl ?? context.settings.metastore.baseUrl)?.trim() || null;
+      const fallbackMetastore = selectMetastore(context.capabilities, 'calibrations');
+      const principal = context.parameters.principal ?? context.settings.principals.calibrationPlanner;
+
+      const backendParams = {
+        filestoreBackendId: context.parameters.filestoreBackendId ?? context.settings.filestore.backendId ?? null,
+        filestoreBackendKey:
+          context.parameters.filestoreBackendKey ?? context.settings.filestore.backendKey ?? null
+      } satisfies {
+        filestoreBackendId?: number | null;
+        filestoreBackendKey?: string | null;
+      };
+
+      const backendMountId = await ensureResolvedBackendId(filestore, backendParams);
+      const backendMountKey = backendParams.filestoreBackendKey ?? DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY;
 
     const fallbackPlanId = `${ingestWorkflowSlug}-${randomUUID()}`;
     const planId = sanitizeIdentifier(context.parameters.planId ?? fallbackPlanId, fallbackPlanId);
@@ -882,32 +895,32 @@ export const calibrationPlannerJob = createJobHandler<
         })
       : fallbackMetastore;
 
-    const materializedPlan = await materializePlanArtifact(
-      plan,
-      filestore,
-      backendMountId,
-      backendMountKey,
-      planPath,
-      principal
-    );
+      const materializedPlan = await materializePlanArtifact(
+        plan,
+        filestore,
+        backendMountId,
+        backendMountKey,
+        planPath,
+        principal
+      );
 
-    if (metastoreCapability) {
-      try {
-        await upsertPlanMetastoreRecord(metastoreCapability, materializedPlan, principal);
-      } catch (error) {
-        context.logger.warn('Failed to upsert calibration plan metastore record', {
-          planId: materializedPlan.planId,
-          error: error instanceof Error ? error.message : String(error)
-        });
+      if (metastoreCapability) {
+        try {
+          await upsertPlanMetastoreRecord(metastoreCapability, materializedPlan, principal);
+        } catch (error) {
+          context.logger.warn('Failed to upsert calibration plan metastore record', {
+            planId: materializedPlan.planId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
       }
-    }
 
-    return {
-      planId: materializedPlan.planId,
-      planPath: materializedPlan.storage.planPath,
-      planNodeId: materializedPlan.storage.nodeId ?? null,
-      partitionCount: materializedPlan.summary.partitionCount,
-      instrumentCount: materializedPlan.summary.instrumentCount,
+      const result: CalibrationPlannerResult = {
+        planId: materializedPlan.planId,
+        planPath: materializedPlan.storage.planPath,
+        planNodeId: materializedPlan.storage.nodeId ?? null,
+        partitionCount: materializedPlan.summary.partitionCount,
+        instrumentCount: materializedPlan.summary.instrumentCount,
       calibrationCount: materializedPlan.summary.calibrationCount,
       state: materializedPlan.state,
       storage: {
@@ -938,6 +951,27 @@ export const calibrationPlannerJob = createJobHandler<
           }
         }
       ]
-    } satisfies CalibrationPlannerResult;
+      } satisfies CalibrationPlannerResult;
+
+      await publishAssetMaterialized(publisher, {
+        assetId: 'observatory.reprocess.plan',
+        partitionKey: materializedPlan.planId,
+        producedAt: materializedPlan.updatedAt,
+        metadata: {
+          calibrationCount: materializedPlan.summary.calibrationCount,
+          instrumentCount: materializedPlan.summary.instrumentCount,
+          partitionCount: materializedPlan.summary.partitionCount,
+          plansPrefix: materializedPlan.storage.plansPrefix ?? null,
+          planPath: materializedPlan.storage.planPath,
+          planNodeId: materializedPlan.storage.nodeId ?? null,
+          metastoreNamespace,
+          metastoreRecordKey: deriveMetastoreRecordKey(materializedPlan.planId)
+        }
+      });
+
+      return result;
+    } finally {
+      await publisher.close().catch(() => undefined);
+    }
   }
 });

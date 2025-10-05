@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "lint": "tsc -b --pretty false",
-    "build": "tsc -b",
+    "build": "tsc -b && node ./scripts/bundle-module.cjs",
     "clean": "rm -rf dist"
   },
   "dependencies": {

@@ -25,22 +25,6 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 
 const minuteRegex = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})$/;
 
-const rawMinuteUploadedPayloadSchema = z
-  .object({
-    minute: z.string().regex(minuteRegex, 'minute must be formatted as YYYY-MM-DDTHH:mm'),
-    observedAt: z.string().datetime({ offset: true }),
-    backendMountId: z.number().int().nonnegative(),
-    nodeId: z.number().int().nullable(),
-    path: z.string().min(1),
-    instrumentId: z.string().min(1).nullable(),
-    site: z.string().min(1).nullable(),
-    metadata: z.record(jsonValueSchema).default({}),
-    principal: z.string().min(1).nullable(),
-    sizeBytes: z.number().int().nullable(),
-    checksum: z.string().min(1).nullable()
-  })
-  .strip();
-
 const minutePartitionReadyPayloadSchema = z
   .object({
     minute: z.string().regex(minuteRegex, 'minute must be formatted as YYYY-MM-DDTHH:mm'),
@@ -97,7 +81,23 @@ const dashboardUpdatedPayloadSchema = z
     window: z.object({
       start: z.string().datetime({ offset: true }),
       end: z.string().datetime({ offset: true })
-    })
+    }),
+    burst: z
+      .object({
+        reason: z.string().min(1).nullable().optional(),
+        finishedAt: z.string().datetime({ offset: true }).nullable().optional()
+      })
+      .optional()
+  })
+  .strip();
+
+const burstFinishedPayloadSchema = z
+  .object({
+    partitionKey: z.string().min(1),
+    finishedAt: z.string().datetime({ offset: true }),
+    producedAt: z.string().datetime({ offset: true }).nullable().optional(),
+    expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
+    reason: z.string().min(1).nullable().optional()
   })
   .strip();
 
@@ -110,11 +110,19 @@ const calibrationUpdatedPayloadSchema = calibrationFileSchema
   })
   .strip();
 
+const assetMaterializedPayloadSchema = z
+  .object({
+    assetId: z.string().min(1),
+    partitionKey: z.string().min(1),
+    producedAt: z.string().datetime({ offset: true }),
+    metadata: z.record(jsonValueSchema).optional(),
+    source: z.string().min(1).optional()
+  })
+  .strip();
+
+export type AssetMaterializedEventPayload = z.infer<typeof assetMaterializedPayloadSchema>;
+
 const observatoryEventSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('observatory.minute.raw-uploaded'),
-    payload: rawMinuteUploadedPayloadSchema
-  }),
   z.object({
     type: z.literal('observatory.minute.partition-ready'),
     payload: minutePartitionReadyPayloadSchema
@@ -126,6 +134,14 @@ const observatoryEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('observatory.calibration.updated'),
     payload: calibrationUpdatedPayloadSchema
+  }),
+  z.object({
+    type: z.literal('observatory.burst.finished'),
+    payload: burstFinishedPayloadSchema
+  }),
+  z.object({
+    type: z.literal('observatory.asset.materialized'),
+    payload: assetMaterializedPayloadSchema
   })
 ]);
 
@@ -242,4 +258,21 @@ export function createObservatoryEventPublisher(
     publish,
     close
   };
+}
+
+export async function publishAssetMaterialized(
+  publisher: ReturnType<typeof createObservatoryEventPublisher>,
+  options: AssetMaterializedEventPayload & { occurredAt?: string | Date }
+): Promise<void> {
+  await publisher.publish({
+    type: 'observatory.asset.materialized',
+    occurredAt: options.occurredAt,
+    payload: {
+      assetId: options.assetId,
+      partitionKey: options.partitionKey,
+      producedAt: options.producedAt,
+      source: options.source,
+      metadata: options.metadata
+    }
+  });
 }

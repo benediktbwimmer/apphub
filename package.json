@@ -59,6 +59,7 @@
     "@types/node": "^24.5.2",
     "chokidar": "^3.6.0",
     "concurrently": "^9.2.1",
+    "esbuild": "^0.23.0",
     "kafkajs": "^2.2.4",
     "openapi-typescript-codegen": "^0.29.0",
     "typescript": "^5.9.2"

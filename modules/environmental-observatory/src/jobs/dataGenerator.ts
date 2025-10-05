@@ -203,18 +203,6 @@ async function handler(context: GeneratorContext): Promise<GeneratorJobResult> {
     moduleSettings.filestore.inboxPrefix,
     principal
   );
-  await ensureFilestoreHierarchy(
-    filestore,
-    backendMountId,
-    moduleSettings.filestore.stagingPrefix,
-    principal
-  );
-  await ensureFilestoreHierarchy(
-    filestore,
-    backendMountId,
-    moduleSettings.filestore.archivePrefix,
-    principal
-  );
 
   const seed = moduleSettings.generator.seed;
   const rng = createRandom(seed);

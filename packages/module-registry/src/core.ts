@@ -243,7 +243,7 @@ function resolveWorkflowDefinition(
 function isModuleJobSlugValue(value: string): value is ModuleJobSlug {
   switch (value) {
     case 'observatory-data-generator':
-    case 'observatory-inbox-normalizer':
+    case 'observatory-minute-preprocessor':
     case 'observatory-timestore-loader':
     case 'observatory-visualization-runner':
     case 'observatory-dashboard-aggregator':

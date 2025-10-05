@@ -6,6 +6,7 @@ import {
   createMetastoreCapability,
   enforceScratchOnlyWrites,
   selectCoreWorkflows,
+  selectEventBus,
   selectFilestore,
   selectMetastore,
   inheritModuleSecrets,
@@ -20,6 +21,7 @@ import { z } from 'zod';
 
 import { ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
+import { createObservatoryEventPublisher, publishAssetMaterialized } from '../runtime/events';
 import {
   buildPlanSummary,
   calibrationReprocessPlanSchema,
@@ -689,12 +691,12 @@ export const calibrationReprocessorJob = createJobHandler<
   ObservatoryModuleSecrets,
   CalibrationReprocessorResult,
   CalibrationReprocessorParameters,
-  ['filestore', 'coreWorkflows', 'metastore.calibrations']
+  ['filestore', 'coreWorkflows', 'metastore.calibrations', 'events.default']
 >({
   name: 'observatory-calibration-reprocessor',
   settings: inheritModuleSettings(),
   secrets: inheritModuleSecrets(),
-  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations'] as const,
+  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations', 'events.default'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(normalizeRawParameters(raw))
   },
@@ -714,8 +716,18 @@ export const calibrationReprocessorJob = createJobHandler<
       throw new Error('Core workflows capability is required for the calibration reprocessor job');
     }
 
+    const eventsCapability = selectEventBus(context.capabilities, 'default');
+    if (!eventsCapability) {
+      throw new Error('Event bus capability is required for the calibration reprocessor job');
+    }
+
+    const publisher = createObservatoryEventPublisher({
+      capability: eventsCapability,
+      source: context.settings.events.source || 'observatory.calibration-reprocessor'
+    });
+
     const ingestWorkflowSlug =
-      context.parameters.ingestWorkflowSlug ?? context.settings.reprocess.ingestWorkflowSlug;
+        context.parameters.ingestWorkflowSlug ?? context.settings.reprocess.ingestWorkflowSlug;
     if (!ingestWorkflowSlug) {
       throw new Error('ingestWorkflowSlug is required');
     }
@@ -808,11 +820,11 @@ export const calibrationReprocessorJob = createJobHandler<
         () => undefined
       );
 
-      const result: CalibrationReprocessorResult = {
-        planId: loadedPlan.planId,
-        planPath,
-        planNodeId: loadedPlan.storage.nodeId ?? resolvedPlanNodeId ?? planNodeIdParam ?? null,
-        processedPartitions: 0,
+    const result: CalibrationReprocessorResult = {
+      planId: loadedPlan.planId,
+      planPath,
+      planNodeId: loadedPlan.storage.nodeId ?? resolvedPlanNodeId ?? planNodeIdParam ?? null,
+      processedPartitions: 0,
         succeededPartitions: 0,
         failedPartitions: 0,
         mode,
@@ -830,14 +842,31 @@ export const calibrationReprocessorJob = createJobHandler<
               summary: loadedPlan.summary,
               storage: loadedPlan.storage
             }
-          }
-        ]
-      };
+        }
+      ]
+    };
 
-      return result;
-    }
+    await publishAssetMaterialized(publisher, {
+      assetId: 'observatory.reprocess.plan',
+      partitionKey: loadedPlan.planId,
+      producedAt: loadedPlan.updatedAt,
+      metadata: {
+        processedPartitions: 0,
+        succeededPartitions: 0,
+        failedPartitions: 0,
+        planPath,
+        plansPrefix: loadedPlan.storage.plansPrefix ?? null,
+        planNodeId: result.planNodeId,
+        metastoreNamespace: loadedPlan.storage.metastore?.namespace ?? metastoreNamespace,
+        metastoreRecordKey: loadedPlan.storage.metastore?.recordKey ?? null
+      }
+    });
 
-    loadedPlan.state = 'in_progress';
+    await publisher.close().catch(() => undefined);
+    return result;
+  }
+
+  loadedPlan.state = 'in_progress';
     await queuePlanPersist(() =>
       enqueuePlanPersistence(
         loadedPlan,
@@ -929,6 +958,23 @@ export const calibrationReprocessorJob = createJobHandler<
       ]
     };
 
+    await publishAssetMaterialized(publisher, {
+      assetId: 'observatory.reprocess.plan',
+      partitionKey: loadedPlan.planId,
+      producedAt: loadedPlan.updatedAt,
+      metadata: {
+        processedPartitions: summary.processed,
+        succeededPartitions: summary.succeeded,
+        failedPartitions: summary.failed,
+        planPath,
+        plansPrefix: loadedPlan.storage.plansPrefix ?? null,
+        planNodeId: result.planNodeId,
+        metastoreNamespace: loadedPlan.storage.metastore?.namespace ?? metastoreNamespace,
+        metastoreRecordKey: loadedPlan.storage.metastore?.recordKey ?? null
+      }
+    });
+
+    await publisher.close().catch(() => undefined);
     return result;
   }
 });

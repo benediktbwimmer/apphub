@@ -1,4 +1,4 @@
-import { createWorkflow, moduleSetting, type WorkflowDefinition } from '@apphub/module-sdk';
+import { createWorkflow, createWorkflowTrigger, moduleSetting, type WorkflowDefinition } from '@apphub/module-sdk';
 
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
@@ -45,6 +45,32 @@ const definition: WorkflowDefinition = {
   ]
 };
 
+const triggers = [
+  createWorkflowTrigger({
+    name: 'Reprocess on plan materialization',
+    description: 'Execute calibration reprocess automatically when a plan asset updates.',
+    eventType: 'observatory.asset.materialized',
+    eventSource: 'observatory.events',
+    predicates: [
+      {
+        path: '$.payload.assetId',
+        operator: 'equals',
+        value: 'observatory.reprocess.plan'
+      }
+    ],
+    parameterTemplate: {
+      planId: '{{ event.payload.partitionKey }}',
+      planPath: '{{ event.payload.metadata.planPath }}',
+      planNodeId: '{{ event.payload.metadata.planNodeId }}',
+      pollIntervalMs: '{{ trigger.metadata.pollIntervalMs }}'
+    },
+    metadata: {
+      pollIntervalMs: moduleSetting('reprocess.pollIntervalMs')
+    },
+    idempotencyKeyExpression: 'observatory-reprocess-{{ event.payload.partitionKey }}'
+  })
+];
+
 export const calibrationReprocessWorkflow = createWorkflow<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets
@@ -52,5 +78,6 @@ export const calibrationReprocessWorkflow = createWorkflow<
   name: definition.slug,
   displayName: definition.name,
   description: definition.description,
-  definition
+  definition,
+  triggers
 });
