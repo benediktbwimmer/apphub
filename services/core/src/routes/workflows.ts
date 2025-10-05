@@ -1635,7 +1635,38 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     return { data: { assets: payload } };
   });
 
-  app.patch('/workflows/:slug/assets/:assetId/auto-materialize', async (request, reply) => {
+  app.patch(
+    '/workflows/:slug/assets/:assetId/auto-materialize',
+    {
+      schema: {
+        tags: ['Workflows'],
+        summary: 'Update workflow asset auto-materialize settings',
+        description:
+          'Enable or tune auto-materialize behaviour for a specific asset within the workflow.',
+        security: [{ OperatorToken: [] }],
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['slug', 'assetId'],
+          properties: {
+            slug: { type: 'string', description: 'Workflow slug.' },
+            assetId: { type: 'string', description: 'Asset identifier within the workflow.' }
+          }
+        },
+        body: schemaRef('WorkflowAutoMaterializeAssetUpdateRequest'),
+        response: {
+          200: jsonResponse(
+            'WorkflowAutoMaterializeAssetUpdateResponse',
+            'Updated auto-materialize configuration for the workflow asset.'
+          ),
+          400: errorResponse('Request parameters or payload failed validation.'),
+          401: errorResponse('Operator authentication is required.'),
+          403: errorResponse('Operator token is missing required scopes.'),
+          404: errorResponse('Workflow or asset declaration not found.')
+        }
+      }
+    },
+    async (request, reply) => {
     const authResult = await requireOperatorScopes(request, reply, {
       action: 'workflow-assets.update',
       resource: 'workflows',
@@ -1724,7 +1755,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         autoMaterialize: updated.autoMaterialize ?? null
       }
     };
-  });
+    }
+  );
 
   app.get('/workflows/:slug/assets/:assetId/history', async (request, reply) => {
     const parseParams = workflowAssetParamSchema.safeParse(request.params);

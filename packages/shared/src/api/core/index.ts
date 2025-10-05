@@ -9,6 +9,7 @@ export { BaseHttpRequest } from './core/BaseHttpRequest';
 export { CancelablePromise, CancelError } from './core/CancelablePromise';
 export { OpenAPI } from './core/OpenAPI';
 export type { OpenAPIConfig } from './core/OpenAPI';
+export type { ApiRequestOptions } from './core/ApiRequestOptions';
 
 export type { AiBundleEditRequest } from './models/AiBundleEditRequest';
 export type { ApiKey } from './models/ApiKey';

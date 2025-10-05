@@ -11600,6 +11600,154 @@
           }
         }
       },
+      "WorkflowAutoMaterializeAssetUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stepId"
+        ],
+        "properties": {
+          "stepId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "onUpstreamUpdate": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "nullable": true
+          },
+          "parameterDefaults": {
+            "description": "Arbitrary JSON value.",
+            "nullable": true,
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "array",
+                "items": {}
+              },
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "enabled"
+                ]
+              },
+              {
+                "required": [
+                  "onUpstreamUpdate"
+                ]
+              },
+              {
+                "required": [
+                  "priority"
+                ]
+              },
+              {
+                "required": [
+                  "parameterDefaults"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "WorkflowAutoMaterializeAssetUpdateResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "assetId",
+              "stepId",
+              "autoMaterialize"
+            ],
+            "properties": {
+              "assetId": {
+                "type": "string"
+              },
+              "stepId": {
+                "type": "string"
+              },
+              "autoMaterialize": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "onUpstreamUpdate": {
+                        "type": "boolean"
+                      },
+                      "priority": {
+                        "type": "integer",
+                        "nullable": true
+                      },
+                      "parameterDefaults": {
+                        "description": "Arbitrary JSON value.",
+                        "nullable": true,
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "array",
+                            "items": {}
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
       "ApiKey": {
         "type": "object",
         "required": [
@@ -11668,7 +11816,7 @@
               "keys": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/def-73"
+                  "$ref": "#/components/schemas/def-75"
                 }
               }
             }
@@ -11689,7 +11837,7 @@
             ],
             "properties": {
               "key": {
-                "$ref": "#/components/schemas/def-73"
+                "$ref": "#/components/schemas/def-75"
               },
               "token": {
                 "type": "string",
@@ -30240,6 +30388,178 @@
       },
       "def-73": {
         "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stepId"
+        ],
+        "properties": {
+          "stepId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "onUpstreamUpdate": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "parameterDefaults": {
+            "anyOf": [
+              {
+                "description": "Arbitrary JSON value.",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "array",
+                    "items": {}
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "enabled"
+                ]
+              },
+              {
+                "required": [
+                  "onUpstreamUpdate"
+                ]
+              },
+              {
+                "required": [
+                  "priority"
+                ]
+              },
+              {
+                "required": [
+                  "parameterDefaults"
+                ]
+              }
+            ]
+          }
+        ],
+        "title": "https://core.apphub/schemas/WorkflowAutoMaterializeAssetUpdateRequest.json"
+      },
+      "def-74": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "assetId",
+              "stepId",
+              "autoMaterialize"
+            ],
+            "properties": {
+              "assetId": {
+                "type": "string"
+              },
+              "stepId": {
+                "type": "string"
+              },
+              "autoMaterialize": {
+                "anyOf": [
+                  {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "onUpstreamUpdate": {
+                            "type": "boolean"
+                          },
+                          "priority": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "parameterDefaults": {
+                            "anyOf": [
+                              {
+                                "description": "Arbitrary JSON value.",
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "array",
+                                    "items": {}
+                                  },
+                                  {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/WorkflowAutoMaterializeAssetUpdateResponse.json"
+      },
+      "def-75": {
+        "type": "object",
         "required": [
           "id",
           "prefix",
@@ -30300,7 +30620,7 @@
         },
         "title": "https://core.apphub/schemas/ApiKey.json"
       },
-      "def-74": {
+      "def-76": {
         "type": "object",
         "required": [
           "data"
@@ -30315,7 +30635,7 @@
               "keys": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/def-73"
+                  "$ref": "#/components/schemas/def-75"
                 }
               }
             }
@@ -30323,7 +30643,7 @@
         },
         "title": "https://core.apphub/schemas/ApiKeyListResponse.json"
       },
-      "def-75": {
+      "def-77": {
         "type": "object",
         "required": [
           "data"
@@ -30337,7 +30657,7 @@
             ],
             "properties": {
               "key": {
-                "$ref": "#/components/schemas/def-73"
+                "$ref": "#/components/schemas/def-75"
               },
               "token": {
                 "type": "string",
@@ -30348,7 +30668,7 @@
         },
         "title": "https://core.apphub/schemas/ApiKeyCreateResponse.json"
       },
-      "def-76": {
+      "def-78": {
         "type": "object",
         "required": [
           "handlerName",
@@ -30396,7 +30716,7 @@
         },
         "title": "https://core.apphub/schemas/PythonSnippetPreview.json"
       },
-      "def-77": {
+      "def-79": {
         "type": "object",
         "required": [
           "data"
@@ -30634,7 +30954,7 @@
         },
         "title": "https://core.apphub/schemas/PythonSnippetCreateResponse.json"
       },
-      "def-78": {
+      "def-80": {
         "type": "object",
         "required": [
           "workflowId",
@@ -30770,7 +31090,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphProducer.json"
       },
-      "def-79": {
+      "def-81": {
         "type": "object",
         "required": [
           "workflowId",
@@ -30807,7 +31127,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphConsumer.json"
       },
-      "def-80": {
+      "def-82": {
         "type": "object",
         "required": [
           "workflowId",
@@ -30931,7 +31251,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphMaterialization.json"
       },
-      "def-81": {
+      "def-83": {
         "type": "object",
         "required": [
           "workflowId",
@@ -30977,7 +31297,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphStalePartition.json"
       },
-      "def-82": {
+      "def-84": {
         "type": "object",
         "required": [
           "assetId",
@@ -31363,7 +31683,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphNode.json"
       },
-      "def-83": {
+      "def-85": {
         "type": "object",
         "required": [
           "fromAssetId",
@@ -31416,7 +31736,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphEdge.json"
       },
-      "def-84": {
+      "def-86": {
         "type": "object",
         "required": [
           "data"
@@ -31877,7 +32197,7 @@
         },
         "title": "https://core.apphub/schemas/AssetGraphResponse.json"
       },
-      "def-85": {
+      "def-87": {
         "type": "object",
         "properties": {
           "partitionKey": {
@@ -31894,7 +32214,7 @@
         "additionalProperties": false,
         "title": "https://core.apphub/schemas/AssetMarkStaleRequest.json"
       },
-      "def-86": {
+      "def-88": {
         "type": "object",
         "required": [
           "version",
@@ -33402,7 +33722,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowTopologyGraph.json"
       },
-      "def-87": {
+      "def-89": {
         "type": "object",
         "required": [
           "hit",
@@ -33467,7 +33787,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowGraphCacheMeta.json"
       },
-      "def-88": {
+      "def-90": {
         "type": "object",
         "required": [
           "hits",
@@ -33487,7 +33807,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowGraphCacheStats.json"
       },
-      "def-89": {
+      "def-91": {
         "type": "object",
         "required": [
           "data"
@@ -35075,7 +35395,7 @@
         },
         "title": "https://core.apphub/schemas/WorkflowGraphResponse.json"
       },
-      "def-90": {
+      "def-92": {
         "type": "object",
         "required": [
           "configured",
@@ -35109,7 +35429,7 @@
         },
         "title": "https://core.apphub/schemas/StreamingBrokerStatus.json"
       },
-      "def-91": {
+      "def-93": {
         "type": "object",
         "required": [
           "connectorId",
@@ -35186,7 +35506,7 @@
         },
         "title": "https://core.apphub/schemas/StreamingBatcherConnectorStatus.json"
       },
-      "def-92": {
+      "def-94": {
         "type": "object",
         "required": [
           "configured",
@@ -35295,7 +35615,7 @@
         },
         "title": "https://core.apphub/schemas/StreamingBatcherStatus.json"
       },
-      "def-93": {
+      "def-95": {
         "type": "object",
         "required": [
           "enabled",
@@ -35535,7 +35855,7 @@
         },
         "title": "https://core.apphub/schemas/StreamingStatus.json"
       },
-      "def-94": {
+      "def-96": {
         "type": "object",
         "required": [
           "status",
@@ -35805,7 +36125,7 @@
         },
         "title": "https://core.apphub/schemas/HealthResponse.json"
       },
-      "def-95": {
+      "def-97": {
         "type": "object",
         "required": [
           "status",
@@ -36075,7 +36395,7 @@
         },
         "title": "https://core.apphub/schemas/HealthUnavailableResponse.json"
       },
-      "def-96": {
+      "def-98": {
         "type": "object",
         "required": [
           "status",
@@ -36345,7 +36665,7 @@
         },
         "title": "https://core.apphub/schemas/ReadyResponse.json"
       },
-      "def-97": {
+      "def-99": {
         "type": "object",
         "required": [
           "status",
@@ -36615,7 +36935,7 @@
         },
         "title": "https://core.apphub/schemas/ReadyUnavailableResponse.json"
       },
-      "def-98": {
+      "def-100": {
         "type": "object",
         "required": [
           "error"
@@ -36716,7 +37036,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-94"
+                  "$ref": "#/components/schemas/def-96"
                 }
               }
             }
@@ -36726,7 +37046,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-95"
+                  "$ref": "#/components/schemas/def-97"
                 }
               }
             }
@@ -36747,7 +37067,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-98"
                 }
               }
             }
@@ -36757,7 +37077,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-97"
+                  "$ref": "#/components/schemas/def-99"
                 }
               }
             }
@@ -36817,7 +37137,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -36827,7 +37147,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -36837,7 +37157,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -36888,7 +37208,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -36898,7 +37218,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -36908,7 +37228,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -36918,7 +37238,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -36980,7 +37300,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -36990,7 +37310,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37016,7 +37336,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-74"
+                  "$ref": "#/components/schemas/def-76"
                 }
               }
             }
@@ -37026,7 +37346,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37036,7 +37356,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37046,7 +37366,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37110,7 +37430,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-75"
+                  "$ref": "#/components/schemas/def-77"
                 }
               }
             }
@@ -37120,7 +37440,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37130,7 +37450,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37140,7 +37460,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37150,7 +37470,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37197,7 +37517,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37207,7 +37527,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37217,7 +37537,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37227,7 +37547,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37237,7 +37557,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37300,7 +37620,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37310,7 +37630,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37320,7 +37640,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37330,7 +37650,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37340,7 +37660,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37371,7 +37691,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37463,7 +37783,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37473,7 +37793,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37483,7 +37803,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37539,7 +37859,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37549,7 +37869,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37559,7 +37879,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37569,7 +37889,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37579,7 +37899,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37589,7 +37909,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37683,7 +38003,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37693,7 +38013,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37703,7 +38023,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37769,7 +38089,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37779,7 +38099,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37789,7 +38109,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37799,7 +38119,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37846,7 +38166,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-76"
+                  "$ref": "#/components/schemas/def-78"
                 }
               }
             }
@@ -37856,7 +38176,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37866,7 +38186,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37876,7 +38196,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37886,7 +38206,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -37991,7 +38311,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-77"
+                  "$ref": "#/components/schemas/def-79"
                 }
               }
             }
@@ -38001,7 +38321,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38011,7 +38331,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38021,7 +38341,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38031,7 +38351,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38072,7 +38392,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38082,7 +38402,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38092,7 +38412,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38148,7 +38468,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38158,7 +38478,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38168,7 +38488,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38178,7 +38498,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38188,7 +38508,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38198,7 +38518,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38208,7 +38528,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38218,7 +38538,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38274,7 +38594,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38284,7 +38604,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38294,7 +38614,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38304,7 +38624,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38314,7 +38634,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38324,7 +38644,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38334,7 +38654,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38390,7 +38710,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38400,7 +38720,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38410,7 +38730,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38420,7 +38740,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38430,7 +38750,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38801,7 +39121,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-89"
+                  "$ref": "#/components/schemas/def-91"
                 }
               }
             }
@@ -38811,7 +39131,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38821,7 +39141,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38831,7 +39151,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38861,7 +39181,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38895,7 +39215,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38905,7 +39225,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38915,7 +39235,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38925,7 +39245,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -38935,7 +39255,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39189,7 +39509,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39199,7 +39519,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39302,6 +39622,20 @@
     },
     "/workflows/{slug}/assets/{assetId}/auto-materialize": {
       "patch": {
+        "summary": "Update workflow asset auto-materialize settings",
+        "tags": [
+          "Workflows"
+        ],
+        "description": "Enable or tune auto-materialize behaviour for a specific asset within the workflow.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/def-73"
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -39309,7 +39643,8 @@
             },
             "in": "path",
             "name": "slug",
-            "required": true
+            "required": true,
+            "description": "Workflow slug."
           },
           {
             "schema": {
@@ -39317,12 +39652,65 @@
             },
             "in": "path",
             "name": "assetId",
-            "required": true
+            "required": true,
+            "description": "Asset identifier within the workflow."
+          }
+        ],
+        "security": [
+          {
+            "OperatorToken": []
           }
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Updated auto-materialize configuration for the workflow asset.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-74"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request parameters or payload failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-100"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-100"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operator token is missing required scopes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-100"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workflow or asset declaration not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-100"
+                }
+              }
+            }
           }
         }
       }
@@ -39541,7 +39929,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-84"
+                  "$ref": "#/components/schemas/def-86"
                 }
               }
             }
@@ -39551,7 +39939,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39570,7 +39958,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-85"
+                "$ref": "#/components/schemas/def-87"
               }
             }
           }
@@ -39616,7 +40004,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39626,7 +40014,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39636,7 +40024,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39646,7 +40034,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39656,7 +40044,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39720,7 +40108,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39730,7 +40118,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39740,7 +40128,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39750,7 +40138,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39760,7 +40148,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39804,7 +40192,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39913,7 +40301,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39923,7 +40311,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39933,7 +40321,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -39943,7 +40331,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40114,7 +40502,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40124,7 +40512,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40134,7 +40522,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40144,7 +40532,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40154,7 +40542,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40259,7 +40647,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40269,7 +40657,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40279,7 +40667,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40289,7 +40677,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40299,7 +40687,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -40309,7 +40697,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41000,7 +41388,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41038,7 +41426,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41080,7 +41468,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41090,7 +41478,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41332,7 +41720,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41342,7 +41730,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41352,7 +41740,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41395,7 +41783,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41405,7 +41793,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41415,7 +41803,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41425,7 +41813,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41472,7 +41860,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41482,7 +41870,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41492,7 +41880,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41502,7 +41890,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41556,7 +41944,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41566,7 +41954,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41576,7 +41964,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41586,7 +41974,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41631,7 +42019,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41641,7 +42029,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41651,7 +42039,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41661,7 +42049,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41708,7 +42096,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41718,7 +42106,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41728,7 +42116,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41738,7 +42126,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41785,7 +42173,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41795,7 +42183,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41805,7 +42193,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41815,7 +42203,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41851,7 +42239,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41861,7 +42249,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41904,7 +42292,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41914,7 +42302,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41924,7 +42312,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41934,7 +42322,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41981,7 +42369,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -41991,7 +42379,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42001,7 +42389,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42011,7 +42399,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42065,7 +42453,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42075,7 +42463,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42085,7 +42473,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42095,7 +42483,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42105,7 +42493,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42150,7 +42538,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42160,7 +42548,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42170,7 +42558,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42180,7 +42568,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42227,7 +42615,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42237,7 +42625,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42247,7 +42635,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42257,7 +42645,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42304,7 +42692,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42314,7 +42702,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42324,7 +42712,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }
@@ -42334,7 +42722,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-100"
                 }
               }
             }

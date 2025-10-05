@@ -1,0 +1,318 @@
+---
+import BaseLayout from '@layouts/BaseLayout.astro';
+
+const title = 'Help fund Osiris AppHub development';
+const description =
+  'Support the AppHub roadmap—benchmarks, platform engineering, and full-time development—through donations, sponsorships, or paid collaborations.';
+const donationLink = 'https://www.paypal.com/ncp/payment/UPB7PDUZ9L4L2';
+
+const fundingGoals = [
+  {
+    title: 'Sustain full-time engineering',
+    detail: 'Cover living costs so the core maintainer can focus on core services, modular UX, and the open-source roadmap.'
+  },
+  {
+    title: 'Run large-scale benchmarks',
+    detail: 'Provision cloud infrastructure to stress-test timestore, streaming pipelines, and the module SDK under production-style workloads.'
+  },
+  {
+    title: 'Ship shared enablement assets',
+    detail: 'Document deployment patterns, publish migration guides, and harden onboarding so new contributors and adopters move faster.'
+  }
+];
+
+const supportOptions = [
+  {
+    name: 'One-time or recurring donations',
+    copy:
+      'Use PayPal to fund immediate roadmap items—server costs, CI minutes, design polish. Every contribution shows demand for the platform.'
+  },
+  {
+    name: 'Project sponsorships',
+    copy:
+      'Co-brand on the website, influence the roadmap, and receive early access to benchmark results. Ideal for partners investing in AppHub scale.'
+  },
+  {
+    name: 'Paid pilots and services',
+    copy:
+      'Engage the team for architecture sprints, module builds, or bespoke integrations. Revenue keeps development independent and user-driven.'
+  }
+];
+
+const sponsorshipSteps = [
+  'Email osirisapphub@gmail.com with your goals and timelines.',
+  'Co-design a short memo covering deliverables, visibility, and success metrics.',
+  'Kick off the engagement with a lightweight agreement and shared tracking doc.'
+];
+
+const allocationHighlights = [
+  'At least 50% of raised funds are earmarked for core platform engineering and performance tooling.',
+  'Benchmark budgets include transparent cost breakdowns and published results for the community.',
+  'We publish quarterly updates summarising spend, roadmap progress, and upcoming funding needs.'
+];
+---
+<BaseLayout title={title} description={description}>
+  <section class="page-hero" aria-labelledby="funding-hero-heading">
+    <div class="container page-hero__inner">
+      <div class="page-hero__content">
+        <p class="page-hero__eyebrow">Fund the roadmap</p>
+        <h1 id="funding-hero-heading">Keep AppHub moving with community-backed funding.</h1>
+        <p class="page-hero__intro">
+          Osiris AppHub is an open-source operations platform built in the open. Donations and sponsorships unlock time for deeper engineering work, platform rollouts, and the large-scale benchmark programme.
+        </p>
+        <div class="page-hero__actions">
+          <a class="button button--primary" href={donationLink} target="_blank" rel="noreferrer">
+            Donate via PayPal
+          </a>
+          <a class="button button--secondary" href="mailto:osirisapphub@gmail.com?subject=AppHub%20sponsorship">
+            Discuss a sponsorship
+          </a>
+        </div>
+        <div class="page-hero__notice">
+          <strong>Prefer invoices or contracts?</strong>
+          <span>We can structure paid pilots or managed benchmarks—just mention it when you reach out.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="goals" aria-labelledby="funding-goals-heading">
+    <div class="container goals__inner">
+      <h2 id="funding-goals-heading" class="section-heading">Where funding accelerates the project</h2>
+      <div class="goals__grid">
+        {fundingGoals.map((goal) => (
+          <article>
+            <h3>{goal.title}</h3>
+            <p>{goal.detail}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="support" aria-labelledby="funding-support-heading">
+    <div class="container support__inner">
+      <h2 id="funding-support-heading" class="section-heading">Ways you can contribute</h2>
+      <div class="support__grid">
+        {supportOptions.map((option) => (
+          <article>
+            <h3>{option.name}</h3>
+            <p>{option.copy}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="sponsorship" aria-labelledby="funding-sponsorship-heading">
+    <div class="container sponsorship__inner">
+      <div>
+        <h2 id="funding-sponsorship-heading" class="section-heading">Sponsor the benchmark or roadmap</h2>
+        <p>
+          Looking to validate AppHub for your workloads or showcase your infrastructure? We partner with teams to co-fund the large-scale benchmark effort and publish transparent results.
+        </p>
+        <ol>
+          {sponsorshipSteps.map((step) => (
+            <li>{step}</li>
+          ))}
+        </ol>
+      </div>
+      <div class="sponsorship__card">
+        <h3>What sponsors receive</h3>
+        <ul>
+          <li>Logo placement and acknowledgement on this site.</li>
+          <li>Early access to benchmark findings and tuning guides.</li>
+          <li>Quarterly roadmap briefings focused on your priorities.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="allocation" aria-labelledby="funding-allocation-heading">
+    <div class="container allocation__inner">
+      <h2 id="funding-allocation-heading" class="section-heading">Transparency commitments</h2>
+      <ul>
+        {allocationHighlights.map((item) => (
+          <li>{item}</li>
+        ))}
+      </ul>
+      <p>
+        Have questions about governance or reporting? Email <a href="mailto:osirisapphub@gmail.com">osirisapphub@gmail.com</a> and we will walk through the plan in detail.
+      </p>
+    </div>
+  </section>
+
+  <section class="cta" aria-labelledby="funding-cta-heading">
+    <div class="container cta__inner">
+      <div>
+        <h2 id="funding-cta-heading" class="section-heading">Ready to back the project?</h2>
+        <p>
+          Every contribution—financial or otherwise—brings AppHub closer to production-ready status. Donate today or schedule a call to scope a deeper partnership.
+        </p>
+      </div>
+      <div class="cta__actions">
+        <a class="button button--primary" href={donationLink} target="_blank" rel="noreferrer">Donate via PayPal</a>
+        <a class="button button--ghost" href="https://github.com/benediktbwimmer/apphub" target="_blank" rel="noreferrer">Contribute on GitHub</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .page-hero {
+    padding: var(--apphub-spacing-3xl) 0;
+    background: linear-gradient(160deg, rgba(13, 148, 136, 0.22), rgba(6, 182, 212, 0.12));
+  }
+
+  .page-hero__inner {
+    display: flex;
+    flex-direction: column;
+    gap: var(--apphub-spacing-xl);
+  }
+
+  .page-hero__content {
+    display: grid;
+    gap: var(--apphub-spacing-md);
+    max-width: 720px;
+  }
+
+  .page-hero__eyebrow {
+    text-transform: uppercase;
+    letter-spacing: var(--apphub-typography-letter-spacing-wide);
+    font-weight: var(--apphub-typography-font-weight-semibold);
+    color: var(--apphub-color-text-soft);
+    margin: 0;
+  }
+
+  .page-hero__intro {
+    font-size: 1.15rem;
+    margin: 0;
+  }
+
+  .page-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+  }
+
+  .page-hero__notice {
+    border-left: 4px solid var(--apphub-color-accent);
+    padding: var(--apphub-spacing-xs) var(--apphub-spacing-md);
+    background: color-mix(in srgb, var(--apphub-color-surface) 90%, transparent);
+    border-radius: var(--apphub-radius-sm);
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+  }
+
+  .section-heading {
+    font-size: 2rem;
+    margin: 0 0 var(--apphub-spacing-md);
+  }
+
+  .goals,
+  .support,
+  .sponsorship,
+  .allocation,
+  .cta {
+    padding: var(--apphub-spacing-3xl) 0;
+  }
+
+  .goals__grid,
+  .support__grid {
+    display: grid;
+    gap: var(--apphub-spacing-md);
+  }
+
+  @media (min-width: 860px) {
+    .goals__grid,
+    .support__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .goals__grid article,
+  .support__grid article {
+    padding: var(--apphub-spacing-lg);
+    border-radius: var(--apphub-radius-lg);
+    background: var(--apphub-color-surface);
+    border: 1px solid var(--apphub-color-border);
+    display: grid;
+    gap: var(--apphub-spacing-xs);
+  }
+
+  .goals__grid h3,
+  .support__grid h3 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+
+  .goals__grid p,
+  .support__grid p {
+    margin: 0;
+    color: var(--apphub-color-text-muted);
+  }
+
+  .sponsorship__inner {
+    display: grid;
+    gap: var(--apphub-spacing-lg);
+  }
+
+  @media (min-width: 920px) {
+    .sponsorship__inner {
+      grid-template-columns: 2fr 1fr;
+      align-items: start;
+    }
+  }
+
+  .sponsorship ol {
+    padding-left: 1.25rem;
+    display: grid;
+    gap: var(--apphub-spacing-xs);
+  }
+
+  .sponsorship__card {
+    padding: var(--apphub-spacing-lg);
+    background: var(--apphub-color-surface);
+    border: 1px solid var(--apphub-color-border);
+    border-radius: var(--apphub-radius-lg);
+    display: grid;
+    gap: var(--apphub-spacing-xs);
+  }
+
+  .sponsorship__card ul {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: grid;
+    gap: var(--apphub-spacing-xxs);
+  }
+
+  .allocation ul {
+    margin: 0 0 var(--apphub-spacing-md);
+    padding-left: 1.1rem;
+    display: grid;
+    gap: var(--apphub-spacing-xs);
+  }
+
+  .cta__inner {
+    background: var(--apphub-color-surface);
+    border-radius: var(--apphub-radius-xl);
+    border: 1px solid var(--apphub-color-border);
+    padding: var(--apphub-spacing-xl);
+    display: grid;
+    gap: var(--apphub-spacing-md);
+  }
+
+  @media (min-width: 780px) {
+    .cta__inner {
+      grid-template-columns: 2fr 1fr;
+      align-items: center;
+    }
+  }
+
+  .cta__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apphub-spacing-sm);
+    justify-content: flex-start;
+  }
+</style>

@@ -90,6 +90,7 @@ const documentedRoutes = new Set<`${string}:${string}`>([
   'GET:/openapi.json',
   'POST:/workflows/:slug/assets/:assetId/stale',
   'DELETE:/workflows/:slug/assets/:assetId/stale',
+  'PATCH:/workflows/:slug/assets/:assetId/auto-materialize',
   'GET:/workflows/:slug/auto-materialize',
   'GET:/workflows/graph',
   'GET:/workflows',
