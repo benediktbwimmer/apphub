@@ -1,122 +1,350 @@
-import classNames from 'classnames';
-import { useEffect, useMemo, useState, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 import type { JobDefinitionSummary } from '../workflows/api';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { useAuth } from '../auth/useAuth';
 import { Spinner } from '../components';
-import { useToasts } from '../components/toast';
-import JobCreateDialog from './JobCreateDialog';
-import JobAiEditDialog from './JobAiEditDialog';
-import BundleVersionCompare from './BundleVersionCompare';
-import {
-  regenerateJobBundle,
-  type BundleEditorData,
-  type BundleRegenerateInput
-} from './api';
 import { useJobsList } from './hooks/useJobsList';
-import { useRuntimeStatuses } from './hooks/useRuntimeStatuses';
 import { useJobSnapshot } from './hooks/useJobSnapshot';
-import { useBundleEditorState } from './hooks/useBundleEditorState';
-import { JobsHeader } from './components/JobsHeader';
-import { JobsSidebar } from './components/JobsSidebar';
-import { JobSummaryCard } from './components/JobSummaryCard';
-import { BundleEditorPanel } from './components/BundleEditorPanel';
-import { BundleHistoryPanel } from './components/BundleHistoryPanel';
-import { JobRunsPanel } from './components/JobRunsPanel';
-import { normalizeCapabilityFlags } from './utils';
-import { getStatusToneClasses } from '../theme/statusTokens';
+import { formatDate } from './utils';
 import {
   JOB_CARD_CONTAINER_CLASSES,
   JOB_FORM_ERROR_TEXT_CLASSES,
-  JOB_SECTION_PARAGRAPH_CLASSES
+  JOB_SECTION_PARAGRAPH_CLASSES,
+  JOB_SECTION_TITLE_SMALL_CLASSES,
+  JOB_STATUS_BADGE_BASE_CLASSES
 } from './jobTokens';
+import type { BundleEditorData, JobRunSummary } from './api';
+import { getStatusToneClasses } from '../theme/statusTokens';
+import { formatDuration } from '../workflows/formatters';
 
-type RuntimeFilter = 'all' | 'module' | 'node' | 'python' | 'docker';
+const SIDEBAR_CONTAINER_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-md transition-colors';
+const SIDEBAR_INPUT_CLASSES =
+  'w-full rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const SIDEBAR_JOB_BUTTON_BASE =
+  'w-full rounded-xl border border-transparent px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const SIDEBAR_JOB_BUTTON_ACTIVE = 'border-accent bg-accent text-on-accent shadow-elevation-md';
+const SIDEBAR_JOB_BUTTON_INACTIVE =
+  'hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong text-secondary';
 
-const RUNTIME_OPTIONS: Array<{ key: RuntimeFilter; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'module', label: 'Module' },
-  { key: 'node', label: 'Node' },
-  { key: 'python', label: 'Python' },
-  { key: 'docker', label: 'Docker' }
-];
+const BADGE_NEUTRAL_CLASSES = 'border-subtle bg-surface-muted text-secondary';
+const CAPABILITY_BADGE_CLASSES =
+  'inline-flex items-center gap-1 rounded-full border border-subtle bg-surface-muted px-2 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.2em] text-secondary';
+
+const MAX_RECENT_RUNS = 5;
+
+type ModuleJobsSidebarProps = {
+  jobs: JobDefinitionSummary[];
+  filteredJobs: JobDefinitionSummary[];
+  selectedSlug: string | null;
+  searchTerm: string;
+  loading: boolean;
+  error: string | null;
+  onSearchTermChange: (value: string) => void;
+  onSelectJob: (slug: string) => void;
+};
+
+function ModuleJobsSidebar({
+  jobs,
+  filteredJobs,
+  selectedSlug,
+  searchTerm,
+  loading,
+  error,
+  onSearchTermChange,
+  onSelectJob
+}: ModuleJobsSidebarProps) {
+  return (
+    <aside className="lg:w-72">
+      <div className={SIDEBAR_CONTAINER_CLASSES}>
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-scale-sm font-weight-semibold text-primary">Module jobs</h2>
+            {loading && <Spinner label="Loading jobs…" size="xs" className="text-muted" />}
+          </div>
+          {error && <p className="text-scale-xs text-status-danger">{error}</p>}
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => onSearchTermChange(event.target.value)}
+            placeholder="Filter by name or slug"
+            className={SIDEBAR_INPUT_CLASSES}
+          />
+          <div className="text-scale-xs text-muted">
+            Showing {filteredJobs.length} of {jobs.length} module jobs
+          </div>
+        </div>
+        <ul className="flex max-h-[28rem] flex-col gap-1 overflow-y-auto pr-2">
+          {filteredJobs.map((job) => {
+            const isActive = job.slug === selectedSlug;
+            return (
+              <li key={job.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelectJob(job.slug)}
+                  className={`${SIDEBAR_JOB_BUTTON_BASE} ${isActive ? SIDEBAR_JOB_BUTTON_ACTIVE : SIDEBAR_JOB_BUTTON_INACTIVE}`}
+                >
+                  <div className="font-weight-semibold text-primary">{job.name}</div>
+                  <div className="text-scale-xs text-muted">{job.slug}</div>
+                </button>
+              </li>
+            );
+          })}
+          {filteredJobs.length === 0 && !loading && !error && (
+            <li className="rounded-xl border border-dashed border-subtle bg-surface-muted px-3 py-6 text-center text-scale-xs text-muted">
+              {jobs.length === 0 ? 'No module jobs registered yet.' : 'No jobs match your filter.'}
+            </li>
+          )}
+        </ul>
+      </div>
+    </aside>
+  );
+}
+
+type ModuleJobDetailProps = {
+  job: JobDefinitionSummary;
+  bundle: BundleEditorData | null;
+  runs: JobRunSummary[];
+  detailLoading: boolean;
+  bundleLoading: boolean;
+  detailError: string | null;
+  bundleError: string | null;
+};
+
+function ModuleJobDetail({
+  job,
+  bundle,
+  runs,
+  detailLoading,
+  bundleLoading,
+  detailError,
+  bundleError
+}: ModuleJobDetailProps) {
+  const moduleSlug = job.registryRef ?? '—';
+  const capabilityFlags = bundle?.bundle.capabilityFlags ?? [];
+  const bundleStatus = bundle?.bundle.status ?? null;
+  const bundleVersion = bundle?.bundle.version ?? null;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className={JOB_CARD_CONTAINER_CLASSES}>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-scale-lg font-weight-semibold text-primary">{job.name}</h2>
+            <p className="text-scale-xs text-muted">{job.slug}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`${JOB_STATUS_BADGE_BASE_CLASSES} ${BADGE_NEUTRAL_CLASSES}`}>Module runtime</span>
+            {bundleStatus && (
+              <span className={`${JOB_STATUS_BADGE_BASE_CLASSES} ${getStatusToneClasses(bundleStatus)}`}>
+                {bundleStatus}
+              </span>
+            )}
+            {bundleVersion && (
+              <span className={`${JOB_STATUS_BADGE_BASE_CLASSES} ${BADGE_NEUTRAL_CLASSES}`}>
+                v{bundleVersion}
+              </span>
+            )}
+          </div>
+          <dl className="grid gap-3 text-scale-sm text-primary sm:grid-cols-2">
+            <div>
+              <dt className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary">
+                Module binding
+              </dt>
+              <dd>{moduleSlug}</dd>
+            </div>
+            <div>
+              <dt className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary">
+                Entry point
+              </dt>
+              <dd>{job.entryPoint || '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary">
+                Current version
+              </dt>
+              <dd>{bundleVersion ?? `rev ${job.version}`}</dd>
+            </div>
+            <div>
+              <dt className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary">
+                Updated
+              </dt>
+              <dd>{formatDate(job.updatedAt)}</dd>
+            </div>
+            <div>
+              <dt className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary">
+                Created
+              </dt>
+              <dd>{formatDate(job.createdAt)}</dd>
+            </div>
+            <div>
+              <dt className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary">
+                Timeout
+              </dt>
+              <dd>{formatTimeout(job.timeoutMs)}</dd>
+            </div>
+          </dl>
+          {capabilityFlags.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {capabilityFlags.map((flag) => (
+                <span key={flag} className={CAPABILITY_BADGE_CLASSES}>
+                  {flag}
+                </span>
+              ))}
+            </div>
+          )}
+          {bundleLoading && (
+            <div className="flex items-center gap-2 text-scale-xs text-muted">
+              <Spinner size="xs" />
+              <span>Refreshing bundle metadata…</span>
+            </div>
+          )}
+          {bundleError && !bundleLoading && (
+            <p className="text-scale-xs text-status-warning">{bundleError}</p>
+          )}
+        </div>
+      </div>
+      <ModuleJobRuns runs={runs} loading={detailLoading} error={detailError} />
+    </div>
+  );
+}
+
+type ModuleJobRunsProps = {
+  runs: JobRunSummary[];
+  loading: boolean;
+  error: string | null;
+};
+
+function ModuleJobRuns({ runs, loading, error }: ModuleJobRunsProps) {
+  const recentRuns = runs.slice(0, MAX_RECENT_RUNS);
+
+  return (
+    <div className={JOB_CARD_CONTAINER_CLASSES}>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className={JOB_SECTION_TITLE_SMALL_CLASSES}>Recent runs</h3>
+          {recentRuns.length > 0 && (
+            <span className="text-scale-xs text-muted">
+              Showing latest {recentRuns.length === MAX_RECENT_RUNS ? MAX_RECENT_RUNS : recentRuns.length} run
+              {recentRuns.length === 1 ? '' : 's'}
+            </span>
+          )}
+        </div>
+        {loading && (
+          <div className="flex items-center gap-2 text-scale-xs text-muted">
+            <Spinner size="xs" />
+            <span>Loading run history…</span>
+          </div>
+        )}
+        {!loading && error && <p className={JOB_FORM_ERROR_TEXT_CLASSES}>{error}</p>}
+        {!loading && !error && recentRuns.length === 0 && (
+          <p className={JOB_SECTION_PARAGRAPH_CLASSES}>No runs recorded for this job yet.</p>
+        )}
+        {!loading && !error && recentRuns.length > 0 && (
+          <ul className="flex flex-col gap-3">
+            {recentRuns.map((run) => (
+              <li
+                key={run.id}
+                className="rounded-xl border border-subtle bg-surface-muted px-3 py-2 text-scale-sm text-primary"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className={`${JOB_STATUS_BADGE_BASE_CLASSES} ${getStatusToneClasses(run.status)}`}>
+                    {run.status ?? 'Unknown'}
+                  </span>
+                  <span className="text-scale-xs text-muted">{formatDate(run.startedAt ?? run.createdAt)}</span>
+                </div>
+                <dl className="mt-3 grid gap-2 text-scale-xs text-secondary sm:grid-cols-2">
+                  <div>
+                    <dt className="uppercase tracking-[0.2em]">Duration</dt>
+                    <dd className="text-scale-sm text-primary">{formatDuration(run.durationMs ?? null)}</dd>
+                  </div>
+                  <div>
+                    <dt className="uppercase tracking-[0.2em]">Attempts</dt>
+                    <dd className="text-scale-sm text-primary">
+                      {run.attempt}{run.maxAttempts ? ` of ${run.maxAttempts}` : ''}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="uppercase tracking-[0.2em]">Completed</dt>
+                    <dd className="text-scale-sm text-primary">{formatDate(run.completedAt)}</dd>
+                  </div>
+                  {run.logsUrl && (
+                    <div>
+                      <dt className="uppercase tracking-[0.2em]">Logs</dt>
+                      <dd>
+                        <a
+                          href={run.logsUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-scale-xs font-weight-semibold text-accent underline decoration-accent-soft decoration-2"
+                        >
+                          Open logs
+                        </a>
+                      </dd>
+                    </div>
+                  )}
+                  {run.errorMessage && (
+                    <div className="sm:col-span-2">
+                      <dt className="uppercase tracking-[0.2em]">Error</dt>
+                      <dd className="text-scale-sm text-status-danger">{run.errorMessage}</dd>
+                    </div>
+                  )}
+                </dl>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatTimeout(timeoutMs: number | null | undefined): string {
+  if (timeoutMs === null || timeoutMs === undefined) {
+    return '—';
+  }
+  if (timeoutMs < 1000) {
+    return `${timeoutMs} ms`;
+  }
+  const seconds = timeoutMs / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(1)} s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  if (minutes < 60) {
+    return `${minutes}m ${remainingSeconds}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
+}
 
 export default function JobsPage() {
-  const [searchParams] = useSearchParams();
-  const initialJobSlug = searchParams.get('job');
-  const initialJobSlugRef = useRef<string | null>(initialJobSlug);
-  const authorizedFetch = useAuthorizedFetch();
-  const { activeToken } = useAuth();
-  const { pushToast } = useToasts();
-
   const {
     sortedJobs,
     loading: jobsLoading,
-    error: jobsError,
-    refresh: refreshJobs
+    error: jobsError
   } = useJobsList();
 
-  const [jobSearch, setJobSearch] = useState(() => initialJobSlug ?? '');
-  const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFilter>('all');
+  const moduleJobs = useMemo(
+    () => sortedJobs.filter((job) => job.runtime === 'module'),
+    [sortedJobs]
+  );
 
-  const {
-    statuses: runtimeStatuses,
-    loading: runtimeStatusLoading,
-    error: runtimeStatusError,
-    refresh: refreshRuntimeStatuses
-  } = useRuntimeStatuses();
-
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
-  const jobSnapshot = useJobSnapshot(selectedSlug);
-  const bundleEditor = useBundleEditorState();
-
-  const {
-    state: editorState,
-    activeFile,
-    baselineFiles,
-    isDirty,
-    loadSnapshot,
-    resetToBaseline,
-    selectFile,
-    updateFile,
-    renameFile,
-    toggleExecutable,
-    removeFile,
-    addFile,
-    setEntryPoint,
-    setManifestPath,
-    setManifestText,
-    setManifestError,
-    setCapabilityFlagsInput,
-    setVersionInput,
-    setRegenerating,
-    setRegenerateError,
-    setRegenerateSuccess,
-    setShowDiff,
-    setAiReviewPending,
-    applyAiUpdate
-  } = bundleEditor;
-
-  useEffect(() => {
-    loadSnapshot(jobSnapshot.bundle ?? null);
-  }, [loadSnapshot, jobSnapshot.bundle]);
-
+  const [searchTerm, setSearchTerm] = useState('');
   const filteredJobs = useMemo(() => {
-    const normalizedSearch = jobSearch.trim().toLowerCase();
-    return sortedJobs.filter((job) => {
-      if (runtimeFilter !== 'all' && job.runtime !== runtimeFilter) {
-        return false;
-      }
-      if (!normalizedSearch) {
-        return true;
-      }
+    const trimmed = searchTerm.trim().toLowerCase();
+    if (!trimmed) {
+      return moduleJobs;
+    }
+    return moduleJobs.filter((job) => {
       return (
-        job.name.toLowerCase().includes(normalizedSearch) ||
-        job.slug.toLowerCase().includes(normalizedSearch)
+        job.name.toLowerCase().includes(trimmed) ||
+        job.slug.toLowerCase().includes(trimmed)
       );
     });
-  }, [sortedJobs, jobSearch, runtimeFilter]);
+  }, [searchTerm, moduleJobs]);
+
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
 
   useEffect(() => {
     if (filteredJobs.length === 0) {
@@ -131,276 +359,58 @@ export default function JobsPage() {
     });
   }, [filteredJobs]);
 
-  useEffect(() => {
-    if (!initialJobSlugRef.current) {
-      return;
-    }
-    const target = initialJobSlugRef.current;
-    if (target && filteredJobs.some((job) => job.slug === target)) {
-      setSelectedSlug(target);
-      initialJobSlugRef.current = null;
-    }
-  }, [filteredJobs]);
+  const selectedJob = useMemo(
+    () => filteredJobs.find((job) => job.slug === selectedSlug) ?? null,
+    [filteredJobs, selectedSlug]
+  );
 
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [createRuntime, setCreateRuntime] = useState<'node' | 'python'>('node');
-  const [aiDialogOpen, setAiDialogOpen] = useState(false);
-  const [aiBusy, setAiBusy] = useState(false);
-
-  const pythonStatus = runtimeStatuses.find((status) => status.runtime === 'python');
-  const pythonReady = pythonStatus ? pythonStatus.ready : true;
-  const pythonButtonTitle = pythonReady
-    ? undefined
-    : pythonStatus?.reason ?? 'Python runtime is not ready';
-
-  const currentJobForAi = jobSnapshot.detail
-    ? {
-        slug: jobSnapshot.detail.job.slug,
-        name: jobSnapshot.detail.job.name,
-        runtime: jobSnapshot.detail.job.runtime ?? null
-      }
-    : null;
-
-  const currentBundleForAi = jobSnapshot.bundle
-    ? {
-        slug: jobSnapshot.bundle.binding.slug,
-        version: jobSnapshot.bundle.bundle.version,
-        entryPoint: jobSnapshot.bundle.editor.entryPoint
-      }
-    : null;
-
-  const handleOpenCreate = (runtime: 'node' | 'python') => {
-    setCreateRuntime(runtime);
-    setCreateDialogOpen(true);
-  };
-
-  const handleJobCreated = (job: JobDefinitionSummary) => {
-    pushToast({
-      tone: 'success',
-      title: 'Job created',
-      description: `${job.name} registered successfully.`
-    });
-    setCreateDialogOpen(false);
-    refreshJobs();
-    setSelectedSlug(job.slug);
-    refreshRuntimeStatuses();
-  };
-
-  const handleRegenerate = async () => {
-    if (!jobSnapshot.bundle || !selectedSlug) {
-      return;
-    }
-
-    let manifestValue: unknown = {};
-    try {
-      manifestValue = editorState.manifestText.trim().length
-        ? JSON.parse(editorState.manifestText)
-        : {};
-      setManifestError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Invalid manifest JSON';
-      setManifestError(message);
-      return;
-    }
-
-    const capabilityFlags = normalizeCapabilityFlags(editorState.capabilityFlagsInput);
-
-    const payloadFiles = editorState.files.map((file) => {
-      const result: {
-        path: string;
-        contents: string;
-        encoding?: 'utf8' | 'base64';
-        executable?: boolean;
-      } = {
-        path: file.path,
-        contents: file.contents
-      };
-      if (file.encoding === 'base64') {
-        result.encoding = 'base64';
-      }
-      if (file.executable) {
-        result.executable = true;
-      }
-      return result;
-    });
-
-    const versionValue = editorState.versionInput.trim();
-    const payload: BundleRegenerateInput = {
-      entryPoint: editorState.entryPoint,
-      manifestPath: editorState.manifestPath.trim() || 'manifest.json',
-      manifest: manifestValue,
-      files: payloadFiles,
-      capabilityFlags,
-      metadata: jobSnapshot.bundle.bundle.metadata ?? undefined,
-      description: undefined,
-      displayName: undefined
-    };
-    if (versionValue.length > 0) {
-      payload.version = versionValue;
-    }
-
-    setRegenerating(true);
-    setRegenerateError(null);
-    setRegenerateSuccess(null);
-    try {
-      if (!activeToken) {
-        throw new Error('Authentication required to regenerate bundles.');
-      }
-      const response = await regenerateJobBundle(activeToken, selectedSlug, payload);
-      loadSnapshot(response);
-      setRegenerateSuccess(`Published ${response.binding.slug}@${response.bundle.version}`);
-      refreshJobs();
-      setShowDiff(false);
-      setAiReviewPending(false);
-      jobSnapshot.refresh();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to regenerate bundle';
-      setRegenerateError(message);
-    } finally {
-      setRegenerating(false);
-    }
-  };
-
-  const handleOpenAiEdit = () => {
-    if (!jobSnapshot.bundle || aiBusy) {
-      return;
-    }
-    setRegenerateError(null);
-    setRegenerateSuccess(null);
-    setAiDialogOpen(true);
-  };
-
-  const handleAiEditComplete = (data: BundleEditorData) => {
-    const hasChanges = applyAiUpdate(data);
-    setManifestError(null);
-    setVersionInput('');
-    setRegenerateError(null);
-    setRegenerateSuccess(null);
-    if (hasChanges) {
-      pushToast({
-        tone: 'info',
-        title: 'Review AI changes',
-        description: 'Inspect the diff and regenerate to publish the new bundle.'
-      });
-    } else {
-      pushToast({
-        tone: 'info',
-        title: 'No changes applied',
-        description: 'The AI response matches the current bundle.'
-      });
-    }
-  };
-
-  const handleAiBusyChange = (busy: boolean) => {
-    setAiBusy(busy);
-  };
-
-  const handleSelectJob = (slug: string) => {
-    setSelectedSlug(slug);
-  };
-
-  const showLoading = jobSnapshot.detailLoading || jobSnapshot.bundleLoading;
-  const showError = (jobSnapshot.detailError || jobSnapshot.bundleError) && !jobSnapshot.bundleLoading;
+  const jobSnapshot = useJobSnapshot(selectedSlug);
 
   return (
-    <>
-      <div className="flex flex-col gap-6">
-        <JobsHeader
-          runtimeStatuses={runtimeStatuses}
-          runtimeStatusLoading={runtimeStatusLoading}
-          runtimeStatusError={runtimeStatusError}
-          pythonReady={pythonReady}
-          pythonButtonTitle={pythonButtonTitle}
-          onCreateNode={() => handleOpenCreate('node')}
-          onCreatePython={() => handleOpenCreate('python')}
-        />
-        <div className="flex flex-col gap-6 lg:flex-row">
-          <JobsSidebar
-            jobs={sortedJobs}
-            filteredJobs={filteredJobs}
-            selectedSlug={selectedSlug}
-            jobsLoading={jobsLoading}
-            jobsError={jobsError}
-            jobSearch={jobSearch}
-            onJobSearchChange={setJobSearch}
-            runtimeFilter={runtimeFilter}
-            runtimeOptions={RUNTIME_OPTIONS}
-            onRuntimeFilterChange={setRuntimeFilter}
-            onSelectJob={handleSelectJob}
-          />
-          <section className="flex-1">
-            {showLoading && (
-              <div className={classNames(JOB_CARD_CONTAINER_CLASSES, 'flex items-center gap-3')}>
-                <Spinner label="Loading job details…" />
-                <span className={JOB_SECTION_PARAGRAPH_CLASSES}>Preparing selected job metadata…</span>
-              </div>
-            )}
-            {showError && (
-              <div className={classNames(JOB_CARD_CONTAINER_CLASSES, getStatusToneClasses('danger'))}>
-                <p className={JOB_FORM_ERROR_TEXT_CLASSES}>{jobSnapshot.detailError ?? jobSnapshot.bundleError}</p>
-              </div>
-            )}
-            {jobSnapshot.detail && jobSnapshot.bundle && !jobSnapshot.bundleLoading && (
-              <div className="flex flex-col gap-6">
-                <JobSummaryCard detail={jobSnapshot.detail} bundle={jobSnapshot.bundle} />
-                <BundleEditorPanel
-                  files={editorState.files}
-                  activeFile={activeFile}
-                  activePath={editorState.activePath}
-                  onSelectFile={selectFile}
-                  onChangeFile={updateFile}
-                  onRenameFile={renameFile}
-                  onToggleExecutable={toggleExecutable}
-                  onRemoveFile={removeFile}
-                  onAddFile={addFile}
-                  entryPoint={editorState.entryPoint}
-                  onEntryPointChange={setEntryPoint}
-                  manifestPath={editorState.manifestPath}
-                  onManifestPathChange={setManifestPath}
-                  manifestText={editorState.manifestText}
-                  onManifestTextChange={setManifestText}
-                  manifestError={editorState.manifestError}
-                  capabilityFlagsInput={editorState.capabilityFlagsInput}
-                  onCapabilityFlagsChange={setCapabilityFlagsInput}
-                  versionInput={editorState.versionInput}
-                  onVersionInputChange={setVersionInput}
-                  isDirty={isDirty}
-                  onReset={resetToBaseline}
-                  onOpenAiEdit={handleOpenAiEdit}
-                  onRegenerate={handleRegenerate}
-                  regenerating={editorState.regenerating}
-                  regenerateError={editorState.regenerateError}
-                  regenerateSuccess={editorState.regenerateSuccess}
-                  aiBusy={aiBusy}
-                  baselineFiles={baselineFiles}
-                  showDiff={editorState.showDiff}
-                  onShowDiffChange={setShowDiff}
-                  aiReviewPending={editorState.aiReviewPending}
-                />
-                <BundleHistoryPanel bundle={jobSnapshot.bundle} />
-                <BundleVersionCompare bundle={jobSnapshot.bundle} />
-                <JobRunsPanel detail={jobSnapshot.detail} />
-              </div>
-            )}
-          </section>
-        </div>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-scale-xl font-weight-semibold text-primary">Jobs</h1>
+        <p className="text-scale-sm text-secondary">
+          Inspect module jobs, review their bindings, and check recent activity for the demo stack.
+        </p>
       </div>
-      <JobCreateDialog
-        open={createDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
-        authorizedFetch={authorizedFetch}
-        defaultRuntime={createRuntime}
-        runtimeStatuses={runtimeStatuses}
-        onCreated={handleJobCreated}
-      />
-      <JobAiEditDialog
-        open={aiDialogOpen}
-        onClose={() => setAiDialogOpen(false)}
-        job={currentJobForAi}
-        bundle={currentBundleForAi}
-        onComplete={handleAiEditComplete}
-        onBusyChange={handleAiBusyChange}
-      />
-    </>
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <ModuleJobsSidebar
+          jobs={moduleJobs}
+          filteredJobs={filteredJobs}
+          selectedSlug={selectedSlug}
+          searchTerm={searchTerm}
+          loading={jobsLoading}
+          error={jobsError}
+          onSearchTermChange={setSearchTerm}
+          onSelectJob={setSelectedSlug}
+        />
+        <section className="flex-1">
+          {moduleJobs.length === 0 && !jobsLoading ? (
+            <div className={JOB_CARD_CONTAINER_CLASSES}>
+              <p className={JOB_SECTION_PARAGRAPH_CLASSES}>
+                Module jobs will appear here once they are registered in the control plane.
+              </p>
+            </div>
+          ) : !selectedJob ? (
+            <div className={JOB_CARD_CONTAINER_CLASSES}>
+              <p className={JOB_SECTION_PARAGRAPH_CLASSES}>
+                Adjust your filters or select a job from the list to view its configuration.
+              </p>
+            </div>
+          ) : (
+            <ModuleJobDetail
+              job={jobSnapshot.detail?.job ?? selectedJob}
+              bundle={jobSnapshot.bundle}
+              runs={jobSnapshot.detail?.runs ?? []}
+              detailLoading={jobSnapshot.detailLoading}
+              bundleLoading={jobSnapshot.bundleLoading}
+              detailError={jobSnapshot.detailError}
+              bundleError={jobSnapshot.bundleError}
+            />
+          )}
+        </section>
+      </div>
+    </div>
   );
 }

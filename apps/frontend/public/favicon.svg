@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 48">
+  <defs>
+    <linearGradient id="eyeOuter" x1="6" y1="4" x2="66" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f766e" />
+      <stop offset="1" stop-color="#22d3ee" />
+    </linearGradient>
+    <radialGradient id="eyeInner" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#0f766e" stop-opacity="0.95" />
+      <stop offset="0.45" stop-color="#083b39" stop-opacity="0.88" />
+      <stop offset="1" stop-color="#011a19" stop-opacity="0.95" />
+    </radialGradient>
+    <radialGradient id="eyeHighlight" cx="36%" cy="32%" r="40%">
+      <stop offset="0" stop-color="#bef8ff" stop-opacity="0.9" />
+      <stop offset="1" stop-color="#bef8ff" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <path
+    d="M36 4C20.5 4 8.09 13.73 3 24c5.09 10.27 17.5 20 33 20s27.91-9.73 33-20C63.91 13.73 51.5 4 36 4Z"
+    fill="url(#eyeOuter)"
+    fill-opacity="0.32"
+    stroke="url(#eyeOuter)"
+    stroke-width="2"
+    stroke-linejoin="round"
+  />
+  <ellipse cx="36" cy="24" rx="12.5" ry="12" fill="url(#eyeInner)" />
+  <circle cx="36" cy="24" r="6" fill="#22d3ee" opacity="0.9" />
+  <circle cx="30" cy="19" r="4" fill="url(#eyeHighlight)" />
+  <path
+    d="M12 24c5-6.5 13.3-10.5 24-10.5S55 17.5 60 24c-5 6.5-13.3 10.5-24 10.5S17 30.5 12 24Z"
+    fill="none"
+    stroke="rgba(34, 211, 238, 0.35)"
+    stroke-width="1.4"
+    stroke-linecap="round"
+  />
+</svg>
