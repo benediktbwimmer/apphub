@@ -53,6 +53,7 @@ const definition: WorkflowDefinition = {
       name: 'Load timestore partition',
       type: 'job',
       jobSlug: 'observatory-timestore-loader',
+      dependsOn: ['normalize-inbox'],
       parameters: {
         minute: '{{ steps.normalize-inbox.result.minute | default: parameters.minute | default: run.trigger.schedule.occurrence | slice: 0, 16 }}',
         rawAsset: '{{ steps.normalize-inbox.result }}',
