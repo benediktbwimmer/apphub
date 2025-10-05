@@ -1,5 +1,7 @@
 import { Queue, type JobsOptions } from 'bullmq';
 import IORedis, { type Redis } from 'ioredis';
+import { z } from 'zod';
+import { booleanVar, loadEnvConfig, stringVar } from '@apphub/shared/envConfig';
 import { handleQueueTelemetry } from './observability/queueTelemetry';
 
 type QueueMode = 'inline' | 'queue';
@@ -38,36 +40,40 @@ export type QueueManagerOptions = {
   createRedis?: (url: string) => Redis;
 };
 
-function normalize(value: string | undefined): string | undefined {
-  return value ? value.trim() : undefined;
-}
+const queueEnvSchema = z
+  .object({
+    REDIS_URL: stringVar({ required: true, description: 'REDIS_URL' }),
+    APPHUB_EVENTS_MODE: stringVar({ allowEmpty: true, lowercase: true }),
+    APPHUB_ALLOW_INLINE_MODE: booleanVar({ defaultValue: false })
+  })
+  .passthrough()
+  .transform((env) => {
+    const redisUrl = env.REDIS_URL ?? '';
+    const normalizedRedisUrl = redisUrl.trim();
+    const eventsMode = env.APPHUB_EVENTS_MODE?.trim() ?? '';
+    const inlineRequested =
+      normalizedRedisUrl.toLowerCase() === 'inline' || eventsMode.toLowerCase() === 'inline';
 
-function isInlineValue(value: string | undefined): boolean {
-  return normalize(value)?.toLowerCase() === 'inline';
-}
+    return {
+      redisUrl: normalizedRedisUrl,
+      inlineRequested,
+      inlineAllowed: env.APPHUB_ALLOW_INLINE_MODE ?? false
+    };
+  });
 
-function parseBoolean(value: string | undefined): boolean {
-  if (!value) {
-    return false;
-  }
-  const normalized = value.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
-}
+type QueueEnvConfig = z.infer<typeof queueEnvSchema>;
 
-function inlineModeRequested(): boolean {
-  return isInlineValue(process.env.REDIS_URL) || isInlineValue(process.env.APPHUB_EVENTS_MODE);
-}
-
-function inlineModeAllowed(): boolean {
-  return parseBoolean(process.env.APPHUB_ALLOW_INLINE_MODE);
+function loadQueueEnvConfig(): QueueEnvConfig {
+  return loadEnvConfig(queueEnvSchema, { context: 'core:queue-manager' });
 }
 
 function computeInlineMode(): boolean {
-  if (!inlineModeRequested()) {
+  const env = loadQueueEnvConfig();
+  if (!env.inlineRequested) {
     return false;
   }
 
-  if (!inlineModeAllowed()) {
+  if (!env.inlineAllowed) {
     throw new Error(
       'Inline queue mode requested via REDIS_URL or APPHUB_EVENTS_MODE, but APPHUB_ALLOW_INLINE_MODE is not enabled.'
     );
@@ -77,14 +83,14 @@ function computeInlineMode(): boolean {
 }
 
 function resolveRedisUrl(): string {
-  const normalized = normalize(process.env.REDIS_URL);
-  if (!normalized) {
+  const env = loadQueueEnvConfig();
+  if (!env.redisUrl) {
     throw new Error('REDIS_URL must be set to a redis:// connection string');
   }
-  if (isInlineValue(normalized)) {
+  if (env.redisUrl.toLowerCase() === 'inline') {
     throw new Error('REDIS_URL=inline is only supported when inline queue mode is enabled');
   }
-  return normalized;
+  return env.redisUrl;
 }
 
 export class QueueManager {

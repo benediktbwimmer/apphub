@@ -1,41 +1,11 @@
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
-function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
-  if (value === undefined || value === null) {
-    return defaultValue;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (TRUE_VALUES.has(normalized)) {
-    return true;
-  }
-  if (['0', 'false', 'no', 'off'].includes(normalized)) {
-    return false;
-  }
-  return defaultValue;
-}
-
-function parseIntWithDefault(value: string | undefined, defaultValue: number): number {
-  if (value === undefined || value === null) {
-    return defaultValue;
-  }
-  const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) {
-    return defaultValue;
-  }
-  return parsed;
-}
-
-function parseStringSet(value: string | undefined): Set<string> {
-  if (!value) {
-    return new Set();
-  }
-  return new Set(
-    value
-      .split(',')
-      .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => entry.length > 0)
-  );
-}
+import { z } from 'zod';
+import {
+  booleanVar,
+  integerVar,
+  loadEnvConfig,
+  stringSetVar,
+  stringVar
+} from '@apphub/shared/envConfig';
 
 export type OidcConfig = {
   enabled: boolean;
@@ -61,50 +31,61 @@ export type AuthConfig = {
 
 let cachedConfig: AuthConfig | null = null;
 
+const authEnvSchema = z
+  .object({
+    NODE_ENV: stringVar({ defaultValue: 'development', lowercase: true }),
+    APPHUB_AUTH_DISABLED: booleanVar({ defaultValue: false }),
+    APPHUB_SESSION_SECRET: stringVar({ defaultValue: '' }),
+    APPHUB_SESSION_COOKIE: stringVar({ defaultValue: 'apphub_session' }),
+    APPHUB_LOGIN_STATE_COOKIE: stringVar({ defaultValue: 'apphub_login_state' }),
+    APPHUB_SESSION_TTL_SECONDS: integerVar({ defaultValue: 12 * 60 * 60, min: 1 }),
+    APPHUB_SESSION_RENEW_SECONDS: integerVar({ defaultValue: 30 * 60, min: 1 }),
+    APPHUB_SESSION_COOKIE_SECURE: booleanVar({ description: 'APPHUB_SESSION_COOKIE_SECURE' }),
+    APPHUB_LEGACY_OPERATOR_TOKENS: booleanVar({ defaultValue: true }),
+    APPHUB_AUTH_API_KEY_SCOPE: stringVar({ defaultValue: 'auth:manage-api-keys' }),
+    APPHUB_AUTH_SSO_ENABLED: booleanVar({ defaultValue: false }),
+    APPHUB_OIDC_ISSUER: stringVar({ allowEmpty: false }),
+    APPHUB_OIDC_CLIENT_ID: stringVar({ allowEmpty: false }),
+    APPHUB_OIDC_CLIENT_SECRET: stringVar({ allowEmpty: false }),
+    APPHUB_OIDC_REDIRECT_URI: stringVar({ allowEmpty: false }),
+    APPHUB_OIDC_ALLOWED_DOMAINS: stringSetVar({ lowercase: true, unique: true })
+  })
+  .passthrough()
+  .transform((env) => {
+    const nodeEnv = env.NODE_ENV ?? 'development';
+    const sessionCookieSecure =
+      env.APPHUB_SESSION_COOKIE_SECURE ?? nodeEnv !== 'development';
+
+    return {
+      enabled: !(env.APPHUB_AUTH_DISABLED ?? false),
+      sessionSecret: env.APPHUB_SESSION_SECRET ?? '',
+      sessionCookieName: env.APPHUB_SESSION_COOKIE ?? 'apphub_session',
+      loginStateCookieName: env.APPHUB_LOGIN_STATE_COOKIE ?? 'apphub_login_state',
+      sessionTtlSeconds: env.APPHUB_SESSION_TTL_SECONDS ?? 12 * 60 * 60,
+      sessionRenewSeconds: env.APPHUB_SESSION_RENEW_SECONDS ?? 30 * 60,
+      sessionCookieSecure,
+      legacyTokensEnabled: env.APPHUB_LEGACY_OPERATOR_TOKENS ?? true,
+      apiKeyScope: env.APPHUB_AUTH_API_KEY_SCOPE ?? 'auth:manage-api-keys',
+      oidc: {
+        enabled: env.APPHUB_AUTH_SSO_ENABLED ?? false,
+        issuer: env.APPHUB_OIDC_ISSUER ?? null,
+        clientId: env.APPHUB_OIDC_CLIENT_ID ?? null,
+        clientSecret: env.APPHUB_OIDC_CLIENT_SECRET ?? null,
+        redirectUri: env.APPHUB_OIDC_REDIRECT_URI ?? null,
+        allowedDomains: env.APPHUB_OIDC_ALLOWED_DOMAINS ?? new Set<string>()
+      }
+    } satisfies AuthConfig;
+  });
+
 export function getAuthConfig(): AuthConfig {
   if (cachedConfig) {
     return cachedConfig;
   }
 
-  const authDisabled = parseBoolean(process.env.APPHUB_AUTH_DISABLED, false);
-  const sessionSecret = process.env.APPHUB_SESSION_SECRET ?? '';
-  const sessionCookieName = process.env.APPHUB_SESSION_COOKIE ?? 'apphub_session';
-  const loginStateCookieName = process.env.APPHUB_LOGIN_STATE_COOKIE ?? 'apphub_login_state';
-  const sessionTtlSeconds = parseIntWithDefault(process.env.APPHUB_SESSION_TTL_SECONDS, 12 * 60 * 60);
-  const sessionRenewSeconds = parseIntWithDefault(process.env.APPHUB_SESSION_RENEW_SECONDS, 30 * 60);
-  const sessionCookieSecure = parseBoolean(
-    process.env.APPHUB_SESSION_COOKIE_SECURE,
-    process.env.NODE_ENV !== 'development'
-  );
-  const legacyTokensEnabled = parseBoolean(process.env.APPHUB_LEGACY_OPERATOR_TOKENS, true);
-  const apiKeyScope = process.env.APPHUB_AUTH_API_KEY_SCOPE ?? 'auth:manage-api-keys';
-
-  const oidcEnabled = parseBoolean(process.env.APPHUB_AUTH_SSO_ENABLED, false);
-  const oidcIssuer = process.env.APPHUB_OIDC_ISSUER ?? null;
-  const oidcClientId = process.env.APPHUB_OIDC_CLIENT_ID ?? null;
-  const oidcClientSecret = process.env.APPHUB_OIDC_CLIENT_SECRET ?? null;
-  const oidcRedirectUri = process.env.APPHUB_OIDC_REDIRECT_URI ?? null;
-  const oidcAllowedDomains = parseStringSet(process.env.APPHUB_OIDC_ALLOWED_DOMAINS);
-
-  cachedConfig = {
-    enabled: !authDisabled,
-    sessionSecret,
-    sessionCookieName,
-    loginStateCookieName,
-    sessionTtlSeconds,
-    sessionRenewSeconds,
-    sessionCookieSecure,
-    legacyTokensEnabled,
-    apiKeyScope,
-    oidc: {
-      enabled: oidcEnabled,
-      issuer: oidcIssuer,
-      clientId: oidcClientId,
-      clientSecret: oidcClientSecret,
-      redirectUri: oidcRedirectUri,
-      allowedDomains: oidcAllowedDomains
-    }
-  } satisfies AuthConfig;
-
+  cachedConfig = loadEnvConfig(authEnvSchema, { context: 'core:auth' });
   return cachedConfig;
+}
+
+export function resetAuthConfigCache(): void {
+  cachedConfig = null;
 }

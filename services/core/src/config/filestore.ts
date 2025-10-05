@@ -1,6 +1,5 @@
-import { requireResolvedService } from '../clients/serviceClient';
-
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
+import { z } from 'zod';
+import { integerVar, loadEnvConfig, stringVar } from '@apphub/shared/envConfig';
 
 export type FilestoreRuntimeConfig = {
   baseUrl: string;
@@ -12,21 +11,24 @@ export type FilestoreRuntimeConfig = {
 
 let cachedConfig: FilestoreRuntimeConfig | null = null;
 
-function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
-  if (value === undefined || value === null) {
-    return defaultValue;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return defaultValue;
-  }
-  if (TRUE_VALUES.has(normalized)) {
-    return true;
-  }
-  if (['0', 'false', 'no', 'off'].includes(normalized)) {
-    return false;
-  }
-  return defaultValue;
+const filestoreEnvSchema = z
+  .object({
+    CORE_FILESTORE_BASE_URL: stringVar({ allowEmpty: false }),
+    FILESTORE_BASE_URL: stringVar({ allowEmpty: false }),
+    APPHUB_FILESTORE_BASE_URL: stringVar({ allowEmpty: false }),
+    CORE_FILESTORE_TOKEN: stringVar({ allowEmpty: false }),
+    FILESTORE_TOKEN: stringVar({ allowEmpty: false }),
+    APPHUB_FILESTORE_TOKEN: stringVar({ allowEmpty: false }),
+    CORE_FILESTORE_TIMEOUT_MS: integerVar({ min: 0 }),
+    FILESTORE_TIMEOUT_MS: integerVar({ min: 0 }),
+    CORE_FILESTORE_USER_AGENT: stringVar({ defaultValue: 'core-docker-runner/1.0' })
+  })
+  .passthrough();
+
+type FilestoreEnv = z.infer<typeof filestoreEnvSchema>;
+
+function loadFilestoreEnv(): FilestoreEnv {
+  return loadEnvConfig(filestoreEnvSchema, { context: 'core:filestore-runtime' });
 }
 
 function normalizeBaseUrl(value: string | null | undefined): string | null {
@@ -51,11 +53,11 @@ function normalizeBaseUrl(value: string | null | undefined): string | null {
   }
 }
 
-function selectEnvBaseUrl(): { baseUrl: string; source: FilestoreRuntimeConfig['source'] } | null {
+function selectEnvBaseUrl(env: FilestoreEnv): { baseUrl: string; source: FilestoreRuntimeConfig['source'] } | null {
   const candidates: Array<{ value: string | undefined; source: FilestoreRuntimeConfig['source'] }> = [
-    { value: process.env.CORE_FILESTORE_BASE_URL, source: 'env' },
-    { value: process.env.FILESTORE_BASE_URL, source: 'env' },
-    { value: process.env.APPHUB_FILESTORE_BASE_URL, source: 'env' }
+    { value: env.CORE_FILESTORE_BASE_URL, source: 'env' },
+    { value: env.FILESTORE_BASE_URL, source: 'env' },
+    { value: env.APPHUB_FILESTORE_BASE_URL, source: 'env' }
   ];
 
   for (const candidate of candidates) {
@@ -68,12 +70,8 @@ function selectEnvBaseUrl(): { baseUrl: string; source: FilestoreRuntimeConfig['
   return null;
 }
 
-function resolveToken(): string | null {
-  const candidates = [
-    process.env.CORE_FILESTORE_TOKEN,
-    process.env.FILESTORE_TOKEN,
-    process.env.APPHUB_FILESTORE_TOKEN
-  ];
+function resolveToken(env: FilestoreEnv): string | null {
+  const candidates = [env.CORE_FILESTORE_TOKEN, env.FILESTORE_TOKEN, env.APPHUB_FILESTORE_TOKEN];
 
   for (const candidate of candidates) {
     if (!candidate) {
@@ -88,35 +86,26 @@ function resolveToken(): string | null {
   return null;
 }
 
-function resolveTimeoutMs(): number | null {
-  const raw = process.env.CORE_FILESTORE_TIMEOUT_MS ?? process.env.FILESTORE_TIMEOUT_MS;
-  if (!raw) {
-    return null;
+function resolveTimeoutMs(env: FilestoreEnv): number | null {
+  const candidates = [env.CORE_FILESTORE_TIMEOUT_MS, env.FILESTORE_TIMEOUT_MS];
+  for (const candidate of candidates) {
+    if (candidate === undefined) {
+      continue;
+    }
+    if (candidate <= 0) {
+      return null;
+    }
+    return candidate;
   }
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-  return parsed;
+  return null;
 }
 
-export async function getFilestoreRuntimeConfig(): Promise<FilestoreRuntimeConfig> {
-  if (cachedConfig) {
-    return cachedConfig;
-  }
+function resolveUserAgent(env: FilestoreEnv): string {
+  return env.CORE_FILESTORE_USER_AGENT ?? 'core-docker-runner/1.0';
+}
 
-  const envBaseUrl = selectEnvBaseUrl();
-  if (envBaseUrl) {
-    cachedConfig = {
-      baseUrl: envBaseUrl.baseUrl,
-      token: resolveToken(),
-      userAgent: process.env.CORE_FILESTORE_USER_AGENT ?? 'core-docker-runner/1.0',
-      fetchTimeoutMs: resolveTimeoutMs(),
-      source: envBaseUrl.source
-    } satisfies FilestoreRuntimeConfig;
-    return cachedConfig;
-  }
-
+async function resolveRuntimeFromRegistry(env: FilestoreEnv): Promise<FilestoreRuntimeConfig> {
+  const { requireResolvedService } = await import('../clients/serviceClient');
   const resolved = await requireResolvedService('filestore', { requireHealthy: false }).catch(() => null);
   if (!resolved) {
     throw new Error(
@@ -131,14 +120,35 @@ export async function getFilestoreRuntimeConfig(): Promise<FilestoreRuntimeConfi
     );
   }
 
-  cachedConfig = {
+  return {
     baseUrl: serviceBaseUrl,
-    token: resolveToken(),
-    userAgent: process.env.CORE_FILESTORE_USER_AGENT ?? 'core-docker-runner/1.0',
-    fetchTimeoutMs: resolveTimeoutMs(),
+    token: resolveToken(env),
+    userAgent: resolveUserAgent(env),
+    fetchTimeoutMs: resolveTimeoutMs(env),
     source: 'service'
   } satisfies FilestoreRuntimeConfig;
+}
 
+export async function getFilestoreRuntimeConfig(): Promise<FilestoreRuntimeConfig> {
+  if (cachedConfig) {
+    return cachedConfig;
+  }
+
+  const env = loadFilestoreEnv();
+
+  const envBaseUrl = selectEnvBaseUrl(env);
+  if (envBaseUrl) {
+    cachedConfig = {
+      baseUrl: envBaseUrl.baseUrl,
+      token: resolveToken(env),
+      userAgent: resolveUserAgent(env),
+      fetchTimeoutMs: resolveTimeoutMs(env),
+      source: envBaseUrl.source
+    } satisfies FilestoreRuntimeConfig;
+    return cachedConfig;
+  }
+
+  cachedConfig = await resolveRuntimeFromRegistry(env);
   return cachedConfig;
 }
 
