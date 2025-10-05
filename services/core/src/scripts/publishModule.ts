@@ -76,6 +76,61 @@ function cloneJsonValue<T>(value: T, fallback: T): T {
   return JSON.parse(JSON.stringify(source)) as T;
 }
 
+function resolveRuntimeValue(source: JsonValue | undefined, pathSegments: readonly string[]): JsonValue | undefined {
+  if (!source) {
+    return undefined;
+  }
+  let current: unknown = source;
+  for (const segment of pathSegments) {
+    if (current && typeof current === 'object' && !Array.isArray(current)) {
+      current = (current as Record<string, unknown>)[segment];
+    } else {
+      return undefined;
+    }
+  }
+  return current as JsonValue | undefined;
+}
+
+function resolveModuleTemplateString(
+  value: string,
+  runtimeSettings: JsonValue,
+  runtimeSecrets: JsonValue
+): JsonValue | string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^{{\s*module\.(settings|secrets)\.([^}\s]+)\s*}}$/);
+  if (!match) {
+    return value;
+  }
+  const [, scope, path] = match;
+  const segments = path.split('.') as string[];
+  const source = scope === 'settings' ? runtimeSettings : runtimeSecrets;
+  const resolved = resolveRuntimeValue(source, segments);
+  return resolved === undefined ? value : resolved;
+}
+
+function resolveModuleJsonExpressions(
+  value: JsonValue,
+  runtimeSettings: JsonValue,
+  runtimeSecrets: JsonValue
+): JsonValue {
+  if (typeof value === 'string') {
+    return resolveModuleTemplateString(value, runtimeSettings, runtimeSecrets) as JsonValue;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      resolveModuleJsonExpressions(entry as JsonValue, runtimeSettings, runtimeSecrets)
+    ) as JsonValue;
+  }
+  if (value && typeof value === 'object') {
+    const output: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      output[key] = resolveModuleJsonExpressions(entry as JsonValue, runtimeSettings, runtimeSecrets);
+    }
+    return output as JsonValue;
+  }
+  return value;
+}
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = { moduleDir: null, unknown: [] };
   for (let idx = 0; idx < argv.length; idx += 1) {
@@ -782,6 +837,8 @@ interface WorkflowTargetContext {
   targetName: string;
   targetVersion: string | null | undefined;
   defaultParameters: Record<string, unknown>;
+  runtimeSettings: JsonValue;
+  runtimeSecrets: JsonValue;
 }
 
 const DEFAULT_PARAMETER_EXACT_PATTERN = /^\{\{\s*defaultParameters\.([A-Za-z0-9_.-]+)\s*}}$/;
@@ -909,11 +966,49 @@ function resolveDefaultParameterJsonValue(
   return value;
 }
 
+function resolveModuleJsonValue(value: JsonValue, context: WorkflowTargetContext): JsonValue {
+  return resolveModuleJsonExpressions(value, context.runtimeSettings, context.runtimeSecrets);
+}
+
+function resolveOptionalModuleJsonValue(
+  value: JsonValue | null,
+  context: WorkflowTargetContext
+): JsonValue | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return resolveModuleJsonValue(value, context);
+}
+
+function resolveModuleTemplateStringValue(
+  value: string | null,
+  context: WorkflowTargetContext
+): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const resolved = resolveModuleTemplateString(value, context.runtimeSettings, context.runtimeSecrets);
+  if (typeof resolved === 'string') {
+    return resolved;
+  }
+  if (resolved === undefined) {
+    return value;
+  }
+  if (resolved === null) {
+    return '';
+  }
+  if (typeof resolved === 'object') {
+    return JSON.stringify(resolved);
+  }
+  return String(resolved);
+}
+
 function resolveTriggerPredicatesWithDefaults(
   predicates: WorkflowEventTriggerPredicate[],
   context: WorkflowTargetContext
 ): WorkflowEventTriggerPredicate[] {
-  return predicates.map((predicate) => {
+  const defaultResolved = predicates.map((predicate) => {
     switch (predicate.operator) {
       case 'equals':
       case 'notEquals':
@@ -939,6 +1034,8 @@ function resolveTriggerPredicatesWithDefaults(
         return predicate;
     }
   });
+
+  return resolveModuleJsonValue(defaultResolved as JsonValue, context) as WorkflowEventTriggerPredicate[];
 }
 
 interface DesiredTrigger {
@@ -1096,6 +1193,26 @@ function buildDesiredTrigger(
     })
     .filter((predicate): predicate is WorkflowEventTriggerPredicate => predicate !== null);
 
+  const predicatesWithDefaults = resolveTriggerPredicatesWithDefaults(predicates, context);
+  const parameterTemplateValue = resolveOptionalModuleJsonValue(
+    resolveDefaultParameterJsonValue(coerceJsonValue(raw.parameterTemplate ?? null), context),
+    context
+  );
+  const metadataValue = resolveOptionalModuleJsonValue(
+    resolveDefaultParameterJsonValue(coerceJsonValue(raw.metadata ?? null), context),
+    context
+  );
+  const runKeyTemplateBase =
+    typeof raw.runKeyTemplate === 'string'
+      ? resolveDefaultParameterString(raw.runKeyTemplate, context)
+      : null;
+  const runKeyTemplate = resolveModuleTemplateStringValue(runKeyTemplateBase, context);
+  const idempotencyKeyBase =
+    typeof raw.idempotencyKeyExpression === 'string'
+      ? resolveDefaultParameterString(raw.idempotencyKeyExpression, context)
+      : null;
+  const idempotencyKeyExpression = resolveModuleTemplateStringValue(idempotencyKeyBase, context);
+
   const throttle = isPlainObject(raw.throttle) ? (raw.throttle as Record<string, unknown>) : null;
   const throttleWindowMsRaw = throttle?.windowMs;
   const throttleCountRaw = throttle?.count;
@@ -1109,19 +1226,10 @@ function buildDesiredTrigger(
     description,
     eventType,
     eventSource,
-    predicates: resolveTriggerPredicatesWithDefaults(predicates, context),
-    parameterTemplate: resolveDefaultParameterJsonValue(
-      coerceJsonValue(raw.parameterTemplate ?? null),
-      context
-    ),
-    runKeyTemplate:
-      typeof raw.runKeyTemplate === 'string'
-        ? resolveDefaultParameterString(raw.runKeyTemplate, context)
-        : null,
-    idempotencyKeyExpression:
-      typeof raw.idempotencyKeyExpression === 'string'
-        ? resolveDefaultParameterString(raw.idempotencyKeyExpression, context)
-        : null,
+    predicates: predicatesWithDefaults,
+    parameterTemplate: parameterTemplateValue,
+    runKeyTemplate,
+    idempotencyKeyExpression,
     throttleWindowMs:
       typeof throttleWindowMsRaw === 'number'
         ? throttleWindowMsRaw
@@ -1140,7 +1248,7 @@ function buildDesiredTrigger(
         : Number.isFinite(Number(maxConcurrencyRaw))
           ? Number(maxConcurrencyRaw)
           : null,
-    metadata: resolveDefaultParameterJsonValue(coerceJsonValue(raw.metadata ?? null), context),
+    metadata: metadataValue,
     status
   } satisfies DesiredTrigger;
 }
@@ -1166,12 +1274,27 @@ function buildDesiredSchedule(
   const rawStartWindow = typeof raw.startWindow === 'string' ? raw.startWindow : null;
   const rawEndWindow = typeof raw.endWindow === 'string' ? raw.endWindow : null;
 
-  const name = resolveDefaultParameterString(rawName, context);
-  const description = resolveDefaultParameterString(rawDescription, context);
-  const timezone = resolveDefaultParameterString(rawTimezone, context);
-  const parameters = resolveDefaultParameterJsonValue(rawParameters, context);
-  const startWindow = resolveDefaultParameterString(rawStartWindow, context);
-  const endWindow = resolveDefaultParameterString(rawEndWindow, context);
+  const name = resolveModuleTemplateStringValue(resolveDefaultParameterString(rawName, context), context);
+  const description = resolveModuleTemplateStringValue(
+    resolveDefaultParameterString(rawDescription, context),
+    context
+  );
+  const timezone = resolveModuleTemplateStringValue(
+    resolveDefaultParameterString(rawTimezone, context),
+    context
+  );
+  const parameters = resolveOptionalModuleJsonValue(
+    resolveDefaultParameterJsonValue(rawParameters, context),
+    context
+  );
+  const startWindow = resolveModuleTemplateStringValue(
+    resolveDefaultParameterString(rawStartWindow, context),
+    context
+  );
+  const endWindow = resolveModuleTemplateStringValue(
+    resolveDefaultParameterString(rawEndWindow, context),
+    context
+  );
 
   let catchUp = true;
   if (typeof raw.catchUp === 'boolean') {
@@ -1423,7 +1546,10 @@ async function syncWorkflowSchedules(
   }
 }
 
-async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Promise<void> {
+async function registerModuleWorkflows(
+  result: ModuleArtifactPublishResult,
+  manifest: ModuleManifest
+): Promise<void> {
   if (!result.targets || result.targets.length === 0) {
     return;
   }
@@ -1433,6 +1559,9 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
     console.log('[module:publish] No workflow targets found; skipping workflow registration');
     return;
   }
+
+  const moduleSettingsDefaults = manifest.settings?.defaults as JsonValue | undefined;
+  const moduleSecretsDefaults = manifest.secrets?.defaults as JsonValue | undefined;
 
   for (const target of workflows) {
     const workflowMeta = (target.metadata as { workflow?: unknown } | null | undefined)?.workflow;
@@ -1496,6 +1625,16 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
     } as const;
 
     const metadataRecord: Record<string, unknown> = { module: moduleMetadata };
+    const targetSettingsSource = (workflowMeta as { settings?: { defaults?: JsonValue | null } } | undefined)?.settings
+      ?.defaults ?? moduleSettingsDefaults;
+    const targetSecretsSource = (workflowMeta as { secrets?: { defaults?: JsonValue | null } } | undefined)?.secrets
+      ?.defaults ?? moduleSecretsDefaults;
+    const runtimeSettings = cloneJsonValue<JsonValue>((targetSettingsSource ?? {}) as JsonValue, {} as JsonValue);
+    const runtimeSecrets = cloneJsonValue<JsonValue>((targetSecretsSource ?? {}) as JsonValue, {} as JsonValue);
+    metadataRecord.moduleRuntime = {
+      settings: runtimeSettings,
+      secrets: runtimeSecrets
+    } satisfies Record<string, JsonValue>;
     if (isPlainObject(definitionData.metadata)) {
       Object.assign(metadataRecord, definitionData.metadata as Record<string, unknown>);
     }
@@ -1514,19 +1653,47 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
       : {};
     const outputSchemaValue: JsonValue = {};
 
+    const resolvedMetadata = resolveModuleJsonExpressions(metadata, runtimeSettings, runtimeSecrets);
+    const resolvedDefaultParameters = resolveModuleJsonExpressions(
+      defaultParametersValue,
+      runtimeSettings,
+      runtimeSecrets
+    );
+    const resolvedTriggers = definitionTriggers
+      ? definitionTriggers.map(
+          (trigger) =>
+            resolveModuleJsonExpressions(trigger as JsonValue, runtimeSettings, runtimeSecrets) as WorkflowTriggerDefinition
+        )
+      : undefined;
+
     const definitionInput = {
       slug,
       name,
       version,
       description,
       steps: inferredSteps,
-      triggers: definitionTriggers,
+      triggers: resolvedTriggers,
       parametersSchema: parametersSchemaValue,
-      defaultParameters: defaultParametersValue,
+      defaultParameters: resolvedDefaultParameters,
       outputSchema: outputSchemaValue,
-      metadata,
+      metadata: resolvedMetadata,
       dag: dagMetadata
     } satisfies Parameters<typeof createWorkflowDefinition>[0];
+
+    const binding: ModuleTargetBinding = {
+      moduleId: result.module.id,
+      moduleVersion: result.artifact.version,
+      moduleArtifactId: result.artifact.id,
+      targetName: target.name,
+      targetVersion: target.version,
+      targetFingerprint: target.fingerprint ?? null
+    };
+
+    await upsertModuleTargetRuntimeConfig({
+      binding,
+      settings: runtimeSettings,
+      secrets: runtimeSecrets
+    });
 
     let definitionRecord: WorkflowDefinitionRecord | null = null;
     const existing = await getWorkflowDefinitionBySlug(slug);
@@ -1582,7 +1749,9 @@ async function registerModuleWorkflows(result: ModuleArtifactPublishResult): Pro
       moduleId: moduleMetadata.id,
       targetName: target.name,
       targetVersion: target.version,
-      defaultParameters: defaultParametersRecord
+      defaultParameters: defaultParametersRecord,
+      runtimeSettings,
+      runtimeSecrets
     };
 
     await syncWorkflowTriggers(definitionRecord, workflowConfig.triggers, workflowContext);
@@ -1652,7 +1821,7 @@ async function main(): Promise<void> {
   if (options.registerJobs) {
     await registerModuleJobs(artifactRecord, manifest, { moduleDir });
     await registerModuleServices(artifactRecord, manifest);
-    await registerModuleWorkflows(artifactRecord);
+    await registerModuleWorkflows(artifactRecord, manifest);
   }
 }
 

@@ -1,7 +1,9 @@
+export type IHeaders = Record<string, Buffer | null | undefined>;
+
 export type KafkaMessage = {
   key: Buffer | null;
   value: Buffer | null;
-  headers?: Record<string, Buffer | undefined>;
+  headers?: IHeaders;
   timestamp: string;
 };
 
@@ -19,9 +21,26 @@ export interface Consumer {
   disconnect(): Promise<void>;
 }
 
+export enum CompressionTypes {
+  None = 0,
+  GZIP = 1,
+  Snappy = 2,
+  LZ4 = 3,
+  ZSTD = 4
+}
+
 export interface ProducerRecord {
   topic: string;
-  messages: { key?: string | Buffer | null; value: string | Buffer | null }[];
+  acks?: number;
+  timeout?: number;
+  compression?: CompressionTypes;
+  messages: {
+    key?: string | Buffer | null;
+    value: string | Buffer | null;
+    headers?: IHeaders;
+    timestamp?: number | string | Date;
+    partition?: number;
+  }[];
 }
 
 export interface Producer {
@@ -34,12 +53,14 @@ export type KafkaConfig = {
   clientId: string;
   brokers: string[];
   logLevel?: number;
+  requestTimeout?: number;
+  connectionTimeout?: number;
 };
 
 export class Kafka {
   constructor(config: KafkaConfig);
   consumer(options: { groupId: string }): Consumer;
-  producer(): Producer;
+  producer(options?: { allowAutoTopicCreation?: boolean; idempotent?: boolean; retry?: { retries?: number } }): Producer;
 }
 
 export const logLevel: {

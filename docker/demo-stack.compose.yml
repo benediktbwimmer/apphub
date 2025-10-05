@@ -539,6 +539,13 @@ services:
     environment:
       <<: *shared-env
       LOG_LEVEL: info
+      APPHUB_SCRATCH_PREFIXES: ${APPHUB_SCRATCH_PREFIXES:-/app/modules/environmental-observatory:/app/modules/environmental-observatory/dist}
+      APPHUB_STREAMING_ENABLED: "false"
+      APPHUB_STREAM_MIRROR_WORKFLOW_RUNS: "false"
+      APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS: "false"
+      APPHUB_STREAM_MIRROR_JOB_RUNS: "false"
+      APPHUB_STREAM_MIRROR_INGESTION: "false"
+      APPHUB_STREAM_MIRROR_CORE_EVENTS: "false"
     command: ["tsx", "modules/environmental-observatory/scripts/deploy.ts"]
     volumes:
       - type: bind

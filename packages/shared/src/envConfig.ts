@@ -33,7 +33,10 @@ function formatErrorMessage(context: string, issues: EnvIssueTarget[]): string {
   return `${header}\n${details}`;
 }
 
-export function loadEnvConfig<T>(schema: z.ZodType<T>, options?: LoadEnvConfigOptions): T {
+export function loadEnvConfig<T, Input = unknown>(
+  schema: z.ZodType<T, z.ZodTypeDef, Input>,
+  options?: LoadEnvConfigOptions
+): T {
   const envSource: EnvSource = { ...(options?.env ?? process.env) };
   const context = options?.context ?? 'apphub';
 

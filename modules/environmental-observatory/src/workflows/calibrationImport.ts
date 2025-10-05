@@ -61,7 +61,12 @@ const triggers = [
     eventSource: 'filestore.service',
     predicates: [
       { path: '$.payload.command', operator: 'equals', value: 'uploadFile' },
-      { path: '$.payload.backendMountId', operator: 'equals', value: moduleSetting('filestore.backendId') }
+      { path: '$.payload.backendMountId', operator: 'equals', value: moduleSetting('filestore.backendId') },
+      {
+        path: '$.payload.path',
+        operator: 'regex',
+        value: '^{{ module.settings.filestore.calibrationsPrefix }}(?:/|$)'
+      }
     ],
     parameterTemplate: {
       calibrationPath: '{{ event.payload.path }}',
