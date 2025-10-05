@@ -8,6 +8,7 @@ import {
   type IngestionJobPayload
 } from '../types';
 import { enqueueIngestionJob, getIngestionQueueDepth } from '../../queue';
+import { StagingQueueFullError } from '../stagingManager';
 import type {
   BulkConnectorConfig,
   ConnectorBackpressureConfig
@@ -238,7 +239,7 @@ export class BulkFileLoader {
       }
 
       try {
-        await this.enqueue(payload);
+        await this.enqueueWithBackpressure(payload);
       } catch (error) {
         await this.writeDlq({
           reason: 'enqueue-error',
@@ -305,5 +306,28 @@ export class BulkFileLoader {
     } catch (error) {
       this.logger.error({ err: error, connectorId: this.config.id }, 'bulk loader failed to persist checkpoint');
     }
+  }
+
+  private async enqueueWithBackpressure(payload: IngestionJobPayload): Promise<void> {
+    while (!this.stopped) {
+      try {
+        await this.enqueue(payload);
+        return;
+      } catch (error) {
+        if (error instanceof StagingQueueFullError) {
+          this.logger.warn(
+            {
+              connectorId: this.config.id,
+              datasetSlug: payload.datasetSlug
+            },
+            'staging queue full; bulk loader backing off'
+          );
+          await delay(Math.max(50, this.config.pollIntervalMs));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error('bulk loader stopped before enqueue completed');
   }
 }

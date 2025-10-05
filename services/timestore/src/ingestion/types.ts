@@ -86,9 +86,10 @@ export type IngestionActor = z.infer<typeof ingestionActorSchema>;
 
 export interface IngestionProcessingResult {
   dataset: DatasetRecord;
-  manifest: DatasetManifestWithPartitions;
+  manifest: DatasetManifestWithPartitions | null;
   storageTarget: StorageTargetRecord;
-  idempotencyKey?: string;
+  idempotencyKey?: string | null;
+  flushPending: boolean;
 }
 
 export type { FieldDefinition };

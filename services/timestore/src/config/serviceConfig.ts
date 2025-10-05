@@ -66,6 +66,20 @@ export interface IngestionConnectorConfig {
   backpressure: ConnectorBackpressureConfig;
 }
 
+export interface StagingFlushConfig {
+  maxRows: number;
+  maxBytes: number;
+  maxAgeMs: number;
+}
+
+export interface StagingSpoolConfig {
+  directory: string;
+  maxDatasetBytes: number;
+  maxTotalBytes: number;
+  maxPendingPerDataset: number;
+  flush: StagingFlushConfig;
+}
+
 export interface StreamingBatcherConfig {
   id: string;
   topic: string;
@@ -174,7 +188,8 @@ const sqlSchema = z.object({
   maxQueryLength: z.number().int().positive(),
   statementTimeoutMs: z.number().int().positive(),
   runtimeCacheTtlMs: z.number().int().nonnegative(),
-  runtimeIncrementalCacheEnabled: z.boolean().default(true)
+  runtimeIncrementalCacheEnabled: z.boolean().default(true),
+  maxExpressionDepth: z.number().int().positive()
 });
 
 const partitionIndexColumnSchema = z.object({
@@ -372,6 +387,20 @@ const auditLogSchema = z.object({
   deleteBatchSize: z.number().int().positive()
 });
 
+const stagingFlushSchema = z.object({
+  maxRows: z.number().int().nonnegative(),
+  maxBytes: z.number().int().nonnegative(),
+  maxAgeMs: z.number().int().nonnegative()
+});
+
+const stagingSchema = z.object({
+  directory: z.string().min(1),
+  maxDatasetBytes: z.number().int().nonnegative(),
+  maxTotalBytes: z.number().int().nonnegative(),
+  maxPendingPerDataset: z.number().int().positive(),
+  flush: stagingFlushSchema
+});
+
 const gcsSchema = z.object({
   bucket: z.string().min(1),
   projectId: z.string().min(1).optional(),
@@ -456,6 +485,7 @@ const configSchema = z.object({
     tracing: tracingSchema
   }),
   filestore: filestoreSchema,
+  staging: stagingSchema,
   auditLog: auditLogSchema,
   features: z.object({
     streaming: z.object({
@@ -512,6 +542,13 @@ function resolveCacheDirectory(envValue: string | undefined): string {
     return envValue;
   }
   return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'cache');
+}
+
+function resolveStagingDirectory(envValue: string | undefined): string {
+  if (envValue) {
+    return envValue;
+  }
+  return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'staging');
 }
 
 function parseList(value: string | undefined): string[] {
@@ -716,11 +753,15 @@ function parseBulkConnectors(raw: string | undefined): BulkConnectorConfig[] {
 }
 
 function parseStreamingBatchers(raw: string | undefined): StreamingBatcherConfig[] {
-  if (!raw || raw.trim().length === 0) {
+  if (!raw) {
+    return [];
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0 || trimmed === '""') {
     return [];
   }
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(trimmed);
     return z.array(streamingBatcherSchema).parse(parsed);
   } catch (error) {
     console.warn('[timestore] failed to parse streaming batcher configuration', error);
@@ -952,6 +993,22 @@ export function loadServiceConfig(): ServiceConfig {
   );
   const storageDriver = (env.TIMESTORE_STORAGE_DRIVER || 'local') as StorageDriver;
   const storageRoot = resolveStorageRoot(env.TIMESTORE_STORAGE_ROOT);
+  const stagingDirectory = resolveStagingDirectory(env.TIMESTORE_STAGING_DIRECTORY);
+  const stagingMaxDatasetBytesRaw = parseNumber(env.TIMESTORE_STAGING_MAX_DATASET_BYTES, 512 * 1024 * 1024);
+  const stagingMaxTotalBytesRaw = parseNumber(env.TIMESTORE_STAGING_MAX_TOTAL_BYTES, 0);
+  const stagingMaxDatasetBytes = stagingMaxDatasetBytesRaw > 0 ? stagingMaxDatasetBytesRaw : 0;
+  const stagingMaxTotalBytes = stagingMaxTotalBytesRaw > 0 ? stagingMaxTotalBytesRaw : 0;
+  const stagingMaxPendingRaw = parseNumber(env.TIMESTORE_STAGING_MAX_PENDING, 64);
+  const stagingMaxPendingPerDataset = stagingMaxPendingRaw > 0 ? stagingMaxPendingRaw : 64;
+  const stagingFlushMaxRowsRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_ROWS, 50_000);
+  const stagingFlushMaxRows = stagingFlushMaxRowsRaw >= 0 ? stagingFlushMaxRowsRaw : 0;
+  const stagingFlushMaxBytesRaw = parseNumber(
+    env.TIMESTORE_STAGING_FLUSH_MAX_BYTES,
+    128 * 1024 * 1024
+  );
+  const stagingFlushMaxBytes = stagingFlushMaxBytesRaw >= 0 ? stagingFlushMaxBytesRaw : 0;
+  const stagingFlushMaxAgeRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS, 60_000);
+  const stagingFlushMaxAgeMs = stagingFlushMaxAgeRaw >= 0 ? stagingFlushMaxAgeRaw : 0;
   const s3Bucket = env.TIMESTORE_S3_BUCKET;
   const s3Endpoint = env.TIMESTORE_S3_ENDPOINT;
   const s3Region = env.TIMESTORE_S3_REGION;
@@ -982,6 +1039,7 @@ export function loadServiceConfig(): ServiceConfig {
     env.TIMESTORE_SQL_RUNTIME_INCREMENTAL_ENABLED,
     true
   );
+  const sqlMaxExpressionDepth = parseNumber(env.TIMESTORE_SQL_MAX_EXPRESSION_DEPTH, 10_000);
   const manifestCacheEnabled = parseBoolean(env.TIMESTORE_MANIFEST_CACHE_ENABLED, true);
   const manifestCacheRedisSource = env.TIMESTORE_MANIFEST_CACHE_REDIS_URL || env.REDIS_URL;
   if (!manifestCacheRedisSource || !manifestCacheRedisSource.trim()) {
@@ -1059,9 +1117,16 @@ export function loadServiceConfig(): ServiceConfig {
   const streamingConnectors = parseStreamingConnectors(env.TIMESTORE_STREAMING_CONNECTORS);
   const bulkConnectors = parseBulkConnectors(env.TIMESTORE_BULK_CONNECTORS);
   const streamingBatchers = (() => {
-    const parsed = parseStreamingBatchers(env.TIMESTORE_STREAMING_BATCHERS);
-    if (parsed.length > 0) {
-      return parsed;
+    const rawBatchers = env.TIMESTORE_STREAMING_BATCHERS;
+    if (rawBatchers !== undefined) {
+      const parsed = parseStreamingBatchers(rawBatchers);
+      if (parsed.length > 0) {
+        return parsed;
+      }
+      const normalized = rawBatchers.trim();
+      if (normalized.length > 0 && normalized !== '""') {
+        return [];
+      }
     }
     return buildDefaultStreamingBatchers(env);
   })();
@@ -1200,7 +1265,8 @@ export function loadServiceConfig(): ServiceConfig {
       maxQueryLength: sqlMaxQueryLength > 0 ? sqlMaxQueryLength : 10_000,
       statementTimeoutMs: sqlStatementTimeoutMs > 0 ? sqlStatementTimeoutMs : 30_000,
       runtimeCacheTtlMs: sqlRuntimeCacheTtlMs >= 0 ? sqlRuntimeCacheTtlMs : 0,
-      runtimeIncrementalCacheEnabled: sqlRuntimeIncrementalEnabled
+      runtimeIncrementalCacheEnabled: sqlRuntimeIncrementalEnabled,
+      maxExpressionDepth: sqlMaxExpressionDepth > 0 ? sqlMaxExpressionDepth : 10_000
     },
     lifecycle: {
       enabled: lifecycleEnabled,
@@ -1256,6 +1322,17 @@ export function loadServiceConfig(): ServiceConfig {
       tableName: filestoreTableName,
       retryDelayMs: filestoreRetryMs > 0 ? filestoreRetryMs : 3_000,
       inline: filestoreInline
+    },
+    staging: {
+      directory: stagingDirectory,
+      maxDatasetBytes: stagingMaxDatasetBytes,
+      maxTotalBytes: stagingMaxTotalBytes,
+      maxPendingPerDataset: stagingMaxPendingPerDataset,
+      flush: {
+        maxRows: stagingFlushMaxRows,
+        maxBytes: stagingFlushMaxBytes,
+        maxAgeMs: stagingFlushMaxAgeMs
+      }
     },
     features: {
       streaming: {

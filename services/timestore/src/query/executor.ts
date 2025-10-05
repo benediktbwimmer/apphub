@@ -29,6 +29,24 @@ interface QueryResultRow {
   [key: string]: unknown;
 }
 
+const DEFAULT_MAX_EXPRESSION_DEPTH = 10_000;
+
+export async function applyDefaultDuckDbSettings(
+  connection: any,
+  config: ServiceConfig
+): Promise<void> {
+  const configuredDepth = config.sql?.maxExpressionDepth ?? DEFAULT_MAX_EXPRESSION_DEPTH;
+  const normalizedDepth = Number.isFinite(configuredDepth) && configuredDepth > 0
+    ? Math.floor(configuredDepth)
+    : DEFAULT_MAX_EXPRESSION_DEPTH;
+
+  if (normalizedDepth <= 0) {
+    return;
+  }
+
+  await run(connection, `SET max_expression_depth=${normalizedDepth}`);
+}
+
 interface S3RuntimeOptions {
   bucket?: string;
   endpoint?: string;
@@ -311,6 +329,7 @@ async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult>
   const warnings: string[] = [];
 
   try {
+    await applyDefaultDuckDbSettings(connection, config);
     if (plan.partitions.length === 0) {
       const columns = deriveColumns(plan, plan.mode);
       return {

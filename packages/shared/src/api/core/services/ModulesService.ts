@@ -23,14 +23,27 @@ export class ModulesService {
       description?: string | null;
       keywords?: Array<string>;
       manifest: Record<string, any>;
-      artifact: {
+      artifact: ({
+        storage?: 'inline';
         filename?: string;
         contentType?: string;
         /**
          * Base64-encoded module bundle contents.
          */
         data: string;
-      };
+        size?: number;
+        checksum?: string;
+      } | {
+        storage: 's3';
+        bucket: string;
+        key: string;
+        contentType?: string;
+        size: number;
+        /**
+         * Hex-encoded SHA-256 checksum of the stored artifact.
+         */
+        checksum: string;
+      });
     },
   }): CancelablePromise<def_39> {
     return this.httpRequest.request({

@@ -28,7 +28,7 @@ RUN set -eux; \
     install_optional() { \
       parent_pkg="$1"; \
       optional_pkg="$2"; \
-      dest_dir="node_modules/${optional_pkg}"; \
+      dest_dir="${3:-node_modules/${optional_pkg}}"; \
       if [ -d "${dest_dir}" ]; then \
         return 0; \
       fi; \
@@ -45,10 +45,14 @@ RUN set -eux; \
       "linux/arm64") \
         install_optional "rollup" "@rollup/rollup-linux-arm64-gnu"; \
         install_optional "lightningcss" "lightningcss-linux-arm64-gnu"; \
+        install_optional "esbuild" "@esbuild/linux-arm64"; \
+        install_optional "tsx/node_modules/esbuild" "@esbuild/linux-arm64" "node_modules/tsx/node_modules/@esbuild/linux-arm64"; \
         ;; \
       "linux/amd64") \
         install_optional "rollup" "@rollup/rollup-linux-x64-gnu"; \
         install_optional "lightningcss" "lightningcss-linux-x64-gnu"; \
+        install_optional "esbuild" "@esbuild/linux-x64"; \
+        install_optional "tsx/node_modules/esbuild" "@esbuild/linux-x64" "node_modules/tsx/node_modules/@esbuild/linux-x64"; \
         ;; \
     esac
 
@@ -71,6 +75,38 @@ RUN npm run build --workspace @apphub/core \
  && npm run build --workspace @apphub/environmental-observatory-module
 
 RUN npm prune --omit=dev
+
+RUN set -eux; \
+    install_optional() { \
+      parent_pkg="$1"; \
+      optional_pkg="$2"; \
+      dest_dir="${3:-node_modules/${optional_pkg}}"; \
+      if [ -d "${dest_dir}" ]; then \
+        return 0; \
+      fi; \
+      version="$(PARENT_NAME="${parent_pkg}" OPTIONAL_NAME="${optional_pkg}" node -e "const lock = require('./package-lock.json'); const entry = lock.packages['node_modules/' + process.env.PARENT_NAME]; const version = entry && entry.optionalDependencies && entry.optionalDependencies[process.env.OPTIONAL_NAME]; if (!version) { throw new Error('Missing optional dependency metadata for ' + process.env.OPTIONAL_NAME); } process.stdout.write(version);")"; \
+      tarball_url="https://registry.npmjs.org/${optional_pkg}/-/$(basename "${optional_pkg}")-${version}.tgz"; \
+      temp_dir="$(mktemp -d)"; \
+      curl -fsSL "${tarball_url}" | tar -xz -C "${temp_dir}"; \
+      mkdir -p "$(dirname "${dest_dir}")"; \
+      rm -rf "${dest_dir}"; \
+      mv "${temp_dir}/package" "${dest_dir}"; \
+      rm -rf "${temp_dir}"; \
+    }; \
+    case "${TARGETPLATFORM}" in \
+      "linux/arm64") \
+        install_optional "rollup" "@rollup/rollup-linux-arm64-gnu"; \
+        install_optional "lightningcss" "lightningcss-linux-arm64-gnu"; \
+        install_optional "esbuild" "@esbuild/linux-arm64"; \
+        install_optional "tsx/node_modules/esbuild" "@esbuild/linux-arm64" "node_modules/tsx/node_modules/@esbuild/linux-arm64"; \
+        ;; \
+      "linux/amd64") \
+        install_optional "rollup" "@rollup/rollup-linux-x64-gnu"; \
+        install_optional "lightningcss" "lightningcss-linux-x64-gnu"; \
+        install_optional "esbuild" "@esbuild/linux-x64"; \
+        install_optional "tsx/node_modules/esbuild" "@esbuild/linux-x64" "node_modules/tsx/node_modules/@esbuild/linux-x64"; \
+        ;; \
+    esac
 
 # Remove nested node_modules copies to keep runtime layers small
 RUN find services -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} + \

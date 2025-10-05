@@ -10,8 +10,8 @@ import type {
   DatasetRecord,
   LifecycleJobSummary,
   ManifestPartition,
-  ManifestResponse,
-  LifecycleMetricsSnapshot
+  LifecycleMetricsSnapshot,
+  DatasetSchemaField
 } from './types';
 import { DatasetList } from './components/DatasetList';
 import DatasetAdminPanel from './components/DatasetAdminPanel';
@@ -61,7 +61,7 @@ function formatBytes(value: number | null | undefined): string {
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[index]}`;
 }
 
-function summarizeSize(partitions: ManifestResponse['manifest']['partitions']): string {
+function summarizeSize(partitions: ManifestPartition[]): string {
   const total = partitions.reduce((acc, partition) => acc + (partition.fileSizeBytes ?? 0), 0);
   if (!Number.isFinite(total) || total <= 0) {
     return 'n/a';
@@ -137,6 +137,70 @@ export default function TimestoreDatasetsPage() {
   const manifest = manifestResource.data;
   const manifestLoading = manifestResource.loading;
   const manifestError = manifestResource.error;
+
+  const manifestEntries = useMemo(() => manifest?.manifests ?? [], [manifest]);
+  const manifestPartitions = useMemo(
+    () =>
+      manifestEntries.flatMap((entry) =>
+        entry.partitions.map((partition) => ({
+          partition,
+          manifestShard: entry.manifestShard ?? partition.manifestShard ?? null,
+          manifestVersion: entry.version,
+          publishedAt: entry.publishedAt ?? entry.updatedAt ?? entry.createdAt
+        }))
+      ),
+    [manifestEntries]
+  );
+
+  const manifestPartitionPreview = useMemo(() => {
+    if (manifestPartitions.length === 0) {
+      return [] as typeof manifestPartitions;
+    }
+    return [...manifestPartitions]
+      .sort((a, b) => {
+        const left = Date.parse(a.partition.createdAt);
+        const right = Date.parse(b.partition.createdAt);
+        if (Number.isNaN(left) && Number.isNaN(right)) {
+          return 0;
+        }
+        if (Number.isNaN(left)) {
+          return 1;
+        }
+        if (Number.isNaN(right)) {
+          return -1;
+        }
+        return right - left;
+      })
+      .slice(0, 5);
+  }, [manifestPartitions]);
+  const totalManifestPartitions = manifestPartitions.length;
+  const manifestApproximateSize = useMemo(
+    () => summarizeSize(manifestPartitions.map((item) => item.partition)),
+    [manifestPartitions]
+  );
+
+  const latestManifestEntry = useMemo(() => {
+    if (manifestEntries.length === 0) {
+      return null;
+    }
+    return manifestEntries.reduce((latest, current) => {
+      const currentTimestamp = Date.parse(current.publishedAt ?? current.updatedAt ?? current.createdAt);
+      const latestTimestamp = Date.parse(latest.publishedAt ?? latest.updatedAt ?? latest.createdAt);
+      if (Number.isNaN(currentTimestamp)) {
+        return latest;
+      }
+      if (Number.isNaN(latestTimestamp) || currentTimestamp > latestTimestamp) {
+        return current;
+      }
+      return latest;
+    }, manifestEntries[0]);
+  }, [manifestEntries]);
+
+  const latestManifestTimestamp = latestManifestEntry
+    ? latestManifestEntry.publishedAt ?? latestManifestEntry.updatedAt ?? latestManifestEntry.createdAt
+    : null;
+  const latestManifestVersion = latestManifestEntry?.version ?? null;
+  const manifestShardCount = manifestEntries.length;
 
   const retention = retentionResource.data;
   const retentionLoading = retentionResource.loading;
@@ -249,7 +313,10 @@ export default function TimestoreDatasetsPage() {
 
   const datasetSlugForQuery = datasetDetail?.slug ?? selectedDatasetRecord?.slug ?? null;
 
-  const schemaFields = useMemo(() => manifest?.manifest.schemaVersion?.fields ?? [], [manifest]);
+  const schemaFields = useMemo<DatasetSchemaField[]>(() => {
+    const [latestManifest] = manifestEntries;
+    return latestManifest?.schemaVersion?.fields ?? [];
+  }, [manifestEntries]);
   const defaultTimestampColumn = useMemo(() => {
     const timestampField = schemaFields.find((field) => field.type && field.type.toLowerCase() === 'timestamp');
     return timestampField?.name ?? 'timestamp';
@@ -584,60 +651,77 @@ export default function TimestoreDatasetsPage() {
                     </div>
                   ) : manifestError ? (
                     <div className={STATUS_BANNER_DANGER}>{manifestError}</div>
-                  ) : manifest ? (
+                  ) : manifestShardCount > 0 ? (
                     <div className="flex flex-col gap-6">
-                      <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         <div className="flex flex-col gap-1">
                           <span className={FIELD_LABEL}>Version</span>
                           <span className={`${STATUS_MESSAGE} text-primary`}>
-                            {manifest.manifest.version}
+                            {latestManifestVersion ?? 'n/a'}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1">
                           <span className={FIELD_LABEL}>Partitions</span>
                           <span className={`${STATUS_MESSAGE} text-primary`}>
-                            {manifest.manifest.partitions.length}
+                            {totalManifestPartitions}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1">
                           <span className={FIELD_LABEL}>Published</span>
                           <span className={`${STATUS_MESSAGE} text-primary`}>
-                            {formatInstant(manifest.manifest.createdAt)}
+                            {latestManifestTimestamp ? formatInstant(latestManifestTimestamp) : 'n/a'}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1">
                           <span className={FIELD_LABEL}>Approximate size</span>
                           <span className={`${STATUS_MESSAGE} text-primary`}>
-                            {summarizeSize(manifest.manifest.partitions)}
+                            {manifestApproximateSize}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className={FIELD_LABEL}>Shards</span>
+                          <span className={`${STATUS_MESSAGE} text-primary`}>
+                            {manifestShardCount}
                           </span>
                         </div>
                       </div>
-                      <div className={`${TABLE_CONTAINER} overflow-auto`}>
+                      <div className={`${TABLE_CONTAINER} max-h-[320px] overflow-auto`}>
                         <table className="min-w-full text-left">
                           <thead className={TABLE_HEAD_ROW}>
                             <tr>
                               <th className={TABLE_CELL_PRIMARY}>Partition</th>
+                              <th className={TABLE_CELL_PRIMARY}>Shard</th>
                               <th className={TABLE_CELL_PRIMARY}>Path</th>
                               <th className={TABLE_CELL_PRIMARY}>Size</th>
                               <th className={TABLE_CELL_PRIMARY}>Created</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-subtle">
-                            {manifest.manifest.partitions.slice(0, 5).map((partition) => (
-                              <tr key={partition.id}>
-                                <td className={TABLE_CELL}>
-                                  {describePartitionKey(partition.partitionKey)}
+                            {manifestPartitionPreview.length === 0 ? (
+                              <tr>
+                                <td className={`${TABLE_CELL} text-center`} colSpan={5}>
+                                  No partitions have been published for this dataset yet.
                                 </td>
-                                <td className={TABLE_CELL}>{partition.filePath}</td>
-                                <td className={TABLE_CELL}>{formatBytes(partition.fileSizeBytes)}</td>
-                                <td className={TABLE_CELL}>{formatInstant(partition.createdAt)}</td>
                               </tr>
-                            ))}
+                            ) : (
+                              manifestPartitionPreview.map(({ partition, manifestShard }) => (
+                                <tr key={partition.id}>
+                                  <td className={TABLE_CELL}>
+                                    {describePartitionKey(partition.partitionKey)}
+                                  </td>
+                                  <td className={TABLE_CELL}>{manifestShard ?? 'default'}</td>
+                                  <td className={TABLE_CELL}>{partition.filePath}</td>
+                                  <td className={TABLE_CELL}>{formatBytes(partition.fileSizeBytes)}</td>
+                                  <td className={TABLE_CELL}>{formatInstant(partition.createdAt)}</td>
+                                </tr>
+                              ))
+                            )}
                           </tbody>
                         </table>
-                        {manifest.manifest.partitions.length > 5 && (
+                        {manifestPartitionPreview.length > 0 &&
+                          totalManifestPartitions > manifestPartitionPreview.length && (
                           <div className={`px-4 py-2 ${STATUS_META}`}>
-                            Showing first 5 of {manifest.manifest.partitions.length} partitions.
+                            Showing first {manifestPartitionPreview.length} of {totalManifestPartitions} partitions.
                           </div>
                         )}
                       </div>

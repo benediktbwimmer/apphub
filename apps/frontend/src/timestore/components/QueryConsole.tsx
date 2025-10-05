@@ -41,7 +41,7 @@ const DEFAULT_PERCENTILE = '0.95';
 
 const PANEL_SHADOW = 'shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)]';
 const FIELD_TYPE_HELPER = 'text-scale-2xs uppercase tracking-[0.2em] text-muted';
-const TABLE_CONTAINER = 'overflow-auto rounded-2xl border border-subtle bg-surface-glass-soft';
+const TABLE_CONTAINER = 'max-h-[420px] overflow-auto rounded-2xl border border-subtle bg-surface-glass-soft';
 const TABLE_CLASSES = 'min-w-full divide-y divide-subtle text-scale-sm text-secondary';
 const TABLE_HEAD_CELL = 'bg-surface-muted text-scale-2xs font-weight-semibold uppercase tracking-[0.2em] text-muted';
 

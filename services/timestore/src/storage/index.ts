@@ -47,6 +47,7 @@ export interface StorageDriver {
   writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult>;
 }
 
+
 type GoogleStorageModule = typeof import('@google-cloud/storage');
 type AzureBlobModule = typeof import('@azure/storage-blob');
 type AwsSdkS3Module = typeof import('@aws-sdk/client-s3');

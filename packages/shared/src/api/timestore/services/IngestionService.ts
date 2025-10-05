@@ -40,6 +40,7 @@ export class IngestionService {
         403: `Caller lacks permission to ingest into this dataset.`,
         404: `Dataset not found.`,
         500: `Unexpected error while scheduling ingestion.`,
+        503: `Ingestion staging queue is full. Please retry.`,
       },
     });
   }

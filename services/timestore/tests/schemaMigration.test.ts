@@ -8,7 +8,8 @@ import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, test } from 'node:test';
-import EmbeddedPostgres from 'embedded-postgres';
+import type EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from './utils/embeddedPostgres';
 import { extractFieldDefinitions } from '../src/schema/compatibility';
 import { resetCachedServiceConfig } from '../src/config/serviceConfig';
 import { executeSchemaMigration } from '../src/schema/migration/executor';
@@ -33,7 +34,7 @@ let baselinePartitionIds: string[] = [];
 before(async () => {
   dataDirectory = await mkdtemp(path.join(tmpdir(), 'timestore-migration-pg-'));
   const port = 56000 + Math.floor(Math.random() * 1000);
-  const embedded = new EmbeddedPostgres({
+  const embedded = createEmbeddedPostgres({
     databaseDir: dataDirectory,
     port,
     user: 'postgres',
@@ -87,9 +88,8 @@ after(async () => {
   if (clientModule) {
     await clientModule.closePool();
   }
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
+  postgres = null;
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }

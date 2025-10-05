@@ -8,7 +8,8 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, test } from 'node:test';
-import EmbeddedPostgres from 'embedded-postgres';
+import type EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from './utils/embeddedPostgres';
 let schemaModule: typeof import('../src/db/schema');
 let clientModule: typeof import('../src/db/client');
 let migrationsModule: typeof import('../src/db/migrations');
@@ -25,7 +26,7 @@ before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'timestore-ingest-pg-'));
   dataDirectory = dataRoot;
   const port = 55000 + Math.floor(Math.random() * 1000);
-  const embedded = new EmbeddedPostgres({
+  const embedded = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -73,9 +74,8 @@ after(async () => {
   if (clientModule) {
     await clientModule.closePool();
   }
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
+  postgres = null;
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }
@@ -121,6 +121,7 @@ test('processIngestionJob writes partitions and respects idempotency', async () 
 
   const result = await ingestionModule.processIngestionJob(payload);
 
+  assert.equal(result.flushPending, false);
   assert.equal(result.manifest.partitionCount, 1);
   assert.equal(result.manifest.totalRows, 2);
   assert.equal(result.manifest.partitions[0]?.rowCount, 2);
@@ -149,6 +150,86 @@ test('processIngestionJob writes partitions and respects idempotency', async () 
   const repeat = await ingestionModule.processIngestionJob(payload);
   assert.equal(repeat.manifest.id, result.manifest.id);
   assert.equal(repeat.dataset.id, result.dataset.id);
+});
+
+test('processIngestionJob defers flush until thresholds met', async () => {
+  const originalRows = process.env.TIMESTORE_STAGING_FLUSH_MAX_ROWS;
+  const originalBytes = process.env.TIMESTORE_STAGING_FLUSH_MAX_BYTES;
+  const originalAge = process.env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS;
+
+  try {
+    process.env.TIMESTORE_STAGING_FLUSH_MAX_ROWS = '5';
+    process.env.TIMESTORE_STAGING_FLUSH_MAX_BYTES = '0';
+    process.env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS = '0';
+    resetCachedServiceConfig();
+
+    const datasetSlug = `observatory-flush-${randomUUID().slice(0, 8)}`;
+
+    const basePayload = ingestionTypesModule.ingestionJobPayloadSchema.parse({
+      datasetSlug,
+      datasetName: 'Observatory Deferred Flush',
+      tableName: 'observations',
+      schema: {
+        fields: [
+          { name: 'timestamp', type: 'timestamp' },
+          { name: 'reading', type: 'double' }
+        ]
+      },
+      partition: {
+        key: { window: '2024-06-01', bucket: 'a' },
+        timeRange: {
+          start: '2024-06-01T00:00:00.000Z',
+          end: '2024-06-01T00:00:10.000Z'
+        }
+      },
+      rows: Array.from({ length: 3 }).map((_, index) => ({
+        timestamp: new Date(Date.UTC(2024, 5, 1, 0, 0, index)).toISOString(),
+        reading: 1.23 + index
+      })),
+      receivedAt: new Date().toISOString()
+    });
+
+    const firstResult = await ingestionModule.processIngestionJob(basePayload);
+    assert.equal(firstResult.flushPending, true);
+    assert.equal(firstResult.manifest, null);
+
+    const secondResult = await ingestionModule.processIngestionJob({
+      ...basePayload,
+      partition: {
+        key: { window: '2024-06-01', bucket: 'b' },
+        timeRange: {
+          start: '2024-06-01T00:01:00.000Z',
+          end: '2024-06-01T00:01:10.000Z'
+        }
+      },
+      rows: Array.from({ length: 3 }).map((_, index) => ({
+        timestamp: new Date(Date.UTC(2024, 5, 1, 0, 1, index)).toISOString(),
+        reading: 2.34 + index
+      }))
+    });
+
+    assert.equal(secondResult.flushPending, false);
+    assert.ok(secondResult.manifest);
+    assert.equal(secondResult.manifest?.totalRows, 6);
+    assert.equal(secondResult.manifest?.partitionCount, 2);
+  } finally {
+    if (originalRows !== undefined) {
+      process.env.TIMESTORE_STAGING_FLUSH_MAX_ROWS = originalRows;
+    } else {
+      delete process.env.TIMESTORE_STAGING_FLUSH_MAX_ROWS;
+    }
+    if (originalBytes !== undefined) {
+      process.env.TIMESTORE_STAGING_FLUSH_MAX_BYTES = originalBytes;
+    } else {
+      delete process.env.TIMESTORE_STAGING_FLUSH_MAX_BYTES;
+    }
+    if (originalAge !== undefined) {
+      process.env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS = originalAge;
+    } else {
+      delete process.env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS;
+    }
+    resetCachedServiceConfig();
+  }
 });
 
 test('processIngestionJob deduplicates identical payloads without explicit idempotency key', async () => {
@@ -187,10 +268,13 @@ test('processIngestionJob deduplicates identical payloads without explicit idemp
   });
 
   const first = await ingestionModule.processIngestionJob(basePayload);
+  assert.equal(first.flushPending, false);
   const second = await ingestionModule.processIngestionJob({
     ...basePayload,
     receivedAt: new Date().toISOString()
   });
+
+  assert.equal(second.flushPending, false);
 
   assert.equal(second.manifest.id, first.manifest.id);
   assert.equal(second.dataset.id, first.dataset.id);
