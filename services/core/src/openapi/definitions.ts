@@ -1738,6 +1738,50 @@ const workflowTopologyAssetAutoMaterializeSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const workflowAutoMaterializeAssetUpdateRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['stepId'],
+  properties: {
+    stepId: { type: 'string', minLength: 1, maxLength: 200 },
+    enabled: { type: 'boolean' },
+    onUpstreamUpdate: { type: 'boolean' },
+    priority: {
+      type: 'integer',
+      minimum: 0,
+      maximum: 1_000_000,
+      nullable: true
+    },
+    parameterDefaults: jsonValueSchema
+  },
+  allOf: [
+    {
+      anyOf: [
+        { required: ['enabled'] },
+        { required: ['onUpstreamUpdate'] },
+        { required: ['priority'] },
+        { required: ['parameterDefaults'] }
+      ]
+    }
+  ]
+};
+
+const workflowAutoMaterializeAssetUpdateResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'object',
+      required: ['assetId', 'stepId', 'autoMaterialize'],
+      properties: {
+        assetId: { type: 'string' },
+        stepId: { type: 'string' },
+        autoMaterialize: nullable({ allOf: [workflowTopologyAssetAutoMaterializeSchema] })
+      }
+    }
+  }
+};
+
 const workflowTopologyAssetPartitioningSchema: OpenAPIV3.SchemaObject = {
   oneOf: [
     {
@@ -2701,6 +2745,8 @@ const components: OpenAPIV3.ComponentsObject = {
     WorkflowAutoMaterializeInFlight: workflowAutoMaterializeInFlightSchema,
     WorkflowAutoMaterializeCooldown: workflowAutoMaterializeCooldownSchema,
     WorkflowAutoMaterializeOpsResponse: workflowAutoMaterializeOpsResponseSchema,
+    WorkflowAutoMaterializeAssetUpdateRequest: workflowAutoMaterializeAssetUpdateRequestSchema,
+    WorkflowAutoMaterializeAssetUpdateResponse: workflowAutoMaterializeAssetUpdateResponseSchema,
     ApiKey: apiKeySchema,
     ApiKeyListResponse: apiKeyListResponseSchema,
     ApiKeyCreateResponse: apiKeyCreateResponseSchema,
