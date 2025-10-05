@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import Module from 'module';
 import {
   getModuleArtifact,
   getModuleTarget
@@ -37,6 +37,37 @@ export interface ModuleRuntimeLoaderOptions {
 }
 
 const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
+
+const moduleConstructor = Module as unknown as { globalPaths: string[]; _initPaths?: () => void };
+
+const moduleResolveCandidates: string[] = (process.env.APPHUB_MODULE_RESOLVE_PATHS ?? '/app/node_modules')
+  .split(':')
+  .map((entry: string) => entry.trim())
+  .filter((entry: string) => entry.length > 0)
+  .map((entry: string) => path.resolve(entry));
+
+function ensureModuleResolutionPaths(): void {
+  if (moduleResolveCandidates.length === 0) {
+    return;
+  }
+  const existing = new Set(moduleConstructor.globalPaths.map((entry: string) => path.resolve(entry)));
+  let updated = false;
+  for (const candidate of moduleResolveCandidates) {
+    if (!existing.has(candidate)) {
+      moduleConstructor.globalPaths.push(candidate);
+      existing.add(candidate);
+      updated = true;
+    }
+  }
+  if (updated && typeof moduleConstructor._initPaths === 'function') {
+    const currentNodePath = process.env.NODE_PATH
+      ? process.env.NODE_PATH.split(path.delimiter).map((entry) => entry.trim()).filter((entry) => entry.length > 0)
+      : [];
+    const merged = new Set([...currentNodePath.map((entry) => path.resolve(entry)), ...moduleConstructor.globalPaths]);
+    process.env.NODE_PATH = Array.from(merged).join(path.delimiter);
+    moduleConstructor._initPaths();
+  }
+}
 
 export class ModuleRuntimeLoader {
   private readonly cache = new Map<string, Promise<LoadedModuleInstance>>();
@@ -160,8 +191,8 @@ export class ModuleRuntimeLoader {
     await this.ensureArtifactExists(artifact.artifactPath);
 
     const modulePath = path.resolve(artifact.artifactPath);
-    const moduleUrl = pathToFileURL(modulePath).href;
-    const imported = await import(moduleUrl);
+    ensureModuleResolutionPaths();
+    const imported = await import(modulePath);
     const definition: ModuleDefinition | undefined = (imported?.default ?? imported) as ModuleDefinition;
 
     if (!definition || typeof definition !== 'object' || !definition.metadata) {

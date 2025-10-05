@@ -143,6 +143,8 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     APPHUB_E2E_OPERATOR_TOKEN: OPERATOR_TOKEN
   } satisfies NodeJS.ProcessEnv;
 
+  const containerScratchRoot = '/tmp/apphub-observatory/scratch';
+
   const containerDeploymentEnv: NodeJS.ProcessEnv = {
     APPHUB_CORE_URL: 'http://core-api:4000',
     APPHUB_FILESTORE_BASE_URL: 'http://filestore:4300',
@@ -165,8 +167,8 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     TIMESTORE_S3_FORCE_PATH_STYLE: 'true',
     TIMESTORE_S3_ACCESS_KEY_ID: 'apphub',
     TIMESTORE_S3_SECRET_ACCESS_KEY: 'apphub123',
-    OBSERVATORY_DATA_ROOT: '/tmp/apphub-observatory/data',
-    OBSERVATORY_CONFIG_OUTPUT: '/tmp/apphub-observatory/config/observatory-config.json',
+    OBSERVATORY_DATA_ROOT: `${containerScratchRoot}/data`,
+    OBSERVATORY_CONFIG_OUTPUT: `${containerScratchRoot}/config/observatory-config.json`,
     OBSERVATORY_CORE_BASE_URL: 'http://core-api:4000',
     OBSERVATORY_CORE_TOKEN: OPERATOR_TOKEN,
     OBSERVATORY_FILESTORE_BASE_URL: 'http://filestore:4300',
@@ -187,7 +189,7 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     AWS_ACCESS_KEY_ID: 'apphub',
     AWS_SECRET_ACCESS_KEY: 'apphub123',
     AWS_REGION: 'us-east-1',
-    APPHUB_SCRATCH_ROOT: '/tmp/apphub-observatory/scratch',
+    APPHUB_SCRATCH_ROOT: containerScratchRoot,
     APPHUB_E2E_OPERATOR_TOKEN: OPERATOR_TOKEN
   };
 

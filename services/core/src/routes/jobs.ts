@@ -114,7 +114,7 @@ const jobRunListQuerySchema = z
 const schemaPreviewRequestSchema = z
   .object({
     entryPoint: z.string().min(1),
-    runtime: z.enum(['node', 'python', 'docker']).optional()
+    runtime: z.enum(['node', 'python', 'docker', 'module']).optional()
   })
   .strict();
 
@@ -134,7 +134,7 @@ const jobRunListQueryOpenApiSchema = {
     },
     runtime: {
       type: 'string',
-      description: 'Comma-separated list of runtimes to filter (node,python,docker).'
+      description: 'Comma-separated list of runtimes to filter (node,python,docker,module).'
     },
     search: { type: 'string', maxLength: 200 }
   }
@@ -146,7 +146,7 @@ const schemaPreviewRequestOpenApiSchema = {
   required: ['entryPoint'],
   properties: {
     entryPoint: { type: 'string', minLength: 1, maxLength: 256 },
-    runtime: { type: 'string', enum: ['node', 'python', 'docker'] }
+    runtime: { type: 'string', enum: ['node', 'python', 'docker', 'module'] }
   }
 } as const;
 

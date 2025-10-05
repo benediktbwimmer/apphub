@@ -704,6 +704,49 @@ const createRepositoryRequestSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const manifestEnvPlaceholderSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['$var'],
+  additionalProperties: false,
+  properties: {
+    $var: {
+      type: 'object',
+      required: ['name'],
+      additionalProperties: false,
+      properties: {
+        name: { type: 'string', minLength: 1 },
+        default: { type: 'string' },
+        description: { type: 'string' }
+      }
+    }
+  }
+};
+
+const manifestEnvReferenceSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['service', 'property'],
+  additionalProperties: false,
+  properties: {
+    service: { type: 'string', minLength: 1 },
+    property: { type: 'string', enum: ['instanceUrl', 'baseUrl', 'host', 'port'] },
+    fallback: { type: 'string' }
+  }
+};
+
+const manifestEnvVarSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['key'],
+  additionalProperties: false,
+  properties: {
+    key: { type: 'string', minLength: 1 },
+    value: {
+      oneOf: [{ type: 'string' }, manifestEnvPlaceholderSchema]
+    },
+    fromService: manifestEnvReferenceSchema
+  },
+  description: 'Environment variable declared in a service manifest.'
+};
+
 const serviceManifestMetadataSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   description: 'Metadata sourced from service manifests and configuration files.',
@@ -725,9 +768,10 @@ const serviceManifestMetadataSchema: OpenAPIV3.SchemaObject = {
     workingDir: { type: 'string', nullable: true },
     devCommand: { type: 'string', nullable: true },
     env: {
-      description: 'Environment variables declared for the service in manifests, including placeholder metadata.',
+      type: 'array',
+      items: manifestEnvVarSchema,
       nullable: true,
-      allOf: [jsonValueSchema]
+      description: 'Environment variables declared for the service in manifests, including placeholder metadata.'
     },
     apps: {
       type: 'array',
@@ -768,34 +812,7 @@ const serviceRuntimeMetadataSchema: OpenAPIV3.SchemaObject = {
 const serviceMetadataSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   description: 'Structured metadata describing how a service is sourced, linked, and executed.',
-  properties: {
-    resourceType: {
-      type: 'string',
-      enum: ['service'],
-      description: 'Discriminator indicating this metadata payload represents a service resource.'
-    },
-    manifest: {
-      nullable: true,
-      allOf: [schemaRef('ServiceManifestMetadata')]
-    },
-    config: {
-      nullable: true,
-      allOf: [jsonValueSchema],
-      description: 'Raw metadata block forwarded from manifests or config files.'
-    },
-    runtime: {
-      nullable: true,
-      allOf: [schemaRef('ServiceRuntimeMetadata')]
-    },
-    linkedApps: {
-      type: 'array',
-      items: { type: 'string' },
-      nullable: true,
-      description: 'Explicit list of app IDs linked to this service beyond manifest hints.'
-    },
-    notes: { type: 'string', maxLength: 2000, nullable: true }
-  },
-  additionalProperties: false
+  additionalProperties: true
 };
 
 const serviceSchema: OpenAPIV3.SchemaObject = {
@@ -893,17 +910,63 @@ const serviceRegistrationRequestSchema: OpenAPIV3.SchemaObject = {
       enum: ['unknown', 'healthy', 'degraded', 'unreachable']
     },
     statusMessage: nullable(stringSchema()),
-    capabilities: jsonValueSchema,
-    metadata: {
+    capabilities: {
+      type: 'object',
       nullable: true,
-      allOf: [schemaRef('ServiceMetadata')],
+      additionalProperties: true,
+      description: 'Optional capability metadata exposed by the service.'
+    },
+    metadata: {
+      type: 'object',
+      nullable: true,
+      additionalProperties: true,
       description: 'Optional metadata describing manifest provenance, linked apps, and runtime expectations.'
     },
     source: {
       type: 'string',
-      enum: ['external'],
+      enum: ['external', 'module'],
       description: 'Source type. External registrations must use "external".'
     }
+  }
+};
+
+const moduleArtifactUploadRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['moduleId', 'moduleVersion', 'manifest', 'artifact'],
+  properties: {
+    moduleId: { type: 'string', minLength: 1 },
+    moduleVersion: { type: 'string', minLength: 1 },
+    displayName: { type: 'string', nullable: true },
+    description: { type: 'string', nullable: true },
+    keywords: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 }
+    },
+    manifest: { type: 'object' },
+    artifact: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['data'],
+      properties: {
+        filename: { type: 'string', minLength: 1 },
+        contentType: { type: 'string', minLength: 1 },
+        data: {
+          type: 'string',
+          minLength: 1,
+          description: 'Base64-encoded module bundle contents.'
+        }
+      }
+    }
+  }
+};
+
+const moduleArtifactResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    module: { type: 'object', additionalProperties: true },
+    artifact: { type: 'object', additionalProperties: true }
   }
 };
 
@@ -940,7 +1003,7 @@ const jobDefinitionSchema: OpenAPIV3.SchemaObject = {
     name: { type: 'string' },
     version: { type: 'integer' },
     type: { type: 'string', enum: ['batch', 'service-triggered', 'manual'] },
-    runtime: { type: 'string', enum: ['node', 'python', 'docker'] },
+    runtime: { type: 'string', enum: ['node', 'python', 'docker', 'module'] },
     entryPoint: { type: 'string' },
     parametersSchema: nullable(jsonLooseObjectSchema),
     defaultParameters: nullable(jsonLooseObjectSchema),
@@ -966,7 +1029,7 @@ const jobDefinitionCreateRequestSchema: OpenAPIV3.SchemaObject = {
     name: { type: 'string' },
     version: { type: 'integer', minimum: 1 },
     type: { type: 'string', enum: ['batch', 'service-triggered', 'manual'] },
-    runtime: { type: 'string', enum: ['node', 'python', 'docker'], default: 'node' },
+    runtime: { type: 'string', enum: ['node', 'python', 'docker', 'module'], default: 'node' },
     entryPoint: { type: 'string' },
     timeoutMs: { type: 'integer', minimum: 1000, maximum: 86_400_000 },
     retryPolicy: jobRetryPolicySchema,
@@ -1000,7 +1063,7 @@ const jobDefinitionUpdateRequestSchema: OpenAPIV3.SchemaObject = {
     name: { type: 'string', minLength: 1 },
     version: { type: 'integer', minimum: 1 },
     type: { type: 'string', enum: ['batch', 'service-triggered', 'manual'] },
-    runtime: { type: 'string', enum: ['node', 'python', 'docker'] },
+    runtime: { type: 'string', enum: ['node', 'python', 'docker', 'module'] },
     entryPoint: { type: 'string' },
     timeoutMs: { type: 'integer', minimum: 1000, maximum: 86_400_000 },
     retryPolicy: jobRetryPolicySchema,
@@ -1064,7 +1127,7 @@ const jobRunWithDefinitionSchema: OpenAPIV3.SchemaObject = {
         name: { type: 'string' },
         version: { type: 'integer', minimum: 1 },
         type: { type: 'string', enum: ['batch', 'service-triggered', 'manual'] },
-        runtime: { type: 'string', enum: ['node', 'python', 'docker'] }
+        runtime: { type: 'string', enum: ['node', 'python', 'docker', 'module'] }
       }
     }
   }
@@ -1115,7 +1178,7 @@ const runtimeReadinessSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['runtime', 'ready', 'reason', 'checkedAt', 'details'],
   properties: {
-    runtime: { type: 'string', enum: ['node', 'python', 'docker'] },
+    runtime: { type: 'string', enum: ['node', 'python', 'docker', 'module'] },
     ready: { type: 'boolean' },
     reason: { type: 'string', nullable: true },
     checkedAt: { type: 'string', format: 'date-time' },
@@ -2602,6 +2665,8 @@ const components: OpenAPIV3.ComponentsObject = {
     ServiceListResponse: serviceListResponseSchema,
     ServiceResponse: serviceResponseSchema,
     ServiceRegistrationRequest: serviceRegistrationRequestSchema,
+    ModuleArtifactUploadRequest: moduleArtifactUploadRequestSchema,
+    ModuleArtifactResponse: moduleArtifactResponseSchema,
     JobRetryPolicy: jobRetryPolicySchema,
     JobDefinition: jobDefinitionSchema,
     JobDefinitionCreateRequest: jobDefinitionCreateRequestSchema,

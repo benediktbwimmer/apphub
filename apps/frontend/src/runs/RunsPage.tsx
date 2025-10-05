@@ -67,7 +67,7 @@ type WorkflowKindOption = (typeof WORKFLOW_KIND_OPTIONS)[number];
 const JOB_STATUS_OPTIONS = ['pending', 'running', 'succeeded', 'failed', 'canceled', 'expired'] as const;
 type JobStatusOption = (typeof JOB_STATUS_OPTIONS)[number];
 
-const JOB_RUNTIME_OPTIONS = ['node', 'python', 'docker'] as const;
+const JOB_RUNTIME_OPTIONS = ['node', 'python', 'docker', 'module'] as const;
 type JobRuntimeOption = (typeof JOB_RUNTIME_OPTIONS)[number];
 
 const PAGE_HEADER_TITLE_CLASSES = 'text-scale-2xl font-weight-semibold text-primary';

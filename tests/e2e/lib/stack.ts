@@ -121,7 +121,7 @@ export async function startStack(options: StartStackOptions = {}): Promise<Stack
   };
 
   if (options.skipUp !== true) {
-    await runDockerCompose(['up', '-d', '--remove-orphans'], {
+    await runDockerCompose(['up', '--build', '-d', '--remove-orphans'], {
       composeFile,
       project,
       env: environment

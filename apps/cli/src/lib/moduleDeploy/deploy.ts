@@ -1,7 +1,6 @@
 import path from 'node:path';
-import { access } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
-import { serializeModuleDefinition } from '@apphub/module-sdk';
+import { access, readFile } from 'node:fs/promises';
+import { serializeModuleDefinition, type ModuleManifest } from '@apphub/module-sdk';
 import { loadModuleDefinition } from '../module';
 import type { ModuleDeploymentLogger } from './types';
 import {
@@ -35,6 +34,8 @@ export async function deployModule(options: DeployModuleOptions): Promise<Deploy
   const moduleDefinition = await loadModuleDefinition(modulePath, path.relative(modulePath, moduleEntryPath));
   const manifest = serializeModuleDefinition(moduleDefinition);
 
+  const request = createCoreRequest({ baseUrl: options.coreUrl, token: options.coreToken });
+
   const adapter = await loadDeploymentAdapter(distPath, options.logger);
   let prepared: ModuleDeploymentPreparedState | null = null;
   if (adapter) {
@@ -46,6 +47,13 @@ export async function deployModule(options: DeployModuleOptions): Promise<Deploy
       logger: options.logger
     });
   }
+
+  await publishModuleArtifactBundle({
+    manifest,
+    moduleEntryPath,
+    request,
+    logger: options.logger
+  });
 
   const bucketsEnsured = await ensureBuckets(prepared?.buckets ?? [], options.logger);
 
@@ -67,8 +75,6 @@ export async function deployModule(options: DeployModuleOptions): Promise<Deploy
       });
     }
   }
-
-  const request = createCoreRequest({ baseUrl: options.coreUrl, token: options.coreToken });
 
   const servicesProcessed = await syncServices({
     manifest,
@@ -123,6 +129,39 @@ export async function deployModule(options: DeployModuleOptions): Promise<Deploy
   } satisfies DeployModuleResult;
 }
 
+async function publishModuleArtifactBundle(options: {
+  manifest: ModuleManifest;
+  moduleEntryPath: string;
+  request: ReturnType<typeof createCoreRequest>;
+  logger: ModuleDeploymentLogger;
+}): Promise<void> {
+  const artifactBuffer = await readFile(options.moduleEntryPath);
+  const filename = path.basename(options.moduleEntryPath);
+
+  await options.request({
+    method: 'POST',
+    path: '/module-runtime/artifacts',
+    body: {
+      moduleId: options.manifest.metadata.name,
+      moduleVersion: options.manifest.metadata.version,
+      displayName: options.manifest.metadata.displayName ?? null,
+      description: options.manifest.metadata.description ?? null,
+      keywords: options.manifest.metadata.keywords ?? [],
+      manifest: options.manifest,
+      artifact: {
+        filename,
+        contentType: 'application/javascript',
+        data: artifactBuffer.toString('base64')
+      }
+    }
+  });
+
+  options.logger.info('Published module artifact', {
+    moduleId: options.manifest.metadata.name,
+    moduleVersion: options.manifest.metadata.version
+  });
+}
+
 async function assertFileExists(filePath: string): Promise<void> {
   try {
     await access(filePath);
@@ -137,7 +176,9 @@ async function loadDeploymentAdapter(
 ): Promise<ModuleDeploymentAdapter | null> {
   const candidates = [
     path.join(distPath, 'deployment', 'adapter.js'),
-    path.join(distPath, 'deployment', 'index.js')
+    path.join(distPath, 'deployment', 'index.js'),
+    path.join(distPath, 'src', 'deployment', 'adapter.js'),
+    path.join(distPath, 'src', 'deployment', 'index.js')
   ];
 
   for (const candidate of candidates) {
@@ -145,7 +186,7 @@ async function loadDeploymentAdapter(
       continue;
     }
     try {
-      const imported = await import(pathToFileURL(candidate).href);
+      const imported = await import(candidate);
       const adapter: ModuleDeploymentAdapter | undefined =
         imported.deploymentAdapter ?? imported.deployment ?? imported.default;
       if (adapter && typeof adapter.prepare === 'function') {

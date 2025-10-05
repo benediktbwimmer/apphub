@@ -1,4 +1,8 @@
 import { Buffer } from 'node:buffer';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { createHash } from 'node:crypto';
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -11,6 +15,7 @@ import {
   type ServiceStatusUpdate,
   type ServiceUpsertInput
 } from '../db/index';
+import { publishModuleArtifact } from '../db/modules';
 import {
   createWorkflowDefinition,
   updateWorkflowDefinition,
@@ -36,6 +41,7 @@ import {
 import { getServiceHealthSnapshot, getServiceHealthSnapshots } from '../serviceRegistry';
 import { schemaRef } from '../openapi/definitions';
 import type { WorkflowStepDefinition, WorkflowTriggerDefinition } from '../db/types';
+import type { ModuleManifest } from '@apphub/module-sdk';
 
 const SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? '';
 
@@ -81,6 +87,35 @@ function normalizeVariables(input?: Record<string, string> | null): Record<strin
     normalized[key] = value;
   }
   return normalized;
+}
+
+function sanitizeForPathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+function resolveModuleArtifactDirectory(moduleId: string, moduleVersion: string): string {
+  const artifactsRoot = (process.env.APPHUB_MODULE_ARTIFACTS_DIR ?? '').trim();
+  const scratchRoot = (process.env.APPHUB_SCRATCH_ROOT ?? '').trim();
+  const baseDir = artifactsRoot || (scratchRoot ? path.join(scratchRoot, 'module-artifacts') : path.join(os.tmpdir(), 'apphub-modules'));
+  return path.join(baseDir, sanitizeForPathSegment(moduleId), sanitizeForPathSegment(moduleVersion));
+}
+
+function sanitizeArtifactFilename(filename: unknown): string {
+  const raw = typeof filename === 'string' ? filename.trim() : '';
+  const cleaned = sanitizeForPathSegment(raw || 'module.js');
+  return cleaned.length === 0 ? 'module.js' : cleaned;
+}
+
+function resolveArtifactPath(directory: string, filename: string): string {
+  const resolvedDirectory = path.resolve(directory);
+  const candidate = path.resolve(resolvedDirectory, filename);
+  if (!candidate.startsWith(`${resolvedDirectory}${path.sep}`)) {
+    throw new Error('artifact filename resolved outside module artifact directory');
+  }
+  if (candidate === resolvedDirectory) {
+    return path.join(resolvedDirectory, filename);
+  }
+  return candidate;
 }
 
 async function upsertModuleWorkflows(
@@ -191,6 +226,8 @@ function jsonResponse(schemaName: string, description: string) {
 
 const errorResponse = (description: string) => jsonResponse('ErrorResponse', description);
 
+const serviceCapabilitiesSchema = z.record(z.string(), z.unknown());
+
 export const serviceRegistrationSchema = z
   .object({
     slug: z.string().min(1),
@@ -200,17 +237,75 @@ export const serviceRegistrationSchema = z
     source: serviceRegistrationSourceSchema.optional(),
     status: serviceStatusSchema.optional(),
     statusMessage: z.string().nullable().optional(),
-    capabilities: jsonValueSchema.optional(),
+    capabilities: serviceCapabilitiesSchema.optional(),
     metadata: serviceMetadataUpdateSchema
   })
   .strict();
+
+const moduleArtifactUploadSchema = z
+  .object({
+    moduleId: z.string().min(1),
+    moduleVersion: z.string().min(1),
+    displayName: z.string().min(1).nullable().optional(),
+    description: z.string().min(1).nullable().optional(),
+    keywords: z.array(z.string().min(1)).optional(),
+    manifest: z.unknown(),
+    artifact: z
+      .object({
+        filename: z.string().min(1).optional(),
+        contentType: z.string().min(1).optional(),
+        data: z.string().min(1)
+      })
+      .strict()
+  })
+  .strict();
+
+const moduleArtifactUploadOpenApiSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['moduleId', 'moduleVersion', 'manifest', 'artifact'],
+  properties: {
+    moduleId: { type: 'string', minLength: 1 },
+    moduleVersion: { type: 'string', minLength: 1 },
+    displayName: { type: 'string', nullable: true },
+    description: { type: 'string', nullable: true },
+    keywords: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 }
+    },
+    manifest: { type: 'object' },
+    artifact: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['data'],
+      properties: {
+        filename: { type: 'string', minLength: 1 },
+        contentType: { type: 'string', minLength: 1 },
+        data: {
+          type: 'string',
+          minLength: 1,
+          description: 'Base64-encoded module bundle contents.'
+        }
+      }
+    }
+  }
+} as const;
+
+const moduleArtifactResponseOpenApiSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    module: { type: 'object', additionalProperties: true },
+    artifact: { type: 'object', additionalProperties: true }
+  }
+} as const;
 
 export const servicePatchSchema = z
   .object({
     baseUrl: z.string().min(1).url().optional(),
     status: serviceStatusSchema.optional(),
     statusMessage: z.string().nullable().optional(),
-    capabilities: jsonValueSchema.optional(),
+    capabilities: serviceCapabilitiesSchema.optional(),
     metadata: serviceMetadataUpdateSchema,
     lastHealthyAt: z
       .string()
@@ -582,27 +677,7 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
   app.get('/services/:slug/preview', handleServicePreviewProxy);
   app.get('/services/:slug/preview/*', handleServicePreviewProxy);
 
-  app.post(
-    '/services',
-    {
-      schema: {
-        tags: ['Services'],
-        summary: 'Register or update a service',
-        description:
-          'Adds a new service entry or updates the metadata for an existing service. Requires the service registry bearer token.',
-        security: [{ ServiceRegistryToken: [] }],
-        body: schemaRef('ServiceRegistrationRequest'),
-        response: {
-          201: jsonResponse('ServiceResponse', 'A new service was registered.'),
-          200: jsonResponse('ServiceResponse', 'The service metadata was updated.'),
-          400: errorResponse('The service payload failed validation.'),
-          401: errorResponse('Authorization header was missing.'),
-          403: errorResponse('Authorization header was rejected.'),
-          503: errorResponse('Service registry support is disabled on this deployment.')
-        }
-      }
-    },
-    async (request, reply) => {
+  app.post('/services', async (request, reply) => {
       if (!ensureServiceRegistryAuthorized(request, reply)) {
         return { error: 'service registry disabled' };
       }
@@ -647,6 +722,171 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
       }
       const healthSnapshot = await getServiceHealthSnapshot(record.slug);
       return { data: serializeService(record, healthSnapshot) };
+    });
+
+  app.post(
+    '/services/module',
+    {
+      schema: {
+        tags: ['Services'],
+        summary: 'Register or update a module-managed service',
+        description:
+          'Adds or updates a service provisioned via the AppHub module runtime.',
+        security: [{ ServiceRegistryToken: [] }],
+        body: {
+          type: 'object',
+          additionalProperties: true
+        },
+        response: {
+          201: jsonResponse('ServiceResponse', 'Module service registered.'),
+          200: jsonResponse('ServiceResponse', 'Module service updated.'),
+          400: errorResponse('The service payload failed validation.'),
+          401: errorResponse('Authorization header was missing.'),
+          403: errorResponse('Authorization header was rejected.'),
+          503: errorResponse('Service registry support is disabled on this deployment.')
+        }
+      },
+      validatorCompiler: () => () => true
+    },
+    async (request, reply) => {
+      if (!ensureServiceRegistryAuthorized(request, reply)) {
+        return { error: 'service registry disabled' };
+      }
+
+      const parseBody = serviceRegistrationSchema.safeParse(request.body ?? {});
+      if (!parseBody.success) {
+        request.log.warn(
+          { resourceType: 'service', issues: parseBody.error.flatten() },
+          'module service registration validation failed'
+        );
+        reply.status(400);
+        return { error: parseBody.error.flatten() };
+      }
+
+      const payload = { ...parseBody.data, source: 'module' as const };
+      const existing = await getServiceBySlug(payload.slug);
+      const metadataUpdate = mergeServiceMetadata(existing?.metadata ?? null, payload.metadata);
+
+      const upsertPayload: ServiceUpsertInput = {
+        slug: payload.slug,
+        displayName: payload.displayName,
+        kind: payload.kind,
+        baseUrl: payload.baseUrl,
+        source: 'module',
+        metadata: metadataUpdate
+      };
+
+      if (payload.status !== undefined) {
+        upsertPayload.status = payload.status;
+      }
+      if (payload.statusMessage !== undefined) {
+        upsertPayload.statusMessage = payload.statusMessage;
+      }
+      if (payload.capabilities !== undefined) {
+        upsertPayload.capabilities = payload.capabilities as JsonValue;
+      }
+
+      const record = await upsertService(upsertPayload);
+      if (!existing) {
+        reply.status(201);
+      }
+      const healthSnapshot = await getServiceHealthSnapshot(record.slug);
+      return { data: serializeService(record, healthSnapshot) };
+    }
+  );
+
+  app.post(
+    '/module-runtime/artifacts',
+    {
+      schema: {
+        tags: ['Modules'],
+        summary: 'Publish a module artifact',
+        description: 'Stores a module bundle on disk and registers it for module runtime execution.',
+        security: [{ ServiceRegistryToken: [] }],
+        body: moduleArtifactUploadOpenApiSchema,
+        response: {
+          200: jsonResponse('ModuleArtifactResponse', 'Module artifact registered.'),
+          201: jsonResponse('ModuleArtifactResponse', 'Module artifact registered.'),
+          400: errorResponse('The module artifact payload failed validation.'),
+          401: errorResponse('Authorization header was missing.'),
+          403: errorResponse('Authorization header was rejected.'),
+          500: errorResponse('Failed to store the module artifact.'),
+          503: errorResponse('Service registry support is disabled on this deployment.')
+        }
+      }
+    },
+    async (request, reply) => {
+      if (!ensureServiceRegistryAuthorized(request, reply)) {
+        return { error: 'service registry disabled' };
+      }
+
+      const parseBody = moduleArtifactUploadSchema.safeParse(request.body ?? {});
+      if (!parseBody.success) {
+        reply.status(400);
+        return { error: parseBody.error.flatten() };
+      }
+
+      const payload = parseBody.data;
+      if (typeof payload.manifest !== 'object' || payload.manifest === null) {
+        reply.status(400);
+        return { error: 'module manifest must be an object' };
+      }
+
+      let artifactBuffer: Buffer;
+      try {
+        artifactBuffer = Buffer.from(payload.artifact.data, 'base64');
+      } catch (error) {
+        request.log.warn({ error, moduleId: payload.moduleId }, 'failed to decode module artifact payload');
+        reply.status(400);
+        return { error: 'artifact data must be base64 encoded' };
+      }
+
+      if (artifactBuffer.length === 0) {
+        reply.status(400);
+        return { error: 'artifact data payload was empty' };
+      }
+
+      const filename = sanitizeArtifactFilename(payload.artifact.filename);
+      const directory = resolveModuleArtifactDirectory(payload.moduleId, payload.moduleVersion);
+
+      try {
+        await fs.mkdir(directory, { recursive: true });
+        const artifactPath = resolveArtifactPath(directory, filename);
+        await fs.writeFile(artifactPath, artifactBuffer);
+        const manifestPath = path.join(directory, 'module.json');
+        await fs.writeFile(manifestPath, `${JSON.stringify(payload.manifest, null, 2)}\n`, 'utf8');
+
+        const checksum = createHash('sha256').update(artifactBuffer).digest('hex');
+        const result = await publishModuleArtifact({
+          moduleId: payload.moduleId,
+          moduleVersion: payload.moduleVersion,
+          displayName: payload.displayName ?? null,
+          description: payload.description ?? null,
+          keywords: payload.keywords ?? [],
+          manifest: payload.manifest as ModuleManifest,
+          artifactPath,
+          artifactChecksum: checksum,
+          artifactStorage: 'filesystem',
+          artifactContentType: payload.artifact.contentType ?? 'application/javascript',
+          artifactSize: artifactBuffer.length
+        });
+
+        reply.status(201);
+
+        return {
+          data: {
+            module: result.module,
+            artifact: {
+              id: result.artifact.id,
+              version: result.artifact.version
+            }
+          }
+        };
+      } catch (error) {
+        request.log.error({ err: error, moduleId: payload.moduleId, moduleVersion: payload.moduleVersion }, 'failed to publish module artifact');
+        reply.status(500);
+        return { error: 'failed to publish module artifact' };
+      }
     }
   );
 

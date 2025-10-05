@@ -100,7 +100,7 @@ export async function syncServices(options: SyncServicesOptions): Promise<number
       baseUrl: options.coreUrl,
       token: options.coreToken,
       method: 'POST',
-      path: '/services',
+      path: '/services/module',
       body: {
         slug,
         displayName,
