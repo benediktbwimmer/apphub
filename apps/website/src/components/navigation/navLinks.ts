@@ -8,7 +8,7 @@ export const navLinks: NavLink[] = [
   {
     href: '/',
     label: 'Platform',
-    description: 'Overview of the Osiris AppHub control plane.'
+    description: 'Overview of the Osiris AppHub operations platform.'
   },
   {
     href: '/business',
@@ -29,5 +29,10 @@ export const navLinks: NavLink[] = [
     href: '/module-sdk',
     label: 'Module SDK',
     description: 'Code snippets and cookbook for module authors.'
+  },
+  {
+    href: '/funding',
+    label: 'Funding',
+    description: 'Support AppHub through donations, sponsorships, and paid collaborations.'
   }
 ];
