@@ -38,7 +38,10 @@ export type ObservatoryCalibrationConfig = {
 
 let cachedConfig: ObservatoryCalibrationConfig | null = null;
 
-function normalizePathPrefix(value: string): string {
+function normalizePathPrefix(value: string | null | undefined): string {
+  if (!value) {
+    return '';
+  }
   const trimmed = value.trim();
   if (!trimmed) {
     return '';
