@@ -183,7 +183,7 @@ export default function WorkflowTopologyPreview({ workflow }: WorkflowTopologyPr
         setRunError(message);
         clearRunSelection({ preserveError: true });
         pushToast?.({
-          tone: 'danger',
+          tone: 'error',
           title: 'Run lookup failed',
           description: message
         });
