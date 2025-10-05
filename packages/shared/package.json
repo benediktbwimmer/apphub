@@ -44,6 +44,11 @@
       "require": "./dist/filestoreFilters.js",
       "default": "./dist/filestoreFilters.js"
     },
+    "./envConfig": {
+      "types": "./dist/envConfig.d.ts",
+      "require": "./dist/envConfig.js",
+      "default": "./dist/envConfig.js"
+    },
     "./designTokens": {
       "types": "./dist/designTokens/index.d.ts",
       "require": "./dist/designTokens/index.js",

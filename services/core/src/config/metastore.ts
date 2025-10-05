@@ -1,6 +1,5 @@
-import { requireResolvedService } from '../clients/serviceClient';
-
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
+import { z } from 'zod';
+import { integerVar, loadEnvConfig, stringVar } from '@apphub/shared/envConfig';
 
 export type MetastoreRuntimeConfig = {
   baseUrl: string;
@@ -11,6 +10,26 @@ export type MetastoreRuntimeConfig = {
 };
 
 let cachedConfig: MetastoreRuntimeConfig | null = null;
+
+const metastoreEnvSchema = z
+  .object({
+    CORE_METASTORE_BASE_URL: stringVar({ allowEmpty: false }),
+    METASTORE_BASE_URL: stringVar({ allowEmpty: false }),
+    APPHUB_METASTORE_BASE_URL: stringVar({ allowEmpty: false }),
+    CORE_METASTORE_TOKEN: stringVar({ allowEmpty: false }),
+    METASTORE_TOKEN: stringVar({ allowEmpty: false }),
+    APPHUB_METASTORE_TOKEN: stringVar({ allowEmpty: false }),
+    CORE_METASTORE_TIMEOUT_MS: integerVar({ min: 0 }),
+    METASTORE_TIMEOUT_MS: integerVar({ min: 0 }),
+    CORE_METASTORE_USER_AGENT: stringVar({ defaultValue: 'core-observatory/1.0' })
+  })
+  .passthrough();
+
+type MetastoreEnv = z.infer<typeof metastoreEnvSchema>;
+
+function loadMetastoreEnv(): MetastoreEnv {
+  return loadEnvConfig(metastoreEnvSchema, { context: 'core:metastore-runtime' });
+}
 
 function normalizeBaseUrl(value: string | null | undefined): string | null {
   if (!value) {
@@ -34,11 +53,11 @@ function normalizeBaseUrl(value: string | null | undefined): string | null {
   }
 }
 
-function selectEnvBaseUrl(): { baseUrl: string; source: MetastoreRuntimeConfig['source'] } | null {
+function selectEnvBaseUrl(env: MetastoreEnv): { baseUrl: string; source: MetastoreRuntimeConfig['source'] } | null {
   const candidates: Array<{ value: string | undefined; source: MetastoreRuntimeConfig['source'] }> = [
-    { value: process.env.CORE_METASTORE_BASE_URL, source: 'env' },
-    { value: process.env.METASTORE_BASE_URL, source: 'env' },
-    { value: process.env.APPHUB_METASTORE_BASE_URL, source: 'env' }
+    { value: env.CORE_METASTORE_BASE_URL, source: 'env' },
+    { value: env.METASTORE_BASE_URL, source: 'env' },
+    { value: env.APPHUB_METASTORE_BASE_URL, source: 'env' }
   ];
 
   for (const candidate of candidates) {
@@ -51,12 +70,8 @@ function selectEnvBaseUrl(): { baseUrl: string; source: MetastoreRuntimeConfig['
   return null;
 }
 
-function resolveToken(): string | null {
-  const candidates = [
-    process.env.CORE_METASTORE_TOKEN,
-    process.env.METASTORE_TOKEN,
-    process.env.APPHUB_METASTORE_TOKEN
-  ];
+function resolveToken(env: MetastoreEnv): string | null {
+  const candidates = [env.CORE_METASTORE_TOKEN, env.METASTORE_TOKEN, env.APPHUB_METASTORE_TOKEN];
 
   for (const candidate of candidates) {
     if (!candidate) {
@@ -71,39 +86,26 @@ function resolveToken(): string | null {
   return null;
 }
 
-function resolveTimeoutMs(): number | null {
-  const raw = process.env.CORE_METASTORE_TIMEOUT_MS ?? process.env.METASTORE_TIMEOUT_MS;
-  if (!raw) {
-    return null;
+function resolveTimeoutMs(env: MetastoreEnv): number | null {
+  const candidates = [env.CORE_METASTORE_TIMEOUT_MS, env.METASTORE_TIMEOUT_MS];
+  for (const candidate of candidates) {
+    if (candidate === undefined) {
+      continue;
+    }
+    if (candidate <= 0) {
+      return null;
+    }
+    return candidate;
   }
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-  return parsed;
+  return null;
 }
 
-function resolveUserAgent(): string {
-  return process.env.CORE_METASTORE_USER_AGENT ?? 'core-observatory/1.0';
+function resolveUserAgent(env: MetastoreEnv): string {
+  return env.CORE_METASTORE_USER_AGENT ?? 'core-observatory/1.0';
 }
 
-export async function getMetastoreRuntimeConfig(): Promise<MetastoreRuntimeConfig> {
-  if (cachedConfig) {
-    return cachedConfig;
-  }
-
-  const envBaseUrl = selectEnvBaseUrl();
-  if (envBaseUrl) {
-    cachedConfig = {
-      baseUrl: envBaseUrl.baseUrl,
-      token: resolveToken(),
-      userAgent: resolveUserAgent(),
-      fetchTimeoutMs: resolveTimeoutMs(),
-      source: envBaseUrl.source
-    } satisfies MetastoreRuntimeConfig;
-    return cachedConfig;
-  }
-
+async function resolveRuntimeFromRegistry(env: MetastoreEnv): Promise<MetastoreRuntimeConfig> {
+  const { requireResolvedService } = await import('../clients/serviceClient');
   const resolved = await requireResolvedService('metastore', { requireHealthy: false }).catch(() => null);
   if (!resolved) {
     throw new Error(
@@ -118,14 +120,35 @@ export async function getMetastoreRuntimeConfig(): Promise<MetastoreRuntimeConfi
     );
   }
 
-  cachedConfig = {
+  return {
     baseUrl: serviceBaseUrl,
-    token: resolveToken(),
-    userAgent: resolveUserAgent(),
-    fetchTimeoutMs: resolveTimeoutMs(),
+    token: resolveToken(env),
+    userAgent: resolveUserAgent(env),
+    fetchTimeoutMs: resolveTimeoutMs(env),
     source: 'service'
   } satisfies MetastoreRuntimeConfig;
+}
 
+export async function getMetastoreRuntimeConfig(): Promise<MetastoreRuntimeConfig> {
+  if (cachedConfig) {
+    return cachedConfig;
+  }
+
+  const env = loadMetastoreEnv();
+
+  const envBaseUrl = selectEnvBaseUrl(env);
+  if (envBaseUrl) {
+    cachedConfig = {
+      baseUrl: envBaseUrl.baseUrl,
+      token: resolveToken(env),
+      userAgent: resolveUserAgent(env),
+      fetchTimeoutMs: resolveTimeoutMs(env),
+      source: envBaseUrl.source
+    } satisfies MetastoreRuntimeConfig;
+    return cachedConfig;
+  }
+
+  cachedConfig = await resolveRuntimeFromRegistry(env);
   return cachedConfig;
 }
 

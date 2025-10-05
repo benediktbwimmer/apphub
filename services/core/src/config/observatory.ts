@@ -1,3 +1,9 @@
+import { z } from 'zod';
+import {
+  integerVar,
+  loadEnvConfig,
+  stringVar
+} from '@apphub/shared/envConfig';
 import { getFilestoreRuntimeConfig, type FilestoreRuntimeConfig } from './filestore';
 import { getMetastoreRuntimeConfig, type MetastoreRuntimeConfig } from './metastore';
 
@@ -48,21 +54,6 @@ function sanitizePrincipal(value: string | undefined, fallback: string | null): 
   return trimmed.length === 0 ? fallback : trimmed;
 }
 
-function parseInteger(value: string | undefined | null): number | null {
-  if (!value) {
-    return null;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const parsed = Number.parseInt(trimmed, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-  return parsed;
-}
-
 function normalizeBaseUrl(value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -84,12 +75,46 @@ function normalizeBaseUrl(value: string | null | undefined): string | null {
   }
 }
 
-function resolveCoreBaseUrl(): string {
+const observatoryEnvSchema = z
+  .object({
+    OBSERVATORY_FILESTORE_BACKEND_ID: integerVar({ min: 1 }),
+    CORE_OBSERVATORY_FILESTORE_BACKEND_ID: integerVar({ min: 1 }),
+    FILESTORE_BACKEND_ID: integerVar({ min: 1 }),
+    OBSERVATORY_CALIBRATIONS_PREFIX: stringVar({ defaultValue: 'datasets/observatory/calibrations' }),
+    OBSERVATORY_CALIBRATION_PLANS_PREFIX: stringVar({ allowEmpty: false }),
+    OBSERVATORY_CALIBRATION_NAMESPACE: stringVar({ defaultValue: 'observatory.calibrations' }),
+    OBSERVATORY_CALIBRATION_PLAN_NAMESPACE: stringVar({ defaultValue: 'observatory.reprocess.plans' }),
+    OBSERVATORY_CALIBRATION_IMPORT_PRINCIPAL: stringVar({ defaultValue: 'observatory-calibration-importer' }),
+    OBSERVATORY_CALIBRATION_REPROCESS_PRINCIPAL: stringVar({ defaultValue: 'observatory-calibration-reprocessor' }),
+    OBSERVATORY_CALIBRATION_IMPORT_WORKFLOW_SLUG: stringVar({ defaultValue: 'observatory-calibration-import' }),
+    OBSERVATORY_CALIBRATION_REPROCESS_WORKFLOW_SLUG: stringVar({ defaultValue: 'observatory-calibration-reprocess' }),
+    OBSERVATORY_INGEST_WORKFLOW_SLUG: stringVar({ allowEmpty: false }),
+    OBSERVATORY_REPROCESS_MAX_CONCURRENCY_DEFAULT: integerVar({ min: 1, defaultValue: 3 }),
+    OBSERVATORY_REPROCESS_POLL_INTERVAL_MS_DEFAULT: integerVar({ min: 1, defaultValue: 1500 }),
+    OBSERVATORY_CORE_BASE_URL: stringVar({ allowEmpty: false }),
+    CORE_PUBLIC_BASE_URL: stringVar({ allowEmpty: false }),
+    CORE_BASE_URL: stringVar({ allowEmpty: false }),
+    APPHUB_CORE_BASE_URL: stringVar({ allowEmpty: false }),
+    OBSERVATORY_CORE_API_TOKEN: stringVar({ allowEmpty: false }),
+    CORE_API_TOKEN: stringVar({ allowEmpty: false }),
+    APPHUB_CORE_API_TOKEN: stringVar({ allowEmpty: false })
+  })
+  .passthrough();
+
+type ObservatoryEnv = z.infer<typeof observatoryEnvSchema>;
+
+function loadObservatoryEnv(): ObservatoryEnv {
+  return loadEnvConfig(observatoryEnvSchema as unknown as z.ZodType<ObservatoryEnv>, {
+    context: 'core:observatory'
+  });
+}
+
+function resolveCoreBaseUrl(env: ObservatoryEnv): string {
   const candidates = [
-    process.env.OBSERVATORY_CORE_BASE_URL,
-    process.env.CORE_PUBLIC_BASE_URL,
-    process.env.CORE_BASE_URL,
-    process.env.APPHUB_CORE_BASE_URL
+    env.OBSERVATORY_CORE_BASE_URL,
+    env.CORE_PUBLIC_BASE_URL,
+    env.CORE_BASE_URL,
+    env.APPHUB_CORE_BASE_URL
   ];
 
   for (const candidate of candidates) {
@@ -102,11 +127,11 @@ function resolveCoreBaseUrl(): string {
   return 'http://127.0.0.1:4000';
 }
 
-function resolveCoreApiToken(): string | null {
+function resolveCoreApiToken(env: ObservatoryEnv): string | null {
   const candidates = [
-    process.env.OBSERVATORY_CORE_API_TOKEN,
-    process.env.CORE_API_TOKEN,
-    process.env.APPHUB_CORE_API_TOKEN
+    env.OBSERVATORY_CORE_API_TOKEN,
+    env.CORE_API_TOKEN,
+    env.APPHUB_CORE_API_TOKEN
   ];
 
   for (const candidate of candidates) {
@@ -127,13 +152,14 @@ export async function getObservatoryCalibrationConfig(): Promise<ObservatoryCali
     return cachedConfig;
   }
 
+  const env = loadObservatoryEnv();
   const filestoreRuntime = await getFilestoreRuntimeConfig();
   const metastoreRuntime = await getMetastoreRuntimeConfig();
 
   const backendId =
-    parseInteger(process.env.OBSERVATORY_FILESTORE_BACKEND_ID)
-    ?? parseInteger(process.env.CORE_OBSERVATORY_FILESTORE_BACKEND_ID)
-    ?? parseInteger(process.env.FILESTORE_BACKEND_ID);
+    env.OBSERVATORY_FILESTORE_BACKEND_ID ??
+    env.CORE_OBSERVATORY_FILESTORE_BACKEND_ID ??
+    env.FILESTORE_BACKEND_ID;
 
   if (!backendId) {
     throw new Error(
@@ -141,41 +167,38 @@ export async function getObservatoryCalibrationConfig(): Promise<ObservatoryCali
     );
   }
 
-  const rawCalibrationsPrefix =
-    process.env.OBSERVATORY_CALIBRATIONS_PREFIX ?? 'datasets/observatory/calibrations';
+  const rawCalibrationsPrefix = env.OBSERVATORY_CALIBRATIONS_PREFIX;
   const calibrationsPrefix = normalizePathPrefix(rawCalibrationsPrefix) || 'datasets/observatory/calibrations';
 
-  const rawPlansPrefix = process.env.OBSERVATORY_CALIBRATION_PLANS_PREFIX ?? `${calibrationsPrefix}/plans`;
+  const rawPlansPrefix = env.OBSERVATORY_CALIBRATION_PLANS_PREFIX ?? `${calibrationsPrefix}/plans`;
   const plansPrefix = normalizePathPrefix(rawPlansPrefix) || `${calibrationsPrefix}/plans`;
 
   const calibrationNamespace =
-    (process.env.OBSERVATORY_CALIBRATION_NAMESPACE ?? 'observatory.calibrations').trim() || 'observatory.calibrations';
+    env.OBSERVATORY_CALIBRATION_NAMESPACE?.trim() || 'observatory.calibrations';
   const planNamespace =
-    (process.env.OBSERVATORY_CALIBRATION_PLAN_NAMESPACE ?? 'observatory.reprocess.plans').trim() || 'observatory.reprocess.plans';
+    env.OBSERVATORY_CALIBRATION_PLAN_NAMESPACE?.trim() || 'observatory.reprocess.plans';
 
   const importPrincipal = sanitizePrincipal(
-    process.env.OBSERVATORY_CALIBRATION_IMPORT_PRINCIPAL,
+    env.OBSERVATORY_CALIBRATION_IMPORT_PRINCIPAL,
     'observatory-calibration-importer'
   );
   const reprocessPrincipal = sanitizePrincipal(
-    process.env.OBSERVATORY_CALIBRATION_REPROCESS_PRINCIPAL,
+    env.OBSERVATORY_CALIBRATION_REPROCESS_PRINCIPAL,
     'observatory-calibration-reprocessor'
   );
 
   const calibrationImportSlug =
-    (process.env.OBSERVATORY_CALIBRATION_IMPORT_WORKFLOW_SLUG ?? 'observatory-calibration-import').trim()
-      || 'observatory-calibration-import';
+    env.OBSERVATORY_CALIBRATION_IMPORT_WORKFLOW_SLUG?.trim() || 'observatory-calibration-import';
   const reprocessSlug =
-    (process.env.OBSERVATORY_CALIBRATION_REPROCESS_WORKFLOW_SLUG ?? 'observatory-calibration-reprocess').trim()
-      || 'observatory-calibration-reprocess';
-  const ingestSlugRaw = process.env.OBSERVATORY_INGEST_WORKFLOW_SLUG ?? null;
+    env.OBSERVATORY_CALIBRATION_REPROCESS_WORKFLOW_SLUG?.trim() || 'observatory-calibration-reprocess';
+  const ingestSlugRaw = env.OBSERVATORY_INGEST_WORKFLOW_SLUG ?? null;
   const ingestSlug = ingestSlugRaw && ingestSlugRaw.trim().length > 0 ? ingestSlugRaw.trim() : null;
 
-  const maxConcurrencyDefault = parseInteger(process.env.OBSERVATORY_REPROCESS_MAX_CONCURRENCY_DEFAULT) ?? 3;
-  const pollIntervalDefault = parseInteger(process.env.OBSERVATORY_REPROCESS_POLL_INTERVAL_MS_DEFAULT) ?? 1500;
+  const maxConcurrencyDefault = env.OBSERVATORY_REPROCESS_MAX_CONCURRENCY_DEFAULT ?? 3;
+  const pollIntervalDefault = env.OBSERVATORY_REPROCESS_POLL_INTERVAL_MS_DEFAULT ?? 1500;
 
-  const coreBaseUrl = resolveCoreBaseUrl();
-  const coreApiToken = resolveCoreApiToken();
+  const coreBaseUrl = resolveCoreBaseUrl(env);
+  const coreApiToken = resolveCoreApiToken(env);
 
   cachedConfig = {
     filestore: {
