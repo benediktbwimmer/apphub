@@ -9,7 +9,8 @@ const ERROR_PATTERNS: RegExp[] = [
 
 const IGNORED_PATTERNS: RegExp[] = [
   /kubectl client unavailable/i,
-  /failed to connect to proxy at startup/i
+  /failed to connect to proxy at startup/i,
+  /Calibration lookup failed/i
 ];
 
 export interface LogAnalysisResult {

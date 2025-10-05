@@ -24,6 +24,16 @@ export interface DatasetQueryResponse {
   };
 }
 
+type DatasetQueryPayload =
+  | DatasetQueryResponse
+  | {
+      rows: Array<Record<string, unknown>>;
+      columns: string[];
+      mode: string;
+      warnings?: unknown;
+      streaming?: unknown;
+    };
+
 export class TimestoreClient {
   private readonly baseUrl: string;
   private readonly token: string;
@@ -42,7 +52,7 @@ export class TimestoreClient {
   }
 
   async queryDataset(slug: string, request: DatasetQueryRequest): Promise<DatasetQueryResponse['data']> {
-    const response = await requestJson<DatasetQueryResponse>(
+    const response = await requestJson<DatasetQueryPayload>(
       this.resolve(`/datasets/${slug}/query`),
       {
         method: 'POST',
@@ -51,6 +61,10 @@ export class TimestoreClient {
         expectedStatus: 200
       }
     );
-    return response.payload.data;
+    const payload = response.payload;
+    if ('data' in payload && payload.data) {
+      return payload.data;
+    }
+    return payload as unknown as DatasetQueryResponse['data'];
   }
 }

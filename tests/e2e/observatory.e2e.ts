@@ -19,7 +19,12 @@ import {
   MINIO_PORT,
   OPERATOR_TOKEN
 } from './lib/env';
-import { CoreClient, waitForRunStatus, waitForLatestRun } from './lib/coreClient';
+import {
+  CoreClient,
+  waitForRunStatus,
+  waitForLatestRun,
+  type WaitForRunPollEvent
+} from './lib/coreClient';
 import { createFilestoreClient } from './lib/filestoreClient';
 import { TimestoreClient } from './lib/timestoreClient';
 import { analyzeLogs } from './lib/logs';
@@ -76,7 +81,44 @@ async function ensureLogsDirectory(): Promise<string> {
 }
 
 test('environmental observatory end-to-end pipeline', async (t) => {
+  const skipStack = SKIP_STACK;
+  console.log(`[observatory-e2e] invoking startStack (skipUp=${skipStack})`);
   const stack = await startStack({ skipUp: SKIP_STACK });
+  const log = (message: string) => {
+    const line = `[observatory-e2e] ${message}`;
+    console.log(line);
+    t.diagnostic(line);
+  };
+  const createWaitLogger = (label: string) => {
+    return (event: WaitForRunPollEvent) => {
+      if (event.phase === 'sleep' && event.attempt % 5 !== 0) {
+        return;
+      }
+      const parts = [
+        `[wait:${label}] phase=${event.phase}`,
+        `attempt=${event.attempt}`,
+        `remaining=${Math.ceil(event.remainingMs / 1000)}s`
+      ];
+      if (event.status) {
+        parts.push(`status=${event.status}`);
+      }
+      if (event.note) {
+        parts.push(event.note);
+      }
+      if (event.slug) {
+        parts.push(`slug=${event.slug}`);
+      }
+      if (event.runId) {
+        parts.push(`runId=${event.runId}`);
+      }
+      const line = parts.join(' ');
+      console.log(line);
+      t.diagnostic(line);
+    };
+  };
+
+  log('stack started');
+  const logStart = new Date();
   if (!SKIP_STACK) {
     t.after(async () => {
       await stack.stop();
@@ -84,10 +126,15 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   }
 
   const healthHeaders = { Authorization: `Bearer ${OPERATOR_TOKEN}` };
+  log('waiting for core /health');
   await waitForEndpoint(`${CORE_BASE_URL}/health`, { headers: healthHeaders });
+  log('waiting for metastore /health');
   await waitForEndpoint(`${METASTORE_BASE_URL}/health`, { headers: healthHeaders });
+  log('waiting for timestore /health');
   await waitForEndpoint(`${TIMESTORE_BASE_URL}/health`, { headers: healthHeaders });
+  log('waiting for filestore /health');
   await waitForEndpoint(`${FILESTORE_BASE_URL}/health`, { headers: healthHeaders });
+  log('service health checks succeeded');
 
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-observatory-e2e-'));
   const scratchRoot = path.join(tempRoot, 'scratch');
@@ -132,6 +179,7 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID: 'apphub',
     OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY: 'apphub123',
     OBSERVATORY_TIMESTORE_BASE_URL: TIMESTORE_BASE_URL,
+    OBSERVATORY_METASTORE_BASE_URL: METASTORE_BASE_URL,
     OBSERVATORY_TIMESTORE_DATASET_SLUG: DATASET_SLUG,
     OBSERVATORY_TIMESTORE_TABLE_NAME: 'observations',
     OBSERVATORY_SKIP_GENERATOR_SCHEDULE: '1',
@@ -181,6 +229,7 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID: 'apphub',
     OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY: 'apphub123',
     OBSERVATORY_TIMESTORE_BASE_URL: 'http://timestore:4200',
+    OBSERVATORY_METASTORE_BASE_URL: 'http://metastore:4100',
     OBSERVATORY_TIMESTORE_DATASET_SLUG: DATASET_SLUG,
     OBSERVATORY_TIMESTORE_TABLE_NAME: 'observations',
     OBSERVATORY_TIMESTORE_DATASET_NAME: 'Observatory Time Series',
@@ -193,9 +242,11 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     APPHUB_E2E_OPERATOR_TOKEN: OPERATOR_TOKEN
   };
 
+  log('building CLI workspace');
   await runCommand(['npm', 'run', 'build', '--workspace', '@apphub/cli'], {
     env: hostDeploymentEnv
   });
+  log('building module workspace');
   await runCommand(['npm', 'run', 'build', '--workspace', '@apphub/environmental-observatory-module'], {
     env: hostDeploymentEnv
   });
@@ -207,6 +258,7 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     .filter(([, value]) => value !== undefined)
     .map(([key, value]) => `${key}=${value}`);
 
+  log('deploying module via docker exec');
   await runCommand(
     [
       'docker',
@@ -234,57 +286,86 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   );
 
   const filestoreClient = createFilestoreClient();
+  log('listing filestore backend mounts');
   const backendMounts = await filestoreClient.listBackendMounts({ limit: 20 });
   const backend = backendMounts.mounts.find((mount) => mount.mountKey === 'observatory-event-driven-s3');
   if (!backend) {
     throw new Error('Observatory filestore backend not registered');
   }
   const backendMountId = backend.id;
+  log(`observatory filestore backend ready (id=${backendMountId})`);
 
   const coreClient = new CoreClient();
+  log('triggering observatory-minute-data-generator workflow');
   const generatorRun = await coreClient.runWorkflow('observatory-minute-data-generator');
-  const generatorCompleted = await waitForRunStatus(coreClient, generatorRun.id);
+  log(`generator run started (id=${generatorRun.id})`);
+  const generatorCompleted = await waitForRunStatus(coreClient, generatorRun.id, ['succeeded'], {
+    slug: 'observatory-minute-data-generator',
+    onPoll: createWaitLogger('generator')
+  });
+  log(`generator run completed with status ${generatorCompleted.status}`);
   const generatorOutput = (generatorCompleted.output ?? {}) as {
     partitions?: Array<{ instrumentId: string; relativePath: string; rows: number }>;
     generatedAt?: string;
   };
 
   assert.ok(generatorOutput.partitions?.length, 'generator produced partitions');
+  log(`generator produced ${generatorOutput.partitions?.length ?? 0} partitions`);
 
-  const generatorCreatedAt = new Date(generatorCompleted.createdAt ?? generatorCompleted.startedAt ?? Date.now());
+  const generatorCreatedAt = new Date(
+    generatorCompleted.createdAt ?? generatorCompleted.startedAt ?? Date.now()
+  );
+  const ingestSearchStart = new Date(generatorCreatedAt.getTime() - 60_000);
+  log('waiting for observatory-minute-ingest workflow run');
   const ingestRun = await waitForLatestRun(coreClient, 'observatory-minute-ingest', {
-    after: generatorCreatedAt
+    after: ingestSearchStart,
+    onPoll: createWaitLogger('ingest')
   });
+  log(`ingest workflow completed with status ${ingestRun.status}`);
   const ingestOutput = (ingestRun.output ?? {}) as {
     normalized?: {
       minute?: string;
       partitionKey?: string;
       recordCount?: number;
       files?: Array<{ path: string; rows: number }>;
+      normalized?: {
+        minute?: string;
+        partitionKey?: string;
+        recordCount?: number;
+        files?: Array<{ path: string; rows: number }>;
+      };
     };
     assets?: unknown;
   };
 
+  const normalizedResult = ingestOutput.normalized?.normalized ?? ingestOutput.normalized;
+
   assert.equal(ingestRun.status, 'succeeded', 'ingest workflow succeeded');
-  assert.ok(ingestOutput.normalized?.files?.length, 'ingest normalized files');
-  assert.ok((ingestOutput.normalized?.recordCount ?? 0) > 0, 'ingest recorded rows');
+  assert.ok(normalizedResult?.files?.length, 'ingest normalized files');
+  assert.ok((normalizedResult?.recordCount ?? 0) > 0, 'ingest recorded rows');
 
   const minuteIso = toIsoMinute(
-    ingestOutput.normalized?.minute ?? generatorOutput.partitions?.[0]?.relativePath?.match(/_(\d{12})/i)?.[1] ?? ''
+    normalizedResult?.minute ?? generatorOutput.partitions?.[0]?.relativePath?.match(/_(\d{12})/i)?.[1] ?? ''
   );
   assert.ok(minuteIso, 'resolved ingest minute');
   const minuteDate = new Date(minuteIso);
   const queryStart = new Date(minuteDate.getTime() - 120 * 60_000);
   const queryEnd = new Date(minuteDate.getTime() + 5 * 60_000);
 
+  log('waiting for observatory-dashboard-aggregate workflow run');
   const dashboardRun = await waitForLatestRun(coreClient, 'observatory-dashboard-aggregate', {
-    after: generatorCreatedAt
+    after: ingestSearchStart,
+    onPoll: createWaitLogger('dashboard')
   });
+  log(`dashboard workflow completed with status ${dashboardRun.status}`);
   assert.equal(dashboardRun.status, 'succeeded', 'dashboard aggregation succeeded');
 
+  log('waiting for observatory-daily-publication workflow run');
   const publicationRun = await waitForLatestRun(coreClient, 'observatory-daily-publication', {
-    after: generatorCreatedAt
+    after: ingestSearchStart,
+    onPoll: createWaitLogger('publication')
   });
+  log(`publication workflow completed with status ${publicationRun.status}`);
   assert.equal(publicationRun.status, 'succeeded', 'daily publication succeeded');
 
   assert.ok(dashboardRun.trigger, 'dashboard run was triggered');
@@ -303,14 +384,33 @@ test('environmental observatory end-to-end pipeline', async (t) => {
       reportFiles?: Array<{ path: string; nodeId: number | null; mediaType?: string }>;
       plotsReferenced?: Array<{ path: string }>;
     };
+    visualizations?: unknown;
   };
 
-  assert.ok(publicationOutput.report?.reportFiles?.length, 'report publisher emitted files');
-  assert.ok(publicationOutput.report?.plotsReferenced?.length, 'plots were referenced');
+  const publicationContext = (publicationRun.context ?? {}) as {
+    steps?: Record<
+      string,
+      {
+        result?: {
+          report?: {
+            storagePrefix?: string;
+            reportFiles?: Array<{ path: string; nodeId: number | null; mediaType?: string }>;
+            plotsReferenced?: Array<{ path: string }>;
+          };
+        };
+      }
+    >;
+  };
 
-  const reportFile = publicationOutput.report.reportFiles?.find((file) =>
+  const publicationReport =
+    publicationOutput.report ?? publicationContext.steps?.['publish-reports']?.result?.report ?? null;
+
+  assert.ok(publicationReport?.reportFiles?.length, 'report publisher emitted files');
+  assert.ok(publicationReport?.plotsReferenced?.length, 'plots were referenced');
+
+  const reportFile = publicationReport?.reportFiles?.find((file) =>
     file.mediaType?.includes('html')
-  ) ?? publicationOutput.report?.reportFiles?.[0];
+  ) ?? publicationReport?.reportFiles?.[0];
   assert.ok(reportFile, 'located report file');
 
   let reportNodeId = reportFile.nodeId;
@@ -325,6 +425,7 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   const downloaded = await filestoreClient.downloadFile(reportNodeId);
   const reportBody = await streamToString(downloaded.stream);
   assert.ok(reportBody.includes('Observatory Status Report'), 'report HTML includes headline');
+  log('downloaded observatory status report');
 
   const timestoreClient = new TimestoreClient();
   const queryResult = await timestoreClient.queryDataset(DATASET_SLUG, {
@@ -361,14 +462,16 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   });
   assert.equal(adminHealth.status, 200, 'admin service health reachable');
 
-  const logs = await stack.collectLogs();
+  const logs = await stack.collectLogs({ since: logStart });
   const logsDir = await ensureLogsDirectory();
   const logPath = path.join(logsDir, 'observatory-e2e.log');
   await fs.writeFile(logPath, logs, 'utf8');
+  log(`collected compose logs at ${logPath}`);
   const logAnalysis = analyzeLogs(logs);
   assert.equal(
     logAnalysis.errors.length,
     0,
     `expected no errors in service logs, found: ${logAnalysis.errors.join('\n')}`
   );
+  log('observatory e2e validation complete');
 });

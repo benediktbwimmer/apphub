@@ -9,10 +9,11 @@ export function buildTriggerDefinitions(
   config: EventDrivenObservatoryConfig
 ): ObservatoryTriggerDefinition[] {
   const ingestMetadata: Record<string, unknown> = {
-    maxFiles: 1000,
+    maxFiles: 200,
     filestore: {
       baseUrl: config.filestore.baseUrl,
       backendMountId: config.filestore.backendMountId,
+      backendMountKey: config.filestore.backendMountKey,
       token: config.filestore.token ?? null,
       inboxPrefix: config.filestore.inboxPrefix,
       stagingPrefix: config.filestore.stagingPrefix,
@@ -28,6 +29,11 @@ export function buildTriggerDefinitions(
       tableName: config.timestore.tableName ?? null,
       storageTargetId: config.timestore.storageTargetId ?? null,
       authToken: config.timestore.authToken ?? null
+    },
+    metastore: {
+      baseUrl: config.metastore?.baseUrl ?? null,
+      namespace: config.metastore?.namespace ?? null,
+      authToken: config.metastore?.authToken ?? null
     }
   };
 
@@ -51,7 +57,8 @@ export function buildTriggerDefinitions(
       baseUrl: config.metastore?.baseUrl ?? null,
       namespace: config.metastore?.namespace ?? null,
       authToken: config.metastore?.authToken ?? null
-    }
+    },
+    lookbackMinutes: config.workflows.dashboard?.lookbackMinutes ?? 720
   };
 
   const aggregateMetadata: Record<string, unknown> = {
@@ -68,15 +75,41 @@ export function buildTriggerDefinitions(
     lookbackMinutes: config.workflows.dashboard?.lookbackMinutes ?? 720
   };
 
+  const ingestPredicates: WorkflowProvisioningEventTrigger['predicates'] = [
+    {
+      path: '$.payload.command',
+      operator: 'equals',
+      value: 'uploadFile'
+    }
+  ];
+
+  if (typeof config.filestore.backendMountId === 'number') {
+    ingestPredicates.push({
+      path: '$.payload.backendMountId',
+      operator: 'equals',
+      value: config.filestore.backendMountId
+    });
+  }
+
+  ingestPredicates.push({
+    path: '$.payload.node.metadata.minute',
+    operator: 'exists'
+  });
+
   return [
     {
       workflowSlug: config.workflows.ingestSlug,
       name: 'observatory-minute.raw-uploaded',
       description: 'Kick off minute ingest whenever normalized inbox files are ready.',
-      eventType: 'observatory.minute.raw-uploaded',
-      predicates: [],
+      eventType: 'filestore.command.completed',
+      eventSource: 'filestore.service',
+      predicates: ingestPredicates,
       parameterTemplate: {
-        minute: '{{ trigger.payload.minute }}',
+        minute:
+          "{{ event.payload.node.metadata.minute | default: event.payload.node.metadata.minuteKey | default: event.payload.node.metadata.window }}",
+        instrumentId:
+          "{{ event.payload.node.metadata.instrumentId | default: event.payload.node.metadata.instrument_id | default: 'unknown' }}",
+        maxFiles: '{{ trigger.metadata.maxFiles }}',
         filestoreBaseUrl: config.filestore.baseUrl,
         filestoreBackendId: config.filestore.backendMountId ?? null,
         filestoreToken: config.filestore.token ?? null,
@@ -84,14 +117,23 @@ export function buildTriggerDefinitions(
         stagingPrefix: config.filestore.stagingPrefix,
         archivePrefix: config.filestore.archivePrefix,
         filestorePrincipal: 'observatory-inbox-normalizer',
+        commandPath: '{{ event.payload.path }}',
+        filestoreBackendKey: config.filestore.backendMountKey,
         timestoreBaseUrl: config.timestore.baseUrl,
         timestoreDatasetSlug: config.timestore.datasetSlug,
         timestoreDatasetName: config.timestore.datasetName ?? null,
         timestoreTableName: config.timestore.tableName ?? null,
         timestoreStorageTargetId: config.timestore.storageTargetId ?? null,
-        timestoreAuthToken: config.timestore.authToken ?? null
+        timestoreAuthToken: config.timestore.authToken ?? null,
+        metastoreBaseUrl: config.metastore?.baseUrl ?? null,
+        metastoreNamespace: config.metastore?.namespace ?? null,
+        metastoreAuthToken: config.metastore?.authToken ?? null
       },
-      metadata: ingestMetadata as JsonValue
+      metadata: ingestMetadata as JsonValue,
+      runKeyTemplate:
+        "observatory-ingest-{{ parameters.instrumentId | default: 'unknown' | replace: ':', '-' }}-{{ parameters.minute | replace: ':', '-' }}",
+      idempotencyKeyExpression:
+        "{{ event.payload.node.metadata.minute }}-{{ event.payload.path | replace: '/', '_' | replace: ':', '-' }}"
     },
     {
       workflowSlug: config.workflows.publicationSlug,
@@ -104,7 +146,7 @@ export function buildTriggerDefinitions(
         timestoreDatasetSlug: config.timestore.datasetSlug,
         timestoreAuthToken: config.timestore.authToken ?? null,
         partitionKey:
-          "{{ event.payload.partitionKey | default: event.payload.partitionKeyFields.window | default: event.payload.minute }}",
+          "{{ event.payload.partitionKeyFields.window | default: event.payload.minute | default: event.payload.partitionKey }}",
         instrumentId: "{{ event.payload.instrumentId | default: event.payload.partitionKeyFields.instrument | default: 'unknown' }}",
         minute: '{{ event.payload.minute }}',
         rowsIngested: '{{ event.payload.rowsIngested }}',
@@ -113,7 +155,8 @@ export function buildTriggerDefinitions(
         filestoreToken: config.filestore.token ?? null,
         filestorePrincipal: 'observatory-visualization-runner',
         visualizationsPrefix: config.filestore.visualizationsPrefix ?? 'datasets/observatory/visualizations',
-        reportsPrefix: config.filestore.reportsPrefix ?? 'datasets/observatory/reports'
+        reportsPrefix: config.filestore.reportsPrefix ?? 'datasets/observatory/reports',
+        lookbackMinutes: '{{ trigger.metadata.lookbackMinutes }}'
       },
       metadata: publicationMetadata as JsonValue,
       runKeyTemplate: '{{ trigger.payload.partitionKey }}'
@@ -134,7 +177,8 @@ export function buildTriggerDefinitions(
         timestoreBaseUrl: config.timestore.baseUrl,
         timestoreDatasetSlug: config.timestore.datasetSlug,
         timestoreAuthToken: config.timestore.authToken ?? null,
-        partitionKey: '{{ trigger.payload.partitionKey }}',
+        partitionKey:
+          "{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey | default: trigger.payload.partitionKey | default: trigger.metadata.partitionKey }}",
         filestoreBaseUrl: config.filestore.baseUrl,
         filestoreBackendId: config.filestore.backendMountId ?? null,
         filestoreToken: config.filestore.token ?? null,
