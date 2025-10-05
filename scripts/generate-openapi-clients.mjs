@@ -176,6 +176,8 @@ async function generateClient({ name, workspace, spec, output, clientName }) {
 async function main() {
   await ensureWorkspaceBuild('@apphub/module-registry', ['packages/module-registry/dist/index.js']);
   await ensureWorkspaceBuild('@apphub/module-sdk', ['packages/module-sdk/dist/index.js']);
+  await ensureWorkspaceBuild('@apphub/shared', ['packages/shared/dist/index.js']);
+  await ensureWorkspaceBuild('@apphub/filestore-client', ['packages/filestore-client/dist/index.js']);
 
   for (const service of services) {
     // eslint-disable-next-line no-console
