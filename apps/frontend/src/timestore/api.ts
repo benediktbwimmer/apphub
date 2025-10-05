@@ -10,6 +10,7 @@ import type {
   LifecycleRunResponse,
   LifecycleStatusResponse,
   ManifestResponse,
+  ManifestResponsePayload,
   PatchDatasetRequest,
   QueryResponse,
   RetentionPolicy,
@@ -388,10 +389,20 @@ export async function fetchDatasetManifest(
 ): Promise<ManifestResponse> {
   const url = createTimestoreUrl(`admin/datasets/${encodeURIComponent(datasetId)}/manifest`);
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  if (response.status === 404) {
+    return {
+      datasetId,
+      manifests: []
+    } satisfies ManifestResponse;
+  }
   if (!response.ok) {
     throw new Error(`Fetch manifest failed with status ${response.status}`);
   }
-  return parseJson(response, manifestResponseSchema);
+  const payload: ManifestResponsePayload = await parseJson(response, manifestResponseSchema);
+  const normalized: ManifestResponse = 'manifest' in payload
+    ? { datasetId: payload.datasetId, manifests: [payload.manifest] }
+    : { datasetId: payload.datasetId, manifests: payload.manifests };
+  return normalized;
 }
 export async function fetchLifecycleStatus(
   authorizedFetch: ReturnType<typeof useAuthorizedFetch>,

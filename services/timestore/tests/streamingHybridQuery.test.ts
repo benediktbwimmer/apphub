@@ -8,7 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import EmbeddedPostgres from 'embedded-postgres';
+import type EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from './utils/embeddedPostgres';
 import { loadServiceConfig, resetCachedServiceConfig } from '../src/config/serviceConfig';
 import { ensureSchemaExists } from '../src/db/schema';
 import { POSTGRES_SCHEMA, closePool, resetPool } from '../src/db/client';
@@ -27,7 +28,7 @@ before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'timestore-hybrid-pg-'));
   dataDirectory = dataRoot;
   const port = 58000 + Math.floor(Math.random() * 1000);
-  const embedded = new EmbeddedPostgres({
+  const embedded = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -68,9 +69,8 @@ before(async () => {
 after(async () => {
   setHotBufferTestHarness(null);
   await closePool();
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
+  postgres = null;
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }

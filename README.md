@@ -400,7 +400,7 @@ APPHUB_OPERATOR_TOKENS_PATH=             # Path to JSON file with legacy tokens
 **Workflow orchestration**
 
 ```bash
-WORKFLOW_CONCURRENCY=1
+WORKFLOW_CONCURRENCY=50
 WORKFLOW_MAX_PARALLEL=                  # Overrides per-workflow parallel limit
 WORKFLOW_FANOUT_MAX_ITEMS=100
 WORKFLOW_FANOUT_MAX_CONCURRENCY=10

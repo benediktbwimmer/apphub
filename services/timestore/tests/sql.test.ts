@@ -9,7 +9,8 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, afterEach, before, describe, test } from 'node:test';
 import fastify from 'fastify';
-import EmbeddedPostgres from 'embedded-postgres';
+import type EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from './utils/embeddedPostgres';
 import { loadServiceConfig, resetCachedServiceConfig } from '../src/config/serviceConfig';
 import type { FieldDefinition } from '../src/storage';
 
@@ -36,6 +37,7 @@ before(async () => {
   process.env.REDIS_URL = 'inline';
   process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.TIMESTORE_SQL_RUNTIME_CACHE_TTL_MS = '60000';
+  process.env.TIMESTORE_SQL_MAX_EXPRESSION_DEPTH = '4096';
 
   dataDirectory = await mkdtemp(path.join(tmpdir(), 'timestore-sql-pg-'));
   storageRoot = await mkdtemp(path.join(tmpdir(), 'timestore-sql-storage-'));
@@ -43,7 +45,7 @@ before(async () => {
   process.env.TIMESTORE_STORAGE_DRIVER = 'local';
   const port = 59000 + Math.floor(Math.random() * 1000);
 
-  const embedded = new EmbeddedPostgres({
+  const embedded = createEmbeddedPostgres({
     databaseDir: dataDirectory,
     port,
     user: 'postgres',
@@ -93,9 +95,8 @@ after(async () => {
   if (clientModule) {
     await clientModule.closePool();
   }
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
+  postgres = null;
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }
@@ -104,6 +105,7 @@ after(async () => {
   }
   runtimeModule?.resetSqlRuntimeCache();
   delete process.env.TIMESTORE_SQL_RUNTIME_CACHE_TTL_MS;
+  delete process.env.TIMESTORE_SQL_MAX_EXPRESSION_DEPTH;
 });
 
 afterEach(() => {
@@ -511,6 +513,35 @@ describe('sql runtime cache', () => {
       assert.equal(databaseCreates, 2, 'rebuild after invalidation should create new DuckDB instance');
     } finally {
       duckdbModule.Database = OriginalDatabase as unknown as typeof duckdbModule.Database;
+    }
+  });
+
+  test('createDuckDbConnection applies configured DuckDB settings', async () => {
+    assert.ok(runtimeModule);
+    runtimeModule.resetSqlRuntimeCache();
+
+    const context = await runtimeModule.loadSqlContext();
+    const runtimeConnection = await runtimeModule.createDuckDbConnection(context);
+
+    try {
+      const rows = await new Promise<Array<{ value: string }>>((resolve, reject) => {
+        runtimeConnection.connection.all(
+          'SELECT value FROM duckdb_settings() WHERE name = ?',
+          ['max_expression_depth'],
+          (error: Error | null, result?: Array<{ value: string }>) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve(result ?? []);
+          }
+        );
+      });
+
+      assert.ok(rows.length > 0, 'duckdb setting response should include a row');
+      assert.equal(rows[0]?.value, '4096');
+    } finally {
+      await runtimeConnection.cleanup();
     }
   });
 

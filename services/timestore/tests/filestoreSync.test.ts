@@ -8,7 +8,8 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, beforeEach, test } from 'node:test';
-import EmbeddedPostgres from 'embedded-postgres';
+import type EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres, stopAllEmbeddedPostgres } from './utils/embeddedPostgres';
 import type { FastifyBaseLogger } from 'fastify';
 import type {
   FilestoreNodeEventPayload,
@@ -51,7 +52,7 @@ before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'timestore-filestore-pg-'));
   dataDirectory = dataRoot;
   const port = 57000 + Math.floor(Math.random() * 500);
-  const embedded = new EmbeddedPostgres({
+  const embedded = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -104,15 +105,15 @@ beforeEach(async () => {
 after(async () => {
   await consumerModule.shutdownFilestoreActivity().catch(() => undefined);
   await dbClientModule.closePool().catch(() => undefined);
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
+  postgres = null;
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }
   if (storageRoot) {
     await rm(storageRoot, { recursive: true, force: true });
   }
+  await stopAllEmbeddedPostgres();
 });
 
 test('ingests filestore activity rows into timestore dataset', async () => {

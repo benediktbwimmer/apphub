@@ -2,7 +2,12 @@ export async function delay(ms: number): Promise<void> {
   if (ms <= 0) {
     return;
   }
-  await new Promise((resolve) => setTimeout(resolve, ms));
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+  });
 }
 
 export function buildGlobRegex(pattern: string): RegExp {

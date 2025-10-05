@@ -9,7 +9,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, test } from 'node:test';
-import EmbeddedPostgres from 'embedded-postgres';
+import type EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from './utils/embeddedPostgres';
 import { GetObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
 import S3rver from 's3rver';
 import { resetCachedServiceConfig } from '../src/config/serviceConfig';
@@ -33,7 +34,7 @@ before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'timestore-s3-pg-'));
   dataDirectory = dataRoot;
   const port = 57500 + Math.floor(Math.random() * 1000);
-  const embedded = new EmbeddedPostgres({
+  const embedded = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -102,9 +103,8 @@ after(async () => {
   if (clientModule) {
     await clientModule.closePool();
   }
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
+  postgres = null;
   if (s3rver) {
     await s3rver.close();
   }

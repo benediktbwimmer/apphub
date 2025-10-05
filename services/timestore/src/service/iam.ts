@@ -92,6 +92,9 @@ export async function loadDatasetForWrite(
 
 export function assertDatasetReadAccess(request: FastifyRequest, dataset: DatasetRecord): void {
   const requestScopes = getRequestScopes(request);
+  if (ADMIN_SCOPE && hasRequiredScope(requestScopes, [ADMIN_SCOPE])) {
+    return;
+  }
   const policyScopes = getDatasetReadScopes(dataset);
   const fallback = REQUIRED_SCOPE ? [REQUIRED_SCOPE] : [];
   const required = policyScopes ?? fallback;
@@ -111,6 +114,9 @@ export function assertDatasetWriteAccess(
   dataset: DatasetRecord | null
 ): void {
   const requestScopes = getRequestScopes(request);
+  if (ADMIN_SCOPE && hasRequiredScope(requestScopes, [ADMIN_SCOPE])) {
+    return;
+  }
   const policyScopes = dataset ? getDatasetWriteScopes(dataset) : null;
   const fallback = WRITE_SCOPE ? [WRITE_SCOPE] : [];
   const required = policyScopes ?? fallback;

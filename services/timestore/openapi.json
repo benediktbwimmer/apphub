@@ -9642,6 +9642,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Ingestion staging queue is full. Please retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-2"
+                }
+              }
+            }
           }
         }
       }

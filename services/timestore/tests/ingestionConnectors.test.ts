@@ -8,7 +8,8 @@ import { mkdtemp, rm, writeFile, appendFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, test } from 'node:test';
-import EmbeddedPostgres from 'embedded-postgres';
+import type EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from './utils/embeddedPostgres';
 import { resetCachedServiceConfig, loadServiceConfig } from '../src/config/serviceConfig';
 import { initializeIngestionConnectors, shutdownIngestionConnectors } from '../src/ingestion/connectors';
 import { ensureSchemaExists } from '../src/db/schema';
@@ -41,7 +42,7 @@ before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'timestore-connectors-pg-'));
   dataDirectory = dataRoot;
   const port = 56000 + Math.floor(Math.random() * 1000);
-  const embedded = new EmbeddedPostgres({
+  const embedded = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -93,9 +94,8 @@ before(async () => {
 after(async () => {
   await shutdownIngestionConnectors().catch(() => undefined);
   await closePool();
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
+  postgres = null;
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }
