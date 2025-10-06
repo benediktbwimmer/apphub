@@ -179,6 +179,7 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
           return reply.status(flushPending ? 202 : 201).send({
             mode: 'inline',
             flushPending,
+            jobId: flushPending ? `inline:${params.datasetSlug}` : undefined,
             dataset: result.result.dataset,
             storageTarget: result.result.storageTarget,
             manifest: result.result.manifest ?? null

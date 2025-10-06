@@ -52,6 +52,7 @@
     "minikube:down": "node scripts/minikube-down.mjs",
     "minikube:verify": "node scripts/minikube-verify.mjs",
     "e2e": "tsx tests/e2e/observatory.e2e.ts",
+    "e2e:timestore": "tsx tests/e2e/timestore.e2e.ts",
     "module:admin": "npm run module:admin --workspace @apphub/core --"
   },
   "devDependencies": {

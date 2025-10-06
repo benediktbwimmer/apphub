@@ -887,10 +887,19 @@ async function integratePendingStaging(
   await run(connection, 'DROP VIEW IF EXISTS staging_dataset_view');
   await run(connection, 'DROP VIEW IF EXISTS dataset_with_staging');
   await run(connection, `CREATE TEMP VIEW staging_dataset_view AS ${unionSql}`);
-  await run(
-    connection,
-    'CREATE TEMP VIEW dataset_with_staging AS SELECT * FROM dataset_view UNION ALL SELECT * FROM staging_dataset_view'
-  );
+
+  let baseViewName = 'dataset_with_staging';
+
+  if (plan.partitions.length === 0) {
+    await run(connection, 'DROP VIEW IF EXISTS dataset_view');
+    await run(connection, `CREATE TEMP VIEW dataset_view AS SELECT * FROM staging_dataset_view`);
+    baseViewName = 'dataset_view';
+  } else {
+    await run(
+      connection,
+      'CREATE TEMP VIEW dataset_with_staging AS SELECT * FROM dataset_view UNION ALL SELECT * FROM staging_dataset_view'
+    );
+  }
 
   const rowCountRows = await all(
     connection,
@@ -909,7 +918,7 @@ async function integratePendingStaging(
     : [];
 
   return {
-    baseViewName: 'dataset_with_staging',
+    baseViewName,
     warnings,
     replacedEmptyView: plan.partitions.length === 0
   };
