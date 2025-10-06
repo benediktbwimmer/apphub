@@ -815,6 +815,7 @@ export default function TimestoreSqlEditorPage() {
                 onChange={setStatement}
                 language="sql"
                 height={360}
+                options={{ renderValidationDecorations: 'off' }}
                 onMount={handleEditorMount}
                 ariaLabel="Timestore SQL editor"
               />

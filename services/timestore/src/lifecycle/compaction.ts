@@ -11,7 +11,8 @@ import type {
   DatasetSchemaVersionRecord,
   LifecycleAuditLogInput,
   PartitionInput,
-  PartitionWithTarget
+  PartitionWithTarget,
+  StorageTargetRecord
 } from '../db/metadata';
 import type {
   PartitionColumnBloomFilterMap,
@@ -32,6 +33,7 @@ import {
   type FieldDefinition,
   type FieldType
 } from '../storage';
+import { configureS3Support } from '../query/executor';
 import type { ServiceConfig } from '../config/serviceConfig';
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
 import { invalidateSqlRuntimeCache } from '../sql/runtime';
@@ -828,6 +830,13 @@ async function materializeGroupPartition(
   const connection = db.connect();
 
   try {
+    const s3Targets = group.partitions
+      .map((partition) => partition.storageTarget)
+      .filter((target): target is StorageTargetRecord => target.kind === 's3');
+    if (s3Targets.length > 0) {
+      await configureS3Support(connection, config, s3Targets);
+    }
+
     const baseTableName = group.summary.tableName || 'records';
     const safeTableName = quoteIdentifier(baseTableName);
     const columnDefinitions = schemaFields

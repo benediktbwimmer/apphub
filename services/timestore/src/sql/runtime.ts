@@ -35,6 +35,7 @@ import {
   type RuntimeCacheEvent
 } from '../observability/metrics';
 import { assessPartitionAccessError } from '../query/partitionDiagnostics';
+import { readStagingSchemaFields } from './stagingSchema';
 
 type DuckDbConnection = any;
 
@@ -359,10 +360,6 @@ async function buildDatasetCacheState(
       return latest;
     }, null);
 
-    if (manifests.length === 0) {
-      warnings.push(`Dataset ${dataset.slug} has no published manifests; skipping partitions.`);
-    }
-
     const aggregatedPartitions = manifests.flatMap((entry) => entry.partitions);
     const aggregatedTotals = aggregatedPartitions.reduce(
       (acc, partition) => {
@@ -377,7 +374,8 @@ async function buildDatasetCacheState(
       return Number.isFinite(ts) && ts > max ? ts : max;
     }, manifestForSchema ? Date.parse(manifestForSchema.updatedAt) : 0);
 
-    const columns = await loadSchemaColumns(dataset, manifestForSchema, warnings);
+    const schemaResult = await loadSchemaColumns(dataset, manifestForSchema, config, warnings);
+    const { columns, source: schemaSource } = schemaResult;
     const partitions = await mapPartitions(aggregatedPartitions, config, storageTargetCache, warnings);
     const partitionKeys = derivePartitionKeys(partitions);
     const { viewName, aliasWarning } = createViewName(dataset.slug);
@@ -415,6 +413,10 @@ async function buildDatasetCacheState(
       aliasWarnings
     } satisfies SqlDatasetContext;
     included = true;
+
+    if (manifests.length === 0 && schemaSource !== 'staging') {
+      warnings.push(`Dataset ${dataset.slug} has no published manifests; skipping partitions.`);
+    }
   }
 
   const signature = computeDatasetSignature(dataset, context);
@@ -896,6 +898,12 @@ async function createDuckDbConnectionUncached(
   let connection: DuckDbConnection | null = null;
   try {
     connection = db.connect();
+    if (!connection) {
+      if (isCloseable(db)) {
+        ignoreCloseError(() => db.close());
+      }
+      throw new Error('Failed to establish DuckDB connection');
+    }
     await applyDefaultDuckDbSettings(connection, context.config);
   } catch (error) {
     if (isCloseable(db)) {
@@ -1128,43 +1136,64 @@ async function loadAllDatasets(): Promise<DatasetRecord[]> {
   return result;
 }
 
+interface SchemaLoadResult {
+  columns: SqlSchemaColumnInfo[];
+  source: 'manifest' | 'staging' | 'none';
+}
+
 async function loadSchemaColumns(
   dataset: DatasetRecord,
   manifest: DatasetManifestWithPartitions | null,
+  config: ServiceConfig,
   warnings: string[]
-): Promise<SqlSchemaColumnInfo[]> {
-  if (!manifest || !manifest.schemaVersionId) {
-    warnings.push(`Dataset ${dataset.slug} has no published schema; autocomplete disabled.`);
-    return [];
-  }
-
-  const schemaVersion = await getSchemaVersionById(manifest.schemaVersionId);
-  if (!schemaVersion || typeof schemaVersion.schema !== 'object') {
-    warnings.push(`Schema version ${manifest.schemaVersionId} for dataset ${dataset.slug} is unavailable.`);
-    return [];
-  }
-
-  const payload = schemaVersion.schema as { fields?: Array<Record<string, unknown>> };
-  if (!Array.isArray(payload.fields)) {
-    warnings.push(`Schema for dataset ${dataset.slug} is malformed; fields missing.`);
-    return [];
-  }
-
-  const columns: SqlSchemaColumnInfo[] = [];
-  for (const field of payload.fields) {
-    const name = typeof field?.name === 'string' ? field.name : null;
-    const type = typeof field?.type === 'string' ? normalizeFieldType(field.type) : 'VARCHAR';
-    if (!name) {
-      continue;
+): Promise<SchemaLoadResult> {
+  if (manifest?.schemaVersionId) {
+    const schemaVersion = await getSchemaVersionById(manifest.schemaVersionId);
+    if (schemaVersion && typeof schemaVersion.schema === 'object') {
+      const payload = schemaVersion.schema as { fields?: Array<Record<string, unknown>> };
+      if (Array.isArray(payload.fields)) {
+        const columns: SqlSchemaColumnInfo[] = [];
+        for (const field of payload.fields) {
+          const name = typeof field?.name === 'string' ? field.name : null;
+          if (!name) {
+            continue;
+          }
+          const type = typeof field?.type === 'string' ? normalizeFieldType(field.type) : 'VARCHAR';
+          columns.push({
+            name,
+            type,
+            nullable: typeof field?.nullable === 'boolean' ? field.nullable : undefined,
+            description: typeof field?.description === 'string' ? field.description : null
+          });
+        }
+        if (columns.length > 0) {
+          return { columns, source: 'manifest' };
+        }
+        warnings.push(`Schema for dataset ${dataset.slug} is malformed; fields missing.`);
+      } else {
+        warnings.push(`Schema for dataset ${dataset.slug} is malformed; fields missing.`);
+      }
+    } else {
+      warnings.push(`Schema version ${manifest.schemaVersionId} for dataset ${dataset.slug} is unavailable.`);
     }
-    columns.push({
-      name,
-      type,
-      nullable: typeof field?.nullable === 'boolean' ? field.nullable : undefined,
-      description: typeof field?.description === 'string' ? field.description : null
-    });
   }
-  return columns;
+
+  const stagingFields = await readStagingSchemaFields(dataset, config, warnings);
+  if (stagingFields.length > 0) {
+    const columns = stagingFields.map((field) => ({
+      name: field.name,
+      type: normalizeFieldType(field.type),
+      nullable: field.nullable,
+      description: field.description ?? null
+    } satisfies SqlSchemaColumnInfo));
+    return { columns, source: 'staging' };
+  }
+
+  if (!manifest?.schemaVersionId) {
+    warnings.push(`Dataset ${dataset.slug} has no published schema and no staging schema; autocomplete disabled.`);
+  }
+
+  return { columns: [], source: 'none' };
 }
 
 async function mapPartitions(

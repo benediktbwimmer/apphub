@@ -1,5 +1,7 @@
 import { loadDuckDb, isCloseable } from '@apphub/shared';
-import { mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, access } from 'node:fs/promises';
+import path from 'node:path';
 import {
   loadServiceConfig,
   type QueryExecutionBackendConfig,
@@ -30,6 +32,9 @@ interface QueryResultRow {
 }
 
 const DEFAULT_MAX_EXPRESSION_DEPTH = 10_000;
+const STAGING_SCHEMA = 'staging';
+const STAGING_METADATA_TABLE = '__ingestion_batches';
+const STAGING_BATCH_ID_COLUMN = '__batch_id';
 
 export async function applyDefaultDuckDbSettings(
   connection: any,
@@ -330,21 +335,25 @@ async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult>
 
   try {
     await applyDefaultDuckDbSettings(connection, config);
-    if (plan.partitions.length === 0) {
-      const columns = deriveColumns(plan, plan.mode);
-      return {
-        rows: [],
-        columns,
-        mode: plan.mode,
-        warnings
-      };
-    }
-
     await prepareConnectionForPlan(connection, plan, config);
     const canonicalFields = resolveCanonicalFields(plan);
     const viewWarnings = await createDatasetView(connection, plan, canonicalFields);
     warnings.push(...viewWarnings);
-    const baseViewName = await applyColumnFilters(connection, plan);
+    let baseViewSource = 'dataset_view';
+    const stagingIntegration = await integratePendingStaging(connection, plan, canonicalFields, config);
+    if (stagingIntegration) {
+      if (stagingIntegration.replacedEmptyView) {
+        const warningToRemove = `No readable partitions found for dataset ${plan.datasetSlug}; returning empty result.`;
+        const index = warnings.indexOf(warningToRemove);
+        if (index >= 0) {
+          warnings.splice(index, 1);
+        }
+      }
+      warnings.push(...stagingIntegration.warnings);
+      baseViewSource = stagingIntegration.baseViewName;
+    }
+
+    const baseViewName = await applyColumnFilters(connection, plan, baseViewSource);
 
     const { preparatoryQueries, selectSql, mode } = buildFinalQuery(plan, baseViewName);
     for (const query of preparatoryQueries) {
@@ -430,6 +439,29 @@ async function createDatasetView(
   for (const partition of plan.partitions) {
     try {
       const availableColumns = await fetchPartitionColumns(connection, partition);
+      const escapedPath = partition.location.replace(/'/g, "''");
+      try {
+        await all(connection, `SELECT 1 FROM read_parquet('${escapedPath}') LIMIT 1`);
+      } catch (error) {
+        const assessment = assessPartitionAccessError(
+          {
+            datasetSlug: plan.datasetSlug,
+            partitionId: partition.id,
+            storageTarget: partition.storageTarget,
+            location: partition.location,
+            startTime: partition.startTime,
+            endTime: partition.endTime
+          },
+          error
+        );
+        if (assessment.recoverable) {
+          if (assessment.warning) {
+            warnings.push(assessment.warning);
+          }
+          continue;
+        }
+        throw assessment.error;
+      }
       selects.push(buildPartitionSelect(partition, plan, canonicalFields, availableColumns));
     } catch (error) {
       const assessment = assessPartitionAccessError(
@@ -486,22 +518,7 @@ async function fetchPartitionColumns(
     connection,
     `DESCRIBE SELECT * FROM read_parquet('${escapedPath}')`
   );
-  return new Set(
-    rows
-      .map((row) => {
-        const record = row as Record<string, unknown>;
-        const value =
-          typeof record.column_name === 'string'
-            ? record.column_name
-            : typeof record.column === 'string'
-              ? record.column
-              : typeof record.name === 'string'
-                ? record.name
-                : null;
-        return value;
-      })
-      .filter((value): value is string => Boolean(value))
-  );
+  return extractColumnNames(rows as QueryResultRow[]);
 }
 
 function resolveCanonicalFields(plan: QueryPlan): FieldDefinition[] {
@@ -523,18 +540,7 @@ function buildPartitionSelect(
   const startLiteral = plan.rangeStart.toISOString().replace(/'/g, "''");
   const endLiteral = plan.rangeEnd.toISOString().replace(/'/g, "''");
 
-  const projections = canonicalFields.length > 0
-    ? canonicalFields
-        .map((field) => {
-          const identifier = quoteIdentifier(field.name);
-          if (availableColumns.has(field.name)) {
-            return identifier;
-          }
-          const duckType = mapFieldTypeToDuckDb(field.type);
-          return `NULL::${duckType} AS ${identifier}`;
-        })
-        .join(', ')
-    : '*';
+  const projections = buildCanonicalProjections(canonicalFields, availableColumns);
 
   const whereClause = `${timestampColumn} BETWEEN TIMESTAMP '${startLiteral}' AND TIMESTAMP '${endLiteral}'`;
 
@@ -557,19 +563,19 @@ function mapFieldTypeToDuckDb(type: FieldType): string {
   }
 }
 
-async function applyColumnFilters(connection: any, plan: QueryPlan): Promise<string> {
+async function applyColumnFilters(connection: any, plan: QueryPlan, baseView: string): Promise<string> {
   if (!plan.columnFilters || Object.keys(plan.columnFilters).length === 0) {
-    return 'dataset_view';
+    return baseView;
   }
   const clause = buildColumnFilterClause(plan.columnFilters);
   if (!clause) {
-    return 'dataset_view';
+    return baseView;
   }
   await run(
     connection,
     `CREATE TEMP VIEW dataset_filtered AS
        SELECT *
-         FROM dataset_view
+         FROM ${baseView}
         WHERE ${clause}`
   );
   return 'dataset_filtered';
@@ -739,9 +745,7 @@ function buildFinalQuery(
     };
   }
 
-  const selectColumns = plan.columns && plan.columns.length > 0
-    ? plan.columns.map(quoteIdentifier).join(', ')
-    : '*';
+  const selectColumns = buildSelectList(plan);
   const timestampColumn = quoteIdentifier(plan.timestampColumn);
   const limitClause = plan.limit ? ` LIMIT ${plan.limit}` : '';
 
@@ -772,7 +776,232 @@ function deriveColumns(plan: QueryPlan, mode: 'raw' | 'downsampled'): string[] {
   if (plan.columns && plan.columns.length > 0) {
     return [...plan.columns];
   }
+  if (plan.schemaFields.length > 0) {
+    return plan.schemaFields.map((field) => field.name);
+  }
   return [plan.timestampColumn];
+}
+
+function buildSelectList(plan: QueryPlan): string {
+  if (plan.columns && plan.columns.length > 0) {
+    return plan.columns.map(quoteIdentifier).join(', ');
+  }
+  if (plan.schemaFields.length > 0) {
+    return plan.schemaFields.map((field) => quoteIdentifier(field.name)).join(', ');
+  }
+  return '*';
+}
+
+async function integratePendingStaging(
+  connection: any,
+  plan: QueryPlan,
+  canonicalFields: FieldDefinition[],
+  config: ServiceConfig
+): Promise<{ baseViewName: string; warnings: string[]; replacedEmptyView: boolean } | null> {
+  const stagingDirectory = config.staging?.directory;
+  if (!stagingDirectory) {
+    return null;
+  }
+
+  const databasePath = path.join(stagingDirectory, sanitizeDatasetSlug(plan.datasetSlug), 'staging.duckdb');
+  try {
+    await access(databasePath);
+  } catch {
+    return null;
+  }
+
+  const alias = `staging_${randomUUID().replace(/-/g, '_')}`;
+  const escapedPath = databasePath.replace(/'/g, "''");
+  try {
+    await run(connection, `ATTACH '${escapedPath}' AS ${quoteIdentifier(alias)} (READ_ONLY)`);
+  } catch (error) {
+    console.warn(`[timestore] failed to attach staging database for dataset ${plan.datasetSlug}`, error);
+    return null;
+  }
+
+  const metadataTableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(STAGING_METADATA_TABLE)}`;
+  let pendingTables: QueryResultRow[];
+  try {
+    pendingTables = await all(
+      connection,
+      `SELECT DISTINCT table_name FROM ${metadataTableRef} WHERE flush_token IS NULL`
+    );
+  } catch (error) {
+    console.warn(`[timestore] failed to inspect staging metadata for dataset ${plan.datasetSlug}`, error);
+    await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
+    return null;
+  }
+
+  if (pendingTables.length === 0) {
+    await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
+    return null;
+  }
+
+  const stagingSelects: string[] = [];
+  for (let index = 0; index < pendingTables.length; index += 1) {
+    const tableNameValue = pendingTables[index]?.table_name;
+    if (typeof tableNameValue !== 'string' || tableNameValue.trim().length === 0) {
+      continue;
+    }
+    const tableName = tableNameValue.trim();
+    const tableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(tableName)}`;
+
+    const overlapRows = await all(
+      connection,
+      `SELECT 1
+         FROM ${metadataTableRef}
+        WHERE flush_token IS NULL
+          AND table_name = ?
+          AND time_range_start <= ?
+          AND time_range_end >= ?
+        LIMIT 1`,
+      tableName,
+      plan.rangeEnd,
+      plan.rangeStart
+    );
+
+    if (overlapRows.length === 0) {
+      continue;
+    }
+
+    const availableColumns = await fetchTableColumns(connection, tableRef);
+    const tableAlias = `stg${index}`;
+    const selectSql = buildStagingSelect({
+      tableRef,
+      tableAlias,
+      metadataTableRef,
+      tableName,
+      plan,
+      canonicalFields,
+      availableColumns
+    });
+    stagingSelects.push(selectSql);
+  }
+
+  if (stagingSelects.length === 0) {
+    await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
+    return null;
+  }
+
+  const unionSql = stagingSelects.join('\nUNION ALL\n');
+  await run(connection, 'DROP VIEW IF EXISTS staging_dataset_view');
+  await run(connection, 'DROP VIEW IF EXISTS dataset_with_staging');
+  await run(connection, `CREATE TEMP VIEW staging_dataset_view AS ${unionSql}`);
+  await run(
+    connection,
+    'CREATE TEMP VIEW dataset_with_staging AS SELECT * FROM dataset_view UNION ALL SELECT * FROM staging_dataset_view'
+  );
+
+  const rowCountRows = await all(
+    connection,
+    `SELECT COALESCE(SUM(row_count), 0)::BIGINT AS row_count
+       FROM ${metadataTableRef}
+      WHERE flush_token IS NULL
+        AND time_range_start <= ?
+        AND time_range_end >= ?`,
+    plan.rangeEnd,
+    plan.rangeStart
+  );
+  const pendingRowCount = Number(rowCountRows[0]?.row_count ?? 0n);
+
+  const warnings: string[] = pendingRowCount > 0
+    ? [`Included ${pendingRowCount} staged row(s) pending flush for dataset ${plan.datasetSlug}.`]
+    : [];
+
+  return {
+    baseViewName: 'dataset_with_staging',
+    warnings,
+    replacedEmptyView: plan.partitions.length === 0
+  };
+}
+
+interface BuildStagingSelectInput {
+  tableRef: string;
+  tableAlias: string;
+  metadataTableRef: string;
+  tableName: string;
+  plan: QueryPlan;
+  canonicalFields: FieldDefinition[];
+  availableColumns: Set<string>;
+}
+
+function buildStagingSelect(input: BuildStagingSelectInput): string {
+  const { tableRef, tableAlias, metadataTableRef, tableName, plan, canonicalFields, availableColumns } = input;
+  const projections = buildCanonicalProjections(canonicalFields, availableColumns, tableAlias);
+  const startLiteral = escapeSqlLiteral(plan.rangeStart.toISOString());
+  const endLiteral = escapeSqlLiteral(plan.rangeEnd.toISOString());
+  const timestampColumn = `${tableAlias}.${quoteIdentifier(plan.timestampColumn)}`;
+  const escapedTableName = escapeSqlLiteral(tableName);
+
+  const whereParts = [
+    'b.flush_token IS NULL',
+    `b.table_name = '${escapedTableName}'`,
+    `b.time_range_start <= TIMESTAMP '${endLiteral}'`,
+    `b.time_range_end >= TIMESTAMP '${startLiteral}'`,
+    `${timestampColumn} BETWEEN TIMESTAMP '${startLiteral}' AND TIMESTAMP '${endLiteral}'`
+  ];
+
+  return `SELECT ${projections}
+          FROM ${tableRef} AS ${tableAlias}
+          JOIN ${metadataTableRef} AS b
+            ON ${tableAlias}.${quoteIdentifier(STAGING_BATCH_ID_COLUMN)} = b.batch_id
+         WHERE ${whereParts.join(' AND ')}`;
+}
+
+async function fetchTableColumns(connection: any, tableRef: string): Promise<Set<string>> {
+  try {
+    const rows = await all(connection, `DESCRIBE SELECT * FROM ${tableRef}`);
+    return extractColumnNames(rows as QueryResultRow[]);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function buildCanonicalProjections(
+  canonicalFields: FieldDefinition[],
+  availableColumns: Set<string>,
+  tableAlias?: string
+): string {
+  if (canonicalFields.length === 0) {
+    return tableAlias ? `${tableAlias}.*` : '*';
+  }
+  return canonicalFields
+    .map((field) => {
+      const identifier = quoteIdentifier(field.name);
+      if (availableColumns.has(field.name)) {
+        return tableAlias ? `${tableAlias}.${identifier}` : identifier;
+      }
+      const duckType = mapFieldTypeToDuckDb(field.type);
+      return `NULL::${duckType} AS ${identifier}`;
+    })
+    .join(', ');
+}
+
+function extractColumnNames(rows: QueryResultRow[]): Set<string> {
+  return new Set(
+    rows
+      .map((row) => {
+        const value =
+          typeof row.column_name === 'string'
+            ? row.column_name
+            : typeof row.column === 'string'
+              ? row.column
+              : typeof row.name === 'string'
+                ? row.name
+                : null;
+        return value as string | null;
+      })
+      .filter((value): value is string => Boolean(value))
+  );
+}
+
+function sanitizeDatasetSlug(datasetSlug: string): string {
+  const trimmed = datasetSlug.trim();
+  if (trimmed.length === 0) {
+    throw new Error('datasetSlug must not be empty');
+  }
+  const normalized = trimmed.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return normalized.length > 0 ? normalized : 'dataset';
 }
 
 function run(connection: any, sql: string, ...params: unknown[]): Promise<void> {
@@ -829,6 +1058,10 @@ function normalizeValue(value: unknown): unknown {
   if (value instanceof Date) {
     return value.toISOString();
   }
+  const timestampLike = extractTimestampValue(value);
+  if (timestampLike !== null) {
+    return timestampLike;
+  }
   if (typeof value === 'bigint') {
     if (value <= Number.MAX_SAFE_INTEGER && value >= Number.MIN_SAFE_INTEGER) {
       return Number(value);
@@ -862,6 +1095,33 @@ function normalizeValue(value: unknown): unknown {
     return null;
   }
   return value;
+}
+
+function extractTimestampValue(value: unknown): string | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  if ('toISOString' in value && typeof (value as { toISOString?: unknown }).toISOString === 'function') {
+    try {
+      const iso = (value as { toISOString: () => unknown }).toISOString();
+      if (typeof iso === 'string' && !Number.isNaN(Date.parse(iso))) {
+        return iso;
+      }
+    } catch {
+      return null;
+    }
+  }
+  if ('toJSON' in value && typeof (value as { toJSON?: unknown }).toJSON === 'function') {
+    try {
+      const json = (value as { toJSON: () => unknown }).toJSON();
+      if (typeof json === 'string' && !Number.isNaN(Date.parse(json))) {
+        return json;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function dedupeWarnings(warnings: string[]): string[] {

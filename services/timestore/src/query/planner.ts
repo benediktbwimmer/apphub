@@ -26,6 +26,7 @@ import {
   normalizeFieldDefinitions
 } from '../schema/compatibility';
 import type { FieldDefinition } from '../storage';
+import { readStagingSchemaFields } from '../sql/stagingSchema';
 import type { ColumnPredicate } from '../types/partitionFilters';
 
 export interface QueryPlanPartition {
@@ -128,7 +129,7 @@ export async function buildQueryPlan(
   }
 
   const mode = downsamplePlan ? 'downsampled' : 'raw';
-  const schemaFields = await resolveSchemaFieldsForPlan(manifests);
+  const schemaFields = await resolveSchemaFieldsForPlan(dataset, manifests, config);
   const execution = resolveExecutionPlan(dataset, config);
 
   return {
@@ -186,35 +187,52 @@ function extractRequestedBackend(metadata: unknown): string | null {
 }
 
 async function resolveSchemaFieldsForPlan(
-  manifests: DatasetManifestRecord[]
+  dataset: DatasetRecord,
+  manifests: DatasetManifestRecord[],
+  config: ServiceConfig
 ): Promise<FieldDefinition[]> {
   const schemaVersionIds = manifests
     .map((manifest) => manifest.schemaVersionId)
     .filter((id): id is string => Boolean(id));
 
-  if (schemaVersionIds.length === 0) {
+  if (schemaVersionIds.length > 0) {
+    const uniqueIds = Array.from(new Set(schemaVersionIds));
+    const fieldSets: FieldDefinition[][] = [];
+
+    for (const schemaVersionId of uniqueIds) {
+      const schemaVersion = await getSchemaVersionById(schemaVersionId);
+      if (!schemaVersion) {
+        continue;
+      }
+      const fields = normalizeFieldDefinitions(extractFieldDefinitions(schemaVersion.schema));
+      if (fields.length > 0) {
+        fieldSets.push(fields);
+      }
+    }
+
+    if (fieldSets.length > 0) {
+      return mergeFieldDefinitionsSuperset(fieldSets);
+    }
+  }
+
+  const stagingFields = await readStagingSchemaFields(dataset, config);
+  if (stagingFields.length === 0) {
     return [];
   }
 
-  const uniqueIds = Array.from(new Set(schemaVersionIds));
-  const fieldSets: FieldDefinition[][] = [];
-
-  for (const schemaVersionId of uniqueIds) {
-    const schemaVersion = await getSchemaVersionById(schemaVersionId);
-    if (!schemaVersion) {
+  const mapped: FieldDefinition[] = [];
+  for (const field of stagingFields) {
+    const name = field.name.trim();
+    if (!name) {
       continue;
     }
-    const fields = normalizeFieldDefinitions(extractFieldDefinitions(schemaVersion.schema));
-    if (fields.length > 0) {
-      fieldSets.push(fields);
-    }
+    mapped.push({
+      name,
+      type: mapStagingTypeToFieldType(field.type)
+    });
   }
 
-  if (fieldSets.length === 0) {
-    return [];
-  }
-
-  return mergeFieldDefinitionsSuperset(fieldSets);
+  return mapped;
 }
 
 function buildPlanPartition(
@@ -309,4 +327,33 @@ function createIntervalLiteral(size: number, unit: DownsampleInput['intervalUnit
 
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function mapStagingTypeToFieldType(input: string): FieldDefinition['type'] {
+  const normalized = input.trim().toLowerCase();
+  if (normalized.includes('time')) {
+    return 'timestamp';
+  }
+  if (normalized === 'boolean' || normalized === 'bool') {
+    return 'boolean';
+  }
+  if (
+    normalized === 'double' ||
+    normalized === 'float' ||
+    normalized === 'real' ||
+    normalized === 'numeric' ||
+    normalized === 'decimal'
+  ) {
+    return 'double';
+  }
+  if (
+    normalized === 'integer' ||
+    normalized === 'int' ||
+    normalized === 'bigint' ||
+    normalized === 'smallint' ||
+    normalized === 'tinyint'
+  ) {
+    return 'integer';
+  }
+  return 'string';
 }
