@@ -84,7 +84,7 @@ export const SEGMENTED_BUTTON_INACTIVE =
   'border border-subtle text-secondary hover:border-accent hover:text-accent';
 
 export const TABLE_CONTAINER =
-  'overflow-hidden rounded-2xl border border-subtle bg-surface-glass-soft';
+  'rounded-2xl border border-subtle bg-surface-glass-soft';
 export const TABLE_HEAD_ROW =
   'bg-surface-muted text-scale-2xs font-weight-semibold uppercase tracking-[0.2em] text-muted';
 export const TABLE_CELL = 'px-4 py-2 text-scale-sm text-secondary';

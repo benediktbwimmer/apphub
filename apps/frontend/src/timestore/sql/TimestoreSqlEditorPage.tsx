@@ -188,6 +188,7 @@ export default function TimestoreSqlEditorPage() {
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const completionProviderRef = useRef<IDisposable | null>(null);
+  const markerListenerRef = useRef<IDisposable | null>(null);
   const runQueryRef = useRef<() => void>(() => {});
   const schemaWarningsRef = useRef<string | null>(null);
   const savedQueriesLoadedRef = useRef(false);
@@ -402,6 +403,12 @@ export default function TimestoreSqlEditorPage() {
     };
   }, [updateCompletionProvider]);
 
+  useEffect(() => {
+    return () => {
+      markerListenerRef.current?.dispose();
+    };
+  }, []);
+
   const normalizedHistory = useMemo(() => {
     const query = historySearch.trim().toLowerCase();
     if (!query) {
@@ -460,6 +467,29 @@ export default function TimestoreSqlEditorPage() {
 
   runQueryRef.current = runQuery;
 
+  const suppressEditorMarkers = useCallback(() => {
+    // Monaco's SQL language emits generic diagnostics that flood the UI with red overlays.
+    // Clear every marker owner associated with the current model so we keep syntax highlighting
+    // without the distracting error chrome.
+    const monaco = monacoRef.current;
+    const editorInstance = editorRef.current;
+    if (!monaco || !editorInstance) {
+      return;
+    }
+    const model = editorInstance.getModel();
+    if (!model) {
+      return;
+    }
+    const markers = monaco.editor.getModelMarkers({ resource: model.uri });
+    if (markers.length === 0) {
+      return;
+    }
+    const owners = new Set(markers.map((marker) => marker.owner));
+    owners.forEach((owner) => {
+      monaco.editor.setModelMarkers(model, owner, []);
+    });
+  }, []);
+
   const handleEditorMount = useCallback<OnMount>((editorInstance, monaco) => {
     editorRef.current = editorInstance;
     monacoRef.current = monaco;
@@ -468,8 +498,21 @@ export default function TimestoreSqlEditorPage() {
       runQueryRef.current();
     });
 
+    suppressEditorMarkers();
+    markerListenerRef.current?.dispose();
+    markerListenerRef.current = monaco.editor.onDidChangeMarkers((uris) => {
+      const model = editorInstance.getModel();
+      if (!model) {
+        return;
+      }
+      const modelUri = model.uri.toString();
+      if (uris.some((uri) => uri.toString() === modelUri)) {
+        suppressEditorMarkers();
+      }
+    });
+
     updateCompletionProvider();
-  }, [updateCompletionProvider]);
+  }, [suppressEditorMarkers, updateCompletionProvider]);
 
   const handleLoadHistoryEntry = useCallback((entry: SqlHistoryEntry) => {
     setStatement(entry.statement);
