@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
+import { constants as fsConstants } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -187,10 +188,21 @@ class LocalStorageDriver implements StorageDriver {
     const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
     const absolutePath = path.join(this.root, convertPosixToPlatform(relativePath));
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    console.info('[timestore:storage] writing partition', {
+      datasetSlug: request.datasetSlug,
+      partitionId: request.partitionId,
+      sourceFilePath: request.sourceFilePath ?? null,
+      absolutePath
+    });
     if (request.sourceFilePath) {
       await fs.copyFile(request.sourceFilePath, absolutePath);
       const stats = await fs.stat(absolutePath);
       const checksum = await computeFileChecksum(absolutePath);
+      console.info('[timestore:storage] partition copy complete', {
+        datasetSlug: request.datasetSlug,
+        partitionId: request.partitionId,
+        fileSize: stats.size
+      });
       return {
         relativePath,
         fileSizeBytes: stats.size,
@@ -515,6 +527,25 @@ export function resolvePartitionLocation(
   }
 
   throw new Error(`Unsupported storage target kind: ${target.kind}`);
+}
+
+export async function partitionFileExists(
+  partition: DatasetPartitionRecord,
+  target: StorageTargetRecord,
+  config: ServiceConfig
+): Promise<boolean> {
+  if (target.kind === 'local') {
+    const location = resolvePartitionLocation(partition, target, config);
+    try {
+      await fs.access(location, fsConstants.R_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Remote drivers (s3/gcs/azure) currently assume durable storage; defer to separate health checks.
+  return true;
 }
 
 export async function deletePartitionFile(

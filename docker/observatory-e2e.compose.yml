@@ -6,9 +6,9 @@ x-shared-env: &shared-env
   PORT: 4000
   APPHUB_SESSION_SECRET: apphub-e2e-session
   APPHUB_AUTH_DISABLED: "1"
-  APPHUB_ALLOW_INLINE_MODE: "false"
+  APPHUB_ALLOW_INLINE_MODE: "${APPHUB_ALLOW_INLINE_MODE:-false}"
   APPHUB_EVENTS_MODE: redis
-  APPHUB_STREAMING_ENABLED: "false"
+  APPHUB_STREAMING_ENABLED: "${APPHUB_STREAMING_ENABLED:-false}"
   APPHUB_BUILD_EXECUTION_MODE: stub
   APPHUB_LAUNCH_EXECUTION_MODE: stub
   APPHUB_METRICS_ENABLED: "true"
@@ -48,16 +48,25 @@ x-shared-env: &shared-env
   APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID: apphub
   APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY: apphub123
   OBSERVATORY_CONFIG_PATH: /tmp/apphub-observatory/scratch/config/observatory-config.json
-  TIMESTORE_STORAGE_DRIVER: s3
+  TIMESTORE_STORAGE_DRIVER: "${TIMESTORE_STORAGE_DRIVER:-s3}"
   TIMESTORE_S3_BUCKET: apphub-timestore
   TIMESTORE_S3_ENDPOINT: http://minio:9000
   TIMESTORE_S3_REGION: us-east-1
   TIMESTORE_S3_FORCE_PATH_STYLE: "true"
   TIMESTORE_S3_ACCESS_KEY_ID: apphub
   TIMESTORE_S3_SECRET_ACCESS_KEY: apphub123
-  TIMESTORE_STAGING_FLUSH_MAX_ROWS: "1"
-  TIMESTORE_STAGING_FLUSH_MAX_BYTES: "0"
-  TIMESTORE_STAGING_FLUSH_MAX_AGE_MS: "0"
+  TIMESTORE_STREAMING_BUFFER_ENABLED: "${TIMESTORE_STREAMING_BUFFER_ENABLED:-0}"
+  TIMESTORE_STREAMING_BUFFER_FALLBACK: "${TIMESTORE_STREAMING_BUFFER_FALLBACK:-parquet_only}"
+  TIMESTORE_STREAMING_BATCHERS: "${TIMESTORE_STREAMING_BATCHERS:-[]}"
+  TIMESTORE_STREAMING_CONNECTORS: "${TIMESTORE_STREAMING_CONNECTORS:-[]}"
+  TIMESTORE_BULK_CONNECTORS: "${TIMESTORE_BULK_CONNECTORS:-[]}"
+  APPHUB_STREAM_BROKER_URL: "${APPHUB_STREAM_BROKER_URL:-}"
+  TIMESTORE_TEST_API_ENABLED: "${TIMESTORE_TEST_API_ENABLED:-0}"
+  TIMESTORE_TEST_HOT_BUFFER_ENABLED: "${TIMESTORE_TEST_HOT_BUFFER_ENABLED:-1}"
+  TIMESTORE_TEST_HOT_BUFFER_STATE: "${TIMESTORE_TEST_HOT_BUFFER_STATE:-ready}"
+  TIMESTORE_STAGING_FLUSH_MAX_ROWS: "${TIMESTORE_STAGING_FLUSH_MAX_ROWS:-1}"
+  TIMESTORE_STAGING_FLUSH_MAX_BYTES: "${TIMESTORE_STAGING_FLUSH_MAX_BYTES:-0}"
+  TIMESTORE_STAGING_FLUSH_MAX_AGE_MS: "${TIMESTORE_STAGING_FLUSH_MAX_AGE_MS:-0}"
   AWS_ACCESS_KEY_ID: apphub
   AWS_SECRET_ACCESS_KEY: apphub123
   AWS_REGION: us-east-1
@@ -228,30 +237,13 @@ services:
       - minio
     environment:
       <<: *shared-env
+      REDIS_URL: inline
+      TIMESTORE_MANIFEST_CACHE_ENABLED: "false"
+      TIMESTORE_FILESTORE_SYNC_ENABLED: "false"
       PORT: 4200
     restart: unless-stopped
     ports:
       - "${APPHUB_E2E_TIMESTORE_PORT:-4420}:4200"
-    volumes: *runtime-volume
-
-  timestore-ingest:
-    image: apphub/timestore:e2e
-    depends_on:
-      - timestore
-    environment:
-      <<: *shared-env
-    restart: unless-stopped
-    command: ["services/timestore/dist/workers/ingestionWorker.js"]
-    volumes: *runtime-volume
-
-  timestore-partition:
-    image: apphub/timestore:e2e
-    depends_on:
-      - timestore
-    environment:
-      <<: *shared-env
-    restart: unless-stopped
-    command: ["services/timestore/dist/workers/partitionBuildWorker.js"]
     volumes: *runtime-volume
 
 volumes:

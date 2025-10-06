@@ -94,6 +94,18 @@ export interface PreparedFlushResult {
   preparedAt: string;
 }
 
+export interface PendingStagingBatch {
+  batchId: string;
+  tableName: string;
+  rowCount: number;
+  timeRange: {
+    start: string;
+    end: string;
+  };
+  stagedAt: string;
+  schema: FieldDefinition[];
+}
+
 interface DatasetSpoolContext {
   datasetSlug: string;
   safeSlug: string;
@@ -832,6 +844,56 @@ export class DuckDbSpoolManager {
     });
   }
 
+  async listPendingBatches(datasetSlug: string): Promise<PendingStagingBatch[]> {
+    return this.runWithDatasetLock(datasetSlug, async () => {
+      const context = await this.getDatasetContext(datasetSlug);
+      await this.ensureMetadataTable(context);
+      const metadataTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, METADATA_TABLE);
+      const rows = await all(
+        context.connection,
+        `SELECT
+            batch_id,
+            table_name,
+            row_count,
+            time_range_start,
+            time_range_end,
+            staged_at,
+            schema_json
+          FROM ${metadataTable}
+         WHERE flush_token IS NULL
+         ORDER BY staged_at ASC`
+      );
+
+      return rows.map((row) => {
+        const tableName = typeof row.table_name === 'string' ? row.table_name : 'records';
+        const schemaEntries = parseJson<Array<{ name?: unknown; type?: unknown }>>(row.schema_json, []);
+        const schema: FieldDefinition[] = [];
+        for (const entry of schemaEntries) {
+          if (!entry || typeof entry.name !== 'string') {
+            continue;
+          }
+          const rawType = typeof entry.type === 'string' ? entry.type : 'string';
+          schema.push({
+            name: entry.name,
+            type: mapStagingTypeToFieldType(rawType)
+          });
+        }
+
+        return {
+          batchId: String(row.batch_id ?? ''),
+          tableName,
+          rowCount: Number(row.row_count ?? 0),
+          timeRange: {
+            start: new Date(row.time_range_start ?? row.staged_at ?? Date.now()).toISOString(),
+            end: new Date(row.time_range_end ?? row.staged_at ?? Date.now()).toISOString()
+          },
+          stagedAt: new Date(row.staged_at ?? Date.now()).toISOString(),
+          schema
+        } satisfies PendingStagingBatch;
+      });
+    });
+  }
+
   private async abortFlushInternal(
     context: DatasetSpoolContext,
     flushToken: string
@@ -998,6 +1060,35 @@ function augmentSchema(schema: FieldDefinition[]): FieldDefinition[] {
     augmented.push({ name: INTERNAL_STAGED_AT_COLUMN, type: 'timestamp' });
   }
   return augmented;
+}
+
+function mapStagingTypeToFieldType(input: string): FieldDefinition['type'] {
+  const normalized = input.trim().toLowerCase();
+  if (normalized.includes('time')) {
+    return 'timestamp';
+  }
+  if (normalized === 'boolean' || normalized === 'bool') {
+    return 'boolean';
+  }
+  if (
+    normalized === 'double' ||
+    normalized === 'float' ||
+    normalized === 'real' ||
+    normalized === 'numeric' ||
+    normalized === 'decimal'
+  ) {
+    return 'double';
+  }
+  if (
+    normalized === 'integer' ||
+    normalized === 'int' ||
+    normalized === 'bigint' ||
+    normalized === 'smallint' ||
+    normalized === 'tinyint'
+  ) {
+    return 'integer';
+  }
+  return 'string';
 }
 
 function parseJson<T>(value: unknown, fallback: T): T {

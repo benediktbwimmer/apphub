@@ -17,14 +17,16 @@ import {
   getPartitionsWithTargetsForManifest,
   findPartitionByIngestionSignature,
   recordIngestionBatch,
+  replacePartitionsInManifest,
   updateDatasetDefaultStorageTarget,
   type DatasetRecord,
+  type DatasetManifestWithPartitions,
   type DatasetPartitionRecord,
   type PartitionInput,
   type StorageTargetRecord
 } from '../db/metadata';
-import { loadServiceConfig } from '../config/serviceConfig';
-import type { FieldDefinition } from '../storage';
+import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
+import { partitionFileExists, type FieldDefinition } from '../storage';
 import { ensureDefaultStorageTarget } from '../service/bootstrap';
 import type { IngestionJobPayload, IngestionProcessingResult } from './types';
 import { observeIngestionJob, observeStagingFlush, recordStagingRetry } from '../observability/metrics';
@@ -35,9 +37,14 @@ import { refreshManifestCache } from '../cache/manifestCache';
 import { deriveManifestShardKey } from '../service/manifestShard';
 import { computePartitionIndexForRows } from '../indexing/partitionIndex';
 import { executePartitionBuild } from './partitionBuilderClient';
-import { getStagingWriteManager } from './stagingManager';
+import { getStagingWriteManager, resetStagingWriteManager } from './stagingManager';
 import { resolveFlushThresholds, maybePrepareDatasetFlush } from './flushPlanner';
-import type { PreparedFlushBatch, StagePartitionRequest } from '../storage/spoolManager';
+import {
+  DuckDbSpoolManager,
+  type PreparedFlushBatch,
+  type PreparedFlushResult,
+  type StagePartitionRequest
+} from '../storage/spoolManager';
 import {
   analyzeSchemaCompatibility,
   extractFieldDefinitions,
@@ -61,17 +68,347 @@ class SchemaEvolutionError extends Error {
   }
 }
 
+interface FlushExecutionContext {
+  dataset: DatasetRecord;
+  datasetSlug: string;
+  storageTarget: StorageTargetRecord;
+  config: ServiceConfig;
+  spoolManager: DuckDbSpoolManager;
+  flushResult: PreparedFlushResult;
+  baselineManifest: DatasetManifestWithPartitions | null;
+  previousManifest: DatasetManifestWithPartitions | null;
+  reusePartition?: (
+    partition: DatasetPartitionRecord,
+    idempotencyKey: string | null
+  ) => Promise<DatasetManifestWithPartitions | null>;
+}
+
+interface FlushExecutionOutcome {
+  latestManifest: DatasetManifestWithPartitions | null;
+}
+
+async function performPreparedFlush(context: FlushExecutionContext): Promise<FlushExecutionOutcome> {
+  const {
+    dataset,
+    datasetSlug,
+    storageTarget,
+    config,
+    spoolManager,
+    flushResult,
+    baselineManifest,
+    previousManifest,
+    reusePartition
+  } = context;
+
+  const schemaVersionCache = new Map<string, string>();
+  const manifestByShard = new Map<string, DatasetManifestWithPartitions>();
+  let globalBaselineManifest = baselineManifest ?? null;
+  let latestManifest: DatasetManifestWithPartitions | null = previousManifest ?? baselineManifest ?? null;
+
+  try {
+    for (const batch of flushResult.batches) {
+      const manifest = await processFlushBatch(batch);
+      if (manifest) {
+        latestManifest = manifest;
+        manifestByShard.set(manifest.manifestShard, manifest);
+        globalBaselineManifest = manifest;
+      }
+    }
+
+    await spoolManager.finalizeFlush(datasetSlug, flushResult.flushToken);
+
+    return { latestManifest } satisfies FlushExecutionOutcome;
+  } catch (error) {
+    await spoolManager.abortFlush(datasetSlug, flushResult.flushToken).catch(() => undefined);
+    throw error;
+  }
+
+  async function processFlushBatch(batch: PreparedFlushBatch): Promise<DatasetManifestWithPartitions | null> {
+    const schemaFields = normalizeFieldDefinitions(batch.schema);
+    const partitionKey = batch.partitionKey ?? {};
+    const partitionAttributes = batch.partitionAttributes ?? null;
+    const partitionKeyString = buildPartitionKeyString(partitionKey);
+    const startTime = new Date(batch.timeRange.start);
+    const endTime = new Date(batch.timeRange.end);
+
+    if (!Number.isFinite(startTime.getTime()) || !Number.isFinite(endTime.getTime())) {
+      throw new Error('Staged partition includes invalid time range');
+    }
+
+    const manifestShardKey = deriveManifestShardKey(startTime);
+
+    let shardManifest = manifestByShard.get(manifestShardKey);
+    if (!shardManifest) {
+      const fetchedManifest = await getLatestPublishedManifest(dataset.id, { shard: manifestShardKey });
+      if (fetchedManifest) {
+        shardManifest = fetchedManifest;
+        manifestByShard.set(manifestShardKey, fetchedManifest);
+      }
+    }
+
+    let baselineForCompatibility = shardManifest ?? globalBaselineManifest;
+    if (!baselineForCompatibility) {
+      baselineForCompatibility = await getLatestPublishedManifest(dataset.id);
+      globalBaselineManifest = baselineForCompatibility;
+    }
+
+    let compatibility: SchemaCompatibilityResult | null = null;
+    if (baselineForCompatibility?.schemaVersionId) {
+      const baselineSchemaVersion = await getSchemaVersionById(baselineForCompatibility.schemaVersionId);
+      const baselineFields = baselineSchemaVersion
+        ? extractFieldDefinitions(baselineSchemaVersion.schema)
+        : [];
+      compatibility = analyzeSchemaCompatibility(baselineFields, schemaFields);
+      if (compatibility.status === 'breaking') {
+        throw new SchemaEvolutionError(datasetSlug, compatibility);
+      }
+    }
+
+    const schemaChecksum = createSchemaChecksum(schemaFields);
+    let schemaVersionId = schemaVersionCache.get(schemaChecksum);
+    let schemaVersionRecord = schemaVersionId
+      ? await getSchemaVersionById(schemaVersionId)
+      : await findSchemaVersionByChecksum(dataset.id, schemaChecksum);
+
+    if (!schemaVersionRecord) {
+      const versionNumber = await getNextSchemaVersion(dataset.id);
+      schemaVersionRecord = await createDatasetSchemaVersion({
+        id: `dsv-${randomUUID()}`,
+        datasetId: dataset.id,
+        version: versionNumber,
+        description: `Schema derived from staged ingestion at ${batch.receivedAt}`,
+        schema: { fields: schemaFields },
+        checksum: schemaChecksum
+      });
+    }
+    schemaVersionCache.set(schemaChecksum, schemaVersionRecord.id);
+
+    const partitionIndex = computePartitionIndexForRows(batch.rows, schemaFields, config.partitionIndex);
+
+    const partitionId = `part-${randomUUID()}`;
+    const writeResult = await executePartitionBuild(config, {
+      datasetSlug,
+      storageTarget,
+      partitionId,
+      partitionKey,
+      tableName: batch.tableName,
+      schema: schemaFields,
+      sourceFilePath: batch.parquetFilePath,
+      rowCountHint: batch.rowCount
+    });
+
+    const partitionInput: PartitionInput = {
+      id: partitionId,
+      storageTargetId: storageTarget.id,
+      fileFormat: 'parquet',
+      filePath: writeResult.relativePath,
+      partitionKey,
+      startTime,
+      endTime,
+      fileSizeBytes: writeResult.fileSizeBytes,
+      rowCount: writeResult.rowCount,
+      checksum: writeResult.checksum,
+      metadata: {
+        tableName: batch.tableName,
+        schemaVersionId: schemaVersionRecord.id,
+        ...(partitionAttributes ? { attributes: partitionAttributes } : {})
+      },
+      columnStatistics: partitionIndex.columnStatistics,
+      columnBloomFilters: partitionIndex.columnBloomFilters,
+      ingestionSignature: batch.ingestionSignature
+    };
+
+    const summaryPatch = {
+      batchRowCount: writeResult.rowCount,
+      tableName: batch.tableName,
+      lastPartitionId: partitionId,
+      lastIngestedAt: batch.receivedAt,
+      schemaVersionId: schemaVersionRecord.id
+    } satisfies Record<string, unknown>;
+
+    const metadataPatch: Record<string, unknown> = {
+      tableName: batch.tableName,
+      storageTargetId: storageTarget.id,
+      schemaVersionId: schemaVersionRecord.id,
+      ...(partitionAttributes ? { attributes: partitionAttributes } : {})
+    };
+
+    if (compatibility?.status === 'additive' && compatibility.addedFields.length > 0) {
+      metadataPatch.schemaEvolution = {
+        status: 'additive',
+        addedColumns: compatibility.addedFields.map((field) => field.name),
+        requestedBackfill: batch.backfillRequested === true
+      } satisfies Record<string, unknown>;
+    }
+
+    try {
+      if (shardManifest && (shardManifest.schemaVersionId === schemaVersionRecord.id || compatibility?.status === 'additive')) {
+        shardManifest = await appendPartitionsToManifest({
+          datasetId: dataset.id,
+          manifestId: shardManifest.id,
+          partitions: [partitionInput],
+          summaryPatch,
+          metadataPatch,
+          schemaVersionId: schemaVersionRecord.id
+        });
+      } else {
+        const manifestVersion = await getNextManifestVersion(dataset.id);
+        shardManifest = await createDatasetManifest({
+          id: `dm-${randomUUID()}`,
+          datasetId: dataset.id,
+          version: manifestVersion,
+          status: 'published',
+          manifestShard: manifestShardKey,
+          schemaVersionId: schemaVersionRecord.id,
+          parentManifestId: shardManifest?.id ?? null,
+          summary: summaryPatch,
+          statistics: {
+            rowCount: writeResult.rowCount,
+            fileSizeBytes: writeResult.fileSizeBytes,
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString()
+          },
+          metadata: metadataPatch,
+          createdBy: 'timestore-ingestion',
+          partitions: [partitionInput]
+        });
+      }
+    } catch (error) {
+      if (isIngestionSignatureConflict(error)) {
+        const existingPartition = await findPartitionByIngestionSignature(
+          dataset.id,
+          batch.ingestionSignature
+        );
+        if (existingPartition) {
+          const reusedManifest = await (reusePartition
+            ? reusePartition(existingPartition, batch.idempotencyKey ?? null)
+            : getManifestById(existingPartition.manifestId));
+          if (reusedManifest) {
+            if (batch.idempotencyKey) {
+              await recordIngestionBatch({
+                id: `ing-${randomUUID()}`,
+                datasetId: dataset.id,
+                idempotencyKey: batch.idempotencyKey,
+                manifestId: reusedManifest.id
+              });
+            }
+            return reusedManifest;
+          }
+        }
+      }
+      throw error;
+    }
+
+    if (batch.idempotencyKey) {
+      await recordIngestionBatch({
+        id: `ing-${randomUUID()}`,
+        datasetId: dataset.id,
+        idempotencyKey: batch.idempotencyKey,
+        manifestId: shardManifest.id
+      });
+    }
+
+    try {
+      const partitionsWithTargets = await getPartitionsWithTargetsForManifest(shardManifest.id);
+      const { partitions: _cachedPartitions, ...manifestRecord } = shardManifest;
+      await refreshManifestCache(
+        { id: dataset.id, slug: dataset.slug },
+        manifestRecord,
+        partitionsWithTargets
+      );
+    } catch (err) {
+      console.warn('[timestore] failed to refresh manifest cache after ingestion', err);
+    }
+
+    const addedColumns = compatibility?.addedFields.map((field) => field.name) ?? [];
+
+    try {
+      await publishTimestoreEvent(
+        'timestore.partition.created',
+        {
+          datasetId: dataset.id,
+          datasetSlug,
+          manifestId: shardManifest.id,
+          partitionId,
+          partitionKey: partitionKeyString,
+          partitionKeyFields: partitionKey,
+          storageTargetId: storageTarget.id,
+          filePath: writeResult.relativePath,
+          rowCount: writeResult.rowCount,
+          fileSizeBytes: writeResult.fileSizeBytes,
+          checksum: writeResult.checksum ?? null,
+          receivedAt: batch.receivedAt,
+          attributes: partitionAttributes ?? null
+        },
+        'timestore.ingest'
+      );
+    } catch (err) {
+      console.error('[timestore] failed to publish partition.created event', err);
+    }
+
+    if (addedColumns.length > 0) {
+      try {
+        await publishTimestoreEvent(
+          'timestore.schema.evolved',
+          {
+            datasetId: dataset.id,
+            datasetSlug,
+            manifestId: shardManifest.id,
+            previousManifestId: shardManifest.parentManifestId ?? null,
+            schemaVersionId: schemaVersionRecord.id,
+            addedColumns
+          },
+          'timestore.ingest'
+        );
+      } catch (err) {
+        console.error('[timestore] failed to publish schema.evolved event', err);
+      }
+    }
+
+    if (batch.backfillRequested && addedColumns.length > 0) {
+      try {
+        const defaultsSource = batch.schemaDefaults ?? {};
+        const defaults = Object.fromEntries(
+          addedColumns.map((column) => [column, (defaultsSource as Record<string, unknown>)[column] ?? null])
+        );
+        await publishTimestoreEvent(
+          'timestore.schema.backfill.requested',
+          {
+            datasetId: dataset.id,
+            datasetSlug,
+            manifestId: shardManifest.id,
+            schemaVersionId: schemaVersionRecord.id,
+            addedColumns,
+            defaults
+          },
+          'timestore.ingest'
+        );
+      } catch (err) {
+        console.error('[timestore] failed to publish schema.backfill.requested event', err);
+      }
+    }
+
+    invalidateSqlRuntimeCache({
+      datasetId: dataset.id,
+      datasetSlug,
+      reason: 'ingestion'
+    });
+
+    return shardManifest;
+  }
+}
+
 export async function processIngestionJob(
   payload: IngestionJobPayload
 ): Promise<IngestionProcessingResult> {
   const config = loadServiceConfig();
+  await resetStagingWriteManager();
   const stagingManager = getStagingWriteManager(config);
   const datasetSlug = payload.datasetSlug.trim();
   const span = startSpan('timestore.ingest.process', {
     'timestore.dataset_slug': datasetSlug
   });
   const start = process.hrtime.bigint();
-  let flushFailureHandled = false;
   try {
     const storageTarget = await resolveStorageTarget(payload);
 
@@ -107,7 +444,40 @@ export async function processIngestionJob(
         return null;
       }
 
-      const existingTarget = await getStorageTargetById(partition.storageTargetId);
+      const existingTarget = partition.storageTargetId
+        ? await getStorageTargetById(partition.storageTargetId)
+        : null;
+      if (!existingTarget) {
+        return null;
+      }
+
+      const filePresent = await partitionFileExists(partition, existingTarget, config);
+      if (!filePresent) {
+        console.warn('[timestore:ingest] partition reuse skipped; partition file missing', {
+          datasetSlug,
+          partitionId: partition.id,
+          storageTargetId: existingTarget.id,
+          partitionPath: manifest.partitions?.[0]?.filePath ?? partition.filePath
+        });
+        try {
+          await replacePartitionsInManifest({
+            datasetId: dataset.id,
+            manifestId: manifest.id,
+            removePartitionIds: [partition.id],
+            addPartitions: [],
+            summaryPatch: {},
+            metadataPatch: {}
+          });
+        } catch (removeError) {
+          console.warn('[timestore:ingest] failed to remove stale partition during reuse fallback', {
+            datasetSlug,
+            partitionId: partition.id,
+            error: removeError instanceof Error ? removeError.message : removeError
+          });
+        }
+        return null;
+      }
+
       if (idempotencyKey) {
         await recordIngestionBatch({
           id: `ing-${randomUUID()}`,
@@ -125,7 +495,7 @@ export async function processIngestionJob(
       return {
         dataset,
         manifest,
-        storageTarget: existingTarget ?? storageTarget,
+        storageTarget: existingTarget,
         idempotencyKey: idempotencyKey ?? null,
         flushPending: false
       };
@@ -265,22 +635,21 @@ export async function processIngestionJob(
       0
     );
 
-    const schemaVersionCache = new Map<string, string>();
-    const manifestByShard = new Map<string, import('../db/metadata').DatasetManifestWithPartitions>();
-    let latestManifest: import('../db/metadata').DatasetManifestWithPartitions | null = null;
-    let globalBaselineManifest = baselineManifest ?? null;
-
     try {
-      for (const batch of flushPreparation.result.batches) {
-        const manifest = await processFlushBatch(batch);
-        if (manifest) {
-          latestManifest = manifest;
-          manifestByShard.set(manifest.manifestShard, manifest);
-          globalBaselineManifest = manifest;
+      const { latestManifest } = await performPreparedFlush({
+        dataset,
+        datasetSlug,
+        storageTarget,
+        config,
+        spoolManager,
+        flushResult: flushPreparation.result,
+        baselineManifest,
+        previousManifest,
+        reusePartition: async (partition, idempotencyKey) => {
+          const reused = await reuseExistingPartition(partition, idempotencyKey ?? null);
+          return reused?.manifest ?? null;
         }
-      }
-
-      await spoolManager.finalizeFlush(datasetSlug, flushPreparation.result.flushToken);
+      });
 
       observeStagingFlush({
         datasetSlug,
@@ -305,13 +674,6 @@ export async function processIngestionJob(
         flushPending: false
       } satisfies IngestionProcessingResult;
     } catch (error) {
-      let retryStats: { batches: number; rows: number } | null = null;
-      try {
-        retryStats = await spoolManager.abortFlush(datasetSlug, flushPreparation.result.flushToken);
-      } catch (abortError) {
-        retryStats = null;
-      }
-
       observeStagingFlush({
         datasetSlug,
         result: 'failure',
@@ -320,12 +682,6 @@ export async function processIngestionJob(
         rows: flushRowCount
       });
 
-      recordStagingRetry({
-        datasetSlug,
-        reason: 'flush_abort',
-        batches: retryStats?.batches ?? (flushBatchCount > 0 ? flushBatchCount : 1)
-      });
-
       observeIngestionJob({
         datasetSlug,
         result: 'failure',
@@ -333,292 +689,152 @@ export async function processIngestionJob(
       });
 
       endSpan(span, error);
-      flushFailureHandled = true;
       throw error;
     }
+  } catch (error) {
+    observeIngestionJob({
+      datasetSlug,
+      result: 'failure',
+      durationSeconds: durationSince(start)
+    });
+    endSpan(span, error);
+    throw error;
+  }
+}
 
-    async function processFlushBatch(batch: PreparedFlushBatch): Promise<import('../db/metadata').DatasetManifestWithPartitions> {
-      const schemaFields = normalizeFieldDefinitions(batch.schema);
-      const partitionKey = batch.partitionKey ?? {};
-      const partitionAttributes = batch.partitionAttributes ?? null;
-      const partitionKeyString = buildPartitionKeyString(partitionKey);
-      const startTime = new Date(batch.timeRange.start);
-      const endTime = new Date(batch.timeRange.end);
+export interface DatasetFlushResult {
+  status: 'noop' | 'flushed';
+  batches: number;
+  rows: number;
+  manifest: DatasetManifestWithPartitions | null;
+}
 
-      if (!Number.isFinite(startTime.getTime()) || !Number.isFinite(endTime.getTime())) {
-        throw new Error('Staged partition includes invalid time range');
-      }
+export async function flushDatasetStaging(
+  datasetSlug: string,
+  options: { storageTargetId?: string } = {}
+): Promise<DatasetFlushResult> {
+  const config = loadServiceConfig();
+  const stagingManager = getStagingWriteManager(config);
+  const spoolManager = stagingManager.getSpoolManager();
 
-      const manifestShardKey = deriveManifestShardKey(startTime);
+  const dataset = await getDatasetBySlug(datasetSlug);
+  if (!dataset) {
+    throw new Error(`Dataset ${datasetSlug} not found`);
+  }
 
-      let shardManifest = manifestByShard.get(manifestShardKey);
-      if (!shardManifest) {
-        const fetchedManifest = await getLatestPublishedManifest(dataset.id, { shard: manifestShardKey });
-        if (fetchedManifest) {
-          shardManifest = fetchedManifest;
-          manifestByShard.set(manifestShardKey, fetchedManifest);
-        }
-      }
+  let storageTarget: StorageTargetRecord | null = null;
+  if (options.storageTargetId) {
+    storageTarget = await getStorageTargetById(options.storageTargetId);
+    if (!storageTarget) {
+      throw new Error(`Storage target ${options.storageTargetId} not found`);
+    }
+  } else if (dataset.defaultStorageTargetId) {
+    storageTarget = await getStorageTargetById(dataset.defaultStorageTargetId);
+    if (!storageTarget) {
+      throw new Error(`Storage target ${dataset.defaultStorageTargetId} not found`);
+    }
+  } else {
+    storageTarget = await ensureDefaultStorageTarget();
+  }
 
-      let baselineForCompatibility = shardManifest ?? globalBaselineManifest;
-      if (!baselineForCompatibility) {
-        baselineForCompatibility = await getLatestPublishedManifest(dataset.id);
-        globalBaselineManifest = baselineForCompatibility;
-      }
+  const prepared = await spoolManager.prepareFlush(datasetSlug);
+  if (!prepared || prepared.batches.length === 0) {
+    return { status: 'noop', batches: 0, rows: 0, manifest: null } satisfies DatasetFlushResult;
+  }
 
-      let compatibility: SchemaCompatibilityResult | null = null;
-      if (baselineForCompatibility?.schemaVersionId) {
-        const baselineSchemaVersion = await getSchemaVersionById(baselineForCompatibility.schemaVersionId);
-        const baselineFields = baselineSchemaVersion
-          ? extractFieldDefinitions(baselineSchemaVersion.schema)
-          : [];
-        compatibility = analyzeSchemaCompatibility(baselineFields, schemaFields);
-        if (compatibility.status === 'breaking') {
-          throw new SchemaEvolutionError(datasetSlug, compatibility);
-        }
-      }
+  const flushStart = process.hrtime.bigint();
+  let pending = prepared;
+  let attemptsRemaining = 5;
 
-      const schemaChecksum = createSchemaChecksum(schemaFields);
-      let schemaVersionId = schemaVersionCache.get(schemaChecksum);
-      let schemaVersionRecord = schemaVersionId
-        ? await getSchemaVersionById(schemaVersionId)
-        : await findSchemaVersionByChecksum(dataset.id, schemaChecksum);
+  while (attemptsRemaining > 0) {
+    const flushBatchCount = pending.batches.length;
+    const flushRowCount = pending.batches.reduce(
+      (total, batch) => total + Math.max(0, Number(batch.rowCount ?? 0)),
+      0
+    );
 
-      if (!schemaVersionRecord) {
-        const versionNumber = await getNextSchemaVersion(dataset.id);
-        schemaVersionRecord = await createDatasetSchemaVersion({
-          id: `dsv-${randomUUID()}`,
-          datasetId: dataset.id,
-          version: versionNumber,
-          description: `Schema derived from staged ingestion at ${batch.receivedAt}`,
-          schema: { fields: schemaFields },
-          checksum: schemaChecksum
-        });
-      }
-      schemaVersionCache.set(schemaChecksum, schemaVersionRecord.id);
+    const firstBatch = pending.batches[0];
+    const shardKey = deriveManifestShardKey(new Date(firstBatch.timeRange.start));
+    const previousManifest = await getLatestPublishedManifest(dataset.id, { shard: shardKey });
+    const baselineManifest = previousManifest ?? (await getLatestPublishedManifest(dataset.id));
 
-      const partitionIndex = computePartitionIndexForRows(batch.rows, schemaFields, config.partitionIndex);
-
-      const partitionId = `part-${randomUUID()}`;
-      const writeResult = await executePartitionBuild(config, {
+    try {
+      const { latestManifest } = await performPreparedFlush({
+        dataset,
         datasetSlug,
         storageTarget,
-        partitionId,
-        partitionKey,
-        tableName: batch.tableName,
-        schema: schemaFields,
-        sourceFilePath: batch.parquetFilePath,
-        rowCountHint: batch.rowCount
+        config,
+        spoolManager,
+        flushResult: pending,
+        baselineManifest,
+        previousManifest,
+        reusePartition: async (partition, idempotencyKey) => {
+          const manifest = await getManifestById(partition.manifestId);
+          if (!manifest) {
+            return null;
+          }
+          if (idempotencyKey) {
+            await recordIngestionBatch({
+              id: `ing-${randomUUID()}`,
+              datasetId: dataset.id,
+              idempotencyKey,
+              manifestId: manifest.id
+            });
+          }
+          return manifest;
+        }
       });
 
-      const partitionInput: PartitionInput = {
-        id: partitionId,
-        storageTargetId: storageTarget.id,
-        fileFormat: 'parquet',
-        filePath: writeResult.relativePath,
-        partitionKey,
-        startTime,
-        endTime,
-        fileSizeBytes: writeResult.fileSizeBytes,
-        rowCount: writeResult.rowCount,
-        checksum: writeResult.checksum,
-        metadata: {
-          tableName: batch.tableName,
-          schemaVersionId: schemaVersionRecord.id,
-          ...(partitionAttributes ? { attributes: partitionAttributes } : {})
-        },
-        columnStatistics: partitionIndex.columnStatistics,
-        columnBloomFilters: partitionIndex.columnBloomFilters,
-        ingestionSignature: batch.ingestionSignature
-      };
+      observeStagingFlush({
+        datasetSlug,
+        result: 'success',
+        durationSeconds: durationSince(flushStart),
+        batches: flushBatchCount,
+        rows: flushRowCount
+      });
 
-      const summaryPatch = {
-        batchRowCount: writeResult.rowCount,
-        tableName: batch.tableName,
-        lastPartitionId: partitionId,
-        lastIngestedAt: batch.receivedAt,
-        schemaVersionId: schemaVersionRecord.id
-      } satisfies Record<string, unknown>;
-
-      const metadataPatch: Record<string, unknown> = {
-        tableName: batch.tableName,
-        storageTargetId: storageTarget.id,
-        schemaVersionId: schemaVersionRecord.id,
-        ...(partitionAttributes ? { attributes: partitionAttributes } : {})
-      };
-
-      if (compatibility?.status === 'additive' && compatibility.addedFields.length > 0) {
-        metadataPatch.schemaEvolution = {
-          status: 'additive',
-          addedColumns: compatibility.addedFields.map((field) => field.name),
-          requestedBackfill: batch.backfillRequested === true
-        } satisfies Record<string, unknown>;
-      }
-
-      let manifest: import('../db/metadata').DatasetManifestWithPartitions;
-
-      const canReuseManifest =
-        Boolean(shardManifest) &&
-        (shardManifest?.schemaVersionId === schemaVersionRecord.id || compatibility?.status === 'additive');
-
-      try {
-        if (shardManifest && canReuseManifest) {
-          manifest = await appendPartitionsToManifest({
-            datasetId: dataset.id,
-            manifestId: shardManifest.id,
-            partitions: [partitionInput],
-            summaryPatch,
-            metadataPatch,
-            schemaVersionId: schemaVersionRecord.id
-          });
-        } else {
-          const manifestVersion = await getNextManifestVersion(dataset.id);
-          manifest = await createDatasetManifest({
-            id: `dm-${randomUUID()}`,
-            datasetId: dataset.id,
-            version: manifestVersion,
-            status: 'published',
-            manifestShard: manifestShardKey,
-            schemaVersionId: schemaVersionRecord.id,
-            parentManifestId: shardManifest?.id ?? null,
-            summary: summaryPatch,
-            statistics: {
-              rowCount: writeResult.rowCount,
-              fileSizeBytes: writeResult.fileSizeBytes,
-              startTime: startTime.toISOString(),
-              endTime: endTime.toISOString()
-            },
-            metadata: metadataPatch,
-            createdBy: 'timestore-ingestion',
-            partitions: [partitionInput]
-          });
-        }
-      } catch (error) {
-        if (isIngestionSignatureConflict(error)) {
-          const existingPartition = await findPartitionByIngestionSignature(
-            dataset.id,
-            batch.ingestionSignature
-          );
-          if (existingPartition) {
-            const reused = await reuseExistingPartition(existingPartition, batch.idempotencyKey ?? null);
-            if (reused?.manifest) {
-              return reused.manifest;
-            }
-          }
-        }
+      return {
+        status: 'flushed',
+        batches: flushBatchCount,
+        rows: flushRowCount,
+        manifest: latestManifest ?? previousManifest ?? baselineManifest ?? null
+      } satisfies DatasetFlushResult;
+    } catch (error) {
+      attemptsRemaining -= 1;
+      const retryable = isTransientDuckDbError(error) && attemptsRemaining > 0;
+      if (!retryable) {
+        observeStagingFlush({
+          datasetSlug,
+          result: 'failure',
+          durationSeconds: durationSince(flushStart),
+          batches: flushBatchCount,
+          rows: flushRowCount
+        });
         throw error;
       }
 
-      if (batch.idempotencyKey) {
-        await recordIngestionBatch({
-          id: `ing-${randomUUID()}`,
-          datasetId: dataset.id,
-          idempotencyKey: batch.idempotencyKey,
-          manifestId: manifest.id
+      await new Promise((resolve) => setTimeout(resolve, 500 * (6 - attemptsRemaining)));
+      const retried = await spoolManager.prepareFlush(datasetSlug);
+      if (!retried || retried.batches.length === 0) {
+        observeStagingFlush({
+          datasetSlug,
+          result: 'success',
+          durationSeconds: durationSince(flushStart),
+          batches: 0,
+          rows: 0
         });
+        return {
+          status: 'noop',
+          batches: 0,
+          rows: 0,
+          manifest: null
+        } satisfies DatasetFlushResult;
       }
-
-      try {
-        const partitionsWithTargets = await getPartitionsWithTargetsForManifest(manifest.id);
-        const { partitions: _cachedPartitions, ...manifestRecord } = manifest;
-        await refreshManifestCache(
-          { id: dataset.id, slug: dataset.slug },
-          manifestRecord,
-          partitionsWithTargets
-        );
-      } catch (err) {
-        console.warn('[timestore] failed to refresh manifest cache after ingestion', err);
-      }
-
-      const addedColumns = compatibility?.addedFields.map((field) => field.name) ?? [];
-
-      try {
-        await publishTimestoreEvent(
-          'timestore.partition.created',
-          {
-            datasetId: dataset.id,
-            datasetSlug,
-            manifestId: manifest.id,
-            partitionId,
-            partitionKey: partitionKeyString,
-            partitionKeyFields: partitionKey,
-            storageTargetId: storageTarget.id,
-            filePath: writeResult.relativePath,
-            rowCount: writeResult.rowCount,
-            fileSizeBytes: writeResult.fileSizeBytes,
-            checksum: writeResult.checksum ?? null,
-            receivedAt: batch.receivedAt,
-            attributes: partitionAttributes ?? null
-          },
-          'timestore.ingest'
-        );
-      } catch (err) {
-        console.error('[timestore] failed to publish partition.created event', err);
-      }
-
-      if (addedColumns.length > 0) {
-        try {
-          await publishTimestoreEvent(
-            'timestore.schema.evolved',
-            {
-              datasetId: dataset.id,
-              datasetSlug,
-              manifestId: manifest.id,
-              previousManifestId: shardManifest?.id ?? null,
-              schemaVersionId: schemaVersionRecord.id,
-              addedColumns
-            },
-            'timestore.ingest'
-          );
-        } catch (err) {
-          console.error('[timestore] failed to publish schema.evolved event', err);
-        }
-      }
-
-      if (batch.backfillRequested && addedColumns.length > 0) {
-        try {
-          const defaultsSource = batch.schemaDefaults ?? {};
-          const defaults = Object.fromEntries(
-            addedColumns.map((column) => [column, (defaultsSource as Record<string, unknown>)[column] ?? null])
-          );
-          await publishTimestoreEvent(
-            'timestore.schema.backfill.requested',
-            {
-              datasetId: dataset.id,
-              datasetSlug,
-              manifestId: manifest.id,
-              schemaVersionId: schemaVersionRecord.id,
-              addedColumns,
-              defaults
-            },
-            'timestore.ingest'
-          );
-        } catch (err) {
-          console.error('[timestore] failed to publish schema.backfill.requested event', err);
-        }
-      }
-
-      invalidateSqlRuntimeCache({
-        datasetId: dataset.id,
-        datasetSlug,
-        reason: 'ingestion'
-      });
-
-      globalBaselineManifest = manifest;
-      manifestByShard.set(manifest.manifestShard, manifest);
-      return manifest;
+      pending = retried;
     }
-  } catch (error) {
-    if (!flushFailureHandled) {
-      observeIngestionJob({
-        datasetSlug,
-        result: 'failure',
-        durationSeconds: durationSince(start)
-      });
-      endSpan(span, error);
-    }
-    throw error;
   }
+
+  throw new Error('Failed to flush dataset staging after retries');
 }
 
 async function resolveStorageTarget(payload: IngestionJobPayload): Promise<StorageTargetRecord> {
@@ -642,6 +858,20 @@ function createSchemaChecksum(fields: FieldDefinition[]): string {
 function durationSince(start: bigint): number {
   const elapsed = Number(process.hrtime.bigint() - start);
   return elapsed / 1_000_000_000;
+}
+
+function isTransientDuckDbError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { code?: unknown; message?: unknown };
+  if (candidate.code === 'DUCKDB_NODEJS_ERROR') {
+    return true;
+  }
+  if (typeof candidate.message === 'string') {
+    return /Connection Error:/i.test(candidate.message);
+  }
+  return false;
 }
 
 function normalizeStringMap(input: Record<string, string> | undefined | null): Record<string, string> | null {

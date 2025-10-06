@@ -3,13 +3,14 @@ import type { FastifyInstance } from 'fastify';
 import { closePool, POSTGRES_SCHEMA } from './db/client';
 import { ensureSchemaExists } from './db/schema';
 import { runMigrations } from './db/migrations';
-import { loadServiceConfig } from './config/serviceConfig';
+import { loadServiceConfig, type ServiceConfig } from './config/serviceConfig';
 import { registerHealthRoutes } from './routes/health';
 import { registerIngestionRoutes } from './routes/ingest';
 import { registerQueryRoutes } from './routes/query';
 import { registerAdminRoutes } from './routes/admin';
 import { registerSqlRoutes } from './routes/sql';
 import { registerStreamingRoutes } from './routes/streaming';
+import { registerTestHarnessRoutes } from './routes/testHarness';
 import { ensureDefaultStorageTarget } from './service/bootstrap';
 import { closeLifecycleQueue, verifyLifecycleQueueConnection } from './lifecycle/queue';
 import { timestoreMetricsPlugin } from './observability/metricsPlugin';
@@ -18,11 +19,51 @@ import { initializeFilestoreActivity, shutdownFilestoreActivity } from './filest
 import { shutdownManifestCache } from './cache/manifestCache';
 import { initializeIngestionConnectors, shutdownIngestionConnectors } from './ingestion/connectors';
 import { initializeStreamingBatchers, shutdownStreamingBatchers } from './streaming/batchers';
-import { initializeStreamingHotBuffer, shutdownStreamingHotBuffer } from './streaming/hotBuffer';
+import {
+  initializeStreamingHotBuffer,
+  shutdownStreamingHotBuffer,
+  HotBufferStore,
+  setHotBufferTestHarness
+} from './streaming/hotBuffer';
 import { initializeDatasetAccessCleanup, shutdownDatasetAccessCleanup } from './service/auditCleanup';
 import { registerOpenApi } from './openapi/plugin';
 
 const API_PREFIX = '/v1';
+
+function isTruthy(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
+function resolveHotBufferState(value: string | undefined): 'ready' | 'unavailable' {
+  if (!value) {
+    return 'ready';
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'unavailable' ? 'unavailable' : 'ready';
+}
+
+function setupTestHarness(config: ServiceConfig): boolean {
+  if (!isTruthy(process.env.TIMESTORE_TEST_API_ENABLED)) {
+    return false;
+  }
+
+  const store = new HotBufferStore(config.streaming.hotBuffer);
+  const enabled = isTruthy(process.env.TIMESTORE_TEST_HOT_BUFFER_ENABLED)
+    ? true
+    : config.streaming.hotBuffer.enabled;
+  const state = resolveHotBufferState(process.env.TIMESTORE_TEST_HOT_BUFFER_STATE);
+
+  setHotBufferTestHarness({
+    store,
+    enabled,
+    state
+  });
+  return true;
+}
 
 type DatasetRouteOptions = {
   includeSql?: boolean;
@@ -44,6 +85,7 @@ async function registerDatasetRoutes(
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
+  const testHarnessEnabled = setupTestHarness(config);
   setupTracing(config.observability.tracing);
   const app = fastify({
     logger: {
@@ -65,6 +107,10 @@ async function start(): Promise<void> {
   await registerHealthRoutes(app);
   await registerStreamingRoutes(app);
   await registerDatasetRoutes(app, { includeSql: true });
+  if (testHarnessEnabled) {
+    await registerTestHarnessRoutes(app);
+    await app.register(registerTestHarnessRoutes, { prefix: API_PREFIX });
+  }
   await app.register(async (instance) => {
     await registerDatasetRoutes(instance, { includeSql: false });
   }, { prefix: API_PREFIX });

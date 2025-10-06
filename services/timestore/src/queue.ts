@@ -1,13 +1,31 @@
 import type { Job, Queue } from 'bullmq';
 import { Queue as BullQueue } from 'bullmq';
 import IORedis, { type Redis } from 'ioredis';
-import { ingestionJobPayloadSchema, type IngestionJobPayload, type IngestionProcessingResult } from './ingestion/types';
-import { processIngestionJob } from './ingestion/processor';
+import {
+  ingestionJobPayloadSchema,
+  type IngestionJobPayload,
+  type IngestionProcessingResult
+} from './ingestion/types';
+import {
+  processIngestionJob,
+  flushDatasetStaging,
+  type DatasetFlushResult
+} from './ingestion/processor';
 import { metricsEnabled, updateIngestionQueueDepth } from './observability/metrics';
 
 export const TIMESTORE_INGEST_QUEUE_NAME = process.env.TIMESTORE_INGEST_QUEUE_NAME ?? 'timestore_ingest_queue';
 
-let queueInstance: Queue<IngestionJobPayload> | null = null;
+type IngestionQueuePayload = IngestionJobPayload & { __operation?: 'ingest' };
+
+export interface FlushJobPayload {
+  __operation: 'flush';
+  datasetSlug: string;
+  storageTargetId?: string | null;
+}
+
+export type QueueJobPayload = IngestionQueuePayload | FlushJobPayload;
+
+let queueInstance: Queue<QueueJobPayload> | null = null;
 let connection: Redis | null = null;
 
 function resolveRedisUrl(): string {
@@ -46,9 +64,9 @@ export async function enqueueIngestionJob(
         jobId: `${jobPayload.datasetSlug}-${jobPayload.idempotencyKey.replace(/[:]/g, '-')}`
       }
     : undefined;
-  const job: Job<IngestionJobPayload> = await queue.add(
+  const job: Job<QueueJobPayload> = await queue.add(
     jobPayload.datasetSlug,
-    jobPayload,
+    { ...jobPayload, __operation: 'ingest' },
     jobOptions
   );
 
@@ -70,6 +88,37 @@ export async function enqueueIngestionJob(
     }
   }
 
+  return {
+    jobId: String(job.id),
+    mode: 'queued'
+  };
+}
+
+export async function enqueueFlushJob(
+  datasetSlug: string,
+  options: { storageTargetId?: string }
+): Promise<{
+  jobId: string;
+  mode: 'inline' | 'queued';
+  result?: DatasetFlushResult;
+}> {
+  if (isInlineRedis()) {
+    const result = await flushDatasetStaging(datasetSlug, {
+      storageTargetId: options.storageTargetId
+    });
+    return {
+      jobId: `inline-flush:${Date.now()}`,
+      mode: 'inline',
+      result
+    };
+  }
+
+  const queue = ensureQueue();
+  const job: Job<QueueJobPayload> = await queue.add(`flush:${datasetSlug}`, {
+    __operation: 'flush',
+    datasetSlug,
+    storageTargetId: options.storageTargetId ?? null
+  });
   return {
     jobId: String(job.id),
     mode: 'queued'
@@ -113,7 +162,7 @@ export async function getIngestionQueueDepth(): Promise<number> {
   }
 }
 
-function ensureQueue(): Queue<IngestionJobPayload> {
+function ensureQueue(): Queue<QueueJobPayload> {
   if (isInlineRedis()) {
     throw new Error('Queue not available in inline mode');
   }

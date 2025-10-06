@@ -3,6 +3,8 @@ import { access } from 'node:fs/promises';
 import { loadDuckDb, isCloseable } from '@apphub/shared';
 import type { DatasetRecord } from '../db/metadata';
 import type { ServiceConfig } from '../config/serviceConfig';
+import { getStagingWriteManager } from '../ingestion/stagingManager';
+import type { PendingStagingBatch } from '../storage/spoolManager';
 
 const STAGING_SCHEMA = 'staging';
 const METADATA_TABLE = '__ingestion_batches';
@@ -33,13 +35,14 @@ export async function readStagingSchemaFields(
   }
 
   const duckdb = loadDuckDb();
-  const db = new duckdb.Database(databasePath);
+  let db: any | null = null;
   let connection: any | null = null;
 
   try {
+    db = new duckdb.Database(databasePath, { access_mode: 'READ_ONLY' });
     connection = db.connect();
     if (!connection) {
-      return [];
+      return await collectFieldsFromPendingBatches(dataset, config);
     }
 
     let schemaRows: Array<Record<string, unknown>> = [];
@@ -124,14 +127,18 @@ export async function readStagingSchemaFields(
       }
     }
 
-    return Array.from(fieldMap.values());
+    const fields = Array.from(fieldMap.values());
+    if (fields.length > 0) {
+      return fields;
+    }
+    return await collectFieldsFromPendingBatches(dataset, config);
   } catch (error) {
     if (warnings) {
       warnings.push(
         `Failed to read staging schema for dataset ${dataset.slug}: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-    return [];
+    return await collectFieldsFromPendingBatches(dataset, config);
   } finally {
     if (connection) {
       await closeConnection(connection).catch(() => undefined);
@@ -139,6 +146,34 @@ export async function readStagingSchemaFields(
     if (isCloseable(db)) {
       ignoreCloseError(() => db.close());
     }
+  }
+}
+
+async function collectFieldsFromPendingBatches(
+  dataset: DatasetRecord,
+  config: ServiceConfig
+): Promise<StagingSchemaField[]> {
+  try {
+    const manager = getStagingWriteManager(config);
+    const batches: PendingStagingBatch[] = await manager.getSpoolManager().listPendingBatches(dataset.slug);
+    const fieldMap = new Map<string, StagingSchemaField>();
+
+    for (const batch of batches) {
+      for (const field of batch.schema) {
+        if (!field.name || fieldMap.has(field.name)) {
+          continue;
+        }
+        fieldMap.set(field.name, {
+          name: field.name,
+          type: field.type,
+          nullable: true
+        });
+      }
+    }
+
+    return Array.from(fieldMap.values());
+  } catch (error) {
+    return [];
   }
 }
 

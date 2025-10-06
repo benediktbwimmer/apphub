@@ -1,7 +1,14 @@
 import { Worker } from 'bullmq';
-import { closeQueueConnection, getQueueConnection, isInlineQueueMode, TIMESTORE_INGEST_QUEUE_NAME } from '../queue';
+import {
+  closeQueueConnection,
+  getQueueConnection,
+  isInlineQueueMode,
+  TIMESTORE_INGEST_QUEUE_NAME,
+  type QueueJobPayload,
+  type FlushJobPayload
+} from '../queue';
 import type { IngestionJobPayload } from '../ingestion/types';
-import { processIngestionJob } from '../ingestion/processor';
+import { processIngestionJob, flushDatasetStaging } from '../ingestion/processor';
 import { ensureSchemaExists } from '../db/schema';
 import { POSTGRES_SCHEMA } from '../db/client';
 import { runMigrations } from '../db/migrations';
@@ -19,16 +26,51 @@ async function main(): Promise<void> {
   await runMigrations();
   await ensureDefaultStorageTarget();
 
-  const worker = new Worker<IngestionJobPayload>(
+  type WorkerResult =
+    | {
+        operation: 'ingest';
+        manifestId: string | null;
+        datasetId: string;
+        datasetSlug: string;
+        storageTargetId: string;
+        flushPending: boolean;
+      }
+    | {
+        operation: 'flush';
+        datasetSlug: string;
+        status: 'noop' | 'flushed';
+        batches: number;
+        rows: number;
+        manifestId: string | null;
+      };
+
+  const worker = new Worker<QueueJobPayload, WorkerResult>(
     TIMESTORE_INGEST_QUEUE_NAME,
     async (job) => {
-      const result = await processIngestionJob(job.data);
+      if ((job.data as FlushJobPayload).__operation === 'flush') {
+        const payload = job.data as FlushJobPayload;
+        const result = await flushDatasetStaging(payload.datasetSlug, {
+          storageTargetId: payload.storageTargetId ?? undefined
+        });
+        return {
+          operation: 'flush',
+          datasetSlug: payload.datasetSlug,
+          status: result.status,
+          batches: result.batches,
+          rows: result.rows,
+          manifestId: result.manifest?.id ?? null
+        } satisfies WorkerResult;
+      }
+
+      const result = await processIngestionJob(job.data as IngestionJobPayload);
       return {
+        operation: 'ingest',
         manifestId: result.manifest?.id ?? null,
         datasetId: result.dataset.id,
+        datasetSlug: job.data.datasetSlug,
         storageTargetId: result.storageTarget.id,
         flushPending: result.flushPending ?? false
-      };
+      } satisfies WorkerResult;
     },
     {
       connection: getQueueConnection(),
@@ -37,17 +79,41 @@ async function main(): Promise<void> {
   );
 
   worker.on('completed', (job) => {
-    console.log('[timestore:ingest] completed job', {
+    const result = job.returnvalue;
+    if (!result) {
+      console.log('[timestore:ingest] completed job without result', {
+        jobId: job.id
+      });
+      return;
+    }
+
+    if (result.operation === 'flush') {
+      console.log('[timestore:ingest] flush job completed', {
+        jobId: job.id,
+        datasetSlug: result.datasetSlug,
+        status: result.status,
+        batches: result.batches,
+        rows: result.rows,
+        manifestId: result.manifestId ?? null
+      });
+      return;
+    }
+
+    console.log('[timestore:ingest] ingestion job completed', {
       jobId: job.id,
-      manifestId: job.returnvalue?.manifestId ?? null,
-      datasetId: job.returnvalue?.datasetId,
-      flushPending: job.returnvalue?.flushPending ?? false
+      datasetId: result.datasetId,
+      datasetSlug: result.datasetSlug,
+      manifestId: result.manifestId ?? null,
+      storageTargetId: result.storageTargetId,
+      flushPending: result.flushPending
     });
   });
 
   worker.on('failed', (job, err) => {
     console.error('[timestore:ingest] job failed', {
       jobId: job?.id,
+      datasetSlug: job?.data?.datasetSlug ?? (job?.name ?? null),
+      operation: (job?.data as QueueJobPayload | undefined)?.__operation ?? 'ingest',
       error: err?.message
     });
   });

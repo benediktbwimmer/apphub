@@ -244,7 +244,7 @@ export function createEventDrivenObservatoryConfig(
       'filestore.archivePrefix'
     ),
     visualizationsPrefix: resolveString(
-      getVar('OBSERVATORY_FILESTORE_VIS_PREFIX'),
+      getVar('OBSERVATORY_FILESTORE_VISUALIZATIONS_PREFIX', ['OBSERVATORY_FILESTORE_VIS_PREFIX']),
       'datasets/observatory/visualizations',
       'filestore.visualizationsPrefix'
     ),
