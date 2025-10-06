@@ -70,6 +70,7 @@ export interface StagingFlushConfig {
   maxRows: number;
   maxBytes: number;
   maxAgeMs: number;
+  eagerWhenBytesOnly: boolean;
 }
 
 export interface StagingSpoolConfig {
@@ -390,7 +391,8 @@ const auditLogSchema = z.object({
 const stagingFlushSchema = z.object({
   maxRows: z.number().int().nonnegative(),
   maxBytes: z.number().int().nonnegative(),
-  maxAgeMs: z.number().int().nonnegative()
+  maxAgeMs: z.number().int().nonnegative(),
+  eagerWhenBytesOnly: z.boolean().default(false)
 });
 
 const stagingSchema = z.object({
@@ -546,14 +548,35 @@ function resolveCacheDirectory(envValue: string | undefined): string {
 
 function resolveStagingDirectory(envValue: string | undefined): string {
   const trimmed = typeof envValue === 'string' ? envValue.trim() : '';
+  const scratchRoot = (process.env.APPHUB_SCRATCH_ROOT ?? '').trim();
+
   if (trimmed) {
+    if (scratchRoot && pointsToLegacyStagingPath(trimmed)) {
+      const rewritten = path.join(scratchRoot, 'timestore', 'staging');
+      console.warn(
+        '[timestore] overriding legacy staging directory with APPHUB_SCRATCH_ROOT path',
+        { from: trimmed, to: rewritten }
+      );
+      return rewritten;
+    }
     return trimmed;
   }
-  const scratchRoot = (process.env.APPHUB_SCRATCH_ROOT ?? '').trim();
+
   if (scratchRoot) {
     return path.join(scratchRoot, 'timestore', 'staging');
   }
+
   return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'staging');
+}
+
+function pointsToLegacyStagingPath(candidate: string): boolean {
+  const normalizedCandidate = path.resolve(candidate).replace(/\\/g, '/');
+  const legacyFallback = path
+    .resolve(process.cwd(), 'services', 'data', 'timestore', 'staging')
+    .replace(/\\/g, '/');
+  return (
+    normalizedCandidate === legacyFallback || normalizedCandidate === '/app/services/data/timestore/staging'
+  );
 }
 
 function parseList(value: string | undefined): string[] {
@@ -1014,6 +1037,10 @@ export function loadServiceConfig(): ServiceConfig {
   const stagingFlushMaxBytes = stagingFlushMaxBytesRaw >= 0 ? stagingFlushMaxBytesRaw : 0;
   const stagingFlushMaxAgeRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS, 0);
   const stagingFlushMaxAgeMs = stagingFlushMaxAgeRaw >= 0 ? stagingFlushMaxAgeRaw : 0;
+  const stagingFlushEagerWhenBytesOnly = parseBoolean(
+    env.TIMESTORE_STAGING_EAGER_BYTES_ONLY,
+    false
+  );
   const s3Bucket = env.TIMESTORE_S3_BUCKET;
   const s3Endpoint = env.TIMESTORE_S3_ENDPOINT;
   const s3Region = env.TIMESTORE_S3_REGION;
@@ -1336,7 +1363,8 @@ export function loadServiceConfig(): ServiceConfig {
       flush: {
         maxRows: stagingFlushMaxRows,
         maxBytes: stagingFlushMaxBytes,
-        maxAgeMs: stagingFlushMaxAgeMs
+        maxAgeMs: stagingFlushMaxAgeMs,
+        eagerWhenBytesOnly: stagingFlushEagerWhenBytesOnly
       }
     },
     features: {
