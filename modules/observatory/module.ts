@@ -42,11 +42,13 @@ export default defineModule<ObservatorySettings, ObservatorySecrets>({
       'Next generation environmental observatory scenario built with the AppHub module toolkit.'
   },
   settings: {
+    defaults: defaultSettings(),
     resolve: (raw) => {
       return resolveSettingsFromRaw(raw);
     }
   },
   secrets: {
+    defaults: defaultSecrets(),
     resolve: (raw) => {
       return resolveSecretsFromRaw(raw);
     }
