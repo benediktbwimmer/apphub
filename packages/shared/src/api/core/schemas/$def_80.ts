@@ -16,10 +16,6 @@ export const $def_80 = {
       type: 'string',
       isRequired: true,
     },
-    runId: {
-      type: 'string',
-      isRequired: true,
-    },
     stepId: {
       type: 'string',
       isRequired: true,
@@ -32,23 +28,55 @@ export const $def_80 = {
       type: 'Enum',
       isRequired: true,
     },
-    runStatus: {
-      type: 'Enum',
+    partitioning: {
+      type: 'any-of',
+      contains: [{
+        type: 'any-of',
+        description: `Arbitrary JSON value.`,
+        contains: [{
+          type: 'string',
+        }, {
+          type: 'number',
+        }, {
+          type: 'number',
+        }, {
+          type: 'boolean',
+        }, {
+          type: 'dictionary',
+          contains: {
+            properties: {
+            },
+          },
+        }],
+      }, {
+        type: 'null',
+      }],
       isRequired: true,
     },
-    stepStatus: {
-      type: 'Enum',
+    autoMaterialize: {
+      type: 'any-of',
+      contains: [{
+        type: 'any-of',
+        description: `Arbitrary JSON value.`,
+        contains: [{
+          type: 'string',
+        }, {
+          type: 'number',
+        }, {
+          type: 'number',
+        }, {
+          type: 'boolean',
+        }, {
+          type: 'dictionary',
+          contains: {
+            properties: {
+            },
+          },
+        }],
+      }, {
+        type: 'null',
+      }],
       isRequired: true,
-    },
-    producedAt: {
-      type: 'string',
-      isRequired: true,
-      format: 'date-time',
-    },
-    partitionKey: {
-      type: 'string',
-      isRequired: true,
-      isNullable: true,
     },
     freshness: {
       type: 'any-of',
@@ -74,18 +102,6 @@ export const $def_80 = {
         type: 'null',
       }],
       isRequired: true,
-    },
-    runStartedAt: {
-      type: 'string',
-      isRequired: true,
-      isNullable: true,
-      format: 'date-time',
-    },
-    runCompletedAt: {
-      type: 'string',
-      isRequired: true,
-      isNullable: true,
-      format: 'date-time',
     },
   },
 } as const;

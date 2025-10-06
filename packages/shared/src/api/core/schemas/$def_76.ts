@@ -4,35 +4,13 @@
 /* eslint-disable */
 export const $def_76 = {
   properties: {
-    handlerName: {
-      type: 'string',
-      isRequired: true,
-    },
-    handlerIsAsync: {
-      type: 'boolean',
-      isRequired: true,
-    },
-    inputModel: {
+    data: {
       properties: {
-        name: {
-          type: 'string',
-          isRequired: true,
-        },
-        schema: {
-          type: 'def_0',
-          isRequired: true,
-        },
-      },
-      isRequired: true,
-    },
-    outputModel: {
-      properties: {
-        name: {
-          type: 'string',
-          isRequired: true,
-        },
-        schema: {
-          type: 'def_0',
+        keys: {
+          type: 'array',
+          contains: {
+            type: 'def_75',
+          },
           isRequired: true,
         },
       },

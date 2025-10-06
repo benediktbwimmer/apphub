@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
 import { materializeObservatoryConfig } from '../src/deployment/config';
 
 type Logger = {
@@ -45,6 +46,8 @@ async function main(): Promise<void> {
   const moduleDir = path.resolve(scriptDir, '..');
   const repoRoot = path.resolve(scriptDir, '..', '..', '..');
 
+  await prepareFilesystem(process.env);
+
   await materializeObservatoryConfig({
     repoRoot: moduleDir,
     env: process.env,
@@ -56,6 +59,33 @@ async function main(): Promise<void> {
     ['run', 'module:publish', '--', '--module', moduleDir, '--register-jobs', '--skip-build'],
     { cwd: repoRoot }
   );
+}
+
+async function prepareFilesystem(env: NodeJS.ProcessEnv): Promise<void> {
+  const directories = new Set<string>();
+
+  const addDir = (value: string | undefined, opts: { treatAsFile?: boolean } = {}) => {
+    const candidate = value?.trim();
+    if (!candidate) {
+      return;
+    }
+    if (/^[a-z]+:\/\/|^azure:\/\//i.test(candidate)) {
+      return;
+    }
+    const target = opts.treatAsFile ? path.dirname(candidate) : candidate;
+    directories.add(path.resolve(target));
+  };
+
+  addDir(env.APPHUB_SCRATCH_ROOT);
+  addDir(env.OBSERVATORY_DATA_ROOT);
+  addDir(env.TIMESTORE_STORAGE_ROOT);
+  addDir(env.TIMESTORE_QUERY_CACHE_DIR);
+  addDir(env.TIMESTORE_STAGING_DIRECTORY);
+  addDir(env.OBSERVATORY_CONFIG_OUTPUT, { treatAsFile: true });
+
+  for (const dir of directories) {
+    await mkdir(dir, { recursive: true });
+  }
 }
 
 main().catch((error) => {

@@ -15,8 +15,8 @@ import type { def_56 } from '../models/def_56';
 import type { def_57 } from '../models/def_57';
 import type { def_58 } from '../models/def_58';
 import type { def_59 } from '../models/def_59';
-import type { def_76 } from '../models/def_76';
-import type { def_77 } from '../models/def_77';
+import type { def_78 } from '../models/def_78';
+import type { def_79 } from '../models/def_79';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class JobsService {
@@ -238,7 +238,7 @@ export class JobsService {
   /**
    * Preview Python snippet analysis
    * Analyzes a Python snippet to infer handler metadata before creating a job.
-   * @returns def_76 Python snippet analysis results.
+   * @returns def_78 Python snippet analysis results.
    * @throws ApiError
    */
   public postJobsPythonSnippetPreview({
@@ -247,7 +247,7 @@ export class JobsService {
     requestBody: {
       snippet: string;
     },
-  }): CancelablePromise<def_76> {
+  }): CancelablePromise<def_78> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/jobs/python-snippet/preview',
@@ -264,7 +264,7 @@ export class JobsService {
   /**
    * Create a Python snippet job
    * Analyzes the provided snippet, generates a bundle, and creates or updates the job definition.
-   * @returns def_77 Python snippet job created successfully.
+   * @returns def_79 Python snippet job created successfully.
    * @throws ApiError
    */
   public postJobsPythonSnippet({
@@ -288,7 +288,7 @@ export class JobsService {
       bundleVersion?: string;
       jobVersion?: number;
     },
-  }): CancelablePromise<def_77> {
+  }): CancelablePromise<def_79> {
     return this.httpRequest.request({
       method: 'POST',
       url: '/jobs/python-snippet',

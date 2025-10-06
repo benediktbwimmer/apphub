@@ -4,19 +4,50 @@
 /* eslint-disable */
 export const $def_75 = {
   properties: {
-    data: {
-      properties: {
-        key: {
-          type: 'def_73',
-          isRequired: true,
-        },
-        token: {
-          type: 'string',
-          description: `Full API key token. This value is only returned once at creation time.`,
-          isRequired: true,
-        },
+    id: {
+      type: 'string',
+      isRequired: true,
+    },
+    name: {
+      type: 'string',
+      isNullable: true,
+    },
+    prefix: {
+      type: 'string',
+      description: `Stable API key prefix used for support diagnostics.`,
+      isRequired: true,
+    },
+    scopes: {
+      type: 'array',
+      contains: {
+        type: 'string',
       },
       isRequired: true,
+    },
+    createdAt: {
+      type: 'string',
+      isRequired: true,
+      format: 'date-time',
+    },
+    updatedAt: {
+      type: 'string',
+      isRequired: true,
+      format: 'date-time',
+    },
+    lastUsedAt: {
+      type: 'string',
+      isNullable: true,
+      format: 'date-time',
+    },
+    expiresAt: {
+      type: 'string',
+      isNullable: true,
+      format: 'date-time',
+    },
+    revokedAt: {
+      type: 'string',
+      isNullable: true,
+      format: 'date-time',
     },
   },
 } as const;

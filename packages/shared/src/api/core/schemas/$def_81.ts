@@ -16,25 +16,17 @@ export const $def_81 = {
       type: 'string',
       isRequired: true,
     },
-    partitionKey: {
+    stepId: {
       type: 'string',
       isRequired: true,
-      isNullable: true,
     },
-    requestedAt: {
+    stepName: {
       type: 'string',
       isRequired: true,
-      format: 'date-time',
     },
-    requestedBy: {
-      type: 'string',
+    stepType: {
+      type: 'Enum',
       isRequired: true,
-      isNullable: true,
-    },
-    note: {
-      type: 'string',
-      isRequired: true,
-      isNullable: true,
     },
   },
 } as const;
