@@ -3,7 +3,7 @@ import { API_BASE_URL } from '../config';
 const LOOPBACK_HOST_PREFIX = /^127\./;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '::ffff:127.0.0.1', '0.0.0.0']);
 
-function isLoopbackHost(host: string): boolean {
+export function isLoopbackHost(host: string): boolean {
   const normalized = host.replace(/^\[(.*)\]$/, '$1').toLowerCase();
   return LOOPBACK_HOSTS.has(normalized) || LOOPBACK_HOST_PREFIX.test(normalized);
 }

@@ -2,7 +2,7 @@ import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../auth/useAuth';
-import { normalizePreviewUrl } from '../utils/url';
+import { normalizePreviewUrl, isLoopbackHost } from '../utils/url';
 import { formatFetchError } from '../core/utils';
 import { usePreviewLayout } from '../settings/previewLayoutContext';
 import { Spinner } from '../components';
@@ -65,6 +65,40 @@ function buildPreviewUrl(baseUrl: string | null | undefined, previewPath: string
   }
 }
 
+const HTTP_SCHEME_PATTERN = /^https?:\/\//i;
+
+function isReachableServiceUrl(candidate: string): boolean {
+  const trimmed = candidate.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (!HTTP_SCHEME_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname;
+    if (!host) {
+      return false;
+    }
+    const normalizedHost = host.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+    if (normalizedHost === 'localhost') {
+      return true;
+    }
+    if (isLoopbackHost(host)) {
+      return false;
+    }
+    if (!normalizedHost.includes('.')) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isServiceHiddenFromOverview(service: ServiceSummary) {
   const slug = service.slug.toLowerCase();
   if (HIDDEN_OVERVIEW_SERVICE_IDENTIFIERS.has(slug)) {
@@ -83,13 +117,22 @@ function extractRuntimeUrl(service: ServiceSummary): string | null {
   const registrationPreviewPath = moduleConfig?.registration?.ui?.previewPath ?? moduleConfig?.registration?.basePath;
   const preferredBaseUrl = moduleConfig?.runtime?.baseUrl ?? runtime?.previewUrl ?? runtime?.baseUrl ?? service.baseUrl;
   const preferred = buildPreviewUrl(preferredBaseUrl, registrationPreviewPath ?? undefined);
-  const candidates = [preferred, runtime?.previewUrl, runtime?.instanceUrl, runtime?.baseUrl, service.baseUrl];
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
-      return candidate.trim();
-    }
+  const directCandidates = [preferred, runtime?.previewUrl, runtime?.instanceUrl, runtime?.baseUrl, service.baseUrl]
+    .map((candidate) => (typeof candidate === 'string' ? candidate.trim() : ''))
+    .filter((candidate) => candidate.length > 0);
+
+  const normalizedPreviewPath = typeof registrationPreviewPath === 'string' && registrationPreviewPath.length > 0
+    ? (registrationPreviewPath.startsWith('/') ? registrationPreviewPath : `/${registrationPreviewPath}`)
+    : '/';
+  const apiPreviewBase = API_BASE_URL.replace(/\/$/, '');
+  const proxyCandidate = `${apiPreviewBase}/services/${service.slug}/preview${normalizedPreviewPath}`;
+
+  const reachableCandidate = directCandidates.find((candidate) => isReachableServiceUrl(candidate));
+  if (reachableCandidate) {
+    return reachableCandidate;
   }
-  return null;
+
+  return proxyCandidate;
 }
 
 type ServicePreviewCardProps = {

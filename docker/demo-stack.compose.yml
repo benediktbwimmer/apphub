@@ -410,6 +410,24 @@ services:
         source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
         target: /var/lib/apphub/scratch
 
+  core-module-services:
+    build:
+      <<: *build-config
+      target: core-runtime
+    restart: unless-stopped
+    depends_on:
+      core-api:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+      MODULE_SERVICE_HOST: core-module-services
+      MODULE_SERVICE_PORT_RANGE: 4310-4399
+    command: ["node", "services/core/dist/moduleServices/runner.js"]
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
   metastore:
     build:
       <<: *build-config
