@@ -34,9 +34,9 @@ function createThemeColors(theme: ThemeDefinition): Record<string, string> {
   const warning = semantics.status.warning;
 
   // Lean on subtle overlays so monaco markers do not overpower the editor.
-  const errorBackground = withAlpha(danger, scheme === 'dark' ? 0.08 : 0.06);
-  const errorGutterBackground = withAlpha(danger, scheme === 'dark' ? 0.12 : 0.08);
-  const errorMarkerBackground = withAlpha(danger, scheme === 'dark' ? 0.12 : 0.08);
+  const errorBackground = 'transparent';
+  const errorGutterBackground = 'transparent';
+  const errorMarkerBackground = withAlpha(danger, scheme === 'dark' ? 0.1 : 0.08);
 
   const lightSurfaceAlpha = scheme === 'dark' ? 0.92 : 0.98;
   const gutterAlpha = scheme === 'dark' ? 0.85 : 0.9;
@@ -87,7 +87,7 @@ function createThemeColors(theme: ThemeDefinition): Record<string, string> {
     'editorInfo.foreground': info,
     'editorInfo.background': withAlpha(info, scheme === 'dark' ? 0.18 : 0.12),
     'editorGutter.errorBackground': errorGutterBackground,
-    'editorGutter.errorForeground': semantics.text.inverse,
+    'editorGutter.errorForeground': semantics.text.muted,
     'editorGutter.warningBackground': withAlpha(warning, scheme === 'dark' ? 0.3 : 0.2),
     'editorGutter.warningForeground': semantics.text.inverse,
     'editorMarkerNavigationError.background': errorMarkerBackground,

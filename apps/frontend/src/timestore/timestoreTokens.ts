@@ -11,6 +11,8 @@ export const CARD_SURFACE =
   'rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm transition-colors';
 export const CARD_SURFACE_SOFT =
   'rounded-2xl border border-subtle bg-surface-glass-soft p-4 shadow-elevation-sm transition-colors';
+export const SCROLL_CONTAINER_SOFT =
+  'max-h-[420px] overflow-auto rounded-2xl border border-subtle bg-surface-glass-soft p-4';
 
 export const FIELD_GROUP = 'flex flex-col gap-1 text-scale-sm text-secondary';
 export const FIELD_LABEL =

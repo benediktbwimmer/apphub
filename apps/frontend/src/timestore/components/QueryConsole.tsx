@@ -18,6 +18,7 @@ import {
   INPUT,
   PANEL_SURFACE_LARGE,
   PRIMARY_BUTTON,
+  SCROLL_CONTAINER_SOFT,
   SECONDARY_BUTTON_COMPACT,
   STATUS_BANNER_DANGER,
   STATUS_MESSAGE,
@@ -706,7 +707,7 @@ export function QueryConsole({
             <h5 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
               Response JSON
             </h5>
-            <div className="mt-2 overflow-x-auto">
+            <div className={`mt-2 ${SCROLL_CONTAINER_SOFT}`}>
               <JsonSyntaxHighlighter value={result.response} />
             </div>
           </div>

@@ -1079,7 +1079,7 @@ function inferTypeFromRows(rows: Array<Record<string, unknown>>, columnName: str
     if (value === null || value === undefined) {
       continue;
     }
-    if (value instanceof Date) {
+    if (isTimestampLike(value)) {
       return 'TIMESTAMP';
     }
     if (typeof value === 'number') {
@@ -1154,18 +1154,71 @@ function normalizeSqlRow(row: Record<string, unknown>): Record<string, unknown> 
 }
 
 function normalizeSqlValue(value: unknown): unknown {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isNaN(time) ? null : value.toISOString();
+  }
+
+  const timestampLike = extractTimestampValue(value);
+  if (timestampLike !== null) {
+    return timestampLike;
+  }
+
   if (typeof value === 'bigint') {
     const asNumber = Number(value);
     return Number.isSafeInteger(asNumber) ? asNumber : value.toString();
   }
+
   if (Array.isArray(value)) {
     return value.map((item) => normalizeSqlValue(item));
   }
+
   if (value && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, normalizeSqlValue(nested)]);
     return Object.fromEntries(entries);
   }
+
   return value;
+}
+
+function extractTimestampValue(value: unknown): string | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  if ('toISOString' in value && typeof (value as { toISOString?: unknown }).toISOString === 'function') {
+    try {
+      const iso = (value as { toISOString: () => unknown }).toISOString();
+      if (typeof iso === 'string' && !Number.isNaN(Date.parse(iso))) {
+        return iso;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  if ('toJSON' in value && typeof (value as { toJSON?: unknown }).toJSON === 'function') {
+    try {
+      const json = (value as { toJSON: () => unknown }).toJSON();
+      if (typeof json === 'string' && !Number.isNaN(Date.parse(json))) {
+        return json;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function isTimestampLike(value: unknown): boolean {
+  if (value instanceof Date) {
+    return true;
+  }
+  if (typeof value === 'string') {
+    return !Number.isNaN(Date.parse(value));
+  }
+  return extractTimestampValue(value) !== null;
 }
 
 function padCell(value: string, width: number): string {
