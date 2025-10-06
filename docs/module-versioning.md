@@ -29,17 +29,17 @@ Use the new CLI to inspect modules, toggle enablement, and pin job definitions t
 npm run module:admin -- --list
 
 # show the targets available on a module (defaults to the latest bundle)
-npm run module:admin -- --show-targets environmental-observatory
+npm run module:admin -- --show-targets observatory
 
 # disable or re-enable a module
-npm run module:admin -- --disable environmental-observatory
-npm run module:admin -- --enable environmental-observatory
+npm run module:admin -- --disable observatory
+npm run module:admin -- --enable observatory
 
 # pin a job definition to a precise target version
 npm run module:admin -- \
-  --pin-job apphub.environmental-observatory.observatory-data-generator \
-  --module environmental-observatory \
-  --module-version 0.1.0 \
+  --pin-job apphub.observatory.observatory-data-generator \
+  --module observatory \
+  --module-version 0.2.0 \
   --target observatory-data-generator \
   --target-version 1.3.0
 ```

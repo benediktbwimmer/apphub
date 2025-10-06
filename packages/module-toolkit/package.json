@@ -1,0 +1,28 @@
+{
+  "name": "@apphub/module-toolkit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Typed builders and helpers for authoring AppHub modules.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "scripts": {
+    "lint": "tsc -b --pretty false",
+    "build": "tsc -b",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@apphub/module-registry": "0.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2",
+    "vitest": "^1.6.0"
+  }
+}

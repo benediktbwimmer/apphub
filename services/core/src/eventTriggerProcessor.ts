@@ -686,7 +686,9 @@ async function processTrigger(
           type: event.type,
           source: event.source,
           occurredAt: event.occurredAt,
-          correlationId: event.correlationId ?? null
+          correlationId: event.correlationId ?? null,
+          payload: event.payload ?? null,
+          metadata: event.metadata ?? null
         },
         triggerId: trigger.id,
         triggerName: trigger.name ?? null,

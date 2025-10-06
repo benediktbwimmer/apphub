@@ -33,9 +33,9 @@ import {
 
 export default defineModule({
   metadata: {
-    name: 'environmental-observatory',
-    version: '0.7.0',
-    displayName: 'Environmental Observatory'
+    name: 'observatory',
+    version: '0.2.0',
+    displayName: 'Observatory Module'
   },
   settings: {
     defaults: {

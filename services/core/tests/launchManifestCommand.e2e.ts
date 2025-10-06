@@ -9,7 +9,7 @@ import { runE2E } from '@apphub/test-helpers';
 import { KubectlMock } from '@apphub/kubectl-mock';
 import type { FastifyInstance } from 'fastify';
 
-const SERVICE_MODULE = 'environmental-observatory';
+const SERVICE_MODULE = 'observatory';
 const REPOSITORY_ID = 'observatory-event-gateway';
 
 async function loadModule<T>(modulePath: string): Promise<any> {

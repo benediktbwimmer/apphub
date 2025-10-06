@@ -9,6 +9,9 @@
       "path": "./packages/filestore-client"
     },
     {
+      "path": "./packages/module-toolkit"
+    },
+    {
       "path": "./services/core"
     },
     {
@@ -18,7 +21,7 @@
       "path": "./apps/frontend"
     },
     {
-      "path": "./modules/environmental-observatory"
+      "path": "./modules/observatory"
     }
   ]
 }

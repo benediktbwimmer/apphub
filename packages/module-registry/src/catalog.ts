@@ -8,12 +8,11 @@ export type ModuleCatalogEntry = {
 
 const MODULE_CATALOG: ModuleCatalogEntry[] = [
   {
-    id: 'environmental-observatory',
-    displayName: 'Environmental Observatory',
-    description:
-      'Reference implementation of the environmental observatory scenario using the AppHub module runtime.',
-    workspacePath: 'modules/environmental-observatory',
-    workspaceName: '@apphub/environmental-observatory-module'
+    id: 'observatory',
+    displayName: 'Observatory Module',
+    description: 'Observatory ingest and analytics scenario implemented with the module toolkit.',
+    workspacePath: 'modules/observatory',
+    workspaceName: '@apphub/observatory-module'
   }
 ];
 

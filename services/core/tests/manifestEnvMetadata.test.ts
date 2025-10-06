@@ -12,7 +12,7 @@ async function run() {
   const preview = await previewServiceConfigImport({
     path: 'examples/environmental-observatory',
     configPath: 'config.json',
-    module: 'environmental-observatory'
+    module: 'observatory'
   });
 
   assert(preview.entries.length > 0, 'service manifest entries should be discovered');
@@ -56,7 +56,7 @@ async function run() {
   const previewWithRequire = await previewServiceConfigImport({
     path: 'examples/environmental-observatory',
     configPath: 'config.json',
-    module: 'environmental-observatory',
+    module: 'observatory',
     requirePlaceholderValues: true
   });
   const optionalPlaceholder = previewWithRequire.placeholders.find(
@@ -81,7 +81,7 @@ async function run() {
       payload: {
         path: 'examples/environmental-observatory',
         configPath: 'config.json',
-        module: 'environmental-observatory',
+    module: 'observatory',
         requirePlaceholderValues: true
       }
     });
@@ -106,7 +106,7 @@ async function run() {
       payload: {
         path: 'examples/environmental-observatory',
         configPath: 'config.json',
-        module: 'environmental-observatory',
+        module: 'observatory',
         requirePlaceholderValues: false
       }
     });
