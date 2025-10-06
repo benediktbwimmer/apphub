@@ -145,7 +145,8 @@ export type {
   EnqueueWorkflowRunInput,
   EnqueueWorkflowRunResponse,
   GetWorkflowRunInput,
-  GetWorkflowRunResponse
+  GetWorkflowRunResponse,
+  WorkflowAssetSummary
 } from './capabilities';
 export {
   CapabilityRequestError,

@@ -21,7 +21,7 @@ import {
   deriveMetastoreKey,
   normalizeCalibrationRecord
 } from '../runtime/calibrations';
-import { createObservatoryEventPublisher, publishAssetMaterialized, toJsonRecord } from '../runtime/events';
+import { createObservatoryEventPublisher, toJsonRecord } from '../runtime/events';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
 const parametersSchema = z
@@ -179,19 +179,6 @@ export const calibrationImporterJob = createJobHandler<
     const generatedAt = new Date().toISOString();
 
     try {
-      await publishAssetMaterialized(publisher, {
-        assetId: 'observatory.calibration.instrument',
-        partitionKey: normalized.calibrationId,
-        producedAt: generatedAt,
-        metadata: {
-          instrumentId: normalized.instrumentId,
-          effectiveAt: normalized.effectiveAt,
-          metastoreNamespace: context.settings.calibrations.namespace,
-          metastoreRecordKey: metastoreKey,
-          metastoreVersion
-        }
-      });
-
       await publisher.publish({
         type: 'observatory.calibration.updated',
         occurredAt: generatedAt,

@@ -49,8 +49,8 @@ const triggers = [
   createWorkflowTrigger({
     name: 'Reprocess on plan materialization',
     description: 'Execute calibration reprocess automatically when a plan asset updates.',
-    eventType: 'observatory.asset.materialized',
-    eventSource: 'observatory.events',
+    eventType: 'asset.produced',
+    eventSource: 'core.asset-materializer',
     predicates: [
       {
         path: '$.payload.assetId',
@@ -60,8 +60,6 @@ const triggers = [
     ],
     parameterTemplate: {
       planId: '{{ event.payload.partitionKey }}',
-      planPath: '{{ event.payload.metadata.planPath }}',
-      planNodeId: '{{ event.payload.metadata.planNodeId }}',
       pollIntervalMs: '{{ trigger.metadata.pollIntervalMs }}'
     },
     metadata: {

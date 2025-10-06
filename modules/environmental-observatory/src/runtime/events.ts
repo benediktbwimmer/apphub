@@ -40,6 +40,7 @@ const minutePartitionReadyPayloadSchema = z
     rowsIngested: z.number().int().nonnegative(),
     ingestedAt: z.string().datetime({ offset: true }),
     ingestionMode: z.string().min(1),
+    flushPending: z.boolean().optional(),
     calibrationId: z.string().min(1).nullable().optional(),
     calibrationEffectiveAt: z.string().datetime({ offset: true }).nullable().optional(),
     calibrationMetastoreVersion: z.number().int().nullable().optional()
@@ -110,18 +111,6 @@ const calibrationUpdatedPayloadSchema = calibrationFileSchema
   })
   .strip();
 
-const assetMaterializedPayloadSchema = z
-  .object({
-    assetId: z.string().min(1),
-    partitionKey: z.string().min(1),
-    producedAt: z.string().datetime({ offset: true }),
-    metadata: z.record(jsonValueSchema).optional(),
-    source: z.string().min(1).optional()
-  })
-  .strip();
-
-export type AssetMaterializedEventPayload = z.infer<typeof assetMaterializedPayloadSchema>;
-
 const observatoryEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('observatory.minute.partition-ready'),
@@ -138,10 +127,6 @@ const observatoryEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('observatory.burst.finished'),
     payload: burstFinishedPayloadSchema
-  }),
-  z.object({
-    type: z.literal('observatory.asset.materialized'),
-    payload: assetMaterializedPayloadSchema
   })
 ]);
 
@@ -258,21 +243,4 @@ export function createObservatoryEventPublisher(
     publish,
     close
   };
-}
-
-export async function publishAssetMaterialized(
-  publisher: ReturnType<typeof createObservatoryEventPublisher>,
-  options: AssetMaterializedEventPayload & { occurredAt?: string | Date }
-): Promise<void> {
-  await publisher.publish({
-    type: 'observatory.asset.materialized',
-    occurredAt: options.occurredAt,
-    payload: {
-      assetId: options.assetId,
-      partitionKey: options.partitionKey,
-      producedAt: options.producedAt,
-      source: options.source,
-      metadata: options.metadata
-    }
-  });
 }

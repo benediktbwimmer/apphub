@@ -3,7 +3,7 @@
 The observatory module now doubles as a Control Tower showcase. It narrates three complementary automation lanes so demo hosts can draw a clean line between event-first orchestration and asset-first auto-materialisation:
 
 - **Pipeline Health (event-first):** Cron-driven data generation and Filestore events keep the ingest loop warm. `observatory-minute-ingest` reacts to `filestore.command.completed`, slurps the CSV batch directly, and publishes the materialised `observatory.timeseries.timestore` asset so downstream flows stay in lockstep.
-- **Insights (asset-first):** Once `observatory.timeseries.timestore` is materialised, downstream workflows listen for `observatory.asset.materialized` signals. Visualisations and reports still cascade off that lineage, but the burst window TTL now produces `observatory.burst.window` and `observatory.burst.ready`, which in turn drive the refreshed `observatory.dashboard.snapshot` payloads—showing how assets can debounce chatter without custom schedulers.
+- **Insights (asset-first):** Once `observatory.timeseries.timestore` is materialised, downstream workflows now listen directly for the Core `asset.produced` heartbeat. Visualisations and reports still cascade off that lineage, and the burst window asset carries a quiet-window TTL; when that timer expires, the resulting `asset.expired` signal for `observatory.burst.window` directly triggers the dashboard aggregator to refresh `observatory.dashboard.snapshot`—showing how assets can debounce chatter without custom schedulers.
 - **Calibration Recovery (hybrid):** Calibration uploads emit both `observatory.calibration.updated` and an `observatory.calibration.instrument` asset. The planner materialises `observatory.reprocess.plan`, and the reprocessor immediately consumes that asset via trigger to hydrate new partitions—while still emitting events for audit streams.
 
 Each lane answers a different operational question (“Is data flowing?”, “What insights changed?”, “Can we trust the sensors?”) while showcasing how AppHub workflows mix triggers and assets inside a single module.
@@ -38,15 +38,13 @@ graph TD
   Ingest --> Timestore[(Timestore dataset)]
   Ingest --> TimeseriesAsset[(Asset: observatory.timeseries.timestore)]
   Ingest --> BurstWindow[(Asset: observatory.burst.window)]
-  BurstWindow -->|TTL expiry| BurstFinalizer[observatory-burst-finalize]
-  BurstFinalizer --> BurstReady[(Asset: observatory.burst.ready)]
+  BurstWindow -->|TTL expiry| DashboardAggregator[observatory-dashboard-aggregator]
   TimeseriesAsset --> Visualization[observatory-visualization-runner]
   Visualization --> Plots[(visualizations/<minute>/)]
   Visualization --> VizAsset[(Asset: observatory.visualizations.minute)]
   VizAsset --> Reporter[observatory-report-publisher]
   Reporter --> Reports[(reports/<instrument|minute>/)]
   Reporter --> ReportAsset[(Asset: observatory.reports.status)]
-  BurstReady --> DashboardAggregator[observatory-dashboard-aggregator]
   DashboardAggregator --> DashboardAsset[(Asset: observatory.dashboard.snapshot)]
   DashboardAsset --> Dashboard[observatory-dashboard service]
   Dashboard --> Viewers[[Operators & stakeholders]]
@@ -157,11 +155,8 @@ Two workflows manage the module. Their TypeScript definitions live in `modules/e
 1. `observatory-minute-preprocessor` reacts to Filestore uploads, enriches the raw CSV with calibration lineage, and hands the normalized payload to `observatory-timestore-loader`, which ingests the rows into Timestore and materialises both `observatory.timeseries.timestore` and a quiet-window heartbeat asset `observatory.burst.window`.
 2. The visualization workflow subscribes to the timestore asset and regenerates plots and metrics, producing `observatory.visualizations.minute`.
 3. The reporting workflow consumes the visualization asset, writes Markdown/HTML/JSON artefacts, and materialises `observatory.reports.status`—publishing an asset event that downstream consumers can follow.
-4. Each new `observatory.burst.window` materialisation resets a TTL. When the quiet window elapses without additional CSVs, the resulting `asset.expired` signal triggers `observatory-burst-finalize`, which emits `observatory.burst.finished` and materialises the debounce asset `observatory.burst.ready`.
-5. `observatory-dashboard-aggregator` consumes `observatory.burst.ready`, queries Timestore for fleet-wide summaries, materialises `observatory.dashboard.snapshot`, and emits `observatory.dashboard.updated` so the UI refreshes instantly. The snapshot asset now carries its own freshness TTL, so the materializer automatically reruns aggregation if a minute goes by without a burst signal.
-6. Calibration uploads still emit both `observatory.calibration.instrument` and `observatory.calibration.updated`. The planner materialises `observatory.reprocess.plan`, and the reprocessor subscribes to that asset so rehydration runs kick off automatically.
-
-The burst finalizer also emits an `observatory.burst.finished` event so socket consumers can keep a live timeline, and the new module settings `dashboard.burstQuietMs` / `dashboard.snapshotFreshnessMs` expose the quiet-window delay (default 5 seconds) plus the "run at least every X ms" freshness guarantee (default 60 seconds) for demos.
+4. Each new `observatory.burst.window` materialisation resets a TTL. When the quiet window elapses without additional CSVs, the resulting `asset.expired` signal for `observatory.burst.window` triggers `observatory-dashboard-aggregator`, which queries Timestore for fleet-wide summaries, materialises `observatory.dashboard.snapshot`, and emits `observatory.dashboard.updated` so the UI refreshes instantly. The snapshot asset carries its own freshness TTL, so the materializer automatically reruns aggregation if a minute goes by without a burst signal.
+5. Calibration uploads still emit both `observatory.calibration.instrument` and `observatory.calibration.updated`. The planner materialises `observatory.reprocess.plan`, and the reprocessor subscribes to that asset so rehydration runs kick off automatically.
 
 ## Running the demo locally
 

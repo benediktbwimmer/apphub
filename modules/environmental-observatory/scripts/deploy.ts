@@ -5,6 +5,24 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { materializeObservatoryConfig } from '../src/deployment/config';
 
+const DEFAULT_CORE_URL = 'http://core-api:4000';
+
+function resolveCoreAuth(): { coreUrl: string; coreToken: string } {
+  const coreUrl = (process.env.OBSERVATORY_CORE_BASE_URL ?? process.env.APPHUB_CORE_URL ?? DEFAULT_CORE_URL).trim();
+  const token =
+    process.env.OBSERVATORY_CORE_TOKEN ??
+    process.env.APPHUB_CORE_TOKEN ??
+    process.env.APPHUB_DEMO_SERVICE_TOKEN ??
+    process.env.APPHUB_DEMO_ADMIN_TOKEN ??
+    '';
+
+  if (!token.trim()) {
+    throw new Error('OBSERVATORY_CORE_TOKEN or APPHUB_CORE_TOKEN must be set to publish the module.');
+  }
+
+  return { coreUrl, coreToken: token.trim() };
+}
+
 type Logger = {
   debug(message: string, meta?: Record<string, unknown>): void;
   error(message: string, meta?: Record<string, unknown>): void;
@@ -54,9 +72,31 @@ async function main(): Promise<void> {
     logger
   });
 
+  const { coreUrl, coreToken } = resolveCoreAuth();
+
+  if (process.env.OBSERVATORY_SKIP_BUILD !== '1') {
+    await runCommand('npm', ['run', 'build', '--workspace', '@apphub/environmental-observatory-module'], {
+      cwd: repoRoot
+    });
+  }
+
+  if (process.env.OBSERVATORY_BUILD_CLI !== '0') {
+    await runCommand('npm', ['run', 'build', '--workspace', '@apphub/cli'], { cwd: repoRoot });
+  }
+
   await runCommand(
-    'npm',
-    ['run', 'module:publish', '--', '--module', moduleDir, '--register-jobs', '--skip-build'],
+    'node',
+    [
+      path.join(repoRoot, 'apps/cli/dist/index.js'),
+      'module',
+      'deploy',
+      '--module',
+      moduleDir,
+      '--core-url',
+      coreUrl,
+      '--core-token',
+      coreToken
+    ],
     { cwd: repoRoot }
   );
 }

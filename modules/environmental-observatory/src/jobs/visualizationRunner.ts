@@ -2,7 +2,7 @@ import {
   createJobHandler,
   inheritModuleSecrets,
   inheritModuleSettings,
-  selectEventBus,
+  selectCoreWorkflows,
   selectFilestore,
   selectTimestore,
   sanitizeIdentifier,
@@ -13,18 +13,27 @@ import {
 import { z } from 'zod';
 import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
-import { createObservatoryEventPublisher, publishAssetMaterialized } from '../runtime/events';
 
 const MAX_ROWS = 10_000;
+
+const optionalTrimmedString = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((value) => {
+    if (value == null) {
+      return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  });
 
 const parametersSchema = z
   .object({
     partitionKey: z.string().min(1, 'partitionKey is required'),
-    partitionWindow: z.string().min(1).optional(),
+    partitionWindow: optionalTrimmedString,
     lookbackMinutes: z
       .union([z.number().int().positive().max(24 * 60), z.null(), z.undefined()])
       .transform((value) => (value == null ? undefined : value)),
-    instrumentId: z.string().min(1).optional(),
+    instrumentId: optionalTrimmedString,
     siteFilter: z
       .union([z.string(), z.null(), z.undefined()])
       .transform((value) => {
@@ -34,8 +43,8 @@ const parametersSchema = z
         const trimmed = value.trim();
         return trimmed.length > 0 ? trimmed : undefined;
       }),
-    datasetSlug: z.string().min(1).optional(),
-    datasetName: z.string().min(1).optional()
+    datasetSlug: optionalTrimmedString,
+    datasetName: optionalTrimmedString
   })
   .strip();
 
@@ -121,6 +130,13 @@ function ensureString(value: unknown, fallback = ''): string {
   return fallback;
 }
 
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
 function toIsoMinute(partitionKey: string): string {
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(partitionKey)) {
     return `${partitionKey}:00Z`;
@@ -171,6 +187,13 @@ function resolvePartitionWindow(parameters: VisualizationRunnerParameters): {
 } {
   const map = parseCompositePartitionKey(parameters.partitionKey);
   let window = parameters.partitionWindow || map.get('window') || map.get('minute') || null;
+  if (window) {
+    const [datePart, timePart] = window.split('T');
+    if (timePart && timePart.includes('-')) {
+      const normalizedTime = timePart.replace('-', ':');
+      window = `${datePart}T${normalizedTime}`;
+    }
+  }
   if (!window) {
     const match = parameters.partitionKey.match(/(?:window|minute)=([^|]+)/);
     if (match?.[1]) {
@@ -333,12 +356,12 @@ export const visualizationRunnerJob = createJobHandler<
   ObservatoryModuleSecrets,
   VisualizationResult,
   VisualizationRunnerParameters,
-  ['filestore', 'timestore', 'events.default']
+  ['filestore', 'timestore', 'coreWorkflows']
 >({
   name: 'observatory-visualization-runner',
   settings: inheritModuleSettings(),
   secrets: inheritModuleSecrets(),
-  requires: ['filestore', 'timestore', 'events.default'] as const,
+  requires: ['filestore', 'timestore', 'coreWorkflows'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
@@ -354,13 +377,33 @@ export const visualizationRunnerJob = createJobHandler<
       throw new Error('Timestore capability is required for the visualization runner');
     }
 
+    const coreWorkflows = selectCoreWorkflows(context.capabilities);
+    if (!coreWorkflows) {
+      throw new Error('Core workflows capability is required for the visualization runner');
+    }
+
     const principal = context.settings.principals.visualizationRunner?.trim() || undefined;
+    const assetSummary = await coreWorkflows.getLatestAsset({
+      workflowSlug: context.settings.reprocess.ingestWorkflowSlug,
+      assetId: context.settings.reprocess.ingestAssetId,
+      partitionKey: context.parameters.partitionKey,
+      principal
+    });
+
+    const assetPayload = toRecord(assetSummary?.payload);
+
     const defaults = resolvePartitionWindow(context.parameters);
     const partitionWindow = defaults.partitionWindow;
 
     const lookbackMinutes = context.parameters.lookbackMinutes ?? context.settings.dashboard.lookbackMinutes;
-    const datasetSlug = context.parameters.datasetSlug ?? context.settings.timestore.datasetSlug;
-    const datasetName = context.parameters.datasetName ?? context.settings.timestore.datasetName;
+    const datasetSlug =
+      context.parameters.datasetSlug ??
+      (typeof assetPayload?.datasetSlug === 'string' ? assetPayload.datasetSlug : undefined) ??
+      context.settings.timestore.datasetSlug;
+    const datasetName =
+      context.parameters.datasetName ??
+      (typeof assetPayload?.datasetName === 'string' ? assetPayload.datasetName : undefined) ??
+      context.settings.timestore.datasetName;
 
     const backendParameters = {
       filestoreBackendId: context.settings.filestore.backendId,
@@ -420,9 +463,14 @@ export const visualizationRunnerJob = createJobHandler<
       ];
     });
 
+    const inferredInstrumentId =
+      context.parameters.instrumentId ??
+      defaults.instrumentId ??
+      (typeof assetPayload?.instrumentId === 'string' ? assetPayload.instrumentId : undefined);
+
     const filteredRows = filterRows(rows, {
       ...context.parameters,
-      instrumentId: context.parameters.instrumentId ?? defaults.instrumentId,
+      instrumentId: inferredInstrumentId,
       datasetSlug
     });
     const trendRows = bucketObservations(filteredRows);
@@ -438,8 +486,12 @@ export const visualizationRunnerJob = createJobHandler<
       partitionWindow,
       lookbackMinutes,
       siteFilter: context.parameters.siteFilter ?? undefined,
-      instrumentId: context.parameters.instrumentId ?? defaults.instrumentId ?? undefined,
-      dataset: context.parameters.datasetSlug ?? defaults.dataset ?? datasetSlug
+      instrumentId: inferredInstrumentId,
+      dataset:
+        context.parameters.datasetSlug ??
+        defaults.dataset ??
+        (typeof assetPayload?.datasetSlug === 'string' ? assetPayload.datasetSlug : undefined) ??
+        datasetSlug
     } satisfies VisualizationMetrics;
 
     const generatedAt = new Date().toISOString();
@@ -544,34 +596,6 @@ export const visualizationRunnerJob = createJobHandler<
       artifacts,
       metrics
     } satisfies VisualizationResult['visualization'];
-
-    const eventsCapability = selectEventBus(context.capabilities, 'default');
-    if (!eventsCapability) {
-      throw new Error('Event bus capability is required for the visualization runner');
-    }
-
-    const publisher = createObservatoryEventPublisher({
-      capability: eventsCapability,
-      source: context.settings.events.source || 'observatory.visualization-runner'
-    });
-
-    try {
-      await publishAssetMaterialized(publisher, {
-        assetId: 'observatory.visualizations.minute',
-        partitionKey: context.parameters.partitionKey,
-        producedAt: generatedAt,
-        metadata: {
-          storagePrefix,
-          partitionWindow,
-          lookbackMinutes,
-          dataset: metrics.dataset ?? null,
-          instrumentId: metrics.instrumentId ?? null,
-          siteFilter: metrics.siteFilter ?? null
-        }
-      });
-    } finally {
-      await publisher.close().catch(() => undefined);
-    }
 
     return {
       partitionKey: context.parameters.partitionKey,

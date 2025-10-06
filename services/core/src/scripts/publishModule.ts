@@ -1826,6 +1826,11 @@ async function main(): Promise<void> {
 }
 
 main()
+  .then(() => {
+    if (process.exitCode === undefined) {
+      process.exitCode = 0;
+    }
+  })
   .catch(async (error) => {
     console.error('[module:publish] Failed:', error);
     process.exitCode = 1;
@@ -1845,4 +1850,6 @@ main()
         console.warn('[module:publish] Failed to close DB pool', err);
       }
     }
+
+    process.exit(process.exitCode ?? 0);
   });

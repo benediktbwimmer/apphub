@@ -94,6 +94,7 @@ export interface TimestorePartitionSummary {
   storageTargetId: string | null;
   rowsIngested: number;
   ingestionMode: string;
+  flushPending: boolean;
   calibrationId: string | null;
   calibrationEffectiveAt: string | null;
   calibrationMetastoreVersion: number | null;
@@ -959,7 +960,9 @@ export const timestoreLoaderJob = createJobHandler<
         })) as {
           dataset?: { id?: string | null } | null;
           manifest?: { id?: string | null } | null;
-          mode: string;
+          storageTarget?: { id?: string | null } | null;
+          mode?: string;
+          flushPending?: boolean;
         };
 
         totalRows += bucket.rows.length;
@@ -968,6 +971,7 @@ export const timestoreLoaderJob = createJobHandler<
         const calibrationReference = calibrationState?.reference ?? null;
         const ingestedAt = new Date().toISOString();
         const partitionKey = sanitizePartitionKey(partitionKeyFields);
+        const flushPending = Boolean(ingestionResult.flushPending);
 
         const summary: TimestorePartitionSummary = {
           instrumentId,
@@ -976,9 +980,11 @@ export const timestoreLoaderJob = createJobHandler<
           datasetSlug,
           datasetId: ingestionResult.dataset?.id ?? null,
           manifestId: (ingestionResult.manifest as { id?: string } | undefined)?.id ?? null,
-          storageTargetId: storageTargetId ?? null,
+          storageTargetId:
+            (ingestionResult.storageTarget as { id?: string } | undefined)?.id ?? storageTargetId ?? null,
           rowsIngested: bucket.rows.length,
-          ingestionMode: ingestionResult.mode,
+          ingestionMode: ingestionResult.mode ?? 'inline',
+          flushPending,
           calibrationId: calibrationReference?.calibrationId ?? null,
           calibrationEffectiveAt: calibrationReference?.effectiveAt ?? null,
           calibrationMetastoreVersion: calibrationReference?.metastoreVersion ?? null,
@@ -995,7 +1001,27 @@ export const timestoreLoaderJob = createJobHandler<
             rowsIngested: summary.rowsIngested
           }
         });
-
+        await publisher.publish({
+          type: 'observatory.minute.partition-ready',
+          occurredAt: ingestedAt,
+          payload: {
+            minute,
+            instrumentId,
+            partitionKey,
+            partitionKeyFields,
+            datasetSlug,
+            datasetId: summary.datasetId,
+            manifestId: summary.manifestId,
+            storageTargetId: summary.storageTargetId,
+            rowsIngested: summary.rowsIngested,
+            ingestedAt,
+            ingestionMode: summary.ingestionMode,
+            flushPending,
+            calibrationId: summary.calibrationId,
+            calibrationEffectiveAt: summary.calibrationEffectiveAt,
+            calibrationMetastoreVersion: summary.calibrationMetastoreVersion
+          }
+        });
       }
     } finally {
       await publisher.close().catch(() => undefined);

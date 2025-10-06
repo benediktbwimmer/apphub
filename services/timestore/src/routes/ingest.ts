@@ -139,9 +139,8 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
 
         if (result.mode === 'inline' && result.result) {
           datasetId = result.result.dataset.id;
-          const flushPending = result.result.flushPending === true;
+          const flushPending = result.result.flushPending ?? false;
           const manifestId = result.result.manifest?.id ?? null;
-
           (request.log ?? reply.log).info(
             {
               event: flushPending ? 'dataset.ingest.staged' : 'dataset.ingest',
@@ -164,8 +163,8 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
             success: true,
             metadata: {
               mode: 'inline',
-              flushPending,
-              manifestId
+              manifestId,
+              flushPending
             }
           });
 

@@ -10,22 +10,20 @@ import { reportPublisherJob } from './src/jobs/reportPublisher';
 import { calibrationImporterJob } from './src/jobs/calibrationImporter';
 import { calibrationPlannerJob } from './src/jobs/calibrationPlanner';
 import { calibrationReprocessorJob } from './src/jobs/calibrationReprocessor';
-import { burstFinalizerJob } from './src/jobs/burstFinalizer';
 import { dashboardService, adminService } from './src/services';
 import {
   minuteDataGeneratorWorkflow,
   minuteIngestWorkflow,
   dailyPublicationWorkflow,
   dashboardAggregateWorkflow,
-  burstFinalizeWorkflow,
   calibrationImportWorkflow,
   calibrationReprocessWorkflow
 } from './src/workflows';
 
 export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>({
-  metadata: {
-    name: 'environmental-observatory',
-    version: '0.1.6',
+    metadata: {
+      name: 'environmental-observatory',
+      version: '0.1.8',
     displayName: 'Environmental Observatory',
     description:
       'Reference implementation of the environmental observatory scenario using the AppHub module runtime.'
@@ -89,7 +87,6 @@ export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>
     visualizationRunnerJob,
     dashboardAggregatorJob,
     reportPublisherJob,
-    burstFinalizerJob,
     calibrationImporterJob,
     calibrationPlannerJob,
     calibrationReprocessorJob,
@@ -99,7 +96,6 @@ export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>
     minuteIngestWorkflow,
     dailyPublicationWorkflow,
     dashboardAggregateWorkflow,
-    burstFinalizeWorkflow,
     calibrationImportWorkflow,
     calibrationReprocessWorkflow
   ]

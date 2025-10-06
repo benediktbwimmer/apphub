@@ -37,11 +37,6 @@ const definition: WorkflowDefinition = {
         burstReason: '{{ parameters.burstReason }}',
         burstFinishedAt: '{{ parameters.burstFinishedAt }}'
       },
-      consumes: [
-        {
-          assetId: 'observatory.burst.ready'
-        }
-      ],
       produces: [
         {
           assetId: 'observatory.dashboard.snapshot',
@@ -65,27 +60,32 @@ const definition: WorkflowDefinition = {
 
 const triggers = [
   createWorkflowTrigger({
-    name: 'Aggregate on burst readiness',
-    description: 'Refresh dashboards when the burst finalizer signals a quiet window.',
-    eventType: 'observatory.asset.materialized',
-    eventSource: 'observatory.events',
+    name: 'Aggregate on burst expiry',
+    description: 'Refresh dashboards when the burst window TTL expires with no new drops.',
+    eventType: 'asset.expired',
     predicates: [
       {
         path: '$.payload.assetId',
         operator: 'equals',
-        value: 'observatory.burst.ready'
+        value: 'observatory.burst.window'
+      },
+      {
+        path: '$.payload.reason',
+        operator: 'equals',
+        value: 'ttl'
       }
     ],
     parameterTemplate: {
-      partitionKey: '{{ event.payload.partitionKey }}',
-      lookbackMinutes: '{{ event.payload.metadata.lookbackMinutes | default: trigger.metadata.lookbackMinutes }}',
-      burstReason: '{{ event.payload.metadata.reason }}',
-      burstFinishedAt: '{{ event.payload.producedAt }}'
+      partitionKey: '{{ event.payload.partitionKey | default: event.payload.workflowSlug }}',
+      lookbackMinutes: '{{ trigger.metadata.lookbackMinutes }}',
+      burstReason: '{{ event.payload.reason }}',
+      burstFinishedAt: '{{ event.payload.expiresAt }}'
     },
     metadata: {
       lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
     },
-    idempotencyKeyExpression: 'dashboard-aggregate-{{ event.payload.partitionKey }}'
+    idempotencyKeyExpression:
+      'dashboard-aggregate-{{ event.payload.partitionKey | default: event.payload.workflowSlug }}-{{ event.payload.expiresAt }}'
   })
 ];
 

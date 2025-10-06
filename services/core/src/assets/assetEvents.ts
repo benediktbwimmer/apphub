@@ -4,7 +4,8 @@ import { logger } from '../observability/logger';
 import {
   ASSET_EVENT_QUEUE_NAME,
   getQueueConnection,
-  isInlineQueueMode
+  isInlineQueueMode,
+  enqueueWorkflowEvent
 } from '../queue';
 import {
   recordWorkflowRunStepAssets,
@@ -38,6 +39,10 @@ const inlineTimers = new Map<string, NodeJS.Timeout>();
 
 function logError(message: string, meta?: Record<string, JsonValue>) {
   logger.error(message, meta);
+}
+
+function isJsonObject(value: unknown): value is Record<string, JsonValue> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function normalizePartitionKey(partitionKey: string | null | undefined): string {
@@ -110,12 +115,44 @@ function toExpiredEvent(data: AssetExpiryJobData): AssetExpiredEventData {
     expiresAt: data.expiresAt,
     requestedAt: data.requestedAt,
     reason: data.reason,
-    partitionKey: asset.partitionKey ?? null
+    partitionKey: asset.partitionKey ?? null,
+    payload: asset.payload ?? null,
+    parameters: asset.parameters ?? null
   } satisfies AssetExpiredEventData;
 }
 
+async function publishAssetWorkflowEvent(
+  type: 'asset.produced' | 'asset.expired',
+  payload: AssetProducedEventData | AssetExpiredEventData,
+  occurredAt: string
+): Promise<void> {
+  try {
+    await enqueueWorkflowEvent({
+      type,
+      source: 'core.asset-materializer',
+      payload,
+      correlationId: payload.workflowRunId,
+      occurredAt
+    });
+    return;
+  } catch (err) {
+    logError('Failed to enqueue asset workflow event', {
+      type,
+      error: err instanceof Error ? err.message : 'unknown'
+    });
+  }
+
+  // Fall back to direct emission so downstream listeners still observe the event.
+  if (type === 'asset.produced') {
+    emitApphubEvent({ type, data: payload as AssetProducedEventData });
+  } else {
+    emitApphubEvent({ type, data: payload as AssetExpiredEventData });
+  }
+}
+
 export async function processAssetExpiryJob(data: AssetExpiryJobData): Promise<void> {
-  emitApphubEvent({ type: 'asset.expired', data: toExpiredEvent(data) });
+  const event = toExpiredEvent(data);
+  await publishAssetWorkflowEvent('asset.expired', event, event.expiresAt ?? new Date().toISOString());
 }
 
 function cancelInlineTimer(jobId: string) {
@@ -207,6 +244,8 @@ function buildProducedEventData(options: {
   asset: WorkflowRunStepAssetRecord;
 }): AssetProducedEventData {
   const producedAt = typeof options.asset.producedAt === 'string' ? options.asset.producedAt : new Date().toISOString();
+  const rawParameters = options.run.parameters;
+  const parameters = isJsonObject(rawParameters) ? rawParameters : null;
   return {
     assetId: options.asset.assetId,
     workflowDefinitionId: options.definition.id,
@@ -216,7 +255,9 @@ function buildProducedEventData(options: {
     stepId: options.stepId,
     producedAt,
     freshness: options.asset.freshness ?? null,
-    partitionKey: options.asset.partitionKey ?? null
+    partitionKey: options.asset.partitionKey ?? null,
+    payload: options.asset.payload ?? null,
+    parameters
   } satisfies AssetProducedEventData;
 }
 
@@ -283,7 +324,7 @@ export async function handleAssetsProduced(options: {
         stepRecordId: options.stepRecordId,
         asset
       });
-      emitApphubEvent({ type: 'asset.produced', data: event });
+      await publishAssetWorkflowEvent('asset.produced', event, event.producedAt);
       await scheduleFreshnessEvents(event);
       try {
         await upsertWorkflowAssetProvenance({
