@@ -803,6 +803,10 @@ async function integratePendingStaging(
     return null;
   }
 
+  await run(connection, 'DROP VIEW IF EXISTS dataset_with_staging').catch(() => undefined);
+  await run(connection, 'DROP VIEW IF EXISTS staging_dataset_view').catch(() => undefined);
+  await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows').catch(() => undefined);
+
   const databasePath = path.join(stagingDirectory, sanitizeDatasetSlug(plan.datasetSlug), 'staging.duckdb');
   try {
     await access(databasePath);
@@ -812,6 +816,9 @@ async function integratePendingStaging(
 
   const alias = `staging_${randomUUID().replace(/-/g, '_')}`;
   const escapedPath = databasePath.replace(/'/g, "''");
+  let stagingTableCreated = false;
+  let pendingRowCount = 0;
+
   try {
     await run(connection, `ATTACH '${escapedPath}' AS ${quoteIdentifier(alias)} (READ_ONLY)`);
   } catch (error) {
@@ -820,98 +827,99 @@ async function integratePendingStaging(
   }
 
   const metadataTableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(STAGING_METADATA_TABLE)}`;
-  let pendingTables: QueryResultRow[];
   try {
-    pendingTables = await all(
+    const pendingTables = await all(
       connection,
       `SELECT DISTINCT table_name FROM ${metadataTableRef} WHERE flush_token IS NULL`
     );
-  } catch (error) {
-    console.warn(`[timestore] failed to inspect staging metadata for dataset ${plan.datasetSlug}`, error);
-    await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
-    return null;
-  }
 
-  if (pendingTables.length === 0) {
-    await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
-    return null;
-  }
-
-  const stagingSelects: string[] = [];
-  for (let index = 0; index < pendingTables.length; index += 1) {
-    const tableNameValue = pendingTables[index]?.table_name;
-    if (typeof tableNameValue !== 'string' || tableNameValue.trim().length === 0) {
-      continue;
+    if (pendingTables.length === 0) {
+      return null;
     }
-    const tableName = tableNameValue.trim();
-    const tableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(tableName)}`;
 
-    const overlapRows = await all(
+    const stagingSelects: string[] = [];
+    for (let index = 0; index < pendingTables.length; index += 1) {
+      const tableNameValue = pendingTables[index]?.table_name;
+      if (typeof tableNameValue !== 'string' || tableNameValue.trim().length === 0) {
+        continue;
+      }
+      const tableName = tableNameValue.trim();
+      const tableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(tableName)}`;
+
+      const overlapRows = await all(
+        connection,
+        `SELECT 1
+           FROM ${metadataTableRef}
+          WHERE flush_token IS NULL
+            AND table_name = ?
+            AND time_range_start <= ?
+            AND time_range_end >= ?
+          LIMIT 1`,
+        tableName,
+        plan.rangeEnd,
+        plan.rangeStart
+      );
+
+      if (overlapRows.length === 0) {
+        continue;
+      }
+
+      const availableColumns = await fetchTableColumns(connection, tableRef);
+      const tableAlias = `stg${index}`;
+      const selectSql = buildStagingSelect({
+        tableRef,
+        tableAlias,
+        metadataTableRef,
+        tableName,
+        plan,
+        canonicalFields,
+        availableColumns
+      });
+      stagingSelects.push(selectSql);
+    }
+
+    if (stagingSelects.length === 0) {
+      return null;
+    }
+
+    const unionSql = stagingSelects.join('\nUNION ALL\n');
+    await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows');
+    await run(connection, `CREATE TEMP TABLE staging_dataset_rows AS ${unionSql}`);
+    stagingTableCreated = true;
+
+    const rowCountRows = await all(
       connection,
-      `SELECT 1
+      `SELECT COALESCE(SUM(row_count), 0)::BIGINT AS row_count
          FROM ${metadataTableRef}
         WHERE flush_token IS NULL
-          AND table_name = ?
           AND time_range_start <= ?
-          AND time_range_end >= ?
-        LIMIT 1`,
-      tableName,
+          AND time_range_end >= ?`,
       plan.rangeEnd,
       plan.rangeStart
     );
-
-    if (overlapRows.length === 0) {
-      continue;
-    }
-
-    const availableColumns = await fetchTableColumns(connection, tableRef);
-    const tableAlias = `stg${index}`;
-    const selectSql = buildStagingSelect({
-      tableRef,
-      tableAlias,
-      metadataTableRef,
-      tableName,
-      plan,
-      canonicalFields,
-      availableColumns
-    });
-    stagingSelects.push(selectSql);
+    pendingRowCount = Number(rowCountRows[0]?.row_count ?? 0n);
+  } finally {
+    await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
   }
 
-  if (stagingSelects.length === 0) {
-    await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
+  if (!stagingTableCreated) {
+    await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows').catch(() => undefined);
     return null;
   }
 
-  const unionSql = stagingSelects.join('\nUNION ALL\n');
-  await run(connection, 'DROP VIEW IF EXISTS staging_dataset_view');
-  await run(connection, 'DROP VIEW IF EXISTS dataset_with_staging');
-  await run(connection, `CREATE TEMP VIEW staging_dataset_view AS ${unionSql}`);
-
   let baseViewName = 'dataset_with_staging';
+  const replacedEmptyView = plan.partitions.length === 0;
 
-  if (plan.partitions.length === 0) {
+  if (replacedEmptyView) {
     await run(connection, 'DROP VIEW IF EXISTS dataset_view');
-    await run(connection, `CREATE TEMP VIEW dataset_view AS SELECT * FROM staging_dataset_view`);
+    await run(connection, 'CREATE TEMP VIEW dataset_view AS SELECT * FROM staging_dataset_rows');
     baseViewName = 'dataset_view';
   } else {
     await run(
       connection,
-      'CREATE TEMP VIEW dataset_with_staging AS SELECT * FROM dataset_view UNION ALL SELECT * FROM staging_dataset_view'
+      'CREATE TEMP VIEW dataset_with_staging AS SELECT * FROM dataset_view UNION ALL SELECT * FROM staging_dataset_rows'
     );
   }
-
-  const rowCountRows = await all(
-    connection,
-    `SELECT COALESCE(SUM(row_count), 0)::BIGINT AS row_count
-       FROM ${metadataTableRef}
-      WHERE flush_token IS NULL
-        AND time_range_start <= ?
-        AND time_range_end >= ?`,
-    plan.rangeEnd,
-    plan.rangeStart
-  );
-  const pendingRowCount = Number(rowCountRows[0]?.row_count ?? 0n);
 
   const warnings: string[] = pendingRowCount > 0
     ? [`Included ${pendingRowCount} staged row(s) pending flush for dataset ${plan.datasetSlug}.`]
@@ -920,7 +928,7 @@ async function integratePendingStaging(
   return {
     baseViewName,
     warnings,
-    replacedEmptyView: plan.partitions.length === 0
+    replacedEmptyView
   };
 }
 
