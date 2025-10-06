@@ -185,7 +185,7 @@ export const $DatasetIngestionInlineResponse = {
           isRequired: true,
         },
       },
-      isRequired: true,
+      isNullable: true,
     },
     dataset: {
       properties: {
@@ -274,6 +274,10 @@ export const $DatasetIngestionInlineResponse = {
           format: 'date-time',
         },
       },
+      isRequired: true,
+    },
+    flushPending: {
+      type: 'boolean',
       isRequired: true,
     },
   },

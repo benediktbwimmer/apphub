@@ -89,7 +89,7 @@ export interface IngestionProcessingResult {
   manifest: DatasetManifestWithPartitions | null;
   storageTarget: StorageTargetRecord;
   idempotencyKey?: string | null;
-  flushPending: boolean;
+  flushPending?: boolean;
 }
 
 export type { FieldDefinition };

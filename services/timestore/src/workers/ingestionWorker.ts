@@ -27,7 +27,7 @@ async function main(): Promise<void> {
         manifestId: result.manifest?.id ?? null,
         datasetId: result.dataset.id,
         storageTargetId: result.storageTarget.id,
-        flushPending: result.flushPending
+        flushPending: result.flushPending ?? false
       };
     },
     {
@@ -40,8 +40,8 @@ async function main(): Promise<void> {
     console.log('[timestore:ingest] completed job', {
       jobId: job.id,
       manifestId: job.returnvalue?.manifestId ?? null,
-      flushPending: job.returnvalue?.flushPending ?? false,
-      datasetId: job.returnvalue?.datasetId
+      datasetId: job.returnvalue?.datasetId,
+      flushPending: job.returnvalue?.flushPending ?? false
     });
   });
 

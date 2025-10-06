@@ -525,15 +525,16 @@ const datasetManifestSchema: OpenAPIV3.SchemaObject = {
 
 const datasetIngestionInlineResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
-  required: ['mode', 'manifest', 'dataset', 'storageTarget'],
+  required: ['mode', 'dataset', 'storageTarget', 'flushPending'],
   properties: {
     mode: {
       type: 'string',
       enum: ['inline']
     },
-    manifest: datasetManifestSchema,
+    manifest: nullable(datasetManifestSchema),
     dataset: datasetRecordSchema,
-    storageTarget: storageTargetSchema
+    storageTarget: storageTargetSchema,
+    flushPending: booleanSchema()
   }
 };
 

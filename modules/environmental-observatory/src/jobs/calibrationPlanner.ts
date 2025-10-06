@@ -6,7 +6,6 @@ import {
   createJobHandler,
   createMetastoreCapability,
   selectCoreWorkflows,
-  selectEventBus,
   selectFilestore,
   selectMetastore,
   inheritModuleSettings,
@@ -20,7 +19,6 @@ import { z } from 'zod';
 
 import { ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
-import { createObservatoryEventPublisher, publishAssetMaterialized } from '../runtime/events';
 import {
   buildPlanStorage,
   buildPlanSummary,
@@ -46,6 +44,7 @@ import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../run
 
 const DEFAULT_PLAN_VERSION = 1;
 const MAX_LOOKBACK_MINUTES = 10_000;
+const PLAN_ASSET_ID = 'observatory.reprocess.plan';
 
 const calibrationInputSchema = z
   .object({
@@ -749,12 +748,12 @@ export const calibrationPlannerJob = createJobHandler<
   ObservatoryModuleSecrets,
   CalibrationPlannerResult,
   PlannerOverrides,
-  ['filestore', 'coreWorkflows', 'metastore.calibrations', 'events.default']
+  ['filestore', 'coreWorkflows', 'metastore.calibrations']
 >({
   name: 'observatory-calibration-planner',
   settings: inheritModuleSettings(),
   secrets: inheritModuleSecrets(),
-  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations', 'events.default'] as const,
+  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations'] as const,
   parameters: {
     resolve: (raw) => resolvePlannerOverrides(raw)
   },
@@ -777,18 +776,7 @@ export const calibrationPlannerJob = createJobHandler<
       throw new Error('Core workflows capability is required for the calibration planner');
     }
 
-    const eventsCapability = selectEventBus(context.capabilities, 'default');
-    if (!eventsCapability) {
-      throw new Error('Event bus capability is required for the calibration planner');
-    }
-
-    const publisher = createObservatoryEventPublisher({
-      capability: eventsCapability,
-      source: context.settings.events.source || 'observatory.calibration-planner'
-    });
-
-    try {
-      const ingestWorkflowSlug =
+    const ingestWorkflowSlug =
         context.parameters.ingestWorkflowSlug ?? context.settings.reprocess.ingestWorkflowSlug;
       const ingestAssetId = context.parameters.ingestAssetId ?? context.settings.reprocess.ingestAssetId;
       const downstreamWorkflows =
@@ -921,57 +909,38 @@ export const calibrationPlannerJob = createJobHandler<
         planNodeId: materializedPlan.storage.nodeId ?? null,
         partitionCount: materializedPlan.summary.partitionCount,
         instrumentCount: materializedPlan.summary.instrumentCount,
-      calibrationCount: materializedPlan.summary.calibrationCount,
-      state: materializedPlan.state,
-      storage: {
-        plansPrefix: materializedPlan.storage.plansPrefix ?? null,
-        planPath: materializedPlan.storage.planPath,
-        nodeId: materializedPlan.storage.nodeId ?? null
-      },
-      summary: {
-        partitionCount: materializedPlan.summary.partitionCount,
-        instrumentCount: materializedPlan.summary.instrumentCount,
-        calibrationCount: materializedPlan.summary.calibrationCount
-      },
-      assets: [
-        {
-          assetId: 'observatory.reprocess.plan',
-          partitionKey: materializedPlan.planId,
-          producedAt: materializedPlan.updatedAt,
-          payload: {
-            planId: materializedPlan.planId,
-            state: materializedPlan.state,
-            createdAt: materializedPlan.createdAt,
-            updatedAt: materializedPlan.updatedAt,
-            partitionCount: materializedPlan.summary.partitionCount,
-            instrumentCount: materializedPlan.summary.instrumentCount,
-            calibrationCount: materializedPlan.summary.calibrationCount,
-            downstreamWorkflows: materializedPlan.downstreamWorkflows,
-            storage: materializedPlan.storage
-          }
-        }
-      ]
-      } satisfies CalibrationPlannerResult;
-
-      await publishAssetMaterialized(publisher, {
-        assetId: 'observatory.reprocess.plan',
-        partitionKey: materializedPlan.planId,
-        producedAt: materializedPlan.updatedAt,
-        metadata: {
-          calibrationCount: materializedPlan.summary.calibrationCount,
-          instrumentCount: materializedPlan.summary.instrumentCount,
-          partitionCount: materializedPlan.summary.partitionCount,
+        calibrationCount: materializedPlan.summary.calibrationCount,
+        state: materializedPlan.state,
+        storage: {
           plansPrefix: materializedPlan.storage.plansPrefix ?? null,
           planPath: materializedPlan.storage.planPath,
-          planNodeId: materializedPlan.storage.nodeId ?? null,
-          metastoreNamespace,
-          metastoreRecordKey: deriveMetastoreRecordKey(materializedPlan.planId)
-        }
-      });
+          nodeId: materializedPlan.storage.nodeId ?? null
+        },
+        summary: {
+          partitionCount: materializedPlan.summary.partitionCount,
+          instrumentCount: materializedPlan.summary.instrumentCount,
+          calibrationCount: materializedPlan.summary.calibrationCount
+        },
+        assets: [
+          {
+            assetId: PLAN_ASSET_ID,
+            partitionKey: materializedPlan.planId,
+            producedAt: materializedPlan.updatedAt,
+            payload: {
+              planId: materializedPlan.planId,
+              state: materializedPlan.state,
+              createdAt: materializedPlan.createdAt,
+              updatedAt: materializedPlan.updatedAt,
+              partitionCount: materializedPlan.summary.partitionCount,
+              instrumentCount: materializedPlan.summary.instrumentCount,
+              calibrationCount: materializedPlan.summary.calibrationCount,
+              downstreamWorkflows: materializedPlan.downstreamWorkflows,
+              storage: materializedPlan.storage
+            }
+          }
+        ]
+      } satisfies CalibrationPlannerResult;
 
       return result;
-    } finally {
-      await publisher.close().catch(() => undefined);
-    }
   }
 });

@@ -1,5 +1,15 @@
 import type { FilestoreEvent } from './filestoreEvents';
 
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+type JsonObject = { [key: string]: JsonValue };
+
 export type WorkflowEventSeverity = 'critical' | 'error' | 'warning' | 'info' | 'debug';
 
 export type WorkflowEventCursorPayload = {
@@ -36,6 +46,8 @@ export type AssetProducedEventData = {
   producedAt: string;
   freshness: WorkflowAssetFreshness | null;
   partitionKey: string | null;
+  payload: JsonValue | null;
+  parameters: JsonObject | null;
 };
 
 export type AssetExpiredEventData = {
@@ -51,6 +63,8 @@ export type AssetExpiredEventData = {
   reason: 'ttl' | 'cadence' | 'manual';
   freshness: WorkflowAssetFreshness | null;
   partitionKey: string | null;
+  payload: JsonValue | null;
+  parameters: JsonObject | null;
 };
 
 export type MetastoreRecordPayload = {

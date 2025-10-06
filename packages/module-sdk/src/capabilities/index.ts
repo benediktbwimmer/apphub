@@ -56,6 +56,7 @@ export type {
   EnqueueWorkflowRunInput,
   EnqueueWorkflowRunResponse,
   GetWorkflowRunInput,
-  GetWorkflowRunResponse
+  GetWorkflowRunResponse,
+  WorkflowAssetSummary
 } from './coreWorkflows';
 export { createCoreWorkflowsCapability } from './coreWorkflows';

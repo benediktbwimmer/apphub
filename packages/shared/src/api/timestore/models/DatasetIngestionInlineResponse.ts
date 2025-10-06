@@ -5,7 +5,7 @@
 import type { def_0 } from './def_0';
 export type DatasetIngestionInlineResponse = {
   mode: 'inline';
-  manifest: {
+  manifest?: {
     id: string;
     datasetId: string;
     version: number;
@@ -43,7 +43,7 @@ export type DatasetIngestionInlineResponse = {
       ingestionSignature?: string | null;
       createdAt: string;
     }>;
-  };
+  } | null;
   dataset: {
     id: string;
     slug: string;
@@ -65,5 +65,6 @@ export type DatasetIngestionInlineResponse = {
     createdAt: string;
     updatedAt: string;
   };
+  flushPending: boolean;
 };
 

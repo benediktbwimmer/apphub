@@ -97,6 +97,13 @@ function ensureArray(value: unknown): unknown[] {
 }
 
 type JsonRecord = Record<string, unknown>;
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -525,6 +532,10 @@ function toAssetProduced(payload: unknown): AssetProducedEventData | null {
       }
     : null;
   const partitionKey = toStringOrNull(payload.partitionKey);
+  const assetPayload = ('payload' in payload ? (payload.payload as JsonValue | null) : null) ?? null;
+  const parameters = isRecord(payload.parameters)
+    ? (payload.parameters as Record<string, JsonValue>)
+    : null;
   return {
     assetId,
     workflowDefinitionId,
@@ -534,7 +545,9 @@ function toAssetProduced(payload: unknown): AssetProducedEventData | null {
     stepId,
     producedAt,
     freshness,
-    partitionKey
+    partitionKey,
+    payload: assetPayload ?? null,
+    parameters
   } satisfies AssetProducedEventData;
 }
 

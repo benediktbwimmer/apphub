@@ -6,11 +6,19 @@ export interface CoreWorkflowsCapabilityConfig {
   fetchImpl?: FetchLike;
 }
 
+export interface WorkflowAssetSummary {
+  partitionKey: string | null;
+  producedAt: string | null;
+  payload: unknown;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface ListWorkflowAssetPartitionsInput {
   workflowSlug: string;
   assetId: string;
   lookback?: number;
   principal?: string;
+  partitionKey?: string;
 }
 
 export type ListWorkflowAssetPartitionsResponse = Record<string, unknown> & {
@@ -50,6 +58,9 @@ export interface CoreWorkflowsCapability {
   ): Promise<ListWorkflowAssetPartitionsResponse>;
   enqueueWorkflowRun(input: EnqueueWorkflowRunInput): Promise<EnqueueWorkflowRunResponse>;
   getWorkflowRun(input: GetWorkflowRunInput): Promise<GetWorkflowRunResponse>;
+  getLatestAsset(
+    input: ListWorkflowAssetPartitionsInput
+  ): Promise<WorkflowAssetSummary | null>;
 }
 
 function normalizePayload<T extends Record<string, unknown>>(value: T | undefined): T | undefined {
@@ -68,56 +79,127 @@ function normalizePayload<T extends Record<string, unknown>>(value: T | undefine
 export function createCoreWorkflowsCapability(
   config: CoreWorkflowsCapabilityConfig
 ): CoreWorkflowsCapability {
-  return {
-    async listAssetPartitions(
-      input: ListWorkflowAssetPartitionsInput
-    ): Promise<ListWorkflowAssetPartitionsResponse> {
-      const response = await httpRequest<ListWorkflowAssetPartitionsResponse>({
-        baseUrl: config.baseUrl,
-        path: `/workflows/${encodeURIComponent(input.workflowSlug)}/assets/${encodeURIComponent(input.assetId)}/partitions`,
-        method: 'GET',
-        query: input.lookback !== undefined ? { lookback: input.lookback } : undefined,
-        authToken: config.token,
-        principal: input.principal,
-        fetchImpl: config.fetchImpl
-      });
-      return response.data ?? {};
-    },
+  async function listAssetPartitions(
+    input: ListWorkflowAssetPartitionsInput
+  ): Promise<ListWorkflowAssetPartitionsResponse> {
+    const response = await httpRequest<ListWorkflowAssetPartitionsResponse>({
+      baseUrl: config.baseUrl,
+      path: `/workflows/${encodeURIComponent(input.workflowSlug)}/assets/${encodeURIComponent(input.assetId)}/partitions`,
+      method: 'GET',
+      query: input.lookback !== undefined ? { lookback: input.lookback } : undefined,
+      authToken: config.token,
+      principal: input.principal,
+      fetchImpl: config.fetchImpl
+    });
+    return response.data ?? {};
+  }
 
-    async enqueueWorkflowRun(
-      input: EnqueueWorkflowRunInput
-    ): Promise<EnqueueWorkflowRunResponse> {
-      const payload = normalizePayload({
-        partitionKey: input.partitionKey,
-        parameters: input.parameters,
-        runKey: input.runKey ?? undefined,
-        triggeredBy: input.triggeredBy ?? undefined,
-        metadata: input.metadata
-      });
+  async function enqueueWorkflowRun(
+    input: EnqueueWorkflowRunInput
+  ): Promise<EnqueueWorkflowRunResponse> {
+    const payload = normalizePayload({
+      partitionKey: input.partitionKey,
+      parameters: input.parameters,
+      runKey: input.runKey ?? undefined,
+      triggeredBy: input.triggeredBy ?? undefined,
+      metadata: input.metadata
+    });
 
-      const response = await httpRequest<EnqueueWorkflowRunResponse>({
-        baseUrl: config.baseUrl,
-        path: `/workflows/${encodeURIComponent(input.workflowSlug)}/run`,
-        method: 'POST',
-        authToken: config.token,
-        principal: input.principal,
-        idempotencyKey: input.idempotencyKey,
-        body: payload,
-        fetchImpl: config.fetchImpl
-      });
-      return response.data ?? {};
-    },
+    const response = await httpRequest<EnqueueWorkflowRunResponse>({
+      baseUrl: config.baseUrl,
+      path: `/workflows/${encodeURIComponent(input.workflowSlug)}/run`,
+      method: 'POST',
+      authToken: config.token,
+      principal: input.principal,
+      idempotencyKey: input.idempotencyKey,
+      body: payload,
+      fetchImpl: config.fetchImpl
+    });
+    return response.data ?? {};
+  }
 
-    async getWorkflowRun(input: GetWorkflowRunInput): Promise<GetWorkflowRunResponse> {
-      const response = await httpRequest<GetWorkflowRunResponse>({
-        baseUrl: config.baseUrl,
-        path: `/workflow-runs/${encodeURIComponent(input.runId)}`,
-        method: 'GET',
-        authToken: config.token,
-        principal: input.principal,
-        fetchImpl: config.fetchImpl
-      });
-      return response.data ?? {};
+  async function getWorkflowRun(input: GetWorkflowRunInput): Promise<GetWorkflowRunResponse> {
+    const response = await httpRequest<GetWorkflowRunResponse>({
+      baseUrl: config.baseUrl,
+      path: `/workflow-runs/${encodeURIComponent(input.runId)}`,
+      method: 'GET',
+      authToken: config.token,
+      principal: input.principal,
+      fetchImpl: config.fetchImpl
+    });
+    return response.data ?? {};
+  }
+
+  async function getLatestAsset(
+    input: ListWorkflowAssetPartitionsInput
+  ): Promise<WorkflowAssetSummary | null> {
+    function isRecord(value: unknown): value is Record<string, unknown> {
+      return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
     }
+
+    function extractAsset(entry: unknown): Record<string, unknown> | null {
+      if (!isRecord(entry)) {
+        return null;
+      }
+      const nested = entry.asset;
+      if (isRecord(nested)) {
+        return nested;
+      }
+      // Some API responses flatten asset fields onto `latest`
+      if ('assetId' in entry || 'partitionKey' in entry || 'partition_key' in entry) {
+        return entry;
+      }
+      return null;
+    }
+
+    const { partitionKey } = input;
+    const lookback = input.lookback ?? 10;
+    const response = await listAssetPartitions({
+      ...input,
+      lookback
+    });
+    const partitions = Array.isArray(response.data?.partitions)
+      ? (response.data?.partitions as Array<Record<string, unknown>>)
+      : [];
+
+    let latest: WorkflowAssetSummary | null = null;
+    for (const entry of partitions) {
+      const latestEntry = entry.latest as Record<string, unknown> | undefined;
+      const asset = extractAsset(latestEntry ?? null);
+      if (!asset) {
+        continue;
+      }
+      const producedAt = typeof asset.producedAt === 'string' ? asset.producedAt : null;
+      if (!latest || (producedAt && latest.producedAt && producedAt > latest.producedAt)) {
+        const entryPartitionKey =
+          typeof asset.partitionKey === 'string'
+            ? asset.partitionKey
+            : typeof asset.partition_key === 'string'
+              ? asset.partition_key
+              : null;
+        if (partitionKey && entryPartitionKey !== partitionKey) {
+          continue;
+        }
+        latest = {
+          partitionKey: entryPartitionKey,
+          producedAt,
+          payload: asset.payload,
+          metadata:
+            isRecord(latestEntry?.metadata)
+              ? (latestEntry?.metadata as Record<string, unknown>)
+              : isRecord(asset.metadata)
+                ? (asset.metadata as Record<string, unknown>)
+              : undefined
+        } satisfies WorkflowAssetSummary;
+      }
+    }
+    return latest;
+  }
+
+  return {
+    listAssetPartitions,
+    enqueueWorkflowRun,
+    getWorkflowRun,
+    getLatestAsset
   } satisfies CoreWorkflowsCapability;
 }

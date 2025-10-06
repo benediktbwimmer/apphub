@@ -6,14 +6,17 @@ import {
   inheritModuleSecrets,
   selectEventBus,
   selectFilestore,
+  selectCoreWorkflows,
   selectTimestore,
   sanitizeIdentifier,
   type FilestoreCapability,
-  type JobContext
+  type JobContext,
+  type CoreWorkflowsCapability,
+  type WorkflowAssetSummary
 } from '@apphub/module-sdk';
 import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
-import { createObservatoryEventPublisher, publishAssetMaterialized } from '../runtime/events';
+import { createObservatoryEventPublisher } from '../runtime/events';
 import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../runtime/settings';
 
 type SelectedTimestore = NonNullable<ReturnType<typeof selectTimestore>>;
@@ -21,6 +24,8 @@ type SelectedTimestore = NonNullable<ReturnType<typeof selectTimestore>>;
 const MAX_ROWS = 10_000;
 const DATASET_READY_MAX_ATTEMPTS = 24;
 const DATASET_READY_DELAY_MS = 1_000;
+const FLUSH_CHECK_MAX_ATTEMPTS = 10;
+const FLUSH_CHECK_DELAY_MS = 1_000;
 
 const parametersSchema = z
   .object({
@@ -130,6 +135,13 @@ type DashboardAggregatorResult = {
     payload: DashboardSnapshotAssetPayload;
   }>;
 };
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
 
 function resolveTimeWindow(
   partitionKey: string,
@@ -507,6 +519,74 @@ async function waitForDatasetReady(
   return false;
 }
 
+async function waitForFlushCompletion(
+  context: DashboardAggregatorContext,
+  coreWorkflows: CoreWorkflowsCapability,
+  partitionKey: string,
+  principal: string | undefined
+): Promise<WorkflowAssetSummary | null> {
+  const ingestWorkflowSlug = context.settings.reprocess.ingestWorkflowSlug;
+  const ingestAssetId = context.settings.reprocess.ingestAssetId;
+  let lastSummary: WorkflowAssetSummary | null = null;
+
+  for (let attempt = 0; attempt < FLUSH_CHECK_MAX_ATTEMPTS; attempt += 1) {
+    let summary: WorkflowAssetSummary | null = null;
+    try {
+      summary = await coreWorkflows.getLatestAsset({
+        workflowSlug: ingestWorkflowSlug,
+        assetId: ingestAssetId,
+        partitionKey,
+        principal
+      });
+    } catch (error) {
+      context.logger.error('Failed to load ingest asset summary', {
+        partitionKey,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return lastSummary;
+    }
+
+    if (summary) {
+      lastSummary = summary;
+      const payload = toRecord(summary.payload);
+      const flushPending = payload?.flushPending === true;
+      if (!flushPending) {
+        return summary;
+      }
+
+      if (attempt < FLUSH_CHECK_MAX_ATTEMPTS - 1) {
+        context.logger.info('Timestore ingestion flush pending; waiting before aggregation', {
+          partitionKey,
+          attempt: attempt + 1,
+          remainingAttempts: FLUSH_CHECK_MAX_ATTEMPTS - attempt - 1
+        });
+      }
+    } else if (attempt < FLUSH_CHECK_MAX_ATTEMPTS - 1) {
+      context.logger.warn('Ingest asset summary not yet available; retrying before aggregation', {
+        partitionKey,
+        attempt: attempt + 1,
+        remainingAttempts: FLUSH_CHECK_MAX_ATTEMPTS - attempt - 1
+      });
+    }
+
+    if (attempt < FLUSH_CHECK_MAX_ATTEMPTS - 1) {
+      await delay(FLUSH_CHECK_DELAY_MS);
+    }
+  }
+
+  if (lastSummary) {
+    context.logger.warn('Proceeding with dashboard aggregation despite flush still pending', {
+      partitionKey
+    });
+  } else {
+    context.logger.warn('Proceeding with dashboard aggregation without ingest asset summary', {
+      partitionKey
+    });
+  }
+
+  return lastSummary;
+}
+
 function normalizeRows(rows: Record<string, unknown>[]): ObservatoryRow[] {
   const normalized: ObservatoryRow[] = [];
   for (const row of rows) {
@@ -539,12 +619,12 @@ export const dashboardAggregatorJob = createJobHandler<
   ObservatoryModuleSecrets,
   DashboardAggregatorResult,
   DashboardAggregatorParameters,
-  ['filestore', 'timestore', 'events.default']
+  ['filestore', 'timestore', 'events.default', 'coreWorkflows']
 >({
   name: 'observatory-dashboard-aggregator',
   settings: inheritModuleSettings(),
   secrets: inheritModuleSecrets(),
-  requires: ['filestore', 'timestore', 'events.default'] as const,
+  requires: ['filestore', 'timestore', 'events.default', 'coreWorkflows'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(raw ?? {})
   },
@@ -560,10 +640,20 @@ export const dashboardAggregatorJob = createJobHandler<
       throw new Error('Timestore capability is required for dashboard aggregation');
     }
 
+    const coreWorkflows = selectCoreWorkflows(context.capabilities);
+    if (!coreWorkflows) {
+      throw new Error('Core workflows capability is required for dashboard aggregation');
+    }
+
     const principal = context.settings.principals.dashboardAggregator?.trim() || undefined;
     const partitionKey = context.parameters.partitionKey.trim();
     const lookbackMinutes = context.parameters.lookbackMinutes ?? context.settings.dashboard.lookbackMinutes;
-    const datasetSlug = context.parameters.timestoreDatasetSlug ?? context.settings.timestore.datasetSlug;
+    const ingestAssetSummary = await waitForFlushCompletion(context, coreWorkflows, partitionKey, principal);
+    const ingestAssetPayload = toRecord(ingestAssetSummary?.payload);
+    const datasetSlug =
+      context.parameters.timestoreDatasetSlug ??
+      (typeof ingestAssetPayload?.datasetSlug === 'string' ? ingestAssetPayload.datasetSlug : undefined) ??
+      context.settings.timestore.datasetSlug;
     const burst: BurstContext = {
       reason: context.parameters.burstReason?.trim() || null,
       finishedAt: context.parameters.burstFinishedAt ?? null
@@ -713,21 +803,6 @@ export const dashboardAggregatorJob = createJobHandler<
     } satisfies DashboardAggregatorResult['assets'][number];
 
     try {
-      await publishAssetMaterialized(publisher, {
-        assetId: snapshotAsset.assetId,
-        partitionKey,
-        producedAt: generatedAt,
-        metadata: {
-          overviewPrefix: normalizedOverviewPrefix,
-          lookbackMinutes,
-          datasetSlug,
-          windowStart: timeWindow.start,
-          windowEnd: timeWindow.end,
-          burstReason: burst.reason,
-          burstFinishedAt: burst.finishedAt
-        }
-      });
-
       await publisher.publish({
         type: 'observatory.dashboard.updated',
         occurredAt: generatedAt,

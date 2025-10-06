@@ -482,30 +482,6 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     'burst window asset carries quiet-window TTL'
   );
 
-  const burstFinalizeRun = await waitForLatestRun(coreClient, 'observatory-burst-finalize', {
-    after: generatorCreatedAt,
-    onPoll: createWaitLogger('burst-finalize')
-  });
-  assert.equal(burstFinalizeRun.status, 'succeeded', 'burst finalizer succeeded');
-  const burstFinalizeTrigger = (burstFinalizeRun.trigger as { event?: { type?: string } } | null)?.event ?? null;
-  assert.ok(burstFinalizeTrigger, 'burst finalizer recorded trigger event');
-  assert.equal(burstFinalizeTrigger?.type, 'asset.expired', 'burst finalizer triggered by asset.expired');
-  const burstFinalizeOutput = (burstFinalizeRun.output ?? {}) as {
-    burst?: { reason?: string | null; finishedAt?: string | null };
-    assets?: Array<{ assetId: string }>;
-  };
-  assert.equal(burstFinalizeOutput.burst?.reason, 'ttl', 'burst finalizer included ttl reason');
-  assert.ok(burstFinalizeOutput.burst?.finishedAt, 'burst finalizer recorded finish timestamp');
-  assert.ok(
-    burstFinalizeOutput.assets?.some((asset) => asset.assetId === 'observatory.burst.ready'),
-    'burst finalizer produced burst.ready asset'
-  );
-
-  const burstReadyHistory = await fetchAssetHistory('observatory-burst-finalize', 'observatory.burst.ready', {
-    partitionKey: ingestPartitionKey
-  });
-  assert.ok(burstReadyHistory.length > 0, 'burst ready asset history available');
-
   log('waiting for observatory-dashboard-aggregate workflow run');
   const dashboardRun = await waitForLatestRun(coreClient, 'observatory-dashboard-aggregate', {
     after: ingestSearchStart,
@@ -528,19 +504,22 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   assert.ok(dashboardTrigger, 'dashboard trigger captured upstream event');
   assert.equal(
     dashboardTrigger?.type,
-    'observatory.asset.materialized',
-    `dashboard run expected asset.materialized trigger, received ${dashboardTrigger?.type ?? 'unknown'}`
+    'asset.expired',
+    `dashboard run expected asset.expired trigger, received ${dashboardTrigger?.type ?? 'unknown'}`
   );
   const dashboardTriggerPayload = dashboardTrigger?.payload as
-    | { assetId?: string; metadata?: Record<string, unknown> }
+    | { assetId?: string; reason?: string; partitionKey?: string }
     | undefined;
   assert.equal(
     dashboardTriggerPayload?.assetId,
-    'observatory.burst.ready',
-    'dashboard trigger payload references burst.ready asset'
+    'observatory.burst.window',
+    'dashboard trigger payload references burst window asset'
   );
-  const triggerReason = (dashboardTriggerPayload?.metadata as { reason?: string })?.reason;
-  assert.equal(triggerReason, 'ttl', 'dashboard trigger metadata includes ttl reason');
+  assert.equal(
+    dashboardTriggerPayload?.reason,
+    'ttl',
+    'dashboard trigger payload includes ttl reason'
+  );
 
   const dashboardParameters = (dashboardRun.parameters ?? {}) as {
     burstReason?: string;

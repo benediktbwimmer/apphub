@@ -6,7 +6,6 @@ import {
   createMetastoreCapability,
   enforceScratchOnlyWrites,
   selectCoreWorkflows,
-  selectEventBus,
   selectFilestore,
   selectMetastore,
   inheritModuleSecrets,
@@ -21,7 +20,6 @@ import { z } from 'zod';
 
 import { ensureResolvedBackendId, uploadTextFile } from '@apphub/module-sdk';
 import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
-import { createObservatoryEventPublisher, publishAssetMaterialized } from '../runtime/events';
 import {
   buildPlanSummary,
   calibrationReprocessPlanSchema,
@@ -40,8 +38,38 @@ enforceScratchOnlyWrites();
 
 const DEFAULT_JOB_SLUG = 'observatory-calibration-reprocessor';
 const DEFAULT_IDEMPOTENCY_PREFIX = 'observatory-calibration-reprocessor';
+const PLAN_WORKFLOW_SLUG = 'observatory-calibration-planner';
+const PLAN_ASSET_ID = 'observatory.reprocess.plan';
 const MIN_POLL_INTERVAL_MS = 500;
 const MAX_POLL_INTERVAL_MS = 30_000;
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
+function toStringOrNull(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  return null;
+}
+
+function toIntegerOrNull(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
 
 const rawParametersSchema = z
   .object({
@@ -691,12 +719,12 @@ export const calibrationReprocessorJob = createJobHandler<
   ObservatoryModuleSecrets,
   CalibrationReprocessorResult,
   CalibrationReprocessorParameters,
-  ['filestore', 'coreWorkflows', 'metastore.calibrations', 'events.default']
+  ['filestore', 'coreWorkflows', 'metastore.calibrations']
 >({
   name: 'observatory-calibration-reprocessor',
   settings: inheritModuleSettings(),
   secrets: inheritModuleSecrets(),
-  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations', 'events.default'] as const,
+  requires: ['filestore', 'coreWorkflows', 'metastore.calibrations'] as const,
   parameters: {
     resolve: (raw) => parametersSchema.parse(normalizeRawParameters(raw))
   },
@@ -716,16 +744,6 @@ export const calibrationReprocessorJob = createJobHandler<
       throw new Error('Core workflows capability is required for the calibration reprocessor job');
     }
 
-    const eventsCapability = selectEventBus(context.capabilities, 'default');
-    if (!eventsCapability) {
-      throw new Error('Event bus capability is required for the calibration reprocessor job');
-    }
-
-    const publisher = createObservatoryEventPublisher({
-      capability: eventsCapability,
-      source: context.settings.events.source || 'observatory.calibration-reprocessor'
-    });
-
     const ingestWorkflowSlug =
         context.parameters.ingestWorkflowSlug ?? context.settings.reprocess.ingestWorkflowSlug;
     if (!ingestWorkflowSlug) {
@@ -734,6 +752,30 @@ export const calibrationReprocessorJob = createJobHandler<
 
     const principal =
       context.parameters.principal ?? context.settings.principals.calibrationReprocessor;
+
+    const planIdParam = context.parameters.planId ?? null;
+    let inferredPlanPath = context.parameters.planPath ?? null;
+    let inferredPlanNodeId = context.parameters.planNodeId ?? null;
+
+    if (planIdParam && (!inferredPlanPath || !inferredPlanNodeId)) {
+      try {
+        const plannerAsset = await coreWorkflows.getLatestAsset({
+          workflowSlug: PLAN_WORKFLOW_SLUG,
+          assetId: PLAN_ASSET_ID,
+          partitionKey: planIdParam,
+          principal
+        });
+        const payloadRecord = toRecord(plannerAsset?.payload);
+        const storageRecord = toRecord(payloadRecord?.storage);
+        inferredPlanPath = inferredPlanPath ?? toStringOrNull(storageRecord?.planPath ?? storageRecord?.plan_path);
+        inferredPlanNodeId = inferredPlanNodeId ?? toIntegerOrNull(storageRecord?.nodeId ?? storageRecord?.node_id);
+      } catch (error) {
+        context.logger.warn('Failed to load calibration plan asset metadata', {
+          planId: planIdParam,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
 
     const pollIntervalMsRaw = context.parameters.pollIntervalMs ?? context.settings.reprocess.pollIntervalMs;
     const pollIntervalMs = Math.min(
@@ -765,8 +807,8 @@ export const calibrationReprocessorJob = createJobHandler<
         })
       : fallbackMetastore ?? null;
 
-    const planPathRaw = context.parameters.planPath ?? null;
-    const planNodeIdParam = context.parameters.planNodeId ?? null;
+    const planPathRaw = inferredPlanPath;
+    const planNodeIdParam = inferredPlanNodeId;
 
     const { plan: loadedPlan, planPath, nodeId: resolvedPlanNodeId } = await loadPlan(
       context,
@@ -846,23 +888,6 @@ export const calibrationReprocessorJob = createJobHandler<
       ]
     };
 
-    await publishAssetMaterialized(publisher, {
-      assetId: 'observatory.reprocess.plan',
-      partitionKey: loadedPlan.planId,
-      producedAt: loadedPlan.updatedAt,
-      metadata: {
-        processedPartitions: 0,
-        succeededPartitions: 0,
-        failedPartitions: 0,
-        planPath,
-        plansPrefix: loadedPlan.storage.plansPrefix ?? null,
-        planNodeId: result.planNodeId,
-        metastoreNamespace: loadedPlan.storage.metastore?.namespace ?? metastoreNamespace,
-        metastoreRecordKey: loadedPlan.storage.metastore?.recordKey ?? null
-      }
-    });
-
-    await publisher.close().catch(() => undefined);
     return result;
   }
 
@@ -958,23 +983,6 @@ export const calibrationReprocessorJob = createJobHandler<
       ]
     };
 
-    await publishAssetMaterialized(publisher, {
-      assetId: 'observatory.reprocess.plan',
-      partitionKey: loadedPlan.planId,
-      producedAt: loadedPlan.updatedAt,
-      metadata: {
-        processedPartitions: summary.processed,
-        succeededPartitions: summary.succeeded,
-        failedPartitions: summary.failed,
-        planPath,
-        plansPrefix: loadedPlan.storage.plansPrefix ?? null,
-        planNodeId: result.planNodeId,
-        metastoreNamespace: loadedPlan.storage.metastore?.namespace ?? metastoreNamespace,
-        metastoreRecordKey: loadedPlan.storage.metastore?.recordKey ?? null
-      }
-    });
-
-    await publisher.close().catch(() => undefined);
     return result;
   }
 });

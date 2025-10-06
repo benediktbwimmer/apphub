@@ -2323,9 +2323,9 @@
         "type": "object",
         "required": [
           "mode",
-          "manifest",
           "dataset",
-          "storageTarget"
+          "storageTarget",
+          "flushPending"
         ],
         "properties": {
           "mode": {
@@ -2525,7 +2525,8 @@
                   }
                 }
               }
-            }
+            },
+            "nullable": true
           },
           "dataset": {
             "type": "object",
@@ -2633,6 +2634,9 @@
                 "format": "date-time"
               }
             }
+          },
+          "flushPending": {
+            "type": "boolean"
           }
         }
       },
@@ -6990,9 +6994,9 @@
         "type": "object",
         "required": [
           "mode",
-          "manifest",
           "dataset",
-          "storageTarget"
+          "storageTarget",
+          "flushPending"
         ],
         "properties": {
           "mode": {
@@ -7002,7 +7006,10 @@
             ]
           },
           "manifest": {
-            "type": "object",
+            "type": [
+              "null",
+              "object"
+            ],
             "required": [
               "id",
               "datasetId",
@@ -7322,6 +7329,9 @@
                 "format": "date-time"
               }
             }
+          },
+          "flushPending": {
+            "type": "boolean"
           }
         },
         "title": "https://timestore.apphub/schemas/DatasetIngestionInlineResponse.json"

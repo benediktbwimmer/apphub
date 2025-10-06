@@ -120,7 +120,7 @@ export function buildTriggerDefinitions(
       workflowSlug: config.workflows.publicationSlug,
       name: 'observatory-minute.asset-ready',
       description: 'Regenerate plots and reports once a timestore asset materializes.',
-      eventType: 'observatory.asset.materialized',
+      eventType: 'asset.produced',
       predicates: [
         {
           path: '$.payload.assetId',
@@ -130,8 +130,12 @@ export function buildTriggerDefinitions(
       ],
       parameterTemplate: {
         partitionKey: '{{ event.payload.partitionKey }}',
-        instrumentId: '{{ event.payload.metadata.instrumentId }}',
-        rowsIngested: '{{ event.payload.metadata.rowsIngested }}',
+        instrumentId:
+          "{{ event.payload.parameters.instrumentId | default: event.payload.payload.instrumentId | default: event.payload.payload.partitionKeyFields.instrument | default: event.payload.payload.partitionKeyFields.instrument_id | default: nil }}",
+        rowsIngested:
+          "{{ event.payload.payload.rowsIngested | default: event.payload.parameters.rowsIngested | default: trigger.metadata.rowsIngestedHint }}",
+        partitionWindow:
+          "{{ event.payload.parameters.partitionWindow | default: event.payload.payload.partitionKeyFields.window | default: event.payload.partitionKey | split: 'window=' | last | default: event.payload.partitionKey }}",
         timestoreBaseUrl: config.timestore.baseUrl,
         timestoreDatasetSlug: config.timestore.datasetSlug,
         timestoreAuthToken: config.timestore.authToken ?? null,
@@ -148,23 +152,32 @@ export function buildTriggerDefinitions(
     },
     {
       workflowSlug: config.workflows.aggregateSlug,
-      name: 'observatory-burst.ready',
-      description: 'Generate dashboard aggregates once a burst quiet window completes.',
-      eventType: 'observatory.asset.materialized',
+      name: 'observatory-burst.window-expired',
+      description: 'Generate dashboard aggregates once the burst window TTL elapses with no new drops.',
+      eventType: 'asset.expired',
       predicates: [
         {
           path: '$.payload.assetId',
           operator: 'equals',
-          value: 'observatory.burst.ready'
+          value: 'observatory.burst.window'
+        },
+        {
+          path: '$.payload.reason',
+          operator: 'equals',
+          value: 'ttl'
         }
       ],
       parameterTemplate: {
-        partitionKey: '{{ event.payload.partitionKey }}',
-        burstReason: '{{ event.payload.metadata.reason }}',
-        burstFinishedAt: '{{ event.payload.producedAt }}',
+        partitionKey: '{{ event.payload.partitionKey | default: event.payload.workflowSlug }}',
+        burstReason: '{{ event.payload.reason }}',
+        burstFinishedAt: '{{ event.payload.expiresAt }}',
         lookbackMinutes: config.workflows.dashboard?.lookbackMinutes ?? 720
       },
-      metadata: aggregateMetadata as JsonValue
+      metadata: aggregateMetadata as JsonValue,
+      runKeyTemplate:
+        'dashboard-aggregate-{{ event.payload.partitionKey | default: event.payload.workflowSlug }}-{{ event.payload.expiresAt }}',
+      idempotencyKeyExpression:
+        'dashboard-aggregate-{{ event.payload.partitionKey | default: event.payload.workflowSlug }}-{{ event.payload.expiresAt }}'
     }
   ];
 }

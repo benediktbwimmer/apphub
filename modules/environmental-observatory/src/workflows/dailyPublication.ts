@@ -35,8 +35,9 @@ const definition: WorkflowDefinition = {
       jobSlug: 'observatory-visualization-runner',
       parameters: {
         partitionKey: '{{ parameters.partitionKey }}',
-        partitionWindow: '{{ parameters.partitionWindow | default: parameters.partitionKey | slice: 0, 16 }}',
-        instrumentId: '{{ parameters.instrumentId }}',
+        partitionWindow:
+          "{{ parameters.partitionWindow | default: parameters.partitionKey | split: 'window=' | last | default: parameters.partitionKey }}",
+        instrumentId: '{{ parameters.instrumentId | default: "" }}',
         siteFilter: '{{ parameters.siteFilter | default: "" }}',
         lookbackMinutes: '{{ parameters.lookbackMinutes | default: defaultParameters.lookbackMinutes }}'
       },
@@ -60,7 +61,7 @@ const definition: WorkflowDefinition = {
       jobSlug: 'observatory-report-publisher',
       parameters: {
         partitionKey: '{{ parameters.partitionKey }}',
-        instrumentId: '{{ parameters.instrumentId }}',
+        instrumentId: '{{ parameters.instrumentId | default: "" }}',
         reportTemplate: '{{ parameters.reportTemplate | default: "" }}',
         visualizationAsset: '{{ steps.generate-plots.result.visualization }}'
       },
@@ -88,8 +89,8 @@ const triggers = [
   createWorkflowTrigger({
     name: 'Publish on timestore asset',
     description: 'Generate plots when a timestore asset materializes.',
-    eventType: 'observatory.asset.materialized',
-    eventSource: 'observatory.events',
+    eventType: 'asset.produced',
+    eventSource: 'core.asset-materializer',
     predicates: [
       {
         path: '$.payload.assetId',
@@ -99,13 +100,12 @@ const triggers = [
     ],
     parameterTemplate: {
       partitionKey: '{{ event.payload.partitionKey }}',
-      partitionWindow:
-        "{{ event.payload.metadata.partitionKeyFields.window | default: event.payload.metadata.minute | default: event.payload.partitionKey | slice: 0, 16 }}",
-      instrumentId: '{{ event.payload.metadata.instrumentId }}',
       lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
     },
     metadata: {
-      lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
+      lookbackMinutes: moduleSetting('dashboard.lookbackMinutes'),
+      workflowSlug: 'observatory-minute-ingest',
+      assetId: 'observatory.timeseries.timestore'
     },
     idempotencyKeyExpression:
       'observatory-publication-{{ event.payload.partitionKey }}'
