@@ -21,7 +21,8 @@ export function resolveFlushThresholds(
   return {
     maxRows: normalizeThreshold(overrides?.maxRows, global.maxRows),
     maxBytes: normalizeThreshold(overrides?.maxBytes, global.maxBytes),
-    maxAgeMs: normalizeThreshold(overrides?.maxAgeMs, global.maxAgeMs)
+    maxAgeMs: normalizeThreshold(overrides?.maxAgeMs, global.maxAgeMs),
+    eagerWhenBytesOnly: overrides?.eagerWhenBytesOnly ?? global.eagerWhenBytesOnly
   } satisfies StagingFlushConfig;
 }
 
@@ -49,8 +50,21 @@ export function shouldTriggerFlush(
     }
   }
 
-  if (thresholds.maxRows === 0 && thresholds.maxBytes === 0 && thresholds.maxAgeMs === 0) {
+  const eagerRowsDisabled = thresholds.maxRows === 0;
+  const eagerAgeDisabled = thresholds.maxAgeMs === 0;
+
+  if (eagerRowsDisabled && thresholds.maxBytes === 0 && eagerAgeDisabled) {
     // All thresholds disabled; fall back to eager flush when anything is staged
+    return summary.pendingBatchCount > 0;
+  }
+
+  if (
+    thresholds.eagerWhenBytesOnly &&
+    eagerRowsDisabled &&
+    eagerAgeDisabled &&
+    summary.pendingBatchCount > 0
+  ) {
+    // Avoid stalls when only a byte threshold is configured by flushing staged data eagerly.
     return true;
   }
 
@@ -99,6 +113,12 @@ function extractDatasetOverrides(dataset: DatasetRecord | null): Partial<Staging
   }
   if (isFiniteNumber((flush as Record<string, unknown>).maxAgeMs)) {
     overrides.maxAgeMs = Math.max(0, Math.floor(Number((flush as Record<string, unknown>).maxAgeMs)));
+  }
+  const eagerOverride = (flush as Record<string, unknown>).eagerWhenBytesOnly;
+  if (typeof eagerOverride === 'boolean') {
+    overrides.eagerWhenBytesOnly = eagerOverride;
+  } else if (typeof eagerOverride === 'string' && eagerOverride.trim().length > 0) {
+    overrides.eagerWhenBytesOnly = eagerOverride.trim().toLowerCase() === 'true';
   }
   return Object.keys(overrides).length > 0 ? overrides : null;
 }
