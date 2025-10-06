@@ -10,7 +10,7 @@ apphub/
 │   ├── architecture.md       # High-level system design + roadmap ideas
 │   └── assets-overview.md    # Auto-materialization events, policies, and worker setup
 ├── modules/
-│   └── environmental-observatory/   # Reference module that ships the observatory jobs, services, and workflows
+│   └── observatory/                 # Reference module that ships the observatory jobs, services, and workflows
 ├── packages/
 │   ├── shared/               # Shared types + registries consumed by multiple services
 │   ├── module-registry/      # Catalog + loader utilities for module metadata
@@ -181,7 +181,7 @@ See `docs/assets-overview.md` for auto-materialization policies and event flow d
 
 ### Environmental Observatory Module
 
-The bundled observatory scenario now lives under `modules/environmental-observatory/`. Building the module publishes job bundles, workflows, and service registrations to the local catalog so the importer can hydrate everything through `/modules/catalog`.
+The bundled observatory scenario now lives under `modules/observatory/`. Building the module publishes job bundles, workflows, and service registrations to the local catalog so the importer can hydrate everything through `/modules/catalog`.
 
 Use the "Environmental observatory" entry in the Import wizard to pull the curated service manifest, jobs, and workflows. The wizard now sources data directly from the module catalog and resolves dependencies (jobs, workflows, and provisioning triggers) using the module loader introduced in Ticket 006.
 
@@ -635,9 +635,9 @@ The script launches an embedded PostgreSQL instance, registers a sample repo, wa
 Developer tooling for dynamic job bundles lives in `apps/cli`. The workspace is wired into the root install, so once `npm install` completes you can use the `apphub` binary to scaffold, test, and publish bundles:
 
 ```bash
-npx tsx apps/cli/src/index.ts jobs package ./modules/environmental-observatory/dist/bundles/observatory-data-generator
-npx tsx apps/cli/src/index.ts jobs test ./modules/environmental-observatory/dist/bundles/observatory-data-generator --input-json '{"minute":"2025-08-01T09:00"}'
-npx tsx apps/cli/src/index.ts jobs publish ./modules/environmental-observatory/dist/bundles/observatory-data-generator --token dev-operator-token
+npx tsx apps/cli/src/index.ts jobs package ./modules/observatory/dist/bundles/observatory-data-generator
+npx tsx apps/cli/src/index.ts jobs test ./modules/observatory/dist/bundles/observatory-data-generator --input-json '{"minute":"2025-08-01T09:00"}'
+npx tsx apps/cli/src/index.ts jobs publish ./modules/observatory/dist/bundles/observatory-data-generator --token dev-operator-token
 ```
 
 The CLI creates `apphub.bundle.json`, validates `manifest.json` against the registry schema, emits reproducible tarballs with SHA-256 signatures, and wires a local harness for executing handlers with sample payloads. See `docs/job-bundles.md` for a complete walkthrough. Job imports package bundles on demand—when you upload a bundle, the core API stores the results in shared storage and updates the registry immediately. The first run may take longer while dependencies are installed inside each bundle directory; subsequent imports reuse the compiled output.

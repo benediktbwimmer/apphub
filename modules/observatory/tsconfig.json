@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "dist",
+    "rootDir": "./",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+  },
+  "include": [
+    "module.ts",
+    "src/**/*"
+  ],
+  "references": [
+    { "path": "../../packages/module-sdk" },
+    { "path": "../../packages/module-registry" },
+    { "path": "../../packages/filestore-client" },
+    { "path": "../../packages/module-toolkit" }
+  ]
+}

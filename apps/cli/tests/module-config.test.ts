@@ -8,7 +8,7 @@ import { generateModuleConfig, validateModuleConfig } from '../src/lib/module';
 import { readJsonFile } from '../src/lib/json';
 import type { ModuleConfigFile } from '../src/lib/module';
 
-const OBSERVATORY_MODULE_PATH = path.resolve(__dirname, '../../..', 'modules/environmental-observatory');
+const OBSERVATORY_MODULE_PATH = path.resolve(__dirname, '../../..', 'modules/observatory');
 const SUITE_SCRATCH_ROOT = path.join(os.tmpdir(), 'apphub-cli-tests');
 process.env.APPHUB_SCRATCH_ROOT = SUITE_SCRATCH_ROOT;
 process.env.APPHUB_SCRATCH_PREFIXES = path.join(os.tmpdir(), 'apphub-cli-');
@@ -37,7 +37,7 @@ test('generateModuleConfig writes defaults and capability config', { concurrency
   await access(result.outputPath);
 
   const written = await readJsonFile<ModuleConfigFile>(result.outputPath);
-  assert.equal(written.module.name, 'environmental-observatory');
+  assert.equal(written.module.name, 'observatory');
   assert.equal(typeof written.settings, 'object');
   assert.equal(typeof written.secrets, 'object');
   assert.equal(typeof written.capabilities, 'object');
@@ -73,6 +73,6 @@ test('validateModuleConfig verifies capability wiring', { concurrency: false }, 
     definitionPath: 'dist/module.js'
   });
 
-  assert.equal(result.metadata.name, 'environmental-observatory');
+  assert.equal(result.metadata.name, 'observatory');
   assert.ok(Object.keys(result.resolvedCapabilities).length > 0);
 });

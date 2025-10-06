@@ -21,7 +21,7 @@ import {
 } from '../src/serviceRegistry';
 import { queueManager } from '../src/queueManager';
 
-const EVENT_MODULE_ID = 'environmental-observatory';
+const EVENT_MODULE_ID = 'observatory';
 const EVENT_MODULE_PATH = 'examples/environmental-observatory';
 const DASHBOARD_SLUG = 'observatory-dashboard';
 

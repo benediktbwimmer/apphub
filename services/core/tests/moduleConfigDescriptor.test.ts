@@ -9,7 +9,7 @@ async function run() {
   try {
     const preview = await previewServiceConfigImport({
       path: 'examples/environmental-observatory',
-      module: 'environmental-observatory'
+      module: 'observatory'
     });
 
     assert.equal(preview.errors.length, 0, 'descriptor import should not report errors');

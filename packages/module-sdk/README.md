@@ -28,7 +28,7 @@ const generateJob = createJobHandler({
 });
 
 export default defineModule({
-  metadata: { name: 'environmental-observatory', version: '0.1.0' },
+  metadata: { name: 'observatory', version: '0.2.0' },
   settings: {
     defaults: { minute: '2023-01-01T00:00', rows: 12 }
   },

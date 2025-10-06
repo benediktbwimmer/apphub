@@ -558,7 +558,7 @@ services:
     environment:
       <<: *shared-env
       LOG_LEVEL: info
-      APPHUB_SCRATCH_PREFIXES: ${APPHUB_SCRATCH_PREFIXES:-/app/modules/environmental-observatory:/app/modules/environmental-observatory/dist}
+      APPHUB_SCRATCH_PREFIXES: ${APPHUB_SCRATCH_PREFIXES:-/app/modules/observatory:/app/modules/observatory/dist}
       OBSERVATORY_SKIP_BUILD: "1"
       OBSERVATORY_BUILD_CLI: "0"
       OBSERVATORY_CORE_TOKEN: ${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}
@@ -568,7 +568,7 @@ services:
       APPHUB_STREAM_MIRROR_JOB_RUNS: "false"
       APPHUB_STREAM_MIRROR_INGESTION: "false"
       APPHUB_STREAM_MIRROR_CORE_EVENTS: "false"
-    command: ["tsx", "modules/environmental-observatory/scripts/deploy.ts"]
+    command: ["tsx", "modules/observatory/scripts/deploy.ts"]
     volumes:
       - type: bind
         source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch

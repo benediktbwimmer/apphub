@@ -143,7 +143,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   if (targets.length === 0) {
     targets.push({
       path: 'examples/environmental-observatory',
-      moduleId: 'environmental-observatory',
+      moduleId: 'observatory',
       variables: {}
     });
   }

@@ -10,7 +10,7 @@ Each lane answers a different operational question (“Is data flowing?”, “W
 
 > **Module-first tooling**
 >
-> The observatory jobs, workflows, and services now ship through the `modules/environmental-observatory` workspace. The Import
+> The observatory jobs, workflows, and services now ship through the `modules/observatory` workspace. The Import
 > wizard pulls catalog data from `/modules/catalog`, while the legacy assets under `examples/environmental-observatory/`
 > remain available for bootstrap scripts, sample data, and troubleshooting utilities.
 
@@ -83,15 +83,15 @@ CSV columns:
 
 ## Jobs
 
-Four Node jobs orchestrate the pipeline. Their sources live under `modules/environmental-observatory/src/jobs`, and publishing the module (`npm run build --workspace @apphub/environmental-observatory-module`) produces the tarballs consumed by the importer.
+Four Node jobs orchestrate the pipeline. Their sources live under `modules/observatory/src/jobs`, and publishing the module (`npm run build --workspace @apphub/observatory-module`) produces the tarballs consumed by the importer.
 
 | Bundle | Slug | Purpose |
 | ------ | ---- | ------- |
-| `modules/environmental-observatory/src/jobs/minutePreprocessor` | `observatory-minute-preprocessor` | Parses minute CSVs in-place under the raw prefix, resolves calibrations, records ingest metadata, and emits the normalized payload consumed by the loader. |
-| `modules/environmental-observatory/src/jobs/timestoreLoader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, tagging each manifest with calibration lineage and materialising `observatory.timeseries.timestore`. |
-| `modules/environmental-observatory/src/jobs/visualizationRunner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `visualizations/`, and emits the `observatory.visualizations.minute` asset. |
-| `modules/environmental-observatory/src/jobs/reportPublisher` | `observatory-report-publisher` | Renders Markdown/HTML/JSON reports in `reports/`, consuming the visualization asset and materialising `observatory.reports.status`. |
-| `modules/environmental-observatory/src/jobs/dashboardAggregator` | `observatory-dashboard-aggregator` | Aggregates fleet metrics, writes `observatory.dashboard.snapshot`, and emits `observatory.dashboard.updated` for UI freshness.
+| `modules/observatory/src/jobs/minutePreprocessor` | `observatory-minute-preprocessor` | Parses minute CSVs in-place under the raw prefix, resolves calibrations, records ingest metadata, and emits the normalized payload consumed by the loader. |
+| `modules/observatory/src/jobs/timestoreLoader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, tagging each manifest with calibration lineage and materialising `observatory.timeseries.timestore`. |
+| `modules/observatory/src/jobs/visualizationRunner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `visualizations/`, and emits the `observatory.visualizations.minute` asset. |
+| `modules/observatory/src/jobs/reportPublisher` | `observatory-report-publisher` | Renders Markdown/HTML/JSON reports in `reports/`, consuming the visualization asset and materialising `observatory.reports.status`. |
+| `modules/observatory/src/jobs/dashboardAggregator` | `observatory-dashboard-aggregator` | Aggregates fleet metrics, writes `observatory.dashboard.snapshot`, and emits `observatory.dashboard.updated` for UI freshness.
 
 Each bundle ships with an `apphub.bundle.json` and Node entry point so you can register them via the core API once built.
 
@@ -110,7 +110,7 @@ The lineage graph forms a linear chain: inbox → Timestore → plots → report
 
 ## Workflows
 
-Two workflows manage the module. Their TypeScript definitions live in `modules/environmental-observatory/src/workflows/`.
+Two workflows manage the module. Their TypeScript definitions live in `modules/observatory/src/workflows/`.
 
 - **Trigger:** Manual or filesystem gateway (optional) when the minute inbox directory receives new CSVs.
 - **Steps:**
@@ -160,13 +160,13 @@ Two workflows manage the module. Their TypeScript definitions live in `modules/e
 
 ## Running the demo locally
 
-1. Build the module so the latest bundles land in `modules/environmental-observatory/dist`:
+1. Build the module so the latest bundles land in `modules/observatory/dist`:
 ```bash
-npm run build --workspace @apphub/environmental-observatory-module
+npm run build --workspace @apphub/observatory-module
 ```
 
    The core rebuilds each observatory bundle automatically when you publish an updated module. Every `/modules/catalog` refresh reads the manifest emitted during the build step so the importer has consistent metadata.
-2. Publish the module artifact via `npm run module:publish --workspace @apphub/core -- --module modules/environmental-observatory` when you want to upgrade a running cluster.
+2. Publish the module artifact via `npm run module:publish --workspace @apphub/core -- --module modules/observatory` when you want to upgrade a running cluster.
 3. Use the Import wizard's "Environmental observatory" scenario. The loader pulls the service registrations, jobs, and workflows directly from the module manifest; provide inbox/Timestore overrides when prompted and the bootstrap will hydrate defaults for you.
 
    > ⚠️ **Event proxy configuration**
@@ -202,8 +202,8 @@ npm run build --workspace @apphub/environmental-observatory-module
    ```
 6. Register both workflows by copying the curated JSON definitions from the module build output:
    ```bash
-   cp modules/environmental-observatory/dist/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
-   cp modules/environmental-observatory/dist/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
+   cp modules/observatory/dist/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
+   cp modules/observatory/dist/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
    ```
 7. Simulate an instrument drop by writing new minute CSV files into the raw prefix. Trigger the ingest workflow manually with:
    ```bash

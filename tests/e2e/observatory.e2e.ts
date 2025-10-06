@@ -32,8 +32,10 @@ import { runCommand } from './lib/process';
 const SKIP_STACK = process.env.APPHUB_E2E_SKIP_STACK === '1';
 const BURST_QUIET_MS = 5_000;
 const SNAPSHOT_FRESHNESS_MS = 60_000;
+const WAIT_TIMEOUT_MS = 15_000;
+const WAIT_POLL_INTERVAL_MS = 500;
 const DEFAULT_BUCKET = 'apphub-filestore';
-const DEFAULT_JOB_BUNDLE_BUCKET = 'apphub-example-bundles';
+const DEFAULT_JOB_BUNDLE_BUCKET = 'apphub-job-bundles';
 const DEFAULT_TIMESTORE_BUCKET = 'apphub-timestore';
 const DATASET_SLUG = process.env.OBSERVATORY_TIMESTORE_DATASET_SLUG ?? 'observatory-timeseries';
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -286,7 +288,7 @@ test('environmental observatory end-to-end pipeline', async (t) => {
     env: hostDeploymentEnv
   });
   log('building module workspace');
-  await runCommand(['npm', 'run', 'build', '--workspace', '@apphub/environmental-observatory-module'], {
+  await runCommand(['npm', 'run', 'build', '--workspace', '@apphub/observatory-module'], {
     env: hostDeploymentEnv
   });
 
@@ -316,7 +318,7 @@ test('environmental observatory end-to-end pipeline', async (t) => {
       'module',
       'deploy',
       '--module',
-      path.join(repoRoot, 'modules/environmental-observatory'),
+      path.join(repoRoot, 'modules/observatory'),
       '--core-url',
       'http://core-api:4000',
       '--core-token',
@@ -340,7 +342,9 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   log(`generator run started (id=${generatorRun.id})`);
   const generatorCompleted = await waitForRunStatus(coreClient, generatorRun.id, ['succeeded'], {
     slug: 'observatory-minute-data-generator',
-    onPoll: createWaitLogger('generator')
+    onPoll: createWaitLogger('generator'),
+    timeoutMs: WAIT_TIMEOUT_MS,
+    pollIntervalMs: WAIT_POLL_INTERVAL_MS
   });
   log(`generator run completed with status ${generatorCompleted.status}`);
   const generatorStepContext = (generatorCompleted.context ?? {}) as {
@@ -379,7 +383,7 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   }
 
   async function waitForIngestEventRuns(expectedCount: number): Promise<WorkflowRun[]> {
-    const deadline = Date.now() + 240_000;
+    const deadline = Date.now() + WAIT_TIMEOUT_MS;
     const seen = new Map<string, WorkflowRun>();
     let attempt = 0;
 
@@ -426,7 +430,7 @@ test('environmental observatory end-to-end pipeline', async (t) => {
         remainingMs: Math.max(0, deadline - Date.now()),
         note: `waiting for ${expectedCount - seen.size} additional event runs`
       });
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      await new Promise((resolve) => setTimeout(resolve, WAIT_POLL_INTERVAL_MS));
     }
 
     ingestWaitLogger({
@@ -483,17 +487,49 @@ test('environmental observatory end-to-end pipeline', async (t) => {
   );
 
   log('waiting for observatory-dashboard-aggregate workflow run');
-  const dashboardRun = await waitForLatestRun(coreClient, 'observatory-dashboard-aggregate', {
+  let dashboardRun = await waitForLatestRun(coreClient, 'observatory-dashboard-aggregate', {
     after: ingestSearchStart,
-    onPoll: createWaitLogger('dashboard')
+    onPoll: createWaitLogger('dashboard'),
+    timeoutMs: WAIT_TIMEOUT_MS,
+    pollIntervalMs: WAIT_POLL_INTERVAL_MS
   });
+
+  const ensureEventTriggeredDashboardRun = async (candidate: WorkflowRun): Promise<WorkflowRun> => {
+    const triggerType = (candidate.trigger as { type?: string } | null)?.type?.toLowerCase() ?? null;
+    if (triggerType === 'event') {
+      return candidate;
+    }
+
+    const recentRuns = await coreClient.listWorkflowRuns('observatory-dashboard-aggregate', 10);
+    const eventRun = recentRuns.find((run) => {
+      const createdAtMs = Date.parse(run.createdAt ?? '');
+      const runTriggerType = (run.trigger as { type?: string } | null)?.type?.toLowerCase() ?? null;
+      return (
+        runTriggerType === 'event' &&
+        Number.isFinite(createdAtMs) &&
+        createdAtMs >= ingestSearchStart.getTime()
+      );
+    });
+
+    if (!eventRun) {
+      return candidate;
+    }
+
+    log(`switching to event-triggered dashboard run ${eventRun.id}`);
+    const resolved = await coreClient.getWorkflowRun(eventRun.id);
+    return resolved;
+  };
+
+  dashboardRun = await ensureEventTriggeredDashboardRun(dashboardRun);
   log(`dashboard workflow completed with status ${dashboardRun.status}`);
   assert.equal(dashboardRun.status, 'succeeded', 'dashboard aggregation succeeded');
 
   log('waiting for observatory-daily-publication workflow run');
   const publicationRun = await waitForLatestRun(coreClient, 'observatory-daily-publication', {
     after: ingestSearchStart,
-    onPoll: createWaitLogger('publication')
+    onPoll: createWaitLogger('publication'),
+    timeoutMs: WAIT_TIMEOUT_MS,
+    pollIntervalMs: WAIT_POLL_INTERVAL_MS
   });
   log(`publication workflow completed with status ${publicationRun.status}`);
   assert.equal(publicationRun.status, 'succeeded', 'daily publication succeeded');

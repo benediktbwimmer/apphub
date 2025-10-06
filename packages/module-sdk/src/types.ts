@@ -1,5 +1,5 @@
 export interface ModuleMetadata {
-  /** Unique machine-readable name, e.g. `environmental-observatory`. */
+  /** Unique machine-readable name, e.g. `observatory`. */
   name: string;
   /** Semantic version of the module definition. */
   version: string;

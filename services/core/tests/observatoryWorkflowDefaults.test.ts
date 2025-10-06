@@ -1,9 +1,12 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { loadModuleCatalog, type ModuleWorkflow, type WorkflowDefinitionTemplate } from '@apphub/module-registry';
-import { bootstrapPlanSchema, executeBootstrapPlan } from '../src/bootstrap';
+import type { WorkflowDefinition } from '@apphub/module-sdk';
+import { materializeObservatoryConfig } from '../../../modules/observatory/src/deployment/config';
+import { applyObservatoryWorkflowDefaults } from '../../../modules/observatory/src/deployment/workflowDefaults';
 
 let moduleWorkflows: Map<string, ModuleWorkflow> | null = null;
 
@@ -56,9 +59,9 @@ async function run(): Promise<void> {
     }
   } as const;
 
-  const placeholderValues = new Map<string, string>([
-    ['OBSERVATORY_DATA_ROOT', path.dirname(config.paths.staging)]
-  ]);
+  const scratchRoot = await mkdtemp(path.join(tmpdir(), 'observatory-workflow-defaults-'));
+  const dataRoot = path.join(scratchRoot, 'data');
+  const configOutputPath = path.join(scratchRoot, 'config', 'observatory-config.json');
 
   const envOverrides: Record<string, string> = {
     OBSERVATORY_FILESTORE_BASE_URL: config.filestore.baseUrl,
@@ -80,7 +83,12 @@ async function run(): Promise<void> {
     OBSERVATORY_CORE_TOKEN: config.core?.apiToken ?? '',
     OBSERVATORY_INGEST_WORKFLOW_SLUG: config.workflows.ingestSlug,
     OBSERVATORY_PUBLICATION_WORKFLOW_SLUG: config.workflows.publicationSlug,
-    OBSERVATORY_VISUALIZATION_ASSET_ID: config.workflows.visualizationAssetId
+    OBSERVATORY_VISUALIZATION_ASSET_ID: config.workflows.visualizationAssetId,
+    APPHUB_SCRATCH_ROOT: scratchRoot,
+    APPHUB_RUNTIME_SCRATCH_ROOT: scratchRoot,
+    OBSERVATORY_DATA_ROOT: dataRoot,
+    OBSERVATORY_CONFIG_OUTPUT: configOutputPath,
+    OBSERVATORY_CONFIG_PATH: configOutputPath
   };
 
   const originalEnv = new Map<string, string | undefined>();
@@ -88,33 +96,37 @@ async function run(): Promise<void> {
     originalEnv.set(key, process.env[key]);
     process.env[key] = value;
   }
+  const moduleRoot = path.resolve(process.cwd(), 'modules', 'observatory');
 
-  const serviceConfigPath = path.resolve(
-    process.cwd(),
-    'modules',
-    'environmental-observatory',
-    'resources',
-    'config.json'
-  );
-  const configContents = await readFile(serviceConfigPath, 'utf8');
-  const serviceConfig = JSON.parse(configContents) as { bootstrap?: unknown; module: string };
-  const bootstrapPlan = serviceConfig.bootstrap
-    ? bootstrapPlanSchema.parse(serviceConfig.bootstrap)
-    : { actions: [] };
+  const cleanupTasks: Array<() => Promise<void>> = [
+    () => rm(scratchRoot, { recursive: true, force: true })
+  ];
 
-  const workflowPlan = {
-    actions: bootstrapPlan.actions.filter((action) => action.type === 'applyWorkflowDefaults')
-  };
-
-  let bootstrapResult: Awaited<ReturnType<typeof executeBootstrapPlan>>;
+  const defaultsBySlug = new Map<string, Record<string, unknown>>();
   try {
-    bootstrapResult = await executeBootstrapPlan({
-      moduleId: serviceConfig.module,
-      plan: workflowPlan,
-      placeholders: placeholderValues,
-      variables: { ...Object.fromEntries(placeholderValues), ...envOverrides },
-      workspaceRoot: process.cwd()
+    const { config: resolvedConfig } = await materializeObservatoryConfig({
+      repoRoot: moduleRoot,
+      env: process.env
     });
+
+    const workflowSlugs = [
+      'observatory-minute-data-generator',
+      'observatory-minute-ingest',
+      'observatory-daily-publication',
+      'observatory-dashboard-aggregate',
+      'observatory-calibration-import',
+      'observatory-calibration-reprocess'
+    ];
+
+    for (const slug of workflowSlugs) {
+      const definition = await loadWorkflow(slug);
+      applyObservatoryWorkflowDefaults(definition as unknown as WorkflowDefinition, resolvedConfig);
+      const defaults =
+        definition.defaultParameters && typeof definition.defaultParameters === 'object'
+          ? { ...(definition.defaultParameters as Record<string, unknown>) }
+          : {};
+      defaultsBySlug.set(slug, defaults);
+    }
   } finally {
     for (const [key, value] of originalEnv.entries()) {
       if (value === undefined) {
@@ -123,11 +135,10 @@ async function run(): Promise<void> {
         process.env[key] = value;
       }
     }
+    for (const task of cleanupTasks) {
+      await task();
+    }
   }
-
-  assert(bootstrapResult, 'bootstrap execution should produce a result');
-
-  const defaultsBySlug = bootstrapResult.workflowDefaults;
 
   const generatorDefaults = defaultsBySlug.get('observatory-minute-data-generator');
   assert(generatorDefaults, 'generator defaults should be registered');

@@ -75,6 +75,12 @@
       "@apphub/kubectl-mock/*": [
         "packages/kubectl-mock/src/*"
       ],
+      "@apphub/module-toolkit": [
+        "packages/module-toolkit/src/index.ts"
+      ],
+      "@apphub/module-toolkit/*": [
+        "packages/module-toolkit/src/*"
+      ],
       "kafkajs": [
         "types/kafkajs/index"
       ]

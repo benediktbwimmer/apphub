@@ -8,6 +8,7 @@ x-shared-env: &shared-env
   APPHUB_AUTH_DISABLED: "1"
   APPHUB_ALLOW_INLINE_MODE: "false"
   APPHUB_EVENTS_MODE: redis
+  APPHUB_STREAMING_ENABLED: "false"
   APPHUB_BUILD_EXECUTION_MODE: stub
   APPHUB_LAUNCH_EXECUTION_MODE: stub
   APPHUB_METRICS_ENABLED: "true"
@@ -33,14 +34,14 @@ x-shared-env: &shared-env
   APPHUB_METASTORE_BASE_URL: http://metastore:4100
   APPHUB_TIMESTORE_BASE_URL: http://timestore:4200
   APPHUB_BUNDLE_STORAGE_BACKEND: s3
-  APPHUB_BUNDLE_STORAGE_BUCKET: apphub-example-bundles
+  APPHUB_BUNDLE_STORAGE_BUCKET: apphub-job-bundles
   APPHUB_BUNDLE_STORAGE_ENDPOINT: http://minio:9000
   APPHUB_BUNDLE_STORAGE_REGION: us-east-1
   APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE: "true"
   APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID: apphub
   APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY: apphub123
   APPHUB_JOB_BUNDLE_STORAGE_BACKEND: s3
-  APPHUB_JOB_BUNDLE_S3_BUCKET: apphub-example-bundles
+  APPHUB_JOB_BUNDLE_S3_BUCKET: apphub-job-bundles
   APPHUB_JOB_BUNDLE_S3_ENDPOINT: http://minio:9000
   APPHUB_JOB_BUNDLE_S3_REGION: us-east-1
   APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE: "true"
@@ -54,6 +55,9 @@ x-shared-env: &shared-env
   TIMESTORE_S3_FORCE_PATH_STYLE: "true"
   TIMESTORE_S3_ACCESS_KEY_ID: apphub
   TIMESTORE_S3_SECRET_ACCESS_KEY: apphub123
+  TIMESTORE_STAGING_FLUSH_MAX_ROWS: "1"
+  TIMESTORE_STAGING_FLUSH_MAX_BYTES: "0"
+  TIMESTORE_STAGING_FLUSH_MAX_AGE_MS: "0"
   AWS_ACCESS_KEY_ID: apphub
   AWS_SECRET_ACCESS_KEY: apphub123
   AWS_REGION: us-east-1
@@ -172,10 +176,6 @@ services:
   core-materializer:
     <<: *core-service
     command: ["node", "services/core/dist/assetMaterializerWorker.js"]
-
-  core-examples:
-    <<: *core-service
-    command: ["node", "services/core/dist/exampleBundleWorker.js"]
 
   core-module-services:
     <<: *core-service

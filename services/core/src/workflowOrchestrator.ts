@@ -986,18 +986,41 @@ function serializeContext(context: WorkflowRuntimeContext): JsonValue {
 }
 
 function resolveWorkflowOutput(context: WorkflowRuntimeContext): JsonValue | null {
-  if (!context.shared) {
-    return null;
+  const sharedEntries = context.shared
+    ? Object.entries(context.shared).filter(([, value]) => value !== undefined)
+    : [];
+  if (sharedEntries.length > 0) {
+    if (sharedEntries.length === 1 && sharedEntries[0][0] === 'result') {
+      return (sharedEntries[0][1] ?? null) as JsonValue | null;
+    }
+    const snapshot: Record<string, JsonValue | null> = {};
+    for (const [key, value] of sharedEntries) {
+      snapshot[key] = (value ?? null) as JsonValue | null;
+    }
+    return snapshot as unknown as JsonValue;
   }
-  const entries = Object.entries(context.shared).filter(([, value]) => value !== undefined);
-  if (entries.length === 0) {
-    return null;
+
+  const stepEntries = Object.entries(context.steps ?? {});
+  let fallback: { result: JsonValue | null; completedAt: number } | null = null;
+  for (const [, record] of stepEntries) {
+    if (!record) {
+      continue;
+    }
+    const result = (record as Record<string, JsonValue | null>).result ?? null;
+    if (result === null || result === undefined) {
+      continue;
+    }
+    const completedAtRaw = (record as Record<string, JsonValue | null>).completedAt;
+    const completedAt =
+      typeof completedAtRaw === 'string' && completedAtRaw.trim().length > 0
+        ? Date.parse(completedAtRaw)
+        : Number.NEGATIVE_INFINITY;
+    if (!fallback || completedAt >= fallback.completedAt) {
+      fallback = { result: result as JsonValue | null, completedAt };
+    }
   }
-  const snapshot: Record<string, JsonValue | null> = {};
-  for (const [key, value] of entries) {
-    snapshot[key] = (value ?? null) as JsonValue | null;
-  }
-  return snapshot as unknown as JsonValue;
+
+  return fallback ? fallback.result : null;
 }
 
 function updateStepContext(
