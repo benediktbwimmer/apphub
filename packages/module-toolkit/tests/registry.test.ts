@@ -6,7 +6,9 @@ import {
   fromConfig,
   createTriggerRegistry,
   defineJobParameters,
-  createJobRegistry
+  createJobRegistry,
+  createTargetRegistry,
+  createTargetRegistryFromArray
 } from '../src/index';
 
 interface EventPayload {
@@ -63,5 +65,16 @@ describe('registry helpers', () => {
     const [params] = registry.buildAll({ settings: { baseUrl: 'http://localhost' } });
     expect(params.baseUrl).toBe('http://localhost');
     expect(params.constant).toBe('value');
+  });
+
+  test('createTargetRegistry aggregates arbitrary targets', () => {
+    const targetA = { name: 'target-a' };
+    const targetB = { name: 'target-b' };
+
+    const registry = createTargetRegistryFromArray([targetA, targetB]);
+
+    expect(registry.slugs).toEqual(['target-a', 'target-b']);
+    expect(registry.get('target-a')).toBe(targetA);
+    expect(registry.values()).toEqual([targetA, targetB]);
   });
 });

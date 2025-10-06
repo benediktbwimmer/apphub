@@ -12,7 +12,7 @@ npm run test
 
 ## Structure
 
-- `src/settings.ts` – typed Zod schema + `createSettingsLoader` to produce module settings/secrets.
+- `src/settings.ts` – typed Zod schema + `createModuleSettingsDefinition` wired to shared env presets.
 - `src/security.ts` – centralized principals and secrets wiring via `defineModuleSecurity`.
 - `src/triggers.ts` – parameter definitions authored with the typed trigger DSL; exported via a registry.
 - `src/jobs/` – job parameter definitions, also exposed through a registry.

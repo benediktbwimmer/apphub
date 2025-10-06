@@ -1,8 +1,10 @@
 import {
   defineTrigger,
   createTriggerRegistry,
-  event,
-  fromConfig
+  eventField,
+  fromConfig,
+  predicateEquals,
+  resolvePredicates
 } from '@apphub/module-toolkit';
 import type { ObservatorySettings } from './settings';
 
@@ -27,13 +29,11 @@ const minuteIngestTrigger = defineTrigger<FilestoreUploadEvent, TriggerMetadata,
   workflowSlug: 'observatory-minute-ingest',
   name: 'Observatory minute ingest',
   eventType: 'filestore.command.completed',
-  predicates: [
-    { path: '$.payload.command', operator: 'equals', value: 'uploadFile' }
-  ],
+  predicates: (context) => resolvePredicates(context, predicateEquals('$.payload.command', 'uploadFile')),
   parameters: {
-    minute: event<FilestoreUploadEvent>('payload.node.metadata.minute').default('unknown'),
-    instrumentId: event<FilestoreUploadEvent>('payload.node.metadata.instrumentId').default('unknown'),
-    commandPath: event<FilestoreUploadEvent>('payload.path'),
+    minute: eventField<FilestoreUploadEvent>((event) => event.payload.node.metadata.minute).default('unknown'),
+    instrumentId: eventField<FilestoreUploadEvent>((event) => event.payload.node.metadata.instrumentId).default('unknown'),
+    commandPath: eventField<FilestoreUploadEvent>((event) => event.payload.path),
     inboxPrefix: fromConfig<ObservatorySettings>((settings) => settings.filestore.inboxPrefix)
   }
 });

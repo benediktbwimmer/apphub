@@ -1,5 +1,18 @@
 import { describe, expect, test } from 'vitest';
-import { defineTrigger, event, fromConfig, literal, defineJobParameters } from '../src/index';
+import {
+  defineTrigger,
+  event,
+  eventField,
+  triggerMetadataField,
+  fromConfig,
+  literal,
+  defineJobParameters,
+  predicateEquals,
+  predicateExists,
+  predicateIn,
+  predicateEqualsConfig,
+  resolvePredicates
+} from '../src/index';
 
 interface UploadEvent {
   payload: {
@@ -29,11 +42,13 @@ describe('trigger builder', () => {
       slug: 'observatory-minute.ingest-trigger',
       name: 'Observatory minute ingest trigger',
       eventType: 'filestore.command.completed',
-      predicates: [],
+      predicates: (context) =>
+        resolvePredicates(context, predicateEquals('$.payload.command', 'uploadFile'), predicateExists('$.payload.node.metadata.minute'), predicateIn('$.payload.type', ['csv', 'tsv']), predicateEqualsConfig<ObservatorySettings>('$.payload.backendMountId', (settings) => settings.filestore.backendId ?? -1)),
       parameters: {
-        minute: event<UploadEvent>('payload.node.metadata.minute').default('unknown'),
+        minute: eventField<UploadEvent>((event) => event.payload.node.metadata.minute).default('unknown'),
         instrumentId: event<UploadEvent>('payload.node.metadata.instrumentId').default('unknown'),
-        inboxPrefix: fromConfig<ObservatorySettings>((settings) => settings.filestore.inboxPrefix)
+        inboxPrefix: fromConfig<ObservatorySettings>((settings) => settings.filestore.inboxPrefix),
+        maxFiles: triggerMetadataField<TriggerMetadata>((metadata) => metadata.maxFiles)
       },
       runKey: literal('observatory-run')
     });
@@ -53,7 +68,14 @@ describe('trigger builder', () => {
       "{{ event.payload.node.metadata.instrumentId | default: 'unknown' }}"
     );
     expect(result.parameterTemplate?.inboxPrefix).toBe('datasets/observatory/raw');
+    expect(result.parameterTemplate?.maxFiles).toBe('{{ trigger.metadata.maxFiles }}');
     expect(result.runKeyTemplate).toBe('observatory-run');
+    expect(result.predicates).toEqual([
+      { path: '$.payload.command', operator: 'equals', value: 'uploadFile' },
+      { path: '$.payload.node.metadata.minute', operator: 'exists' },
+      { path: '$.payload.type', operator: 'in', values: ['csv', 'tsv'] },
+      { path: '$.payload.backendMountId', operator: 'equals', value: -1 }
+    ]);
   });
 });
 
@@ -61,7 +83,7 @@ describe('job parameter builder', () => {
   test('returns literal and template values', () => {
     const params = defineJobParameters<ObservatorySettings>({
       baseUrl: fromConfig<ObservatorySettings>((settings) => settings.filestore.inboxPrefix),
-      instrumentId: event<UploadEvent>('payload.node.metadata.instrumentId').default('unknown')
+      instrumentId: eventField<UploadEvent>((event) => event.payload.node.metadata.instrumentId).default('unknown')
     });
 
     const compiled = params.build({

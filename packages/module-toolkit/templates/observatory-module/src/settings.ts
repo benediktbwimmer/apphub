@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { createSettingsLoader } from '@apphub/module-toolkit';
+import {
+  createModuleSettingsDefinition,
+  COMMON_ENV_PRESET_KEYS
+} from '@apphub/module-toolkit';
 
 export const ObservatorySettingsSchema = z.object({
   timestore: z.object({
@@ -19,20 +22,33 @@ export const ObservatorySecretsSchema = z.object({
 export type ObservatorySettings = z.infer<typeof ObservatorySettingsSchema>;
 export type ObservatorySecrets = z.infer<typeof ObservatorySecretsSchema>;
 
-export const loadSettings = createSettingsLoader({
+const DEFAULT_SETTINGS: ObservatorySettings = {
+  timestore: {
+    baseUrl: 'http://127.0.0.1:4200',
+    datasetSlug: 'observatory-timeseries'
+  },
+  filestore: {
+    baseUrl: 'http://127.0.0.1:4300',
+    inboxPrefix: 'datasets/observatory/raw'
+  }
+};
+
+const DEFAULT_SECRETS: ObservatorySecrets = {
+  timestoreToken: undefined
+};
+
+const settingsDefinition = createModuleSettingsDefinition({
   settingsSchema: ObservatorySettingsSchema,
   secretsSchema: ObservatorySecretsSchema,
-  readSettings: (env) => ({
-    timestore: {
-      baseUrl: env.OBSERVATORY_TIMESTORE_BASE_URL ?? 'http://127.0.0.1:4200',
-      datasetSlug: env.OBSERVATORY_TIMESTORE_DATASET_SLUG ?? 'observatory-timeseries'
-    },
-    filestore: {
-      baseUrl: env.OBSERVATORY_FILESTORE_BASE_URL ?? 'http://127.0.0.1:4300',
-      inboxPrefix: env.OBSERVATORY_FILESTORE_INBOX_PREFIX ?? 'datasets/observatory/raw'
-    }
-  }),
-  readSecrets: (env) => ({
-    timestoreToken: env.OBSERVATORY_TIMESTORE_TOKEN
-  })
+  defaults: () => DEFAULT_SETTINGS,
+  secretsDefaults: () => DEFAULT_SECRETS,
+  envPresetKeys: [
+    COMMON_ENV_PRESET_KEYS.timestore,
+    COMMON_ENV_PRESET_KEYS.filestore
+  ],
+  secretsEnvPresetKeys: [COMMON_ENV_PRESET_KEYS.standardSecrets]
 });
+
+export const loadSettings = settingsDefinition.load;
+export const defaultSettings = settingsDefinition.defaultSettings;
+export const defaultSecrets = settingsDefinition.defaultSecrets;

@@ -31,6 +31,24 @@ describe('defineModuleSecurity', () => {
 
     // list helpers
     expect(security.listPrincipals()).toHaveLength(2);
+    expect(security.principalSubjects()).toEqual({
+      dashboardAggregator: 'observatory-dashboard-aggregator',
+      timestoreLoader: 'observatory-timestore-loader'
+    });
+    expect(security.principalSettings({ dashboardAggregator: 'override' })).toEqual({
+      dashboardAggregator: 'override',
+      timestoreLoader: 'observatory-timestore-loader'
+    });
+    expect(security.principalSettingsPath('dashboardAggregator')).toBe('principals.dashboardAggregator');
+    const selector = security.principalSelector<'dashboardAggregator'>('dashboardAggregator');
+    expect(
+      selector({
+        principals: { dashboardAggregator: 'observatory-dashboard-aggregator' }
+      })
+    ).toBe('observatory-dashboard-aggregator');
+    expect(security.secretSettingsPath('timestoreToken')).toBe('secrets.timestoreToken');
+    const secretSelector = security.secretSelector('timestoreToken');
+    expect(secretSelector({ timestoreToken: 'abc' })).toBe('abc');
     const bundle = security.secretsBundle({ timestoreToken: 'abc' });
     expect(bundle.timestoreToken.value()).toBe('abc');
     expect(bundle.timestoreToken.exists()).toBe(true);

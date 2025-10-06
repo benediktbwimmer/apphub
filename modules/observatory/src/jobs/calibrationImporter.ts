@@ -34,7 +34,7 @@ const parametersSchema = z
 
 export type CalibrationImporterParameters = z.infer<typeof parametersSchema>;
 
-interface CalibrationImporterResult {
+export interface CalibrationImporterResult {
   calibrationId: string;
   instrumentId: string;
   effectiveAt: string;

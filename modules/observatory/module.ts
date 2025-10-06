@@ -4,6 +4,7 @@ import {
   secretsRef,
   settingsRef
 } from '@apphub/module-sdk';
+import type { ModuleTargetDefinition } from '@apphub/module-sdk';
 import type { ObservatorySettings, ObservatorySecrets } from './src/config/settings';
 import {
   defaultSettings,
@@ -12,26 +13,9 @@ import {
   resolveSecretsFromRaw
 } from './src/config/settings';
 import { security } from './src/config/security';
-import {
-  dataGeneratorJob,
-  minutePreprocessorJob,
-  timestoreLoaderJob,
-  visualizationRunnerJob,
-  dashboardAggregatorJob,
-  reportPublisherJob,
-  calibrationImporterJob,
-  calibrationPlannerJob,
-  calibrationReprocessorJob
-} from './src/jobs';
-import { dashboardService, adminService } from './src/services';
-import {
-  minuteDataGeneratorWorkflow,
-  minuteIngestWorkflow,
-  dailyPublicationWorkflow,
-  dashboardAggregateWorkflow,
-  calibrationImportWorkflow,
-  calibrationReprocessWorkflow
-} from './src/workflows';
+import { jobs } from './src/jobs';
+import { services } from './src/services';
+import { workflows } from './src/workflows';
 
 export default defineModule<ObservatorySettings, ObservatorySecrets>({
   metadata: {
@@ -98,22 +82,8 @@ export default defineModule<ObservatorySettings, ObservatorySecrets>({
     }
   },
   targets: [
-    dataGeneratorJob,
-    minutePreprocessorJob,
-    timestoreLoaderJob,
-    visualizationRunnerJob,
-    dashboardAggregatorJob,
-    reportPublisherJob,
-    calibrationImporterJob,
-    calibrationPlannerJob,
-    calibrationReprocessorJob,
-    dashboardService,
-    adminService,
-    minuteDataGeneratorWorkflow,
-    minuteIngestWorkflow,
-    dailyPublicationWorkflow,
-    dashboardAggregateWorkflow,
-    calibrationImportWorkflow,
-    calibrationReprocessWorkflow
-  ]
+    ...jobs.values(),
+    ...services.values(),
+    ...workflows.values()
+  ] as ModuleTargetDefinition<ObservatorySettings, ObservatorySecrets>[]
 });

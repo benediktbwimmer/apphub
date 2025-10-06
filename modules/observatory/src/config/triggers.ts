@@ -1,13 +1,15 @@
 import {
   defineTrigger,
   createTriggerRegistry,
-  event,
-  trigger as triggerPath,
+  eventField,
+  triggerMetadataField,
   fromConfig,
   literal,
-  jsonPath
+  predicateEquals,
+  predicateExists,
+  resolvePredicates
 } from '@apphub/module-toolkit';
-import type { JsonPath } from '@apphub/module-toolkit';
+import { security } from './security';
 import type { WorkflowProvisioningEventTriggerPredicate } from '@apphub/module-registry';
 import type { ObservatorySettings } from './settings';
 
@@ -80,42 +82,33 @@ export const triggers = createTriggerRegistry({
     name: 'Observatory minute ingest',
     eventType: 'filestore.command.completed',
     eventSource: 'filestore.service',
-    predicates: (context) => {
-      const base: WorkflowProvisioningEventTriggerPredicate[] = [
-        { path: '$.payload.command', operator: 'equals', value: 'uploadFile' },
-        { path: '$.payload.node.metadata.minute', operator: 'exists' }
-      ];
-      if (typeof context.settings.filestore.backendId === 'number') {
-        base.splice(1, 0, {
-          path: '$.payload.backendMountId',
-          operator: 'equals',
-          value: context.settings.filestore.backendId
-        });
-      }
-      return base;
+    predicates: (context) =>
+      resolvePredicates(
+        context,
+        predicateEquals('$.payload.command', 'uploadFile'),
+        predicateExists('$.payload.node.metadata.minute'),
+        (ctx) => {
+          const id = ctx.settings.filestore.backendId;
+          return typeof id === 'number'
+            ? predicateEquals('$.payload.backendMountId', id)
+            : null;
+        }
+      ),
+    parameters: {
+      minute: eventField<FilestoreUploadEvent, string | undefined>((event) => event.payload.node.metadata.minute)
+        .fallback(eventField<FilestoreUploadEvent, string | undefined>((event) => event.payload.node.metadata.minuteKey))
+        .fallback(eventField<FilestoreUploadEvent, string | undefined>((event) => event.payload.node.metadata.window)),
+      instrumentId: eventField<FilestoreUploadEvent, string | undefined>((event) => event.payload.node.metadata.instrumentId)
+        .fallback(eventField<FilestoreUploadEvent, string | undefined>((event) => event.payload.node.metadata.instrument_id))
+        .fallback(literal('unknown')),
+      maxFiles: triggerMetadataField<IngestTriggerMetadata, number>((metadata) => metadata.maxFiles),
+      commandPath: eventField<FilestoreUploadEvent, string>((event) => event.payload.path),
+      inboxPrefix: fromConfig((settings: ObservatorySettings) => settings.filestore.inboxPrefix),
+      filestoreBaseUrl: fromConfig((settings) => settings.filestore.baseUrl),
+      filestoreBackendId: fromConfig((settings) => settings.filestore.backendId),
+      filestoreBackendKey: fromConfig((settings) => settings.filestore.backendKey),
+      filestoreToken: literal(null)
     },
-    parameters: (() => {
-      const path = jsonPath<FilestoreUploadEvent>();
-      const fromEvent = <P extends JsonPath<FilestoreUploadEvent>>(value: P) =>
-        event<FilestoreUploadEvent, P>(value);
-      const fromTriggerMetadata = <P extends JsonPath<{ metadata: IngestTriggerMetadata }>>(value: P) =>
-        triggerPath<{ metadata: IngestTriggerMetadata }, P>(value);
-      return {
-        minute: fromEvent(path.payload.node.metadata.minute.$path)
-          .fallback(fromEvent(path.payload.node.metadata.minuteKey.$path))
-          .fallback(fromEvent(path.payload.node.metadata.window.$path)),
-        instrumentId: fromEvent(path.payload.node.metadata.instrumentId.$path)
-          .fallback(fromEvent(path.payload.node.metadata.instrument_id.$path))
-          .fallback(literal('unknown')),
-        maxFiles: fromTriggerMetadata('metadata.maxFiles'),
-        commandPath: fromEvent(path.payload.path.$path),
-        inboxPrefix: fromConfig((settings: ObservatorySettings) => settings.filestore.inboxPrefix),
-        filestoreBaseUrl: fromConfig((settings) => settings.filestore.baseUrl),
-        filestoreBackendId: fromConfig((settings) => settings.filestore.backendId),
-        filestoreBackendKey: fromConfig((settings) => settings.filestore.backendKey),
-        filestoreToken: literal(null)
-      };
-    })(),
     metadata: (context) => ({
       maxFiles: context.settings.ingest.maxFiles,
       filestore: {
@@ -154,43 +147,30 @@ export const triggers = createTriggerRegistry({
     workflowSlug: 'observatory-minute-publication',
     name: 'Observatory minute asset ready',
     eventType: 'asset.produced',
-    predicates: [
-      {
-        path: '$.payload.assetId',
-        operator: 'equals',
-        value: 'observatory.timeseries.timestore'
-      }
-    ],
-    parameters: (() => {
-      const path = jsonPath<AssetProducedEvent>();
-      const fromEvent = <P extends JsonPath<AssetProducedEvent>>(value: P) =>
-        event<AssetProducedEvent, P>(value);
-      const fromTriggerMetadata = <P extends JsonPath<{ metadata: PublicationTriggerMetadata }>>(value: P) =>
-        triggerPath<{ metadata: PublicationTriggerMetadata }, P>(value);
-      return {
-        partitionKey: fromEvent(path.payload.partitionKey.$path),
-        instrumentId: fromEvent(path.payload.parameters.instrumentId.$path)
-          .fallback(fromEvent(path.payload.payload.instrumentId.$path))
-          .fallback(fromEvent(path.payload.payload.partitionKeyFields.instrument.$path))
-          .fallback(fromEvent(path.payload.payload.partitionKeyFields.instrument_id.$path)),
-        rowsIngested: fromEvent(path.payload.payload.rowsIngested.$path)
-          .fallback(fromEvent(path.payload.parameters.rowsIngested.$path))
-          .fallback(fromTriggerMetadata('metadata.rowsIngestedHint')),
-        partitionWindow: fromEvent(path.payload.parameters.partitionWindow.$path)
-          .fallback(fromEvent(path.payload.payload.partitionKeyFields.window.$path))
-          .fallback(fromEvent(path.payload.partitionKey.$path)),
-        timestoreBaseUrl: fromConfig((settings) => settings.timestore.baseUrl),
-        timestoreDatasetSlug: fromConfig((settings) => settings.timestore.datasetSlug),
-        timestoreAuthToken: literal(null),
-        filestoreBaseUrl: fromConfig((settings) => settings.filestore.baseUrl),
-        filestoreBackendId: fromConfig((settings) => settings.filestore.backendId),
-        filestoreToken: literal(null),
-        filestorePrincipal: literal('observatory-visualization-runner'),
-        visualizationsPrefix: fromConfig((settings) => settings.filestore.visualizationsPrefix),
-        reportsPrefix: fromConfig((settings) => settings.filestore.reportsPrefix),
-        lookbackMinutes: fromTriggerMetadata('metadata.lookbackMinutes')
-      };
-    })(),
+    predicates: [predicateEquals('$.payload.assetId', 'observatory.timeseries.timestore')],
+    parameters: {
+      partitionKey: eventField<AssetProducedEvent, string>((event) => event.payload.partitionKey),
+      instrumentId: eventField<AssetProducedEvent, string | null | undefined>((event) => event.payload.parameters.instrumentId)
+        .fallback(eventField<AssetProducedEvent, string | null | undefined>((event) => event.payload.payload.instrumentId))
+        .fallback(eventField<AssetProducedEvent, string | null | undefined>((event) => event.payload.payload.partitionKeyFields.instrument))
+        .fallback(eventField<AssetProducedEvent, string | null | undefined>((event) => event.payload.payload.partitionKeyFields.instrument_id)),
+      rowsIngested: eventField<AssetProducedEvent, number | null | undefined>((event) => event.payload.payload.rowsIngested)
+        .fallback(eventField<AssetProducedEvent, number | null | undefined>((event) => event.payload.parameters.rowsIngested))
+        .fallback(triggerMetadataField<PublicationTriggerMetadata, number | undefined>((metadata) => metadata.rowsIngestedHint)),
+      partitionWindow: eventField<AssetProducedEvent, string | null | undefined>((event) => event.payload.parameters.partitionWindow)
+        .fallback(eventField<AssetProducedEvent, string | null | undefined>((event) => event.payload.payload.partitionKeyFields.window))
+        .fallback(eventField<AssetProducedEvent, string | null | undefined>((event) => event.payload.partitionKey)),
+      timestoreBaseUrl: fromConfig((settings) => settings.timestore.baseUrl),
+      timestoreDatasetSlug: fromConfig((settings) => settings.timestore.datasetSlug),
+      timestoreAuthToken: literal(null),
+      filestoreBaseUrl: fromConfig((settings) => settings.filestore.baseUrl),
+      filestoreBackendId: fromConfig((settings) => settings.filestore.backendId),
+      filestoreToken: literal(null),
+      filestorePrincipal: fromConfig(security.principalSelector('visualizationRunner')),
+      visualizationsPrefix: fromConfig((settings) => settings.filestore.visualizationsPrefix),
+      reportsPrefix: fromConfig((settings) => settings.filestore.reportsPrefix),
+      lookbackMinutes: triggerMetadataField<PublicationTriggerMetadata, number>((metadata) => metadata.lookbackMinutes)
+    },
     metadata: (context) => ({
       filestore: {
         baseUrl: context.settings.filestore.baseUrl,
@@ -221,32 +201,16 @@ export const triggers = createTriggerRegistry({
     name: 'Observatory burst window expired',
     eventType: 'asset.expired',
     predicates: [
-      {
-        path: '$.payload.assetId',
-        operator: 'equals',
-        value: 'observatory.burst.window'
-      },
-      {
-        path: '$.payload.reason',
-        operator: 'equals',
-        value: 'ttl'
-      }
+      predicateEquals('$.payload.assetId', 'observatory.burst.window'),
+      predicateEquals('$.payload.reason', 'ttl')
     ],
-    parameters: (() => {
-      const path = jsonPath<AssetExpiredEvent>();
-      const fromEvent = <P extends JsonPath<AssetExpiredEvent>>(value: P) =>
-        event<AssetExpiredEvent, P>(value);
-      const fromTriggerMetadata = <P extends JsonPath<{ metadata: AggregateTriggerMetadata }>>(value: P) =>
-        triggerPath<{ metadata: AggregateTriggerMetadata }, P>(value);
-      return {
-        partitionKey: fromEvent(path.payload.partitionKey.$path).fallback(
-          fromEvent(path.payload.workflowSlug.$path)
-        ),
-        burstReason: fromEvent(path.payload.reason.$path),
-        burstFinishedAt: fromEvent(path.payload.expiresAt.$path),
-        lookbackMinutes: fromTriggerMetadata('metadata.lookbackMinutes')
-      };
-    })(),
+    parameters: {
+      partitionKey: eventField<AssetExpiredEvent, string | undefined>((event) => event.payload.partitionKey)
+        .fallback(eventField<AssetExpiredEvent, string | undefined>((event) => event.payload.workflowSlug)),
+      burstReason: eventField<AssetExpiredEvent, string>((event) => event.payload.reason),
+      burstFinishedAt: eventField<AssetExpiredEvent, string>((event) => event.payload.expiresAt),
+      lookbackMinutes: triggerMetadataField<AggregateTriggerMetadata, number>((metadata) => metadata.lookbackMinutes)
+    },
     metadata: (context) => ({
       timestore: {
         baseUrl: context.settings.timestore.baseUrl,
