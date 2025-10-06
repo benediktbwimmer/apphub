@@ -49,6 +49,19 @@ export interface ModulePostDeployContext<TConfig> {
   logger: ModuleDeploymentLogger;
 }
 
+type WorkflowScheduleListEntry = {
+  schedule: {
+    id: string;
+    name: string | null;
+    description: string | null;
+    cron: string;
+    timezone: string | null;
+  };
+  workflow?: {
+    slug?: string;
+  };
+};
+
 export interface ModuleDeploymentAdapter<TConfig = unknown> {
   prepare(context: ModuleDeploymentContext): Promise<ModuleDeploymentPreparedState<TConfig>>;
 }
@@ -96,6 +109,7 @@ export const deploymentAdapter: ModuleDeploymentAdapter<EventDrivenObservatoryCo
       workflow: workflowCustomization,
       postDeploy: async ({ core, env, logger }) => {
         await ensureObservatoryServices({ core, env, logger });
+        await ensureDashboardSchedule({ core, logger });
       }
     } satisfies ModuleDeploymentPreparedState<EventDrivenObservatoryConfig>;
   }
@@ -364,6 +378,70 @@ function pruneUndefined<T>(value: T): T {
     return result as T;
   }
   return value;
+}
+
+async function ensureDashboardSchedule(options: {
+  core: ModulePostDeployContext<EventDrivenObservatoryConfig>['core'];
+  logger: ModuleDeploymentLogger;
+}): Promise<void> {
+  const slug = 'observatory-dashboard-aggregate';
+  const desired = {
+    name: 'Periodic dashboard refresh',
+    description: 'Fallback aggregation to cover long-running bursts.',
+    cron: '*/5 * * * *',
+    timezone: 'UTC' as string | null
+  };
+
+  try {
+    const response = await options.core.request<{ data: WorkflowScheduleListEntry[] }>({
+      method: 'GET',
+      path: '/workflow-schedules'
+    });
+    const entries = Array.isArray(response?.data) ? response.data : [];
+    const scoped = entries.filter((entry) => entry.workflow?.slug === slug);
+    const existing = scoped.find((entry) => entry.schedule?.name === desired.name) ?? null;
+
+    if (!existing) {
+      await options.core.request({
+        method: 'POST',
+        path: `/workflows/${encodeURIComponent(slug)}/schedules`,
+        body: desired
+      });
+      options.logger.info?.('Created workflow schedule', { workflow: slug, schedule: desired.name });
+      return;
+    }
+
+    const updates: Record<string, unknown> = {};
+    const schedule = existing.schedule;
+    if ((schedule.name ?? null) !== desired.name) {
+      updates.name = desired.name;
+    }
+    if ((schedule.description ?? null) !== desired.description) {
+      updates.description = desired.description;
+    }
+    if ((schedule.cron ?? '').trim() !== desired.cron) {
+      updates.cron = desired.cron;
+    }
+    if ((schedule.timezone ?? null) !== desired.timezone) {
+      updates.timezone = desired.timezone;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return;
+    }
+
+    await options.core.request({
+      method: 'PATCH',
+      path: `/workflow-schedules/${schedule.id}`,
+      body: updates
+    });
+    options.logger.info?.('Updated workflow schedule', { workflow: slug, schedule: desired.name });
+  } catch (error) {
+    options.logger.error?.('Failed to ensure dashboard schedule', {
+      workflow: slug,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 }
 
 type ServiceListEntry = {

@@ -4,15 +4,30 @@ const activeInstances = new Set<EmbeddedPostgres>();
 
 type EmbeddedPostgresOptions = ConstructorParameters<typeof EmbeddedPostgres>[0];
 
-export function createEmbeddedPostgres(options?: EmbeddedPostgresOptions): EmbeddedPostgres {
-  if (options && typeof options === 'object') {
-    const info = {
-      databaseDir: (options as { databaseDir?: string }).databaseDir,
-      port: (options as { port?: number }).port
-    };
-    console.info('[timestore:test] starting embedded Postgres', info);
+function ensureSharedMemoryFlag(flags: string[] | undefined): string[] {
+  const normalized = Array.isArray(flags) ? [...flags] : [];
+  const hasSharedMemorySetting = normalized.some((flag) =>
+    typeof flag === 'string' && flag.includes('shared_memory_type=')
+  );
+  if (!hasSharedMemorySetting) {
+    normalized.push('-c', 'shared_memory_type=mmap');
   }
-  const instance = new EmbeddedPostgres(options as EmbeddedPostgresOptions);
+  return normalized;
+}
+
+export function createEmbeddedPostgres(options?: EmbeddedPostgresOptions): EmbeddedPostgres {
+  const normalizedOptions = {
+    ...(options ?? {}),
+    postgresFlags: ensureSharedMemoryFlag((options as { postgresFlags?: string[] } | undefined)?.postgresFlags)
+  } as EmbeddedPostgresOptions;
+
+  const info = {
+    databaseDir: (normalizedOptions as { databaseDir?: string }).databaseDir,
+    port: (normalizedOptions as { port?: number }).port
+  };
+  console.info('[timestore:test] starting embedded Postgres', info);
+
+  const instance = new EmbeddedPostgres(normalizedOptions);
   activeInstances.add(instance);
   return instance;
 }

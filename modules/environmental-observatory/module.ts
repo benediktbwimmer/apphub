@@ -23,7 +23,7 @@ import {
 export default defineModule<ObservatoryModuleSettings, ObservatoryModuleSecrets>({
     metadata: {
       name: 'environmental-observatory',
-      version: '0.1.8',
+      version: '0.1.9',
     displayName: 'Environmental Observatory',
     description:
       'Reference implementation of the environmental observatory scenario using the AppHub module runtime.'

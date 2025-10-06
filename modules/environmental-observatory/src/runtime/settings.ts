@@ -42,7 +42,7 @@ export interface EventSettings {
 export interface DashboardSettings {
   lookbackMinutes: number;
   burstQuietMs: number;
-  snapshotFreshnessMs: number;
+  snapshotFreshnessMs: number | null;
 }
 
 export interface CoreSettings {
@@ -151,7 +151,7 @@ const FALLBACK_OBSERVATORY_SETTINGS: ObservatoryModuleSettings = {
   dashboard: {
     lookbackMinutes: 720,
     burstQuietMs: 5_000,
-    snapshotFreshnessMs: 60_000
+    snapshotFreshnessMs: null
   },
   core: {
     baseUrl: 'http://127.0.0.1:4000'
@@ -265,6 +265,18 @@ export function resolveObservatorySettingsDefaults(): ObservatoryModuleSettings 
       const lookback = Number(config.workflows.dashboard.lookbackMinutes);
       if (Number.isFinite(lookback) && lookback > 0) {
         settings.dashboard.lookbackMinutes = Math.trunc(lookback);
+      }
+    }
+
+    if ('dashboard' in config.workflows && config.workflows.dashboard) {
+      const freshness = config.workflows.dashboard.snapshotFreshnessMillis;
+      if (freshness === null || freshness === undefined) {
+        settings.dashboard.snapshotFreshnessMs = null;
+      } else {
+        const parsed = Number(freshness);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          settings.dashboard.snapshotFreshnessMs = parsed;
+        }
       }
     }
 

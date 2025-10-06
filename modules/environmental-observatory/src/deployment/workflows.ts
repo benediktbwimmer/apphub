@@ -72,8 +72,7 @@ export function buildTriggerDefinitions(
         `${config.filestore.reportsPrefix ?? 'datasets/observatory/reports'}/overview`
     },
     lookbackMinutes: config.workflows.dashboard?.lookbackMinutes ?? 720,
-    burstQuietMs: config.workflows.dashboard?.burstQuietMillis ?? 5_000,
-    snapshotFreshnessMs: config.workflows.dashboard?.snapshotFreshnessMillis ?? 60_000
+    burstQuietMs: config.workflows.dashboard?.burstQuietMillis ?? 5_000
   };
 
   const ingestPredicates: WorkflowProvisioningEventTrigger['predicates'] = [

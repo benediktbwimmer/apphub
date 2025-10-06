@@ -559,6 +559,9 @@ services:
       <<: *shared-env
       LOG_LEVEL: info
       APPHUB_SCRATCH_PREFIXES: ${APPHUB_SCRATCH_PREFIXES:-/app/modules/environmental-observatory:/app/modules/environmental-observatory/dist}
+      OBSERVATORY_SKIP_BUILD: "1"
+      OBSERVATORY_BUILD_CLI: "0"
+      OBSERVATORY_CORE_TOKEN: ${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}
       APPHUB_STREAMING_ENABLED: "false"
       APPHUB_STREAM_MIRROR_WORKFLOW_RUNS: "false"
       APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS: "false"

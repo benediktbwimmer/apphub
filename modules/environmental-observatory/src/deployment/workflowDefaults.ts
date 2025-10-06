@@ -136,16 +136,15 @@ export function applyObservatoryWorkflowDefaults(
         config.workflows.dashboard?.overviewPrefix ?? `${defaults.reportsPrefix ?? 'datasets/observatory/reports'}/overview`;
       defaults.lookbackMinutes = config.workflows.dashboard?.lookbackMinutes ?? defaults.lookbackMinutes ?? 720;
       defaults.burstQuietMs = config.workflows.dashboard?.burstQuietMillis ?? defaults.burstQuietMs ?? 5_000;
-      defaults.snapshotFreshnessMs =
-        config.workflows.dashboard?.snapshotFreshnessMillis ?? defaults.snapshotFreshnessMs ?? 60_000;
+      if ('snapshotFreshnessMs' in defaults) {
+        delete (defaults as Record<string, unknown>).snapshotFreshnessMs;
+      }
       defaults.filestoreToken = config.filestore.token ?? null;
       defaults.timestoreBaseUrl = config.timestore.baseUrl;
       defaults.timestoreDatasetSlug = config.timestore.datasetSlug;
       defaults.timestoreAuthToken = config.timestore.authToken ?? null;
 
       {
-        const snapshotTTL =
-          config.workflows.dashboard?.snapshotFreshnessMillis ?? defaults.snapshotFreshnessMs ?? 60_000;
         const aggregateStep = definition.steps?.find(
           (step) => step && (step as Record<string, unknown>).id === 'aggregate-dashboard'
         );
@@ -154,13 +153,8 @@ export function applyObservatoryWorkflowDefaults(
           const snapshotAsset = produces.find(
             (asset) => asset && asset.assetId === 'observatory.dashboard.snapshot'
           );
-          if (snapshotAsset) {
-            const freshness =
-              snapshotAsset.freshness && typeof snapshotAsset.freshness === 'object' && !Array.isArray(snapshotAsset.freshness)
-                ? (snapshotAsset.freshness as Record<string, unknown>)
-                : {};
-            freshness.ttlMs = snapshotTTL;
-            snapshotAsset.freshness = freshness;
+          if (snapshotAsset && snapshotAsset.freshness) {
+            delete snapshotAsset.freshness;
           }
         }
       }

@@ -1,6 +1,7 @@
 import {
   createWorkflow,
   createWorkflowTrigger,
+  createWorkflowSchedule,
   moduleSetting,
   type WorkflowDefinition
 } from '@apphub/module-sdk';
@@ -10,7 +11,7 @@ import type { ObservatoryModuleSecrets, ObservatoryModuleSettings } from '../run
 const definition: WorkflowDefinition = {
   slug: 'observatory-dashboard-aggregate',
   name: 'Observatory Dashboard Aggregate',
-  version: 2,
+  version: 3,
   description: 'Aggregate observatory readings and refresh the interactive overview dashboard.',
   parametersSchema: {
     type: 'object',
@@ -45,17 +46,23 @@ const definition: WorkflowDefinition = {
             granularity: 'minute',
             format: 'YYYY-MM-DDTHH:mm',
             lookbackWindows: 1440
-          },
-          freshness: {
-            ttlMs: 60000
-          },
-          autoMaterialize: {
-            priority: 5
           }
         }
       ]
     }
-  ]
+  ],
+  metadata: {
+    provisioning: {
+      schedules: [
+        {
+          name: 'Periodic dashboard refresh',
+          description: 'Fallback aggregation to cover long-running bursts.',
+          cron: '*/5 * * * *',
+          timezone: 'UTC'
+        }
+      ]
+    }
+  }
 };
 
 const triggers = [
@@ -89,6 +96,15 @@ const triggers = [
   })
 ];
 
+const schedules = [
+  createWorkflowSchedule({
+    name: 'Periodic dashboard refresh',
+    description: 'Fallback aggregation to cover long-running bursts.',
+    cron: '*/5 * * * *',
+    timezone: 'UTC'
+  })
+];
+
 export const dashboardAggregateWorkflow = createWorkflow<
   ObservatoryModuleSettings,
   ObservatoryModuleSecrets
@@ -97,5 +113,6 @@ export const dashboardAggregateWorkflow = createWorkflow<
   displayName: definition.name,
   description: definition.description,
   definition,
-  triggers
+  triggers,
+  schedules
 });

@@ -170,6 +170,7 @@ export interface WorkflowScheduleDefinition {
   description?: string;
   cron: string;
   timezone?: string;
+  parameters?: Record<string, unknown>;
   parameterTemplate?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   pauseUntil?: string | Date | null;

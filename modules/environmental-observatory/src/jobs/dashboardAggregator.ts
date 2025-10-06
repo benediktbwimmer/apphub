@@ -29,7 +29,7 @@ const FLUSH_CHECK_DELAY_MS = 1_000;
 
 const parametersSchema = z
   .object({
-    partitionKey: z.string().min(1, 'partitionKey is required'),
+    partitionKey: z.string().min(1, 'partitionKey is required').optional(),
     lookbackMinutes: z.number().int().positive().optional(),
     timestoreDatasetSlug: z.string().min(1).optional(),
     burstReason: z.string().optional(),
@@ -646,7 +646,10 @@ export const dashboardAggregatorJob = createJobHandler<
     }
 
     const principal = context.settings.principals.dashboardAggregator?.trim() || undefined;
-    const partitionKey = context.parameters.partitionKey.trim();
+    const partitionKeyInput = context.parameters.partitionKey?.trim();
+    const partitionKey = partitionKeyInput && partitionKeyInput.length > 0
+      ? partitionKeyInput
+      : new Date().toISOString().slice(0, 16);
     const lookbackMinutes = context.parameters.lookbackMinutes ?? context.settings.dashboard.lookbackMinutes;
     const ingestAssetSummary = await waitForFlushCompletion(context, coreWorkflows, partitionKey, principal);
     const ingestAssetPayload = toRecord(ingestAssetSummary?.payload);

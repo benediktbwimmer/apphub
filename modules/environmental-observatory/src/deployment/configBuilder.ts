@@ -59,11 +59,11 @@ export type ObservatoryConfig = {
       instrumentCount?: number;
     };
     dashboard?: {
-      overviewPrefix?: string;
-      lookbackMinutes?: number;
-      burstQuietMillis?: number;
-      snapshotFreshnessMillis?: number;
-    };
+    overviewPrefix?: string;
+    lookbackMinutes?: number;
+    burstQuietMillis?: number;
+    snapshotFreshnessMillis?: number | null;
+  };
   };
 };
 
@@ -95,6 +95,26 @@ function optionalNumber(value: string | undefined): number | undefined {
   }
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseDashboardSnapshotFreshness(raw: string | undefined): number | null | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'none') {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(
+      `OBSERVATORY_DASHBOARD_SNAPSHOT_FRESHNESS_MS must be a non-negative integer, received '${raw}'`
+    );
+  }
+  return parsed;
 }
 
 function resolveString(value: string | undefined, fallback: string | undefined, key: string): string {
@@ -371,13 +391,22 @@ export function createEventDrivenObservatoryConfig(
       generator: {
         instrumentCount: optionalNumber(getVar('OBSERVATORY_GENERATOR_INSTRUMENT_COUNT'))
       },
-      dashboard: {
-        overviewPrefix: optionalString(getVar('OBSERVATORY_DASHBOARD_OVERVIEW_PREFIX')),
-        lookbackMinutes: optionalNumber(getVar('OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES')) ?? 720,
-        burstQuietMillis: optionalNumber(getVar('OBSERVATORY_DASHBOARD_BURST_QUIET_MS')) ?? 5_000,
-        snapshotFreshnessMillis:
-          optionalNumber(getVar('OBSERVATORY_DASHBOARD_SNAPSHOT_FRESHNESS_MS')) ?? 60_000
-      }
+      dashboard: (() => {
+        const dashboardConfig: Record<string, unknown> = {
+          overviewPrefix: optionalString(getVar('OBSERVATORY_DASHBOARD_OVERVIEW_PREFIX')),
+          lookbackMinutes: optionalNumber(getVar('OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES')) ?? 720,
+          burstQuietMillis: optionalNumber(getVar('OBSERVATORY_DASHBOARD_BURST_QUIET_MS')) ?? 5_000
+        };
+
+        const snapshotFreshness = parseDashboardSnapshotFreshness(
+          getVar('OBSERVATORY_DASHBOARD_SNAPSHOT_FRESHNESS_MS')
+        );
+        if (snapshotFreshness !== undefined) {
+          dashboardConfig.snapshotFreshnessMillis = snapshotFreshness;
+        }
+
+        return dashboardConfig;
+      })()
     }
   };
 
