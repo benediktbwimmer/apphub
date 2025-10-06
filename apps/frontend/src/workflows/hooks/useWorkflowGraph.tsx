@@ -135,15 +135,26 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
   }, [overlay]);
 
   const commitOverlay = useCallback(
-    (nextOverlay: WorkflowGraphLiveOverlay) => {
+    (updater: (current: WorkflowGraphLiveOverlay) => WorkflowGraphLiveOverlay) => {
       if (typeof window === 'undefined') {
+        const base = overlayRef.current;
+        const updated = updater(base);
+        if (updated === base) {
+          return;
+        }
         pendingOverlayRef.current = null;
-        setOverlayState(nextOverlay);
-        overlayRef.current = nextOverlay;
+        setOverlayState(updated);
+        overlayRef.current = updated;
         return;
       }
 
-      pendingOverlayRef.current = nextOverlay;
+      const base = pendingOverlayRef.current ?? overlayRef.current;
+      const updated = updater(base);
+      if (updated === base) {
+        return;
+      }
+
+      pendingOverlayRef.current = updated;
       if (overlayCommitHandleRef.current !== null) {
         return;
       }
@@ -180,11 +191,7 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
         if (cancelled || !health) {
           return;
         }
-        const currentOverlay = overlayRef.current;
-        const nextOverlay = applyTriggerHealthOverlay(currentOverlay, health);
-        if (nextOverlay !== currentOverlay) {
-          commitOverlay(nextOverlay);
-        }
+        commitOverlay((current) => applyTriggerHealthOverlay(current, health));
       } catch (err) {
         console.warn('workflow.graph.event_health_fetch_failed', err);
       }
@@ -382,13 +389,13 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
     }
 
     if (entries.length > 0) {
-      let nextOverlay = overlayRef.current;
-      for (const entry of entries) {
-        nextOverlay = applyOverlayEvent(nextOverlay, entry);
-      }
-      if (nextOverlay !== overlayRef.current) {
-        commitOverlay(nextOverlay);
-      }
+      commitOverlay((current) => {
+        let nextOverlay = current;
+        for (const entry of entries) {
+          nextOverlay = applyOverlayEvent(nextOverlay, entry);
+        }
+        return nextOverlay;
+      });
 
       const latestReceived = entries.reduce<number>(
         (max, entry) => (entry.receivedAt > max ? entry.receivedAt : max),

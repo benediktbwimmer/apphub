@@ -1500,8 +1500,6 @@ export function buildWorkflowGraphCanvasModel(
     ...buildStepEventSourceEdges(graph, highlightedNodes)
   ];
 
-  const structureSignature = computeStructureSignatureFromIds(nodes, edges);
-
   const searchTerm = normalizeSearchTerm(searchTermRaw ?? null);
   const { visibleNodeIds, filtersActive, searchActive } = computeVisibleNodeIds(
     graph,
@@ -1520,6 +1518,8 @@ export function buildWorkflowGraphCanvasModel(
       (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)
     );
   }
+
+  const structureSignature = computeStructureSignatureFromIds(nodes, edges);
 
   let layoutNodes: WorkflowGraphCanvasNode[] = [];
 
