@@ -71,6 +71,7 @@ export type WorkflowGraphCanvasModel = {
   highlightedEdgeIds: Set<string>;
   filtersApplied: boolean;
   searchApplied: boolean;
+  structureSignature: string;
 };
 
 export type WorkflowGraphCanvasSelection = {
@@ -1434,6 +1435,17 @@ function computeVisibleNodeIds(
   };
 }
 
+export type WorkflowGraphLayoutSnapshot = Map<string, { x: number; y: number }>;
+
+function computeStructureSignatureFromIds(
+  nodes: WorkflowGraphCanvasNode[],
+  edges: WorkflowGraphCanvasEdge[]
+): string {
+  const nodeIds = nodes.map((node) => node.id).sort().join('|');
+  const edgeIds = edges.map((edge) => edge.id).sort().join('|');
+  return `${nodeIds}::${edgeIds}`;
+}
+
 export function buildWorkflowGraphCanvasModel(
   graph: WorkflowGraphNormalized,
   options: {
@@ -1442,9 +1454,19 @@ export function buildWorkflowGraphCanvasModel(
     filters?: WorkflowGraphCanvasFilters;
     searchTerm?: string | null;
     overlay?: WorkflowGraphLiveOverlay | null;
+    previousStructureSignature?: string | null;
+    previousLayout?: WorkflowGraphLayoutSnapshot;
   } = {}
 ): WorkflowGraphCanvasModel {
-  const { layout, selection, filters, searchTerm: searchTermRaw, overlay } = options;
+  const {
+    layout,
+    selection,
+    filters,
+    searchTerm: searchTermRaw,
+    overlay,
+    previousStructureSignature = null,
+    previousLayout
+  } = options;
 
   const layoutConfig: WorkflowGraphCanvasLayoutConfig = {
     ...DEFAULT_LAYOUT,
@@ -1478,6 +1500,8 @@ export function buildWorkflowGraphCanvasModel(
     ...buildStepEventSourceEdges(graph, highlightedNodes)
   ];
 
+  const structureSignature = computeStructureSignatureFromIds(nodes, edges);
+
   const searchTerm = normalizeSearchTerm(searchTermRaw ?? null);
   const { visibleNodeIds, filtersActive, searchActive } = computeVisibleNodeIds(
     graph,
@@ -1497,7 +1521,30 @@ export function buildWorkflowGraphCanvasModel(
     );
   }
 
-  const layoutNodes = nodes.length > 0 ? applyLayout(nodes, edges, layoutConfig) : [];
+  let layoutNodes: WorkflowGraphCanvasNode[] = [];
+
+  if (nodes.length > 0) {
+    const canReuseLayout = Boolean(previousLayout && previousStructureSignature === structureSignature);
+    if (canReuseLayout) {
+      let missingPosition = false;
+      layoutNodes = nodes.map((node) => {
+        const stored = previousLayout!.get(node.id);
+        if (!stored) {
+          missingPosition = true;
+          return node;
+        }
+        return {
+          ...node,
+          position: { x: stored.x, y: stored.y }
+        } satisfies WorkflowGraphCanvasNode;
+      });
+      if (missingPosition) {
+        layoutNodes = applyLayout(nodes, edges, layoutConfig);
+      }
+    } else {
+      layoutNodes = applyLayout(nodes, edges, layoutConfig);
+    }
+  }
 
   const visibleHighlightedNodeIds = new Set<string>(
     Array.from(highlightedNodes).filter((id) => visibleNodeIds.has(id))
@@ -1513,7 +1560,8 @@ export function buildWorkflowGraphCanvasModel(
     highlightedNodeIds: visibleHighlightedNodeIds,
     highlightedEdgeIds,
     filtersApplied: filtersActive,
-    searchApplied: searchActive
+    searchApplied: searchActive,
+    structureSignature
   } satisfies WorkflowGraphCanvasModel;
 }
 

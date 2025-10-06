@@ -83,7 +83,10 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
   const [graphMeta, setGraphMeta] = useState<WorkflowGraphFetchMeta | null>(null);
   const [pendingEvents, setPendingEvents] = useState<WorkflowGraphEventEntry[]>([]);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-  const [overlay, setOverlay] = useState<WorkflowGraphLiveOverlay>(createInitialOverlay());
+  const [overlay, setOverlayState] = useState<WorkflowGraphLiveOverlay>(() => createInitialOverlay());
+  const overlayRef = useRef<WorkflowGraphLiveOverlay>(overlay);
+  const overlayCommitHandleRef = useRef<number | null>(null);
+  const pendingOverlayRef = useRef<WorkflowGraphLiveOverlay | null>(null);
   const [overlayMeta, setOverlayMeta] = useState<WorkflowGraphOverlayMeta>(INITIAL_OVERLAY_META);
 
   const isMountedRef = useRef(true);
@@ -120,8 +123,44 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined' && refreshTimerRef.current !== null) {
         window.clearTimeout(refreshTimerRef.current);
       }
+      if (typeof window !== 'undefined' && overlayCommitHandleRef.current !== null) {
+        window.cancelAnimationFrame(overlayCommitHandleRef.current);
+      }
+      pendingOverlayRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    overlayRef.current = overlay;
+  }, [overlay]);
+
+  const commitOverlay = useCallback(
+    (nextOverlay: WorkflowGraphLiveOverlay) => {
+      if (typeof window === 'undefined') {
+        pendingOverlayRef.current = null;
+        setOverlayState(nextOverlay);
+        overlayRef.current = nextOverlay;
+        return;
+      }
+
+      pendingOverlayRef.current = nextOverlay;
+      if (overlayCommitHandleRef.current !== null) {
+        return;
+      }
+
+      overlayCommitHandleRef.current = window.requestAnimationFrame(() => {
+        overlayCommitHandleRef.current = null;
+        const pending = pendingOverlayRef.current;
+        pendingOverlayRef.current = null;
+        if (!pending) {
+          return;
+        }
+        setOverlayState(pending);
+        overlayRef.current = pending;
+      });
+    },
+    [setOverlayState]
+  );
 
   useEffect(() => {
     graphRef.current = graph;
@@ -141,7 +180,11 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
         if (cancelled || !health) {
           return;
         }
-        setOverlay((current) => applyTriggerHealthOverlay(current, health));
+        const currentOverlay = overlayRef.current;
+        const nextOverlay = applyTriggerHealthOverlay(currentOverlay, health);
+        if (nextOverlay !== currentOverlay) {
+          commitOverlay(nextOverlay);
+        }
       } catch (err) {
         console.warn('workflow.graph.event_health_fetch_failed', err);
       }
@@ -156,7 +199,7 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       clearIntervalCompat(intervalHandle);
     };
-  }, [authorizedFetch]);
+  }, [authorizedFetch, commitOverlay]);
 
   const loadWorkflowGraph = useCallback(
     async (options: LoadWorkflowGraphOptions = {}) => {
@@ -339,13 +382,13 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
     }
 
     if (entries.length > 0) {
-      setOverlay((current) => {
-        let nextOverlay: WorkflowGraphLiveOverlay = current;
-        for (const entry of entries) {
-          nextOverlay = applyOverlayEvent(nextOverlay, entry);
-        }
-        return nextOverlay;
-      });
+      let nextOverlay = overlayRef.current;
+      for (const entry of entries) {
+        nextOverlay = applyOverlayEvent(nextOverlay, entry);
+      }
+      if (nextOverlay !== overlayRef.current) {
+        commitOverlay(nextOverlay);
+      }
 
       const latestReceived = entries.reduce<number>(
         (max, entry) => (entry.receivedAt > max ? entry.receivedAt : max),
@@ -365,7 +408,7 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
     } else {
       processingActiveRef.current = false;
     }
-  }, [applyOverlayEvent, dequeuePendingEvents, updateOverlayMeta]);
+  }, [applyOverlayEvent, commitOverlay, dequeuePendingEvents, updateOverlayMeta]);
 
   const scheduleProcessing = useCallback(() => {
     if (processingActiveRef.current || processingTimerRef.current !== null) {
