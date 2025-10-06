@@ -189,6 +189,7 @@ export default function TimestoreSqlEditorPage() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const completionProviderRef = useRef<IDisposable | null>(null);
   const markerListenerRef = useRef<IDisposable | null>(null);
+  const decorationListenerRef = useRef<IDisposable | null>(null);
   const runQueryRef = useRef<() => void>(() => {});
   const schemaWarningsRef = useRef<string | null>(null);
   const savedQueriesLoadedRef = useRef(false);
@@ -406,6 +407,7 @@ export default function TimestoreSqlEditorPage() {
   useEffect(() => {
     return () => {
       markerListenerRef.current?.dispose();
+      decorationListenerRef.current?.dispose();
     };
   }, []);
 
@@ -467,10 +469,40 @@ export default function TimestoreSqlEditorPage() {
 
   runQueryRef.current = runQuery;
 
+  const removeDiagnosticDecorations = useCallback((model: editor.ITextModel) => {
+    const decorationIds = model
+      .getAllDecorations()
+      .filter((decoration) => {
+        const options = decoration.options;
+        const candidates = [
+          options.className,
+          options.inlineClassName,
+          options.linesDecorationsClassName,
+          options.glyphMarginClassName,
+          options.blockClassName
+        ];
+        return candidates.some((candidate) => {
+          if (!candidate) {
+            return false;
+          }
+          const normalized = candidate.toLowerCase();
+          return (
+            normalized.includes('error') ||
+            normalized.includes('warning') ||
+            normalized.includes('info') ||
+            normalized.includes('hint')
+          );
+        });
+      })
+      .map((decoration) => decoration.id);
+    if (decorationIds.length > 0) {
+      model.deltaDecorations(decorationIds, []);
+    }
+  }, []);
+
   const suppressEditorMarkers = useCallback(() => {
     // Monaco's SQL language emits generic diagnostics that flood the UI with red overlays.
-    // Clear every marker owner associated with the current model so we keep syntax highlighting
-    // without the distracting error chrome.
+    // Clear every marker owner and related decorations so syntax highlighting stays but error chrome disappears.
     const monaco = monacoRef.current;
     const editorInstance = editorRef.current;
     if (!monaco || !editorInstance) {
@@ -482,13 +514,15 @@ export default function TimestoreSqlEditorPage() {
     }
     const markers = monaco.editor.getModelMarkers({ resource: model.uri });
     if (markers.length === 0) {
+      removeDiagnosticDecorations(model);
       return;
     }
     const owners = new Set(markers.map((marker) => marker.owner));
     owners.forEach((owner) => {
       monaco.editor.setModelMarkers(model, owner, []);
     });
-  }, []);
+    removeDiagnosticDecorations(model);
+  }, [removeDiagnosticDecorations]);
 
   const handleEditorMount = useCallback<OnMount>((editorInstance, monaco) => {
     editorRef.current = editorInstance;
@@ -509,6 +543,10 @@ export default function TimestoreSqlEditorPage() {
       if (uris.some((uri) => uri.toString() === modelUri)) {
         suppressEditorMarkers();
       }
+    });
+    decorationListenerRef.current?.dispose();
+    decorationListenerRef.current = editorInstance.onDidChangeModelDecorations(() => {
+      suppressEditorMarkers();
     });
 
     updateCompletionProvider();
