@@ -230,13 +230,14 @@ export default function DatasetHistoryPanel({
           )}
 
           {events.length > 0 && (
-            <ul className="space-y-3">
-              {events.map((event) => {
-                const metadataEntries = buildMetadataEntries(event);
-                const actorScopes = Array.isArray(event.actorScopes)
-                  ? event.actorScopes.filter((scope) => scope.trim().length > 0)
-                  : [];
-                return (
+            <div className="max-h-[420px] overflow-auto pr-1">
+              <ul className="space-y-3">
+                {events.map((event) => {
+                  const metadataEntries = buildMetadataEntries(event);
+                  const actorScopes = Array.isArray(event.actorScopes)
+                    ? event.actorScopes.filter((scope) => scope.trim().length > 0)
+                    : [];
+                  return (
                   <li key={event.id} className={`${CARD_SURFACE} flex flex-wrap gap-4 text-scale-sm text-secondary`}
                   >
                     <div className="flex flex-wrap items-center gap-3 text-scale-xs text-muted">
@@ -290,9 +291,10 @@ export default function DatasetHistoryPanel({
                       </dl>
                     )}
                   </li>
-                );
-              })}
-            </ul>
+                  );
+                })}
+              </ul>
+            </div>
           )}
 
           {hasMore && (
