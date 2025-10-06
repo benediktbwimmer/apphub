@@ -463,6 +463,28 @@ function buildDashboardHtml(reportsPrefix: string, config: { refreshIntervalMs: 
     </footer>
     <script>
       const CONFIG = ${JSON.stringify(config)};
+      const ABSOLUTE_URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+      function resolveServiceUrl(path) {
+        if (typeof path !== 'string') {
+          return null;
+        }
+        const trimmed = path.trim();
+        if (!trimmed) {
+          return null;
+        }
+        if (ABSOLUTE_URL_PATTERN.test(trimmed) || trimmed.startsWith('about:')) {
+          return trimmed;
+        }
+        const relative = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+        try {
+          return new URL(relative || '.', window.location.href).toString();
+        } catch (error) {
+          console.warn('Failed to resolve service URL', path, error);
+          return trimmed;
+        }
+      }
+
       const statusGrid = document.getElementById('status-grid');
       const summaryEl = document.getElementById('summary');
       const subtitleEl = document.getElementById('subtitle');
@@ -502,7 +524,8 @@ function buildDashboardHtml(reportsPrefix: string, config: { refreshIntervalMs: 
 
       async function refresh() {
         try {
-          const response = await fetch('/api/status', { cache: 'no-store' });
+          const statusUrl = resolveServiceUrl('api/status');
+          const response = await fetch(statusUrl ?? '/api/status', { cache: 'no-store' });
           if (!response.ok) {
             throw new Error('Status fetch failed');
           }
@@ -518,8 +541,9 @@ function buildDashboardHtml(reportsPrefix: string, config: { refreshIntervalMs: 
           subtitleEl.textContent = 'Latest partition: ' + (data.partitionKey ?? 'unknown');
           renderSummary(data.metrics, data.summary);
 
-          if (data.reportPaths?.html) {
-            reportFrame.src = data.reportPaths.html;
+          const reportHtmlPath = resolveServiceUrl(data.reportPaths?.html);
+          if (reportHtmlPath) {
+            reportFrame.src = reportHtmlPath;
           }
 
           if (data.overview?.state === 'ready') {
@@ -528,7 +552,10 @@ function buildDashboardHtml(reportsPrefix: string, config: { refreshIntervalMs: 
               (data.overview.window?.start ?? 'n/a') +
               ' → ' +
               (data.overview.window?.end ?? 'n/a');
-            overviewFrame.src = data.overview.dashboardPath;
+            const overviewPath = resolveServiceUrl(data.overview.dashboardPath);
+            if (overviewPath) {
+              overviewFrame.src = overviewPath;
+            }
             overviewFrame.classList.remove('hidden');
             overviewPlaceholder.classList.add('hidden');
           } else {
@@ -540,7 +567,7 @@ function buildDashboardHtml(reportsPrefix: string, config: { refreshIntervalMs: 
             recentList.innerHTML = data.recentReports
               .map((entry) => {
                 const generatedAt = entry.generatedAt ?? '';
-                const reportLink = entry.reportPaths?.html ?? '#';
+                const reportLink = resolveServiceUrl(entry.reportPaths?.html) ?? '#';
                 return (
                   '<li><strong>' +
                   (entry.partitionKey ?? 'unknown') +
