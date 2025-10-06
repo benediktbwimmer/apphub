@@ -1,8 +1,16 @@
-import type { ModuleManifest, ModuleManifestTarget, WorkflowDefinition } from '@apphub/module-sdk';
+import type {
+  ModuleManifest,
+  ModuleManifestTarget,
+  WorkflowDefinition,
+  WorkflowScheduleDefinition,
+  WorkflowTriggerDefinition
+} from '@apphub/module-sdk';
 import {
   resolveWorkflowProvisioningPlan,
   type WorkflowProvisioningPlan,
-  type WorkflowProvisioningSchedule
+  type WorkflowProvisioningSchedule,
+  type WorkflowProvisioningEventTrigger,
+  type JsonValue
 } from '@apphub/module-registry';
 import { coreRequest, CoreError } from '../core';
 import type { ModuleDeploymentLogger, WorkflowCustomization } from './types';
@@ -57,7 +65,7 @@ export async function syncWorkflows(options: SyncWorkflowsOptions): Promise<numb
 
     await upsertWorkflowDefinition(definition, options);
 
-    const plan = buildProvisioningPlan(definition, options);
+    const plan = buildProvisioningPlan(definition, target, options);
     if (plan) {
       await ensureWorkflowSchedules(definition.slug, plan.schedules, options);
       await ensureWorkflowTriggers(definition.slug, plan.eventTriggers, options);
@@ -107,6 +115,7 @@ async function upsertWorkflowDefinition(definition: WorkflowDefinition, options:
 
 function buildProvisioningPlan(
   definition: WorkflowDefinition,
+  target: ModuleManifestTarget,
   options: SyncWorkflowsOptions
 ): WorkflowProvisioningPlan | null {
   const normalizedDefinition = {
@@ -114,18 +123,27 @@ function buildProvisioningPlan(
     name: definition.name ?? definition.slug
   } as WorkflowDefinition & { name: string };
 
+  let plan: WorkflowProvisioningPlan | null = null;
+
   if (options.workflowCustomization?.buildPlan) {
-    const plan = options.workflowCustomization.buildPlan(normalizedDefinition, options.config);
-    if (plan) {
-      return plan;
+    plan = options.workflowCustomization.buildPlan(normalizedDefinition, options.config) ?? null;
+  }
+
+  if (!plan) {
+    try {
+      plan = resolveWorkflowProvisioningPlan(normalizedDefinition as never);
+    } catch {
+      plan = null;
     }
   }
 
-  try {
-    return resolveWorkflowProvisioningPlan(normalizedDefinition as never);
-  } catch {
-    return null;
+  const fallbackPlan = buildPlanFromManifestTarget(target);
+
+  if (!plan) {
+    return fallbackPlan;
   }
+
+  return mergeProvisioningPlans(plan, fallbackPlan);
 }
 
 async function ensureWorkflowSchedules(
@@ -247,6 +265,173 @@ function buildWorkflowUpdatePayload(definition: WorkflowDefinition) {
     triggers?: unknown;
   };
   return rest;
+}
+
+function buildPlanFromManifestTarget(target: ModuleManifestTarget): WorkflowProvisioningPlan | null {
+  const workflow = target.workflow;
+  if (!workflow) {
+    return null;
+  }
+
+  const schedules = (workflow.schedules ?? [])
+    .map((schedule) => scheduleDefinitionToProvisioning(schedule))
+    .filter((entry): entry is WorkflowProvisioningSchedule => entry !== null);
+
+  const eventTriggers = (workflow.triggers ?? [])
+    .map((trigger) => triggerDefinitionToProvisioning(trigger))
+    .filter((entry): entry is WorkflowProvisioningEventTrigger => entry !== null);
+
+  if (schedules.length === 0 && eventTriggers.length === 0) {
+    return null;
+  }
+
+  return { schedules, eventTriggers };
+}
+
+function scheduleDefinitionToProvisioning(
+  schedule: WorkflowScheduleDefinition
+): WorkflowProvisioningSchedule | null {
+  if (!schedule?.cron) {
+    return null;
+  }
+
+  const result: WorkflowProvisioningSchedule = {
+    cron: String(schedule.cron)
+  };
+
+  if (schedule.name) {
+    result.name = schedule.name;
+  }
+  if (schedule.description) {
+    result.description = schedule.description;
+  }
+  if (schedule.timezone !== undefined) {
+    result.timezone = schedule.timezone ?? null;
+  }
+  if (typeof schedule.enabled === 'boolean') {
+    result.isActive = schedule.enabled;
+  }
+
+  if (schedule.parameters !== undefined) {
+    const cloned = cloneJson<Record<string, JsonValue> | null>(schedule.parameters, null);
+    if (cloned && Object.keys(cloned).length > 0) {
+      result.parameters = cloned;
+    } else if (cloned === null) {
+      result.parameters = null;
+    }
+  } else if (schedule.parameterTemplate) {
+    const templateClone = cloneJson<Record<string, JsonValue>>(schedule.parameterTemplate, {} as Record<string, JsonValue>);
+    if (Object.keys(templateClone).length > 0) {
+      result.parameters = templateClone;
+    }
+  }
+
+  return result;
+}
+
+function triggerDefinitionToProvisioning(
+  trigger: WorkflowTriggerDefinition
+): WorkflowProvisioningEventTrigger | null {
+  if (!trigger?.eventType) {
+    return null;
+  }
+
+  const result: WorkflowProvisioningEventTrigger = {
+    name: trigger.name,
+    description: trigger.description,
+    eventType: trigger.eventType,
+    eventSource: trigger.eventSource ?? null,
+    predicates: cloneJson(trigger.predicates ?? [], [])
+  };
+
+  if (trigger.parameterTemplate) {
+    const parameterTemplate = cloneJson<Record<string, JsonValue>>(trigger.parameterTemplate, {} as Record<string, JsonValue>);
+    if (Object.keys(parameterTemplate).length > 0) {
+      result.parameterTemplate = parameterTemplate;
+    }
+  }
+
+  if (trigger.metadata !== undefined) {
+    result.metadata = cloneJson<JsonValue>(trigger.metadata, null);
+  }
+
+  if (trigger.idempotencyKeyExpression) {
+    result.idempotencyKeyExpression = trigger.idempotencyKeyExpression;
+  }
+  if (trigger.runKeyTemplate) {
+    result.runKeyTemplate = trigger.runKeyTemplate;
+  }
+  if (trigger.maxConcurrency !== undefined && trigger.maxConcurrency !== null) {
+    result.maxConcurrency = trigger.maxConcurrency;
+  }
+
+  if (trigger.throttle) {
+    if (trigger.throttle.windowMs !== undefined && trigger.throttle.windowMs !== null) {
+      result.throttleWindowMs = trigger.throttle.windowMs;
+    }
+    if (trigger.throttle.count !== undefined && trigger.throttle.count !== null) {
+      result.throttleCount = trigger.throttle.count;
+    }
+  }
+
+  return result;
+}
+
+function mergeProvisioningPlans(
+  primary: WorkflowProvisioningPlan,
+  fallback: WorkflowProvisioningPlan | null
+): WorkflowProvisioningPlan {
+  if (!fallback) {
+    return primary;
+  }
+
+  const schedules = [...primary.schedules];
+  const existingSchedules = schedules.map((schedule) => normalizeScheduleTemplate(schedule));
+
+  for (const candidate of fallback.schedules) {
+    const identityIndex = schedules.findIndex((existing) => schedulesShareIdentity(existing, candidate));
+    const normalized = normalizeScheduleTemplate(candidate);
+
+    if (identityIndex >= 0) {
+      schedules[identityIndex] = candidate;
+      existingSchedules[identityIndex] = normalized;
+      continue;
+    }
+
+    const alreadyPresent = existingSchedules.some((entry) => schedulesEquivalent(entry, normalized));
+    if (!alreadyPresent) {
+      schedules.push(candidate);
+      existingSchedules.push(normalized);
+    }
+  }
+
+  const eventTriggers = [...primary.eventTriggers];
+  const existingTriggerKeys = new Set(
+    eventTriggers.map((trigger) => trigger.name ?? `${trigger.eventType}:${trigger.runKeyTemplate ?? ''}`)
+  );
+
+  for (const trigger of fallback.eventTriggers) {
+    const key = trigger.name ?? `${trigger.eventType}:${trigger.runKeyTemplate ?? ''}`;
+    if (!existingTriggerKeys.has(key)) {
+      eventTriggers.push(trigger);
+      existingTriggerKeys.add(key);
+    }
+  }
+
+  return { schedules, eventTriggers };
+}
+
+function schedulesShareIdentity(
+  left: WorkflowProvisioningSchedule,
+  right: WorkflowProvisioningSchedule
+): boolean {
+  if (left.name && right.name) {
+    return left.name === right.name;
+  }
+  return (
+    left.cron === right.cron &&
+    (left.timezone ?? null) === (right.timezone ?? null)
+  );
 }
 
 function cloneJson<T>(value: unknown, fallback: T): T {
