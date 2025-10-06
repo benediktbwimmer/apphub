@@ -23,9 +23,11 @@ import ReactFlow, {
   type NodeProps,
   type NodeMouseHandler,
   type ReactFlowInstance,
-  type Viewport
+  type Viewport,
+  type EdgeMarker
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { unstable_batchedUpdates } from 'react-dom';
 import { useTheme } from '../../theme';
 import { getStatusToneClasses } from '../../theme/statusTokens';
 import {
@@ -42,7 +44,8 @@ import {
   type WorkflowGraphCanvasNodeKind,
   type WorkflowGraphCanvasEdgeKind,
   type WorkflowGraphCanvasModel,
-  type WorkflowGraphCanvasNode
+  type WorkflowGraphCanvasNode,
+  type WorkflowGraphLayoutSnapshot
 } from '../graph/canvasModel';
 import type { WorkflowGraphLiveOverlay, WorkflowGraphNormalized } from '../graph';
 
@@ -95,6 +98,180 @@ type RenderGraph = {
   bounds: GraphBounds | null;
   structureSignature: string;
 };
+
+function arraysShallowEqual<T>(a: T[], b: T[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function nodeStatusEqual(
+  a: WorkflowGraphCanvasNodeData['status'],
+  b: WorkflowGraphCanvasNodeData['status']
+): boolean {
+  if (!a && !b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  return a.label === b.label && a.tone === b.tone && a.tooltip === b.tooltip;
+}
+
+function areNodeDataEqual(
+  prev: WorkflowGraphCanvasNodeData,
+  next: WorkflowGraphCanvasNodeData
+): boolean {
+  return (
+    prev.label === next.label &&
+    prev.subtitle === next.subtitle &&
+    prev.kind === next.kind &&
+    prev.refId === next.refId &&
+    prev.highlighted === next.highlighted &&
+    nodeStatusEqual(prev.status, next.status) &&
+    arraysShallowEqual(prev.meta, next.meta) &&
+    arraysShallowEqual(prev.badges, next.badges)
+  );
+}
+
+function areNodeStylesEqual(
+  prev: Node<WorkflowGraphCanvasNodeData>['style'],
+  next: Node<WorkflowGraphCanvasNodeData>['style']
+): boolean {
+  if (prev === next) {
+    return true;
+  }
+  const prevWidth = prev?.width ?? null;
+  const prevHeight = prev?.height ?? null;
+  const nextWidth = next?.width ?? null;
+  const nextHeight = next?.height ?? null;
+  return prevWidth === nextWidth && prevHeight === nextHeight;
+}
+
+function edgeLabelsEqual(
+  prev: Edge<WorkflowGraphCanvasEdgeData>['label'],
+  next: Edge<WorkflowGraphCanvasEdgeData>['label']
+): boolean {
+  if (prev === next) {
+    return true;
+  }
+  if (typeof prev === 'string' && typeof next === 'string') {
+    return prev === next;
+  }
+  return false;
+}
+
+function edgeMarkerEqual(
+  prev: Edge<WorkflowGraphCanvasEdgeData>['markerEnd'],
+  next: Edge<WorkflowGraphCanvasEdgeData>['markerEnd']
+): boolean {
+  if (prev === next) {
+    return true;
+  }
+  if (!prev || !next) {
+    return false;
+  }
+  if (typeof prev === 'string' || typeof next === 'string') {
+    return prev === next;
+  }
+  const prevMarker = prev as EdgeMarker;
+  const nextMarker = next as EdgeMarker;
+  return (
+    prevMarker.type === nextMarker.type &&
+    prevMarker.color === nextMarker.color &&
+    prevMarker.width === nextMarker.width &&
+    prevMarker.height === nextMarker.height
+  );
+}
+
+function edgeStyleEqual(
+  prev: Edge<WorkflowGraphCanvasEdgeData>['style'],
+  next: Edge<WorkflowGraphCanvasEdgeData>['style']
+): boolean {
+  if (prev === next) {
+    return true;
+  }
+  const prevStroke = prev?.stroke ?? null;
+  const prevWidth = prev?.strokeWidth ?? null;
+  const prevDash = prev?.strokeDasharray ?? null;
+  const prevOpacity = prev?.opacity ?? null;
+  const nextStroke = next?.stroke ?? null;
+  const nextWidth = next?.strokeWidth ?? null;
+  const nextDash = next?.strokeDasharray ?? null;
+  const nextOpacity = next?.opacity ?? null;
+  return (
+    prevStroke === nextStroke &&
+    prevWidth === nextWidth &&
+    prevDash === nextDash &&
+    prevOpacity === nextOpacity
+  );
+}
+
+function edgeBgPaddingEqual(
+  prev: Edge<WorkflowGraphCanvasEdgeData>['labelBgPadding'],
+  next: Edge<WorkflowGraphCanvasEdgeData>['labelBgPadding']
+): boolean {
+  if (prev === next) {
+    return true;
+  }
+  if (!prev || !next) {
+    return false;
+  }
+  return prev[0] === next[0] && prev[1] === next[1];
+}
+
+function edgeLabelBgStyleEqual(
+  prev: Edge<WorkflowGraphCanvasEdgeData>['labelBgStyle'],
+  next: Edge<WorkflowGraphCanvasEdgeData>['labelBgStyle']
+): boolean {
+  if (prev === next) {
+    return true;
+  }
+  if (!prev || !next) {
+    return false;
+  }
+  return prev.fill === next.fill && prev.stroke === next.stroke;
+}
+
+function edgeLabelStyleEqual(
+  prev: Edge<WorkflowGraphCanvasEdgeData>['labelStyle'],
+  next: Edge<WorkflowGraphCanvasEdgeData>['labelStyle']
+): boolean {
+  if (prev === next) {
+    return true;
+  }
+  if (!prev || !next) {
+    return false;
+  }
+  return prev.fill === next.fill && prev.fontSize === next.fontSize && prev.fontWeight === next.fontWeight;
+}
+
+function areEdgePropsEqual(
+  prev: Edge<WorkflowGraphCanvasEdgeData>,
+  next: Edge<WorkflowGraphCanvasEdgeData>
+): boolean {
+  const prevData = prev.data ?? null;
+  const nextData = next.data ?? null;
+  return (
+    prev.type === next.type &&
+    prev.animated === next.animated &&
+    edgeLabelsEqual(prev.label, next.label) &&
+    edgeStyleEqual(prev.style, next.style) &&
+    edgeMarkerEqual(prev.markerEnd, next.markerEnd) &&
+    edgeBgPaddingEqual(prev.labelBgPadding, next.labelBgPadding) &&
+    prev.labelBgBorderRadius === next.labelBgBorderRadius &&
+    edgeLabelBgStyleEqual(prev.labelBgStyle, next.labelBgStyle) &&
+    edgeLabelStyleEqual(prev.labelStyle, next.labelStyle) &&
+    (prevData?.kind ?? null) === (nextData?.kind ?? null) &&
+    (prevData?.highlighted ?? false) === (nextData?.highlighted ?? false)
+  );
+}
 
 function computeViewportBounds(viewport: Viewport, width: number, height: number): GraphBounds {
   const graphMinX = (-viewport.x) / viewport.zoom;
@@ -491,12 +668,27 @@ export function WorkflowGraphCanvas({
   const filtersSignatureRef = useRef<string>('');
   const selectionSignatureRef = useRef<string>('');
   const searchSignatureRef = useRef<string | null>(null);
+  const layoutSnapshotRef = useRef<{ signature: string | null; positions: WorkflowGraphLayoutSnapshot }>(
+    {
+      signature: null,
+      positions: new Map()
+    }
+  );
 
   const model = useMemo(() => {
     if (!graph) {
       return null;
     }
-    return buildWorkflowGraphCanvasModel(graph, { layout, selection, filters, searchTerm, overlay });
+    const snapshot = layoutSnapshotRef.current;
+    return buildWorkflowGraphCanvasModel(graph, {
+      layout,
+      selection,
+      filters,
+      searchTerm,
+      overlay,
+      previousStructureSignature: snapshot.signature,
+      previousLayout: snapshot.positions
+    });
   }, [graph, layout, selection, filters, searchTerm, overlay]);
 
   const lastNonEmptyModelRef = useRef<WorkflowGraphCanvasModel | null>(null);
@@ -538,10 +730,112 @@ export function WorkflowGraphCanvas({
   const [instance, setInstance] = useState<ReactFlowInstance | null>(null);
   const layoutBoundsRef = useRef<GraphBounds | null>(null);
   const structureSignatureRef = useRef<string | null>(null);
+  const pendingStructuralGraphRef = useRef<RenderGraph | null>(null);
+  const structuralSwapHandleRef = useRef<number | null>(null);
+  const viewportRefreshHandleRef = useRef<number | null>(null);
   const suppressMoveEndRef = useRef(false);
   const userInteractedRef = useRef(false);
   const initialViewportAppliedRef = useRef(false);
   const interactive = interactionMode === 'interactive';
+
+  const scheduleNodeInternalsUpdate = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) {
+        return;
+      }
+      const flow = instance as (ReactFlowInstance<WorkflowGraphCanvasNodeData, WorkflowGraphCanvasEdgeData> & {
+        updateNodeInternals?: (id: string) => void;
+      }) | null;
+      if (!flow || typeof flow.updateNodeInternals !== 'function') {
+        return;
+      }
+      const uniqueIds = Array.from(new Set(ids));
+      const invoke = () => {
+        uniqueIds.forEach((id) => {
+          flow.updateNodeInternals?.(id);
+        });
+      };
+      if (typeof window !== 'undefined') {
+        window.requestAnimationFrame(invoke);
+      } else {
+        invoke();
+      }
+    },
+    [instance]
+  );
+
+  const updateLayoutSnapshot = useCallback((graph: RenderGraph) => {
+    layoutSnapshotRef.current = {
+      signature: graph.structureSignature,
+      positions: new Map(
+        graph.nodes.map((node) => [node.id, { x: node.position.x, y: node.position.y }])
+      )
+    } satisfies { signature: string | null; positions: WorkflowGraphLayoutSnapshot };
+  }, []);
+
+  const applyRenderGraphDiff = useCallback(
+    (graph: RenderGraph) => {
+      const nextNodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
+      const changedNodeIds: string[] = [];
+
+      setNodes((currentNodes) => {
+        let mutated = false;
+        const updatedNodes = currentNodes.map((node) => {
+          const next = nextNodeMap.get(node.id);
+          if (!next) {
+            return node;
+          }
+          const dataChanged = !areNodeDataEqual(node.data, next.data);
+          const styleChanged = !areNodeStylesEqual(node.style, next.style);
+          if (!dataChanged && !styleChanged) {
+            return node;
+          }
+          mutated = true;
+          changedNodeIds.push(node.id);
+          return {
+            ...node,
+            data: next.data,
+            style: next.style
+          } satisfies Node<WorkflowGraphCanvasNodeData>;
+        });
+        return mutated ? updatedNodes : currentNodes;
+      });
+
+      if (changedNodeIds.length > 0) {
+        scheduleNodeInternalsUpdate(changedNodeIds);
+      }
+
+      const nextEdgeMap = new Map(graph.edges.map((edge) => [edge.id, edge]));
+      setEdges((currentEdges) => {
+        let mutated = false;
+        const updatedEdges = currentEdges.map((edge) => {
+          const next = nextEdgeMap.get(edge.id);
+          if (!next) {
+            return edge;
+          }
+          if (areEdgePropsEqual(edge, next)) {
+            return edge;
+          }
+          mutated = true;
+          return {
+            ...edge,
+            data: next.data,
+            label: next.label,
+            animated: next.animated,
+            style: next.style,
+            markerEnd: next.markerEnd,
+            labelBgPadding: next.labelBgPadding,
+            labelBgBorderRadius: next.labelBgBorderRadius,
+            labelBgStyle: next.labelBgStyle,
+            labelStyle: next.labelStyle,
+            type: next.type
+          } satisfies Edge<WorkflowGraphCanvasEdgeData>;
+        });
+        return mutated ? updatedEdges : currentEdges;
+      });
+    },
+    [scheduleNodeInternalsUpdate, setEdges, setNodes]
+  );
 
   const hasRenderableNodes = nodes.length > 0;
   const showLoadingOverlay = loading && !hasRenderableNodes;
@@ -630,28 +924,97 @@ export function WorkflowGraphCanvas({
     [fitViewPadding, instance]
   );
 
+  const scheduleStructuralSwap = useCallback(
+    (graph: RenderGraph) => {
+      pendingStructuralGraphRef.current = graph;
+      if (typeof window !== 'undefined' && structuralSwapHandleRef.current !== null) {
+        window.cancelAnimationFrame(structuralSwapHandleRef.current);
+      }
+
+      const executeSwap = () => {
+        structuralSwapHandleRef.current = null;
+        const pending = pendingStructuralGraphRef.current;
+        pendingStructuralGraphRef.current = null;
+        if (!pending) {
+          return;
+        }
+
+        unstable_batchedUpdates(() => {
+          setNodes(pending.nodes);
+          setEdges(pending.edges);
+        });
+
+        layoutBoundsRef.current = pending.bounds;
+        structureSignatureRef.current = pending.structureSignature;
+        updateLayoutSnapshot(pending);
+
+        const shouldForce = shouldAutoFitRef.current || !userInteractedRef.current;
+        const immediate = shouldForce && !userInteractedRef.current;
+
+        if (typeof window !== 'undefined') {
+          if (viewportRefreshHandleRef.current !== null) {
+            window.cancelAnimationFrame(viewportRefreshHandleRef.current);
+          }
+          viewportRefreshHandleRef.current = window.requestAnimationFrame(() => {
+            viewportRefreshHandleRef.current = null;
+            ensureViewportHasContent({
+              force: shouldForce,
+              immediate,
+              delayMs: shouldForce ? 60 : 0,
+              targetInstance: instance
+            });
+          });
+        } else {
+          ensureViewportHasContent({
+            force: shouldForce,
+            immediate,
+            delayMs: 0,
+            targetInstance: instance
+          });
+        }
+      };
+
+      if (typeof window !== 'undefined') {
+        structuralSwapHandleRef.current = window.requestAnimationFrame(executeSwap);
+      } else {
+        executeSwap();
+      }
+    },
+    [ensureViewportHasContent, instance, setEdges, setNodes, updateLayoutSnapshot]
+  );
+
   useEffect(() => {
     if (!renderGraph) {
       return;
     }
-    setNodes(renderGraph.nodes);
-    setEdges(renderGraph.edges);
+
     layoutBoundsRef.current = renderGraph.bounds;
     const previousSignature = structureSignatureRef.current;
-    structureSignatureRef.current = renderGraph.structureSignature;
     const structureChanged = previousSignature !== renderGraph.structureSignature;
-    const shouldForce = shouldAutoFitRef.current || (structureChanged && !userInteractedRef.current);
-    const frame = window.requestAnimationFrame(() => {
-      ensureViewportHasContent({
-        force: shouldForce,
-        immediate: shouldForce && !userInteractedRef.current,
-        delayMs: shouldForce ? 60 : 0
-      });
-    });
+
+    if (structureChanged) {
+      scheduleStructuralSwap(renderGraph);
+      return;
+    }
+
+    structureSignatureRef.current = renderGraph.structureSignature;
+    updateLayoutSnapshot(renderGraph);
+    applyRenderGraphDiff(renderGraph);
+  }, [renderGraph, scheduleStructuralSwap, applyRenderGraphDiff, updateLayoutSnapshot]);
+
+  useEffect(() => {
     return () => {
-      window.cancelAnimationFrame(frame);
+      if (typeof window !== 'undefined') {
+        if (structuralSwapHandleRef.current !== null) {
+          window.cancelAnimationFrame(structuralSwapHandleRef.current);
+        }
+        if (viewportRefreshHandleRef.current !== null) {
+          window.cancelAnimationFrame(viewportRefreshHandleRef.current);
+        }
+      }
+      pendingStructuralGraphRef.current = null;
     };
-  }, [renderGraph, setNodes, setEdges, ensureViewportHasContent]);
+  }, []);
 
   useEffect(() => {
     if (!instance || initialViewportAppliedRef.current) {
@@ -1190,12 +1553,6 @@ function computeModelBounds(modelNodes: WorkflowGraphCanvasNode[]): GraphBounds 
   return { minX, minY, maxX, maxY };
 }
 
-function computeStructureSignature(model: WorkflowGraphCanvasModel): string {
-  const nodeIds = model.nodes.map((node) => node.id).sort().join('|');
-  const edgeIds = model.edges.map((edge) => edge.id).sort().join('|');
-  return `${nodeIds}::${edgeIds}`;
-}
-
 function buildRenderGraph(
   model: WorkflowGraphCanvasModel,
   theme: WorkflowGraphCanvasTheme,
@@ -1276,6 +1633,6 @@ function buildRenderGraph(
     nodes,
     edges,
     bounds: computeModelBounds(model.nodes),
-    structureSignature: computeStructureSignature(model)
+    structureSignature: model.structureSignature
   };
 }
