@@ -8,27 +8,27 @@ const PRINCIPAL_DEFINITIONS = {
     description: 'Generates synthetic telemetry CSVs.'
   },
   minutePreprocessor: {
-      subject: 'observatory-minute-preprocessor',
-      description: 'Normalizes raw uploads before ingest.'
-    },
-    timestoreLoader: {
-      subject: 'observatory-timestore-loader'
-    },
-    visualizationRunner: {
-      subject: 'observatory-visualization-runner'
-    },
-    dashboardAggregator: {
-      subject: 'observatory-dashboard-aggregator'
-    },
-    calibrationImporter: {
-      subject: 'observatory-calibration-importer'
-    },
-    calibrationPlanner: {
-      subject: 'observatory-calibration-planner'
-    },
-    calibrationReprocessor: {
-      subject: 'observatory-calibration-reprocessor'
-    }
+    subject: 'observatory-minute-preprocessor',
+    description: 'Normalizes raw uploads before ingest.'
+  },
+  timestoreLoader: {
+    subject: 'observatory-timestore-loader'
+  },
+  visualizationRunner: {
+    subject: 'observatory-visualization-runner'
+  },
+  dashboardAggregator: {
+    subject: 'observatory-dashboard-aggregator'
+  },
+  calibrationImporter: {
+    subject: 'observatory-calibration-importer'
+  },
+  calibrationPlanner: {
+    subject: 'observatory-calibration-planner'
+  },
+  calibrationReprocessor: {
+    subject: 'observatory-calibration-reprocessor'
+  }
 } satisfies Record<string, PrincipalDefinition>;
 
 const SECRET_DEFINITIONS = {
@@ -69,3 +69,4 @@ export const security = defineModuleSecurity<
 
 export const PRINCIPALS = security.listPrincipals();
 export const SECRETS = security.listSecrets();
+export const PRINCIPAL_SUBJECTS = security.principalSettings();

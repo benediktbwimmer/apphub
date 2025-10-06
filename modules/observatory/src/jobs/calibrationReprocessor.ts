@@ -151,7 +151,7 @@ interface WorkflowRunRecord {
   triggeredBy: string | null;
 }
 
-interface CalibrationReprocessorResult {
+export interface CalibrationReprocessorResult {
   planId: string;
   planPath: string;
   planNodeId: number | null;

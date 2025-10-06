@@ -1,6 +1,25 @@
-export { minuteDataGeneratorWorkflow } from './minuteDataGenerator';
-export { minuteIngestWorkflow } from './minuteIngest';
-export { dailyPublicationWorkflow } from './dailyPublication';
-export { dashboardAggregateWorkflow } from './dashboardAggregate';
-export { calibrationImportWorkflow } from './calibrationImport';
-export { calibrationReprocessWorkflow } from './calibrationReprocess';
+import { createTargetRegistryFromArray } from '@apphub/module-toolkit';
+import { minuteDataGeneratorWorkflow } from './minuteDataGenerator';
+import { minuteIngestWorkflow } from './minuteIngest';
+import { dailyPublicationWorkflow } from './dailyPublication';
+import { dashboardAggregateWorkflow } from './dashboardAggregate';
+import { calibrationImportWorkflow } from './calibrationImport';
+import { calibrationReprocessWorkflow } from './calibrationReprocess';
+
+export const workflows = createTargetRegistryFromArray([
+  minuteDataGeneratorWorkflow,
+  minuteIngestWorkflow,
+  dailyPublicationWorkflow,
+  dashboardAggregateWorkflow,
+  calibrationImportWorkflow,
+  calibrationReprocessWorkflow
+]);
+
+export {
+  minuteDataGeneratorWorkflow,
+  minuteIngestWorkflow,
+  dailyPublicationWorkflow,
+  dashboardAggregateWorkflow,
+  calibrationImportWorkflow,
+  calibrationReprocessWorkflow
+};

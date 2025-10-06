@@ -106,6 +106,39 @@ export const loadObservatorySettings = createSettingsLoader({
 
 The loader returns typed settings/secrets objects that can be passed directly into trigger/job builders or module runtime helpers.
 
+### Module settings helper
+
+For full modules, `createModuleSettingsDefinition` layers on env presets, sources, and principal defaults:
+
+```ts
+import {
+  createModuleSettingsDefinition,
+  COMMON_ENV_PRESET_KEYS,
+  defineModuleSecurity
+} from '@apphub/module-toolkit';
+
+const security = defineModuleSecurity({
+  principals: {
+    worker: { subject: 'app-worker' }
+  }
+});
+
+const definition = createModuleSettingsDefinition({
+  settingsSchema,
+  secretsSchema,
+  defaults: () => DEFAULT_SETTINGS,
+  secretsDefaults: () => DEFAULT_SECRETS,
+  security,
+  envPresetKeys: [
+    COMMON_ENV_PRESET_KEYS.filestore,
+    COMMON_ENV_PRESET_KEYS.timestore
+  ],
+  secretsEnvPresetKeys: [COMMON_ENV_PRESET_KEYS.standardSecrets]
+});
+
+const { settings } = definition.load();
+```
+
 ## Principals & secrets
 
 Declare principals and secrets once and reuse them across triggers, jobs, and runtime wiring:
@@ -141,6 +174,14 @@ if (bundle.timestoreToken.exists()) {
   const token = bundle.timestoreToken.value();
   // use token ...
 }
+
+// Derive settings/secrets paths or selectors
+const principalPath = security.principalSettingsPath('dashboardAggregator');
+const principalValue = security.principalSelector('dashboardAggregator')({
+  principals: { dashboardAggregator: 'observatory-dashboard-aggregator' }
+});
+const secretPath = security.secretSettingsPath('timestoreToken');
+const secretValue = security.secretSelector('timestoreToken')({ timestoreToken: 'abc' });
 ```
 
 ## Testing helpers
@@ -215,6 +256,75 @@ export const uploadPathMap = collectPaths<FilestoreUploadEvent>((p) => ({
 }));
 
 // minutePath === uploadPathMap.minute
+```
+
+## Settings presets & env sources
+
+`defineSettings` supports reusable env binding presets and overlay sources so modules can share configuration wiring without duplicating maps:
+
+```ts
+import {
+  defineSettings,
+  COMMON_ENV_PRESET_KEYS,
+  createEnvBindingPreset,
+  createEnvSource
+} from '@apphub/module-toolkit';
+
+const definition = defineSettings({
+  settingsSchema,
+  secretsSchema,
+  defaults: () => DEFAULTS,
+  envBindingPresetKeys: [COMMON_ENV_PRESET_KEYS.filestore, COMMON_ENV_PRESET_KEYS.timestore],
+  envBindings: [
+    createEnvBindingPreset([
+      { key: 'MY_FEATURE_FLAG', path: 'flags.myFeature', map: ({ value }) => value === 'true' }
+    ])
+  ],
+  envSources: [
+    createEnvSource(() => ({
+      values: { SERVICE_BASE_URL: 'http://127.0.0.1:4000' },
+      mode: 'fill'
+    }))
+  ]
+});
+```
+
+Presets can also be registered at runtime via `registerEnvBindingPreset('name', preset)` and then included with `envBindingPresetKeys`.
+
+## Predicate helpers
+
+Trigger predicates can mix static values and configuration-derived comparisons:
+
+```ts
+import {
+  predicateEquals,
+  predicateExists,
+  predicateEqualsConfig,
+  resolvePredicates
+} from '@apphub/module-toolkit';
+
+predicates: (context) =>
+  resolvePredicates(
+    context,
+    predicateEquals('$.payload.command', 'uploadFile'),
+    predicateExists('$.payload.node.metadata.minute'),
+    predicateEqualsConfig('$.payload.backendMountId', (settings) => settings.filestore.backendId ?? -1)
+  );
+```
+
+## Target registry shortcuts
+
+In addition to the explicit map helpers, you can derive target registries straight from arrays of definitions:
+
+```ts
+import { createTargetRegistryFromArray } from '@apphub/module-toolkit';
+
+export const jobs = createTargetRegistryFromArray([
+  dataGeneratorJob,
+  timestoreLoaderJob
+]);
+
+jobs.values(); // -> strongly typed array of job definitions
 ```
 
 ## Module scaffold

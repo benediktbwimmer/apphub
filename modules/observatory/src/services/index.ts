@@ -1,2 +1,10 @@
-export { dashboardService } from './dashboard';
-export { adminService } from './admin';
+import { createTargetRegistryFromArray } from '@apphub/module-toolkit';
+import { dashboardService } from './dashboard';
+import { adminService } from './admin';
+
+export const services = createTargetRegistryFromArray([
+  dashboardService,
+  adminService
+]);
+
+export { dashboardService, adminService };

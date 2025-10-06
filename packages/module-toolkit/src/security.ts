@@ -83,6 +83,22 @@ export interface ModuleSecurityRegistry<
     name: keyof NonNullable<TSecretDefs> & string;
     definition: SecretDefinition<TSecrets, unknown>;
   }>;
+  principalSubjects(): Record<keyof TPrincipals & string, string>;
+  principalSettings(
+    overrides?: Partial<Record<keyof TPrincipals & string, string>>
+  ): Record<keyof TPrincipals & string, string>;
+  principalSettingsPath<Name extends keyof TPrincipals & string>(name: Name): `principals.${Name}`;
+  principalSelector<Name extends keyof TPrincipals & string>(
+    name: Name
+  ): (settings: { principals: Record<Name, string> }) => string;
+  secretSettingsPath<Name extends keyof NonNullable<TSecretDefs> & string>(
+    name: Name
+  ): `secrets.${Name}`;
+  secretSelector<Name extends keyof NonNullable<TSecretDefs> & string>(
+    name: Name
+  ): (secrets: TSecrets) => NonNullable<TSecretDefs>[Name] extends SecretDefinition<TSecrets, infer TValue>
+    ? TValue
+    : never;
   secretsBundle(
     secrets: TSecrets
   ): SecretsAccessorMap<TSecrets, TSecretDefs>;
@@ -197,6 +213,53 @@ export function defineModuleSecurity<
         name,
         definition
       }));
+    },
+    principalSubjects() {
+      return Object.fromEntries(
+        principalEntries.map(([name, definition]) => [name, definition.subject])
+      ) as Record<keyof TPrincipals & string, string>;
+    },
+    principalSettings(
+      overrides?: Partial<Record<keyof TPrincipals & string, string>>
+    ) {
+      const subjects = Object.fromEntries(
+        principalEntries.map(([name, definition]) => [name, definition.subject])
+      ) as Record<keyof TPrincipals & string, string>;
+      return {
+        ...subjects,
+        ...(overrides ?? {})
+      } as Record<keyof TPrincipals & string, string>;
+    },
+    principalSettingsPath<Name extends keyof TPrincipals & string>(name: Name) {
+      return `principals.${name}` as `principals.${Name}`;
+    },
+    principalSelector<Name extends keyof TPrincipals & string>(name: Name) {
+      return ((settings: { principals: Record<string, string> }) => settings.principals[name]) as (
+        settings: { principals: Record<Name, string> }
+      ) => string;
+    },
+    secretSettingsPath<Name extends keyof NonNullable<TSecretDefs> & string>(name: Name) {
+      return `secrets.${name}` as `secrets.${Name}`;
+    },
+    secretSelector<Name extends keyof NonNullable<TSecretDefs> & string>(name: Name) {
+      return ((secrets: TSecrets) => {
+        const entry = secretEntries.find(([key]) => key === name);
+        if (!entry) {
+          throw new Error(`Secret '${name}' is not defined`);
+        }
+        const [, definition] = entry;
+        return definition.select(secrets) as NonNullable<TSecretDefs>[Name] extends SecretDefinition<
+          TSecrets,
+          infer TValue
+        >
+          ? TValue
+          : never;
+      }) as (secrets: TSecrets) => NonNullable<TSecretDefs>[Name] extends SecretDefinition<
+        TSecrets,
+        infer TValue
+      >
+        ? TValue
+        : never;
     },
     secretsBundle(secrets: TSecrets) {
       const entries = secretEntries.map(([name, definition]) => [

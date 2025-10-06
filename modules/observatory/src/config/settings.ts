@@ -1,6 +1,11 @@
 import { z } from 'zod';
-import { createSettingsLoader } from '@apphub/module-toolkit';
+import {
+  createModuleSettingsDefinition,
+  createEnvSource,
+  COMMON_ENV_PRESET_KEYS
+} from '@apphub/module-toolkit';
 import { loadObservatoryConfig } from '../runtime/config';
+import { PRINCIPAL_SUBJECTS, security } from './security';
 
 const instrumentProfileSchema = z.object({
   instrumentId: z.string(),
@@ -103,6 +108,15 @@ export const ObservatorySecretsSchema = z.object({
 export type ObservatorySettings = z.infer<typeof ObservatorySettingsSchema>;
 export type ObservatorySecrets = z.infer<typeof ObservatorySecretsSchema>;
 
+const DEFAULT_SECRETS: ObservatorySecrets = {
+  filestoreToken: undefined,
+  timestoreToken: undefined,
+  metastoreToken: undefined,
+  calibrationsToken: undefined,
+  eventsToken: undefined,
+  coreApiToken: undefined
+};
+
 const FALLBACK_SETTINGS: ObservatorySettings = {
   filestore: {
     baseUrl: 'http://127.0.0.1:4300',
@@ -156,16 +170,7 @@ const FALLBACK_SETTINGS: ObservatorySettings = {
     maxFiles: 16,
     metastoreNamespace: 'observatory.ingest'
   },
-  principals: {
-    dataGenerator: 'observatory-data-generator',
-    minutePreprocessor: 'observatory-minute-preprocessor',
-    timestoreLoader: 'observatory-timestore-loader',
-    visualizationRunner: 'observatory-visualization-runner',
-    dashboardAggregator: 'observatory-dashboard-aggregator',
-    calibrationImporter: 'observatory-calibration-importer',
-    calibrationPlanner: 'observatory-calibration-planner',
-    calibrationReprocessor: 'observatory-calibration-reprocessor'
-  },
+  principals: { ...PRINCIPAL_SUBJECTS },
   generator: {
     minute: undefined,
     rowsPerInstrument: 120,
@@ -175,170 +180,60 @@ const FALLBACK_SETTINGS: ObservatorySettings = {
     instrumentProfiles: []
   }
 };
-
-function coerceNumber(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function coerceNullableNumber(value: string | undefined, fallback: number | null): number | null {
-  if (value === undefined || value === null || value.trim() === '') {
-    return fallback;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function coerceBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (!value) {
-    return fallback;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-    return true;
-  }
-  if (['0', 'false', 'no', 'off'].includes(normalized)) {
-    return false;
-  }
-  return fallback;
-}
-
-function cloneDefaults(): ObservatorySettings {
-  return JSON.parse(JSON.stringify(FALLBACK_SETTINGS)) as ObservatorySettings;
-}
-
-export const loadSettings = createSettingsLoader({
-  settingsSchema: ObservatorySettingsSchema,
-  secretsSchema: ObservatorySecretsSchema,
-  readSettings: (env) => {
-    const settings = cloneDefaults();
-
-    settings.filestore.baseUrl = env.OBSERVATORY_FILESTORE_BASE_URL ?? settings.filestore.baseUrl;
-    settings.filestore.backendKey = env.OBSERVATORY_FILESTORE_BACKEND_KEY ?? settings.filestore.backendKey;
-    settings.filestore.backendId = env.OBSERVATORY_FILESTORE_BACKEND_ID
-      ? Number(env.OBSERVATORY_FILESTORE_BACKEND_ID)
-      : settings.filestore.backendId;
-    settings.filestore.inboxPrefix = env.OBSERVATORY_FILESTORE_INBOX_PREFIX ?? settings.filestore.inboxPrefix;
-    settings.filestore.stagingPrefix = env.OBSERVATORY_FILESTORE_STAGING_PREFIX ?? settings.filestore.stagingPrefix;
-    settings.filestore.archivePrefix = env.OBSERVATORY_FILESTORE_ARCHIVE_PREFIX ?? settings.filestore.archivePrefix;
-    settings.filestore.visualizationsPrefix = env.OBSERVATORY_FILESTORE_VISUALIZATIONS_PREFIX ?? settings.filestore.visualizationsPrefix;
-    settings.filestore.reportsPrefix = env.OBSERVATORY_FILESTORE_REPORTS_PREFIX ?? settings.filestore.reportsPrefix;
-    settings.filestore.overviewPrefix = env.OBSERVATORY_FILESTORE_OVERVIEW_PREFIX ?? settings.filestore.overviewPrefix;
-    settings.filestore.calibrationsPrefix = env.OBSERVATORY_FILESTORE_CALIBRATIONS_PREFIX ?? settings.filestore.calibrationsPrefix;
-    settings.filestore.plansPrefix = env.OBSERVATORY_FILESTORE_PLANS_PREFIX ?? settings.filestore.plansPrefix;
-
-    settings.timestore.baseUrl = env.OBSERVATORY_TIMESTORE_BASE_URL ?? settings.timestore.baseUrl;
-    settings.timestore.datasetSlug = env.OBSERVATORY_TIMESTORE_DATASET_SLUG ?? settings.timestore.datasetSlug;
-    settings.timestore.datasetName = env.OBSERVATORY_TIMESTORE_DATASET_NAME ?? settings.timestore.datasetName;
-    settings.timestore.tableName = env.OBSERVATORY_TIMESTORE_TABLE_NAME ?? settings.timestore.tableName;
-    settings.timestore.storageTargetId = env.OBSERVATORY_TIMESTORE_STORAGE_TARGET_ID
-      ? env.OBSERVATORY_TIMESTORE_STORAGE_TARGET_ID
-      : settings.timestore.storageTargetId;
-    settings.timestore.partitionNamespace = env.OBSERVATORY_TIMESTORE_PARTITION_NAMESPACE ?? settings.timestore.partitionNamespace;
-    settings.timestore.lookbackMinutes = coerceNumber(
-      env.OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES,
-      settings.timestore.lookbackMinutes
-    );
-
-    settings.metastore.baseUrl = env.OBSERVATORY_METASTORE_BASE_URL ?? settings.metastore.baseUrl;
-    settings.metastore.namespace = env.OBSERVATORY_METASTORE_NAMESPACE ?? settings.metastore.namespace;
-
-    settings.calibrations.baseUrl = env.OBSERVATORY_CALIBRATIONS_BASE_URL ?? settings.calibrations.baseUrl;
-    settings.calibrations.namespace = env.OBSERVATORY_CALIBRATIONS_NAMESPACE ?? settings.calibrations.namespace;
-
-    settings.events.source = env.OBSERVATORY_EVENTS_SOURCE ?? settings.events.source;
-
-    settings.dashboard.lookbackMinutes = coerceNumber(
-      env.OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES,
-      settings.dashboard.lookbackMinutes
-    );
-    settings.dashboard.burstQuietMs = coerceNumber(
-      env.OBSERVATORY_DASHBOARD_BURST_QUIET_MS,
-      settings.dashboard.burstQuietMs
-    );
-    settings.dashboard.snapshotFreshnessMs = coerceNullableNumber(
-      env.OBSERVATORY_DASHBOARD_SNAPSHOT_FRESHNESS_MS,
-      settings.dashboard.snapshotFreshnessMs
-    );
-
-    settings.core.baseUrl = env.OBSERVATORY_CORE_BASE_URL ?? settings.core.baseUrl;
-
-    settings.reprocess.ingestWorkflowSlug = env.OBSERVATORY_REPROCESS_WORKFLOW_SLUG ?? settings.reprocess.ingestWorkflowSlug;
-    settings.reprocess.ingestAssetId = env.OBSERVATORY_REPROCESS_INGEST_ASSET_ID ?? settings.reprocess.ingestAssetId;
-    settings.reprocess.metastoreNamespace = env.OBSERVATORY_REPROCESS_METASTORE_NAMESPACE ?? settings.reprocess.metastoreNamespace;
-    settings.reprocess.pollIntervalMs = coerceNumber(
-      env.OBSERVATORY_REPROCESS_POLL_INTERVAL_MS,
-      settings.reprocess.pollIntervalMs
-    );
-
-    settings.ingest.maxFiles = coerceNumber(env.OBSERVATORY_INGEST_MAX_FILES, settings.ingest.maxFiles);
-    settings.ingest.metastoreNamespace = env.OBSERVATORY_INGEST_METASTORE_NAMESPACE ?? settings.ingest.metastoreNamespace;
-
-    settings.generator.minute = env.OBSERVATORY_GENERATOR_MINUTE ?? settings.generator.minute ?? undefined;
-    settings.generator.rowsPerInstrument = coerceNumber(
-      env.OBSERVATORY_GENERATOR_ROWS_PER_INSTRUMENT,
-      settings.generator.rowsPerInstrument
-    );
-    settings.generator.intervalMinutes = coerceNumber(
-      env.OBSERVATORY_GENERATOR_INTERVAL_MINUTES,
-      settings.generator.intervalMinutes
-    );
-    settings.generator.instrumentCount = coerceNumber(
-      env.OBSERVATORY_GENERATOR_INSTRUMENT_COUNT,
-      settings.generator.instrumentCount
-    );
-    settings.generator.seed = coerceNumber(env.OBSERVATORY_GENERATOR_SEED, settings.generator.seed);
-
-    return settings;
-  },
-  readSecrets: (env) => ({
-    filestoreToken: env.OBSERVATORY_FILESTORE_TOKEN,
-    timestoreToken: env.OBSERVATORY_TIMESTORE_TOKEN,
-    metastoreToken: env.OBSERVATORY_METASTORE_TOKEN,
-    calibrationsToken: env.OBSERVATORY_CALIBRATIONS_TOKEN,
-    eventsToken: env.OBSERVATORY_EVENTS_TOKEN,
-    coreApiToken: env.OBSERVATORY_CORE_TOKEN
-  })
-});
-
+ 
 export const DEFAULT_SETTINGS: ObservatorySettings = FALLBACK_SETTINGS;
 
-const DEFAULT_SECRETS: ObservatorySecrets = {
-  filestoreToken: undefined,
-  timestoreToken: undefined,
-  metastoreToken: undefined,
-  calibrationsToken: undefined,
-  eventsToken: undefined,
-  coreApiToken: undefined
-};
-
-export function defaultSecrets(): ObservatorySecrets {
-  const env = resolveRuntimeEnv();
-  const result = loadSettings({ env });
-  return result.secrets ?? { ...DEFAULT_SECRETS };
-}
-
-function resolveRuntimeEnv(): Record<string, string | undefined> {
-  const mergedEnv: Record<string, string | undefined> = { ...process.env };
+const runtimeConfigEnvSource = createEnvSource(() => {
   try {
     const config = loadObservatoryConfig();
-    const configEnv = buildEnvFromConfig(config);
-    for (const [key, value] of Object.entries(configEnv)) {
-      if (value !== undefined) {
-        const current = mergedEnv[key];
-        const hasCurrent = typeof current === 'string' && current.trim().length > 0;
-        if (!hasCurrent) {
-          mergedEnv[key] = value;
-        }
-      }
-    }
+    return {
+      values: buildEnvFromConfig(config),
+      mode: 'fill'
+    };
   } catch {
-    // Ignore missing runtime config; fall back to process.env defaults.
+    return undefined;
   }
-  return mergedEnv;
+});
+
+const settingsDefinition = createModuleSettingsDefinition({
+  settingsSchema: ObservatorySettingsSchema,
+  secretsSchema: ObservatorySecretsSchema,
+  defaults: () => DEFAULT_SETTINGS,
+  secretsDefaults: () => DEFAULT_SECRETS,
+  security,
+  envPresetKeys: [
+    COMMON_ENV_PRESET_KEYS.filestore,
+    COMMON_ENV_PRESET_KEYS.timestore,
+    COMMON_ENV_PRESET_KEYS.metastore,
+    COMMON_ENV_PRESET_KEYS.calibrations,
+    COMMON_ENV_PRESET_KEYS.events,
+    COMMON_ENV_PRESET_KEYS.dashboard,
+    COMMON_ENV_PRESET_KEYS.core,
+    COMMON_ENV_PRESET_KEYS.reprocess,
+    COMMON_ENV_PRESET_KEYS.ingest,
+    COMMON_ENV_PRESET_KEYS.generator
+  ],
+  secretsEnvPresetKeys: [COMMON_ENV_PRESET_KEYS.standardSecrets],
+  envSources: [runtimeConfigEnvSource],
+  secretsEnvSources: [runtimeConfigEnvSource]
+});
+
+export const loadSettings = settingsDefinition.load;
+
+export function defaultSettings(): ObservatorySettings {
+  return settingsDefinition.defaultSettings();
+}
+
+export function defaultSecrets(): ObservatorySecrets {
+  return settingsDefinition.defaultSecrets();
+}
+
+export function resolveSettingsFromRaw(raw: unknown): ObservatorySettings {
+  return settingsDefinition.resolveSettings(raw);
+}
+
+export function resolveSecretsFromRaw(raw: unknown): ObservatorySecrets {
+  return settingsDefinition.resolveSecrets(raw);
 }
 
 function buildEnvFromConfig(config: import('../runtime/config').ObservatoryConfig): Record<string, string> {
@@ -399,79 +294,4 @@ function buildEnvFromConfig(config: import('../runtime/config').ObservatoryConfi
   }
 
   return env;
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function applyOverrides(target: Record<string, unknown>, source: Record<string, unknown>): void {
-  for (const [key, value] of Object.entries(source)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (isPlainRecord(value)) {
-      const existing = target[key];
-      if (isPlainRecord(existing)) {
-        applyOverrides(existing, value);
-      } else {
-        const next: Record<string, unknown> = {};
-        target[key] = next;
-        applyOverrides(next, value);
-      }
-      continue;
-    }
-    target[key] = value as unknown;
-  }
-}
-
-export function defaultSettings(): ObservatorySettings {
-  const env = resolveRuntimeEnv();
-  return loadSettings({ env }).settings;
-}
-
-function mergeObservatorySettings(
-  base: ObservatorySettings,
-  overrides: Record<string, unknown>
-): ObservatorySettings {
-  applyOverrides(base as unknown as Record<string, unknown>, overrides);
-  return base;
-}
-
-function mergeObservatorySecrets(
-  base: ObservatorySecrets,
-  overrides: Record<string, unknown>
-): ObservatorySecrets {
-  const target = base as unknown as Record<string, unknown>;
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (value === null) {
-      delete target[key];
-      continue;
-    }
-    if (typeof value === 'string' && value.trim().length === 0) {
-      delete target[key];
-      continue;
-    }
-    target[key] = value;
-  }
-  return base;
-}
-
-export function resolveSettingsFromRaw(raw: unknown): ObservatorySettings {
-  if (!isPlainRecord(raw)) {
-    return defaultSettings();
-  }
-  const merged = mergeObservatorySettings(defaultSettings(), raw);
-  return ObservatorySettingsSchema.parse(merged);
-}
-
-export function resolveSecretsFromRaw(raw: unknown): ObservatorySecrets {
-  if (!isPlainRecord(raw)) {
-    return defaultSecrets();
-  }
-  const merged = mergeObservatorySecrets(defaultSecrets(), raw);
-  return ObservatorySecretsSchema.parse(merged);
 }

@@ -99,3 +99,57 @@ export function createJobRegistry<
     buildAll
   } satisfies JobRegistry<TSettings, TMap>;
 }
+
+export interface TargetRegistry<
+  TMap extends Record<string, TTarget>,
+  TTarget = TMap[keyof TMap & string]
+> {
+  entries: TMap;
+  slugs: Array<keyof TMap & string>;
+  get<Slug extends keyof TMap & string>(slug: Slug): TMap[Slug];
+  values(): TTarget[];
+}
+
+export function createTargetRegistry<
+  TMap extends Record<string, TTarget>,
+  TTarget = TMap[keyof TMap & string]
+>(entries: TMap): TargetRegistry<TMap, TTarget> {
+  const slugs = Object.keys(entries) as Array<keyof TMap & string>;
+
+  for (const slug of slugs) {
+    const target = entries[slug];
+    if (!target) {
+      throw new Error(`Target '${slug}' is undefined`);
+    }
+  }
+
+  function get<Slug extends keyof TMap & string>(slug: Slug): TMap[Slug] {
+    const target = entries[slug];
+    if (!target) {
+      throw new Error(`Target '${slug}' is not registered`);
+    }
+    return target;
+  }
+
+  function values(): TTarget[] {
+    return slugs.map((slug) => get(slug));
+  }
+
+  return {
+    entries,
+    slugs,
+    get,
+    values
+  } satisfies TargetRegistry<TMap, TTarget>;
+}
+
+type TargetMap<TTarget extends { name: string }> = {
+  [Name in TTarget['name']]: Extract<TTarget, { name: Name }>;
+};
+
+export function createTargetRegistryFromArray<TTarget extends { name: string }>(
+  targets: readonly TTarget[]
+): TargetRegistry<TargetMap<TTarget>, TTarget> {
+  const entries = Object.fromEntries(targets.map((target) => [target.name, target])) as TargetMap<TTarget>;
+  return createTargetRegistry(entries);
+}

@@ -11,6 +11,13 @@ import {
   fromConstant
 } from './valueBuilder';
 import type { JsonPath } from './paths';
+import { jsonPath, type JsonPathBuilder } from './jsonPath';
+
+type TriggerValueContext<TMetadata> = { metadata: TMetadata };
+
+export type PredicateBuilder<TSettings> =
+  | WorkflowProvisioningEventTriggerPredicate
+  | ((context: BuildContext<TSettings>) => WorkflowProvisioningEventTriggerPredicate | null | undefined);
 
 export interface TriggerOptions<TEvent, TTriggerMetadata, TSettings> {
   slug: string;
@@ -24,13 +31,13 @@ export interface TriggerOptions<TEvent, TTriggerMetadata, TSettings> {
     | ((context: BuildContext<TSettings>) => WorkflowProvisioningEventTriggerPredicate[]);
   parameters?: Record<
     string,
-    ValueBuilder<TEvent, TTriggerMetadata, TSettings> | JsonValue
+    ValueBuilder<TEvent, TriggerValueContext<TTriggerMetadata>, TSettings> | JsonValue
   >;
   metadata?:
     | JsonValue
     | ((context: BuildContext<TSettings>) => JsonValue);
-  runKey?: ValueBuilder<TEvent, TTriggerMetadata, TSettings> | string;
-  idempotencyKey?: ValueBuilder<TEvent, TTriggerMetadata, TSettings> | string;
+  runKey?: ValueBuilder<TEvent, TriggerValueContext<TTriggerMetadata>, TSettings> | string;
+  idempotencyKey?: ValueBuilder<TEvent, TriggerValueContext<TTriggerMetadata>, TSettings> | string;
 }
 
 export interface TriggerBuildContext<TSettings> extends BuildContext<TSettings> {}
@@ -55,7 +62,7 @@ export function defineTrigger<
       const parameterTemplate: Record<string, unknown> = {};
 
       for (const [key, value] of parameterEntries) {
-        const builder = ensureBuilder<TEvent, TTriggerMetadata, TSettings>(value);
+        const builder = ensureBuilder<TEvent, TriggerValueContext<TTriggerMetadata>, TSettings>(value);
         const result = builder.build(context);
         if (result.type === 'literal') {
           parameterTemplate[key] = result.value;
@@ -124,6 +131,94 @@ export function literal<
   TSettings = unknown
 >(value: JsonValue): ValueBuilder<TEvent, TTrigger, TSettings> {
   return fromConstant<TEvent, TTrigger, TSettings>(value);
+}
+
+export function eventField<
+  TEvent,
+  TValue = unknown,
+  TTrigger = unknown,
+  TSettings = unknown
+>(
+  selector: (builder: JsonPathBuilder<TEvent>) => JsonPathBuilder<TValue, any>
+): ValueBuilder<TEvent, TTrigger, TSettings> {
+  const builder = selector(jsonPath<TEvent>());
+  const path = builder.$path as JsonPath<TEvent>;
+  return eventPath<TEvent, typeof path, TTrigger, TSettings>(path);
+}
+
+export function triggerMetadataField<
+  TTriggerMetadata,
+  TValue = unknown,
+  TEvent = unknown,
+  TSettings = unknown
+>(
+  selector: (builder: JsonPathBuilder<TTriggerMetadata>) => JsonPathBuilder<TValue, any>
+): ValueBuilder<TEvent, TriggerValueContext<TTriggerMetadata>, TSettings> {
+  const builder = selector(jsonPath<TTriggerMetadata>());
+  const metadataPath = (builder.$path ?? '') as string;
+  const fullPath = (metadataPath.length > 0
+    ? `metadata.${metadataPath}`
+    : 'metadata') as JsonPath<TriggerValueContext<TTriggerMetadata>>;
+  return triggerPath<
+    TriggerValueContext<TTriggerMetadata>,
+    JsonPath<TriggerValueContext<TTriggerMetadata>>,
+    TEvent,
+    TSettings
+  >(fullPath);
+}
+
+export function predicateEquals(
+  path: string,
+  value: JsonValue
+): WorkflowProvisioningEventTriggerPredicate {
+  return {
+    path,
+    operator: 'equals',
+    value
+  } satisfies WorkflowProvisioningEventTriggerPredicate;
+}
+
+export function predicateExists(path: string): WorkflowProvisioningEventTriggerPredicate {
+  return {
+    path,
+    operator: 'exists'
+  } satisfies WorkflowProvisioningEventTriggerPredicate;
+}
+
+export function predicateIn(
+  path: string,
+  values: JsonValue[]
+): WorkflowProvisioningEventTriggerPredicate {
+  return {
+    path,
+    operator: 'in',
+    values
+  } satisfies WorkflowProvisioningEventTriggerPredicate;
+}
+
+export function predicateEqualsConfig<TSettings>(
+  path: string,
+  resolve: (settings: TSettings) => JsonValue
+): PredicateBuilder<TSettings> {
+  return (context) => predicateEquals(path, resolve(context.settings));
+}
+
+export function resolvePredicates<TSettings>(
+  context: BuildContext<TSettings>,
+  ...builders: PredicateBuilder<TSettings>[]
+): WorkflowProvisioningEventTriggerPredicate[] {
+  const predicates: WorkflowProvisioningEventTriggerPredicate[] = [];
+  for (const builder of builders) {
+    if (typeof builder === 'function') {
+      const result = builder(context);
+      if (result) {
+        predicates.push(result);
+      }
+    } else if (builder) {
+      predicates.push(builder);
+    }
+  }
+  return predicates;
 }
 
 function ensureBuilder<TEvent, TTrigger, TSettings>(
