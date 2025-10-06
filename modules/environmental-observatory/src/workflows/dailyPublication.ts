@@ -36,8 +36,9 @@ const definition: WorkflowDefinition = {
       parameters: {
         partitionKey: '{{ parameters.partitionKey }}',
         partitionWindow:
-          "{{ parameters.partitionWindow | default: parameters.partitionKey | split: 'window=' | last | default: parameters.partitionKey }}",
-        instrumentId: '{{ parameters.instrumentId | default: "" }}',
+          "{{ parameters.partitionWindow | default: event.payload.partitionKeyFields.window | default: event.payload.partitionKey | default: parameters.partitionKey | split: 'window=' | last | default: event.payload.partitionKey | default: parameters.partitionKey }}",
+        instrumentId:
+          "{{ parameters.instrumentId | default: event.payload.partitionKeyFields.instrument | default: parameters.partitionKey | split: 'instrument=' | last | default: parameters.partitionKey }}",
         siteFilter: '{{ parameters.siteFilter | default: "" }}',
         lookbackMinutes: '{{ parameters.lookbackMinutes | default: defaultParameters.lookbackMinutes }}'
       },
