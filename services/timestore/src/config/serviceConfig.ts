@@ -545,8 +545,13 @@ function resolveCacheDirectory(envValue: string | undefined): string {
 }
 
 function resolveStagingDirectory(envValue: string | undefined): string {
-  if (envValue) {
-    return envValue;
+  const trimmed = typeof envValue === 'string' ? envValue.trim() : '';
+  if (trimmed) {
+    return trimmed;
+  }
+  const scratchRoot = (process.env.APPHUB_SCRATCH_ROOT ?? '').trim();
+  if (scratchRoot) {
+    return path.join(scratchRoot, 'timestore', 'staging');
   }
   return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'staging');
 }
@@ -1000,14 +1005,14 @@ export function loadServiceConfig(): ServiceConfig {
   const stagingMaxTotalBytes = stagingMaxTotalBytesRaw > 0 ? stagingMaxTotalBytesRaw : 0;
   const stagingMaxPendingRaw = parseNumber(env.TIMESTORE_STAGING_MAX_PENDING, 64);
   const stagingMaxPendingPerDataset = stagingMaxPendingRaw > 0 ? stagingMaxPendingRaw : 64;
-  const stagingFlushMaxRowsRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_ROWS, 50_000);
+  const stagingFlushMaxRowsRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_ROWS, 0);
   const stagingFlushMaxRows = stagingFlushMaxRowsRaw >= 0 ? stagingFlushMaxRowsRaw : 0;
   const stagingFlushMaxBytesRaw = parseNumber(
     env.TIMESTORE_STAGING_FLUSH_MAX_BYTES,
-    128 * 1024 * 1024
+    1_073_741_824
   );
   const stagingFlushMaxBytes = stagingFlushMaxBytesRaw >= 0 ? stagingFlushMaxBytesRaw : 0;
-  const stagingFlushMaxAgeRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS, 60_000);
+  const stagingFlushMaxAgeRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS, 0);
   const stagingFlushMaxAgeMs = stagingFlushMaxAgeRaw >= 0 ? stagingFlushMaxAgeRaw : 0;
   const s3Bucket = env.TIMESTORE_S3_BUCKET;
   const s3Endpoint = env.TIMESTORE_S3_ENDPOINT;

@@ -35,13 +35,13 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_PG_SCHEMA` | Dedicated schema within the shared Postgres instance. | `timestore` |
 | `TIMESTORE_STORAGE_DRIVER` | `local`, `s3`, `gcs`, or `azure_blob`, toggles storage adapter. | `local` |
 | `TIMESTORE_STORAGE_ROOT` | Local filesystem root for DuckDB partitions. | `<repo>/services/data/timestore` |
-| `TIMESTORE_STAGING_DIRECTORY` | Filesystem root for DuckDB staging spools. | `<repo>/services/data/timestore/staging` |
+| `TIMESTORE_STAGING_DIRECTORY` | Filesystem root for DuckDB staging spools. | `${APPHUB_SCRATCH_ROOT}/timestore/staging` (falls back to `<repo>/services/data/timestore/staging`) |
 | `TIMESTORE_STAGING_MAX_DATASET_BYTES` | Soft byte ceiling per dataset spool before warnings emit. | `536870912` (512 MiB) |
 | `TIMESTORE_STAGING_MAX_TOTAL_BYTES` | Aggregate staging footprint threshold; `0` disables warnings. | `0` |
 | `TIMESTORE_STAGING_MAX_PENDING` | Max in-flight staging batches per dataset before applying back-pressure. | `64` |
-| `TIMESTORE_STAGING_FLUSH_MAX_ROWS` | Flush staged rows once a dataset accrues at least this many buffered rows; set `0` to disable the row threshold. | `50000` |
-| `TIMESTORE_STAGING_FLUSH_MAX_BYTES` | Flush when a dataset’s staging files exceed this many bytes; `0` disables the byte threshold. | `134217728` (128 MiB) |
-| `TIMESTORE_STAGING_FLUSH_MAX_AGE_MS` | Flush the oldest staged batch after it has waited at least this many milliseconds; `0` disables the age threshold. | `60000` |
+| `TIMESTORE_STAGING_FLUSH_MAX_ROWS` | Row-based trigger disabled by default; set a positive value to enable. | `0` |
+| `TIMESTORE_STAGING_FLUSH_MAX_BYTES` | Flush staged data once a dataset’s DuckDB spool reaches this many bytes; `0` disables the byte threshold. | `1073741824` (≈1 GiB) |
+| `TIMESTORE_STAGING_FLUSH_MAX_AGE_MS` | Age-based trigger disabled by default; set a positive value to enable. | `0` |
 | `TIMESTORE_S3_BUCKET` | Bucket for remote partition storage when `storageDriver` is `s3`. | `timestore-data` |
 | `TIMESTORE_S3_ENDPOINT` | Optional S3-compatible endpoint (e.g., MinIO). | _(unset)_ |
 | `TIMESTORE_S3_REGION` | Region used for S3 operations. | _(unset)_ |
@@ -107,7 +107,7 @@ When the service boots it ensures the configured Postgres schema exists, runs ti
 - Disk footprint is roughly the sum of the `.duckdb` file plus its WAL. Tune `TIMESTORE_STAGING_MAX_DATASET_BYTES` and `TIMESTORE_STAGING_MAX_TOTAL_BYTES` to emit warnings when staging drifts beyond expected retention. Setting either value to `0` disables the corresponding threshold.
 - Staged rows remain on disk until the partition build workers flush them to Parquet, so size the staging directory with enough headroom to handle ingestion bursts or delayed exports.
 - Per-dataset writer queues serialize access to each staging database; set `TIMESTORE_STAGING_MAX_PENDING` to control how many batches may wait in memory before new ingestion attempts receive back-pressure.
-- Flush thresholds (`TIMESTORE_STAGING_FLUSH_MAX_ROWS`, `_MAX_BYTES`, `_MAX_AGE_MS`) determine when staged data is materialized into Parquet partitions. When any enabled threshold trips, every pending batch for the dataset flushes atomically, ensuring idempotency and consistent manifests.
+- Flush thresholds (`TIMESTORE_STAGING_FLUSH_MAX_ROWS`, `_MAX_BYTES`, `_MAX_AGE_MS`) determine when staged data is materialized into Parquet partitions. By default only the 1 GiB size threshold is active; when any enabled trigger trips, every pending batch for the dataset flushes atomically, ensuring idempotency and consistent manifests.
 
 ### Streaming & Bulk Connectors
 - Enable connector workers by setting `TIMESTORE_CONNECTORS_ENABLED=true`. When disabled, connector definitions are ignored even if configured.
