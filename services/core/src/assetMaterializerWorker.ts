@@ -803,6 +803,11 @@ export class AssetMaterializer {
       if (!producedConfig) {
         return;
       }
+      if (!producedConfig.policy) {
+        // This asset does not opt-in to automated refreshes (including expiry).
+        // Emit the expiry event, but skip enqueueing the producing workflow again.
+        return;
+      }
       const assetKey = this.buildAssetKey(workflowId, payload.assetId);
       const partitionMap = this.latestAssets.get(assetKey);
       if (partitionMap) {

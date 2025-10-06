@@ -31,7 +31,9 @@ const DEFAULT_SNAPSHOT_FRESHNESS_MS = 60_000;
 const parametersSchema = z
   .object({
     partitionKey: z.string().min(1, 'partitionKey is required').optional(),
-    lookbackMinutes: z.number().int().positive().optional(),
+    lookbackMinutes: z
+      .union([z.coerce.number().int().positive(), z.string().trim().min(1)])
+      .optional(),
     timestoreDatasetSlug: z.string().min(1).optional(),
     burstReason: z.string().optional(),
     burstFinishedAt: z.string().optional()
@@ -652,7 +654,20 @@ export const dashboardAggregatorJob = createJobHandler<
     const partitionKey = partitionKeyInput && partitionKeyInput.length > 0
       ? partitionKeyInput
       : new Date().toISOString().slice(0, 16);
-    const lookbackMinutes = context.parameters.lookbackMinutes ?? context.settings.dashboard.lookbackMinutes;
+    const lookbackCandidate = context.parameters.lookbackMinutes;
+    const resolvedLookback = (() => {
+      if (typeof lookbackCandidate === 'number' && Number.isFinite(lookbackCandidate)) {
+        return lookbackCandidate;
+      }
+      if (typeof lookbackCandidate === 'string') {
+        const parsed = Number(lookbackCandidate);
+        if (Number.isFinite(parsed)) {
+          return parsed;
+        }
+      }
+      return context.settings.dashboard.lookbackMinutes;
+    })();
+    const lookbackMinutes = resolvedLookback;
     const ingestAssetSummary = await waitForFlushCompletion(context, coreWorkflows, partitionKey, principal);
     const ingestAssetPayload = toRecord(ingestAssetSummary?.payload);
     const datasetSlug =
