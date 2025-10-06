@@ -2,14 +2,21 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_73 } from './def_73';
 export type def_75 = {
-  data: {
-    key: def_73;
-    /**
-     * Full API key token. This value is only returned once at creation time.
-     */
-    token: string;
-  };
+  id: string;
+  name?: string | null;
+  /**
+   * Stable API key prefix used for support diagnostics.
+   */
+  prefix: string;
+  /**
+   * Scopes granted to the API key.
+   */
+  scopes: Array<string>;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string | null;
+  expiresAt?: string | null;
+  revokedAt?: string | null;
 };
 

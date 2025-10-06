@@ -4,49 +4,15 @@
 /* eslint-disable */
 export const $def_87 = {
   properties: {
-    hit: {
-      type: 'boolean',
-      isRequired: true,
-    },
-    cachedAt: {
+    partitionKey: {
       type: 'string',
-      isNullable: true,
-      format: 'date-time',
+      maxLength: 200,
+      minLength: 1,
     },
-    ageMs: {
-      type: 'number',
-      isNullable: true,
-    },
-    expiresAt: {
+    note: {
       type: 'string',
-      isNullable: true,
-      format: 'date-time',
-    },
-    stats: {
-      properties: {
-        hits: {
-          type: 'number',
-          isRequired: true,
-        },
-        misses: {
-          type: 'number',
-          isRequired: true,
-        },
-        invalidations: {
-          type: 'number',
-          isRequired: true,
-        },
-      },
-      isRequired: true,
-    },
-    lastInvalidatedAt: {
-      type: 'string',
-      isNullable: true,
-      format: 'date-time',
-    },
-    lastInvalidationReason: {
-      type: 'string',
-      isNullable: true,
+      maxLength: 500,
+      minLength: 1,
     },
   },
 } as const;

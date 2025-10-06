@@ -2,7 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export const $def_98 = {
+export const $def_99 = {
   properties: {
     status: {
       type: 'Enum',

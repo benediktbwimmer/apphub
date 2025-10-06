@@ -5,9 +5,11 @@
 import type { def_67 } from '../models/def_67';
 import type { def_68 } from '../models/def_68';
 import type { def_72 } from '../models/def_72';
-import type { def_84 } from '../models/def_84';
-import type { def_85 } from '../models/def_85';
-import type { def_89 } from '../models/def_89';
+import type { def_73 } from '../models/def_73';
+import type { def_74 } from '../models/def_74';
+import type { def_86 } from '../models/def_86';
+import type { def_87 } from '../models/def_87';
+import type { def_91 } from '../models/def_91';
 import type { WorkflowDefinitionCreateRequest } from '../models/WorkflowDefinitionCreateRequest';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
@@ -16,10 +18,10 @@ export class WorkflowsService {
   /**
    * Retrieve workflow topology graph
    * Returns the cached workflow topology graph used by the operations console. Requires the workflows:read or workflows:write operator scope.
-   * @returns def_89 Current workflow topology graph snapshot.
+   * @returns def_91 Current workflow topology graph snapshot.
    * @throws ApiError
    */
-  public getWorkflowsGraph(): CancelablePromise<def_89> {
+  public getWorkflowsGraph(): CancelablePromise<def_91> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/workflows/graph',
@@ -134,12 +136,50 @@ export class WorkflowsService {
     });
   }
   /**
-   * Retrieve workflow asset graph
-   * Aggregates asset producers and consumers across all registered workflows.
-   * @returns def_84 Current asset graph snapshot.
+   * Update workflow asset auto-materialize settings
+   * Enable or tune auto-materialize behaviour for a specific asset within the workflow.
+   * @returns def_74 Updated auto-materialize configuration for the workflow asset.
    * @throws ApiError
    */
-  public getAssetsGraph(): CancelablePromise<def_84> {
+  public patchWorkflowsAssetsAutoMaterialize({
+    slug,
+    assetId,
+    requestBody,
+  }: {
+    /**
+     * Workflow slug.
+     */
+    slug: string,
+    /**
+     * Asset identifier within the workflow.
+     */
+    assetId: string,
+    requestBody?: def_73,
+  }): CancelablePromise<def_74> {
+    return this.httpRequest.request({
+      method: 'PATCH',
+      url: '/workflows/{slug}/assets/{assetId}/auto-materialize',
+      path: {
+        'slug': slug,
+        'assetId': assetId,
+      },
+      body: requestBody,
+      mediaType: 'application/json',
+      errors: {
+        400: `Request parameters or payload failed validation.`,
+        401: `Operator authentication is required.`,
+        403: `Operator token is missing required scopes.`,
+        404: `Workflow or asset declaration not found.`,
+      },
+    });
+  }
+  /**
+   * Retrieve workflow asset graph
+   * Aggregates asset producers and consumers across all registered workflows.
+   * @returns def_86 Current asset graph snapshot.
+   * @throws ApiError
+   */
+  public getAssetsGraph(): CancelablePromise<def_86> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/assets/graph',
@@ -167,7 +207,7 @@ export class WorkflowsService {
      * Asset identifier declared by the workflow.
      */
     assetId: string,
-    requestBody?: def_85,
+    requestBody?: def_87,
   }): CancelablePromise<void> {
     return this.httpRequest.request({
       method: 'POST',

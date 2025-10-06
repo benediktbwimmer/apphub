@@ -2,7 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export const $def_73 = {
+export const $WorkflowAutoMaterializeAssetUpdateRequest = {
   type: 'all-of',
   contains: [{
     properties: {
@@ -25,27 +25,23 @@ export const $def_73 = {
       },
       parameterDefaults: {
         type: 'any-of',
+        description: `Arbitrary JSON value.`,
         contains: [{
-          type: 'any-of',
-          description: `Arbitrary JSON value.`,
-          contains: [{
-            type: 'string',
-          }, {
-            type: 'number',
-          }, {
-            type: 'number',
-          }, {
-            type: 'boolean',
-          }, {
-            type: 'dictionary',
-            contains: {
-              properties: {
-              },
-            },
-          }],
+          type: 'string',
         }, {
-          type: 'null',
+          type: 'number',
+        }, {
+          type: 'number',
+        }, {
+          type: 'boolean',
+        }, {
+          type: 'dictionary',
+          contains: {
+            properties: {
+            },
+          },
         }],
+        isNullable: true,
       },
     },
   }],

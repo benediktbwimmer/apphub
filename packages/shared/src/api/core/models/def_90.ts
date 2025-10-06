@@ -3,9 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_90 = {
-  configured: boolean;
-  reachable: boolean | null;
-  lastCheckedAt: string | null;
-  error: string | null;
+  hits: number;
+  misses: number;
+  invalidations: number;
 };
 

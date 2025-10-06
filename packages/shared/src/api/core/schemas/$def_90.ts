@@ -4,25 +4,17 @@
 /* eslint-disable */
 export const $def_90 = {
   properties: {
-    configured: {
-      type: 'boolean',
+    hits: {
+      type: 'number',
       isRequired: true,
     },
-    reachable: {
-      type: 'boolean',
+    misses: {
+      type: 'number',
       isRequired: true,
-      isNullable: true,
     },
-    lastCheckedAt: {
-      type: 'string',
+    invalidations: {
+      type: 'number',
       isRequired: true,
-      isNullable: true,
-      format: 'date-time',
-    },
-    error: {
-      type: 'string',
-      isRequired: true,
-      isNullable: true,
     },
   },
 } as const;
