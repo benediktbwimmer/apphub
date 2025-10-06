@@ -24,7 +24,6 @@ const definition: WorkflowDefinition = {
     required: ['partitionKey']
   },
   defaultParameters: {
-    lookbackMinutes: moduleSetting('dashboard.lookbackMinutes'),
     burstReason: '',
     burstFinishedAt: ''
   },
@@ -37,7 +36,6 @@ const definition: WorkflowDefinition = {
       storeResultAs: 'result',
       parameters: {
         partitionKey: '{{ parameters.partitionKey }}',
-        lookbackMinutes: '{{ parameters.lookbackMinutes | default: defaultParameters.lookbackMinutes }}',
         burstReason: '{{ parameters.burstReason }}',
         burstFinishedAt: '{{ parameters.burstFinishedAt }}'
       },
@@ -90,7 +88,6 @@ const triggers = [
     ],
     parameterTemplate: {
       partitionKey: '{{ event.payload.partitionKey | default: event.payload.workflowSlug }}',
-      lookbackMinutes: '{{ trigger.metadata.lookbackMinutes }}',
       burstReason: '{{ event.payload.reason }}',
       burstFinishedAt: '{{ event.payload.expiresAt }}'
     },
