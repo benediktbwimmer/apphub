@@ -10,6 +10,7 @@ import {
 
 const NAV_ITEMS = [
   { key: 'datasets', label: 'Datasets', path: ROUTE_PATHS.servicesTimestoreDatasets },
+  { key: 'streaming', label: 'Streaming', path: ROUTE_PATHS.servicesTimestoreStreaming },
   { key: 'sql', label: 'SQL Editor', path: ROUTE_PATHS.servicesTimestoreSql }
 ] as const;
 
