@@ -18,13 +18,13 @@ import ReactFlow, {
   Position,
   useNodesState,
   useEdgesState,
-  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
   type NodeMouseHandler,
   type ReactFlowInstance,
-  type Viewport
+  type Viewport,
+  type EdgeMarker
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { unstable_batchedUpdates } from 'react-dom';
@@ -177,11 +177,16 @@ function edgeMarkerEqual(
   if (!prev || !next) {
     return false;
   }
+  if (typeof prev === 'string' || typeof next === 'string') {
+    return prev === next;
+  }
+  const prevMarker = prev as EdgeMarker;
+  const nextMarker = next as EdgeMarker;
   return (
-    prev.type === next.type &&
-    prev.color === next.color &&
-    prev.width === next.width &&
-    prev.height === next.height
+    prevMarker.type === nextMarker.type &&
+    prevMarker.color === nextMarker.color &&
+    prevMarker.width === nextMarker.width &&
+    prevMarker.height === nextMarker.height
   );
 }
 
@@ -251,6 +256,8 @@ function areEdgePropsEqual(
   prev: Edge<WorkflowGraphCanvasEdgeData>,
   next: Edge<WorkflowGraphCanvasEdgeData>
 ): boolean {
+  const prevData = prev.data ?? null;
+  const nextData = next.data ?? null;
   return (
     prev.type === next.type &&
     prev.animated === next.animated &&
@@ -261,8 +268,8 @@ function areEdgePropsEqual(
     prev.labelBgBorderRadius === next.labelBgBorderRadius &&
     edgeLabelBgStyleEqual(prev.labelBgStyle, next.labelBgStyle) &&
     edgeLabelStyleEqual(prev.labelStyle, next.labelStyle) &&
-    prev.data.kind === next.data.kind &&
-    prev.data.highlighted === next.data.highlighted
+    (prevData?.kind ?? null) === (nextData?.kind ?? null) &&
+    (prevData?.highlighted ?? false) === (nextData?.highlighted ?? false)
   );
 }
 
@@ -719,7 +726,6 @@ export function WorkflowGraphCanvas({
 
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowGraphCanvasNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<WorkflowGraphCanvasEdgeData>([]);
-  const reactFlow = useReactFlow<WorkflowGraphCanvasNodeData, WorkflowGraphCanvasEdgeData>();
 
   const [instance, setInstance] = useState<ReactFlowInstance | null>(null);
   const layoutBoundsRef = useRef<GraphBounds | null>(null);
@@ -737,20 +743,25 @@ export function WorkflowGraphCanvas({
       if (ids.length === 0) {
         return;
       }
+      const flow = instance as (ReactFlowInstance<WorkflowGraphCanvasNodeData, WorkflowGraphCanvasEdgeData> & {
+        updateNodeInternals?: (id: string) => void;
+      }) | null;
+      if (!flow || typeof flow.updateNodeInternals !== 'function') {
+        return;
+      }
       const uniqueIds = Array.from(new Set(ids));
-      if (typeof window !== 'undefined') {
-        window.requestAnimationFrame(() => {
-          uniqueIds.forEach((id) => {
-            reactFlow.updateNodeInternals(id);
-          });
-        });
-      } else {
+      const invoke = () => {
         uniqueIds.forEach((id) => {
-          reactFlow.updateNodeInternals(id);
+          flow.updateNodeInternals?.(id);
         });
+      };
+      if (typeof window !== 'undefined') {
+        window.requestAnimationFrame(invoke);
+      } else {
+        invoke();
       }
     },
-    [reactFlow]
+    [instance]
   );
 
   const updateLayoutSnapshot = useCallback((graph: RenderGraph) => {
