@@ -2,11 +2,14 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type def_73 = {
+export type WorkflowAutoMaterializeAssetUpdateRequest = {
   stepId: string;
   enabled?: boolean;
   onUpstreamUpdate?: boolean;
   priority?: number | null;
-  parameterDefaults?: ((string | number | boolean | Record<string, any>) | null);
+  /**
+   * Arbitrary JSON value.
+   */
+  parameterDefaults?: (string | number | boolean | Record<string, any>) | null;
 };
 

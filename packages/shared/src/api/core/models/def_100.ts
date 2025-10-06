@@ -2,10 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_75 } from './def_75';
-export type ApiKeyListResponse = {
-  data: {
-    keys: Array<def_75>;
-  };
+export type def_100 = {
+  error: ((string | number | boolean | Record<string, any>) | null);
 };
 

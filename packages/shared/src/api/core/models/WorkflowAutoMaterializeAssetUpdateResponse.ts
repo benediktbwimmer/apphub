@@ -2,16 +2,19 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type def_74 = {
+export type WorkflowAutoMaterializeAssetUpdateResponse = {
   data: {
     assetId: string;
     stepId: string;
-    autoMaterialize: ({
+    autoMaterialize: {
       enabled?: boolean;
       onUpstreamUpdate?: boolean;
       priority?: number | null;
-      parameterDefaults?: ((string | number | boolean | Record<string, any>) | null);
-    } | null);
+      /**
+       * Arbitrary JSON value.
+       */
+      parameterDefaults?: (string | number | boolean | Record<string, any>) | null;
+    } | null;
   };
 };
 

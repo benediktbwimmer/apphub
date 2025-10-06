@@ -2,8 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type def_96 = {
-  status: 'ok';
+export type def_99 = {
+  status: 'unavailable' | 'degraded';
   warnings?: Array<string>;
   features: {
     streaming: {

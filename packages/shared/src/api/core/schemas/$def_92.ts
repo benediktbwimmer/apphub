@@ -5,83 +5,24 @@
 export const $def_92 = {
   properties: {
     configured: {
-      type: 'number',
+      type: 'boolean',
       isRequired: true,
     },
-    running: {
-      type: 'number',
+    reachable: {
+      type: 'boolean',
       isRequired: true,
+      isNullable: true,
     },
-    failing: {
-      type: 'number',
+    lastCheckedAt: {
+      type: 'string',
       isRequired: true,
+      isNullable: true,
+      format: 'date-time',
     },
-    state: {
-      type: 'Enum',
+    error: {
+      type: 'string',
       isRequired: true,
-    },
-    connectors: {
-      type: 'array',
-      contains: {
-        properties: {
-          connectorId: {
-            type: 'string',
-            isRequired: true,
-          },
-          datasetSlug: {
-            type: 'string',
-            isRequired: true,
-          },
-          topic: {
-            type: 'string',
-            isRequired: true,
-          },
-          groupId: {
-            type: 'string',
-            isRequired: true,
-          },
-          state: {
-            type: 'Enum',
-            isRequired: true,
-          },
-          bufferedWindows: {
-            type: 'number',
-            isRequired: true,
-          },
-          bufferedRows: {
-            type: 'number',
-            isRequired: true,
-          },
-          openWindows: {
-            type: 'number',
-            isRequired: true,
-          },
-          lastMessageAt: {
-            type: 'string',
-            isRequired: true,
-            isNullable: true,
-            format: 'date-time',
-          },
-          lastFlushAt: {
-            type: 'string',
-            isRequired: true,
-            isNullable: true,
-            format: 'date-time',
-          },
-          lastEventTimestamp: {
-            type: 'string',
-            isRequired: true,
-            isNullable: true,
-            format: 'date-time',
-          },
-          lastError: {
-            type: 'string',
-            isRequired: true,
-            isNullable: true,
-          },
-        },
-      },
-      isRequired: true,
+      isNullable: true,
     },
   },
 } as const;

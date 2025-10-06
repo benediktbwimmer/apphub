@@ -3,16 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type def_87 = {
-  hit: boolean;
-  cachedAt?: string | null;
-  ageMs?: number | null;
-  expiresAt?: string | null;
-  stats: {
-    hits: number;
-    misses: number;
-    invalidations: number;
-  };
-  lastInvalidatedAt?: string | null;
-  lastInvalidationReason?: string | null;
+  partitionKey?: string;
+  note?: string;
 };
 

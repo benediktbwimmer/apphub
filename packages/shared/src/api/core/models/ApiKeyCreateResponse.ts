@@ -2,10 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { def_73 } from './def_73';
+import type { def_75 } from './def_75';
 export type ApiKeyCreateResponse = {
   data: {
-    key: def_73;
+    key: def_75;
     /**
      * Full API key token. This value is only returned once at creation time.
      */
