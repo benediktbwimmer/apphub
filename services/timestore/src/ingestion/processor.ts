@@ -29,7 +29,12 @@ import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import { partitionFileExists, type FieldDefinition } from '../storage';
 import { ensureDefaultStorageTarget } from '../service/bootstrap';
 import type { IngestionJobPayload, IngestionProcessingResult } from './types';
-import { observeIngestionJob, observeStagingFlush, recordStagingRetry } from '../observability/metrics';
+import {
+  observeIngestionJob,
+  observeStagingFlush,
+  recordStagingRetry,
+  recordStagingSchemaRegistryUpdate
+} from '../observability/metrics';
 import { publishTimestoreEvent } from '../events/publisher';
 import { endSpan, startSpan } from '../observability/tracing';
 import { invalidateSqlRuntimeCache } from '../sql/runtime';
@@ -39,6 +44,7 @@ import { computePartitionIndexForRows } from '../indexing/partitionIndex';
 import { executePartitionBuild } from './partitionBuilderClient';
 import { getStagingWriteManager, resetStagingWriteManager } from './stagingManager';
 import { resolveFlushThresholds, shouldTriggerFlush } from './flushPlanner';
+import { upsertStagingSchemaRegistry } from '../db/stagingSchemaRegistry';
 import {
   DuckDbSpoolManager,
   type PreparedFlushBatch,
@@ -624,12 +630,40 @@ export async function processIngestionJob(
       receivedAt: payload.receivedAt
     };
 
-    await stagingManager.enqueue({
+    const stageResult = await stagingManager.enqueue({
       ...stageRequest,
       idempotencyKey: payload.idempotencyKey ?? null,
       schemaDefaults,
       backfillRequested
     });
+
+    if (!stageResult.alreadyStaged) {
+      try {
+        const upsertResult = await upsertStagingSchemaRegistry({
+          datasetId: dataset.id,
+          fields: schemaFields.map((field) => ({
+            name: field.name,
+            type: field.type,
+            nullable: true,
+            description: null
+          })),
+          sourceBatchId: stageResult.batchId
+        });
+        recordStagingSchemaRegistryUpdate({
+          datasetSlug,
+          status: upsertResult.status
+        });
+      } catch (error) {
+        console.warn(
+          `[timestore] failed to update staging schema registry for dataset ${datasetSlug}`,
+          error
+        );
+        recordStagingSchemaRegistryUpdate({
+          datasetSlug,
+          status: 'failed'
+        });
+      }
+    }
 
     const spoolManager = stagingManager.getSpoolManager();
     const flushThresholds = resolveFlushThresholds(config, dataset);

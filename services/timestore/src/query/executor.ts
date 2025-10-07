@@ -332,7 +332,7 @@ function mergeColumns(baseColumns: string[], rows: QueryResultRow[]): string[] {
   return merged;
 }
 
-async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
+export async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
   const duckdb = loadDuckDb();
   const db = new duckdb.Database(':memory:');
   const connection = db.connect();

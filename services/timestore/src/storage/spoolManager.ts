@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { loadDuckDb, isCloseable } from '@apphub/shared';
+import { clearStagingSchemaCache, markStagingSchemaCacheStale } from '../cache/stagingSchemaCache';
 import { setStagingSummaryMetrics } from '../observability/metrics';
 import { TIMESTORE_DEBUG_ENABLED } from './index';
 import type { FieldDefinition, FieldType } from './index';
@@ -188,6 +189,7 @@ export class DuckDbSpoolManager {
       }
 
       await this.evaluateSizeThresholds(request.datasetSlug).catch(() => undefined);
+      markStagingSchemaCacheStale(request.datasetSlug);
 
       return rows.length;
     });
@@ -316,6 +318,7 @@ export class DuckDbSpoolManager {
 
         await this.evaluateSizeThresholds(request.datasetSlug).catch(() => undefined);
         await this.refreshDatasetSummary(context);
+        markStagingSchemaCacheStale(request.datasetSlug);
 
         return {
           datasetSlug: request.datasetSlug,
@@ -355,6 +358,7 @@ export class DuckDbSpoolManager {
         walSizeBytes: 0,
         onDiskBytes: 0
       });
+      clearStagingSchemaCache(datasetSlug);
     });
   }
 
@@ -362,6 +366,7 @@ export class DuckDbSpoolManager {
     await this.runWithDatasetLock(datasetSlug, async () => {
       const context = await this.getDatasetContext(datasetSlug);
       await this.recoverCorruptedDataset(context, reason);
+      markStagingSchemaCacheStale(datasetSlug);
     });
   }
 
@@ -1081,6 +1086,7 @@ export class DuckDbSpoolManager {
 
       await this.cleanupFlushDirectory(context, flushToken);
       await this.refreshDatasetSummary(context);
+      markStagingSchemaCacheStale(datasetSlug);
     });
   }
 

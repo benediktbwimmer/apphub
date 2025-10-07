@@ -147,6 +147,10 @@ interface MetricsState {
   stagingFlushRowsTotal: Counter<string> | null;
   stagingDroppedBatchesTotal: Counter<string> | null;
   stagingRetriedBatchesTotal: Counter<string> | null;
+  stagingSchemaReadRetriesTotal: Counter<string> | null;
+  stagingSchemaCacheFallbackTotal: Counter<string> | null;
+  stagingSchemaRegistryUpdatesTotal: Counter<string> | null;
+  stagingSchemaRegistryLoadsTotal: Counter<string> | null;
   partitionBuildQueueJobs: Gauge<string> | null;
   partitionBuildJobsTotal: Counter<string> | null;
   partitionBuildJobDurationSeconds: Histogram<string> | null;
@@ -328,6 +332,42 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
         name: `${prefix}staging_retried_batches_total`,
         help: 'Batches returned to staging for retry grouped by dataset and reason',
         labelNames: ['dataset', 'reason'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const stagingSchemaReadRetriesTotal = enabled
+    ? new Counter({
+        name: `${prefix}staging_schema_read_retries_total`,
+        help: 'Retry attempts issued while reading the staging schema',
+        labelNames: ['dataset'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const stagingSchemaCacheFallbackTotal = enabled
+    ? new Counter({
+        name: `${prefix}staging_schema_cache_fallback_total`,
+        help: 'Fallbacks to cached staging schema grouped by dataset and reason',
+        labelNames: ['dataset', 'reason'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const stagingSchemaRegistryUpdatesTotal = enabled
+    ? new Counter({
+        name: `${prefix}staging_schema_registry_updates_total`,
+        help: 'Registry upserts grouped by dataset and result',
+        labelNames: ['dataset', 'status'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const stagingSchemaRegistryLoadsTotal = enabled
+    ? new Counter({
+        name: `${prefix}staging_schema_registry_loads_total`,
+        help: 'Registry lookup outcomes grouped by dataset and result',
+        labelNames: ['dataset', 'result'],
         registers: registerMetrics
       })
     : null;
@@ -723,6 +763,10 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     stagingFlushRowsTotal,
     stagingDroppedBatchesTotal,
     stagingRetriedBatchesTotal,
+    stagingSchemaReadRetriesTotal,
+    stagingSchemaCacheFallbackTotal,
+    stagingSchemaRegistryUpdatesTotal,
+    stagingSchemaRegistryLoadsTotal,
     partitionBuildQueueJobs,
     partitionBuildJobsTotal,
     partitionBuildJobDurationSeconds,
@@ -904,6 +948,62 @@ export function recordStagingRetry(input: StagingRetryMetricInput): void {
   const reason = normalizeReason(input.reason ?? 'flush_abort');
   const batches = Math.max(1, Math.floor(Number.isFinite(input.batches ?? NaN) ? (input.batches ?? 1) : 1));
   state.stagingRetriedBatchesTotal.labels(input.datasetSlug, reason).inc(batches);
+}
+
+export function recordStagingSchemaReadRetry(datasetSlug: string): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.stagingSchemaReadRetriesTotal) {
+    return;
+  }
+  state.stagingSchemaReadRetriesTotal.labels(datasetSlug).inc();
+}
+
+export type StagingSchemaCacheFallbackReason = 'lock' | 'error' | 'empty' | 'missing';
+
+export interface StagingSchemaCacheFallbackInput {
+  datasetSlug: string;
+  reason: StagingSchemaCacheFallbackReason;
+}
+
+export function recordStagingSchemaCacheFallback(input: StagingSchemaCacheFallbackInput): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.stagingSchemaCacheFallbackTotal) {
+    return;
+  }
+  const reason = normalizeReason(input.reason);
+  state.stagingSchemaCacheFallbackTotal.labels(input.datasetSlug, reason).inc();
+}
+
+export type StagingSchemaRegistryUpdateStatus = 'created' | 'updated' | 'unchanged' | 'failed';
+
+export interface StagingSchemaRegistryUpdateInput {
+  datasetSlug: string;
+  status: StagingSchemaRegistryUpdateStatus;
+}
+
+export function recordStagingSchemaRegistryUpdate(input: StagingSchemaRegistryUpdateInput): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.stagingSchemaRegistryUpdatesTotal) {
+    return;
+  }
+  const status = normalizeReason(input.status);
+  state.stagingSchemaRegistryUpdatesTotal.labels(input.datasetSlug, status).inc();
+}
+
+export type StagingSchemaRegistryLoadResult = 'hit' | 'miss' | 'error';
+
+export interface StagingSchemaRegistryLoadInput {
+  datasetSlug: string;
+  result: StagingSchemaRegistryLoadResult;
+}
+
+export function recordStagingSchemaRegistryLoad(input: StagingSchemaRegistryLoadInput): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.stagingSchemaRegistryLoadsTotal) {
+    return;
+  }
+  const result = normalizeReason(input.result);
+  state.stagingSchemaRegistryLoadsTotal.labels(input.datasetSlug, result).inc();
 }
 
 export function observeIngestionJob(input: IngestionJobMetricsInput): void {

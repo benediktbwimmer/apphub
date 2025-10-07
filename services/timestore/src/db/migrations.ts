@@ -333,6 +333,21 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_streaming_watermarks_dataset
          ON streaming_watermarks(dataset_id);`
     ]
+  },
+  {
+    id: '014_timestore_staging_schema_registry',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS timestore_staging_schemas (
+         dataset_id TEXT PRIMARY KEY REFERENCES datasets(id) ON DELETE CASCADE,
+         schema_version BIGINT NOT NULL DEFAULT 1,
+         fields JSONB NOT NULL,
+         checksum TEXT NOT NULL,
+         source_batch_id TEXT,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_timestore_staging_schemas_updated
+         ON timestore_staging_schemas(updated_at DESC);`
+    ]
   }
 ];
 

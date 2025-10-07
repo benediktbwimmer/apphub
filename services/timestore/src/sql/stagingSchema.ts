@@ -1,13 +1,18 @@
-import path from 'node:path';
-import { access } from 'node:fs/promises';
-import { loadDuckDb, isCloseable } from '@apphub/shared';
+import { getStagingSchemaCacheEntry, setStagingSchemaCache } from '../cache/stagingSchemaCache';
 import type { DatasetRecord } from '../db/metadata';
+import {
+  getStagingSchemaRegistry,
+  upsertStagingSchemaRegistry,
+  type StagingSchemaRegistryRecord
+} from '../db/stagingSchemaRegistry';
 import type { ServiceConfig } from '../config/serviceConfig';
 import { getStagingWriteManager } from '../ingestion/stagingManager';
+import {
+  recordStagingSchemaCacheFallback,
+  recordStagingSchemaRegistryLoad,
+  recordStagingSchemaRegistryUpdate
+} from '../observability/metrics';
 import type { PendingStagingBatch } from '../storage/spoolManager';
-
-const STAGING_SCHEMA = 'staging';
-const METADATA_TABLE = '__ingestion_batches';
 
 export interface StagingSchemaField {
   name: string;
@@ -21,131 +26,93 @@ export async function readStagingSchemaFields(
   config: ServiceConfig,
   warnings?: string[]
 ): Promise<StagingSchemaField[]> {
-  const stagingDirectory = config.staging?.directory;
-  if (!stagingDirectory) {
-    return [];
+  const cacheEntry = getStagingSchemaCacheEntry(dataset.slug);
+  if (cacheEntry && cacheEntry.fields.length > 0 && cacheEntry.stale === false) {
+    return cacheEntry.fields;
   }
 
-  const safeSlug = sanitizeDatasetSlug(dataset.slug);
-  const databasePath = path.join(stagingDirectory, safeSlug, 'staging.duckdb');
-  try {
-    await access(databasePath);
-  } catch {
-    return [];
+  const registryEntry = await loadRegistryEntry(dataset, warnings);
+  if (registryEntry && registryEntry.fields.length > 0) {
+    setStagingSchemaCache(dataset.slug, registryEntry.fields, {
+      schemaVersion: registryEntry.schemaVersion,
+      updatedAt: registryEntry.updatedAt?.getTime()
+    });
+    return registryEntry.fields;
   }
 
-  const duckdb = loadDuckDb();
-  let db: any | null = null;
-  let connection: any | null = null;
-
-  try {
-    db = new duckdb.Database(databasePath, { access_mode: 'READ_ONLY' });
-    connection = db.connect();
-    if (!connection) {
-      return await collectFieldsFromPendingBatches(dataset, config);
-    }
-
-    let schemaRows: Array<Record<string, unknown>> = [];
+  const pendingFields = await collectFieldsFromPendingBatches(dataset, config);
+  if (pendingFields.length > 0) {
+    recordStagingSchemaCacheFallback({
+      datasetSlug: dataset.slug,
+      reason: registryEntry ? 'empty' : 'missing'
+    });
     try {
-      schemaRows = await all(
-        connection,
-        `SELECT schema_json
-           FROM ${STAGING_SCHEMA}.${METADATA_TABLE}
-          WHERE schema_json IS NOT NULL
-            AND schema_json <> ''
-          ORDER BY staged_at DESC
-          LIMIT 64`
-      );
+      const persisted = await upsertStagingSchemaRegistry({
+        datasetId: dataset.id,
+        fields: pendingFields,
+        sourceBatchId: null
+      });
+      recordStagingSchemaRegistryUpdate({
+        datasetSlug: dataset.slug,
+        status: persisted.status
+      });
+      setStagingSchemaCache(dataset.slug, persisted.record.fields, {
+        schemaVersion: persisted.record.schemaVersion,
+        updatedAt: persisted.record.updatedAt.getTime()
+      });
+      return persisted.record.fields;
     } catch (error) {
-      if (!isMissingDuckDbTableError(error)) {
-        throw error;
-      }
-    }
-
-    const fieldMap = new Map<string, StagingSchemaField>();
-
-    for (const row of schemaRows) {
-      const raw = typeof row.schema_json === 'string' ? row.schema_json : null;
-      if (!raw) {
-        continue;
-      }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        continue;
-      }
-      if (!Array.isArray(parsed)) {
-        continue;
-      }
-      for (const entry of parsed as Array<Record<string, unknown>>) {
-        const name = typeof entry?.name === 'string' ? entry.name : null;
-        if (!name || fieldMap.has(name)) {
-          continue;
-        }
-        const type = typeof entry?.type === 'string' ? entry.type : 'string';
-        const nullable = typeof entry?.nullable === 'boolean' ? entry.nullable : undefined;
-        const description = typeof entry?.description === 'string' ? entry.description : null;
-        fieldMap.set(name, { name, type, nullable, description });
-      }
-    }
-
-    if (fieldMap.size === 0) {
-      const tables = await all(
-        connection,
-        `SELECT table_name
-           FROM information_schema.tables
-          WHERE table_schema = '${STAGING_SCHEMA}'
-            AND table_type = 'BASE TABLE'
-            AND table_name <> '${METADATA_TABLE}'`
-      );
-
-      for (const row of tables) {
-        const tableName = typeof row.table_name === 'string' ? row.table_name : null;
-        if (!tableName) {
-          continue;
-        }
-        const escapedTable = tableName.replace(/"/g, '""');
-        const pragmaRows = await all(
-          connection,
-          `PRAGMA table_info('${STAGING_SCHEMA}.${escapedTable}')`
+      if (warnings) {
+        warnings.push(
+          `Failed to persist staging schema for dataset ${dataset.slug}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
         );
-        for (const column of pragmaRows) {
-          const name = typeof column.name === 'string' ? column.name : null;
-          if (!name || name.startsWith('__') || fieldMap.has(name)) {
-            continue;
-          }
-          const type = typeof column.type === 'string' ? column.type : 'string';
-          const nullable = typeof column.notnull === 'number' ? column.notnull === 0 : undefined;
-          fieldMap.set(name, {
-            name,
-            type,
-            nullable,
-            description: null
-          });
-        }
       }
+      recordStagingSchemaRegistryUpdate({
+        datasetSlug: dataset.slug,
+        status: 'failed'
+      });
+      setStagingSchemaCache(dataset.slug, pendingFields);
+      return pendingFields;
     }
+  }
 
-    const fields = Array.from(fieldMap.values());
-    if (fields.length > 0) {
-      return fields;
+  if (registryEntry) {
+    setStagingSchemaCache(dataset.slug, registryEntry.fields, {
+      schemaVersion: registryEntry.schemaVersion,
+      updatedAt: registryEntry.updatedAt?.getTime()
+    });
+  }
+
+  if (warnings) {
+    warnings.push(`No staging schema available for dataset ${dataset.slug}.`);
+  }
+  return [];
+}
+
+async function loadRegistryEntry(
+  dataset: DatasetRecord,
+  warnings?: string[]
+): Promise<StagingSchemaRegistryRecord | null> {
+  try {
+    const entry = await getStagingSchemaRegistry(dataset.id);
+    if (!entry) {
+      recordStagingSchemaRegistryLoad({ datasetSlug: dataset.slug, result: 'miss' });
+      return null;
     }
-    return await collectFieldsFromPendingBatches(dataset, config);
+    recordStagingSchemaRegistryLoad({ datasetSlug: dataset.slug, result: 'hit' });
+    return entry;
   } catch (error) {
+    recordStagingSchemaRegistryLoad({ datasetSlug: dataset.slug, result: 'error' });
     if (warnings) {
       warnings.push(
-        `Failed to read staging schema for dataset ${dataset.slug}: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to load staging schema registry entry for dataset ${dataset.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
     }
-    return await collectFieldsFromPendingBatches(dataset, config);
-  } finally {
-    if (connection) {
-      await closeConnection(connection).catch(() => undefined);
-    }
-    if (isCloseable(db)) {
-      ignoreCloseError(() => db.close());
-    }
+    return null;
   }
 }
 
@@ -160,18 +127,23 @@ async function collectFieldsFromPendingBatches(
 
     for (const batch of batches) {
       for (const field of batch.schema) {
-        if (!field.name || fieldMap.has(field.name)) {
+        if (!field.name) {
           continue;
         }
-        fieldMap.set(field.name, {
-          name: field.name,
+        const name = field.name.trim();
+        if (!name || fieldMap.has(name)) {
+          continue;
+        }
+        fieldMap.set(name, {
+          name,
           type: field.type,
-          nullable: true
+          nullable: true,
+          description: null
         });
       }
     }
 
-    return Array.from(fieldMap.values());
+    return Array.from(fieldMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     return [];
   }
@@ -184,44 +156,4 @@ export function sanitizeDatasetSlug(datasetSlug: string): string {
   }
   const normalized = trimmed.replace(/[^a-zA-Z0-9_.-]/g, '_');
   return normalized.length > 0 ? normalized : 'dataset';
-}
-
-function isMissingDuckDbTableError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const message = error.message ?? '';
-  return /does not exist/i.test(message) || /no such table/i.test(message);
-}
-
-async function all(connection: any, sql: string, ...params: unknown[]): Promise<Array<Record<string, unknown>>> {
-  return new Promise((resolve, reject) => {
-    connection.all(sql, ...params, (err: Error | null, rows?: Array<Record<string, unknown>>) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(rows ?? []);
-      }
-    });
-  });
-}
-
-async function closeConnection(connection: any): Promise<void> {
-  return new Promise((resolve, reject) => {
-    connection.close((err: Error | null) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
-function ignoreCloseError(fn: () => void): void {
-  try {
-    fn();
-  } catch {
-    // ignore
-  }
 }
