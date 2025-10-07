@@ -9,7 +9,7 @@ const node_net_1 = __importDefault(require("node:net"));
 const promises_1 = require("node:fs/promises");
 const node_os_1 = require("node:os");
 const node_path_1 = __importDefault(require("node:path"));
-const embedded_postgres_1 = __importDefault(require("embedded-postgres"));
+const test_helpers_1 = require("@apphub/test-helpers");
 const app_1 = require("../../src/app");
 const client_1 = require("../../src/db/client");
 async function findAvailablePort() {
@@ -34,7 +34,7 @@ async function findAvailablePort() {
     process.env.NODE_ENV = 'test';
     const dataRoot = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), 'metastore-pg-'));
     const port = await findAvailablePort();
-    const postgres = new embedded_postgres_1.default({
+    const postgres = (0, test_helpers_1.createEmbeddedPostgres)({
         databaseDir: dataRoot,
         port,
         user: 'postgres',
@@ -54,7 +54,7 @@ async function findAvailablePort() {
             await app.close();
         }
         await (0, client_1.closePool)();
-        await postgres.stop();
+        await (0, test_helpers_1.stopEmbeddedPostgres)(postgres);
         await (0, promises_1.rm)(dataRoot, { recursive: true, force: true });
     });
     const build = await (0, app_1.buildApp)();

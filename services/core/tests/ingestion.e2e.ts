@@ -17,8 +17,8 @@ import { exec as execCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import net from 'node:net';
 import WebSocket from 'ws';
-import EmbeddedPostgres from 'embedded-postgres';
-import { runE2E } from '@apphub/test-helpers';
+import { createEmbeddedPostgres, stopEmbeddedPostgres, runE2E } from '@apphub/test-helpers';
+import type EmbeddedPostgres from 'embedded-postgres';
 
 const exec = promisify(execCallback);
 
@@ -59,7 +59,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
 
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'apphub-pg-'));
   const port = await findAvailablePort();
-  const postgres = new EmbeddedPostgres({
+  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -84,7 +84,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
 
   embeddedPostgresCleanup = async () => {
     try {
-      await postgres.stop();
+      await stopEmbeddedPostgres(postgres);
     } finally {
       await rm(dataRoot, { recursive: true, force: true });
     }

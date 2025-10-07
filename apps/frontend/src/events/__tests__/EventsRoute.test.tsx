@@ -12,6 +12,8 @@ import {
   type AppHubEventsClient
 } from '../context';
 import { useEventsExplorer } from '../useEventsExplorer';
+import { ModuleScopeContextProvider, type ModuleScopeContextValue } from '../../modules/ModuleScopeContext';
+import type { ReactNode } from 'react';
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
@@ -120,13 +122,40 @@ beforeEach(() => {
   useEventsExplorerMock.mockReturnValue(state);
 });
 
+const moduleScopeStub: ModuleScopeContextValue = {
+  kind: 'module',
+  moduleId: 'test-module',
+  moduleVersion: '1.0.0',
+  modules: [],
+  loadingModules: false,
+  modulesError: null,
+  resources: [],
+  loadingResources: false,
+  resourcesError: null,
+  setModuleId: vi.fn(),
+  buildModulePath: (path: string) => path,
+  stripModulePrefix: (pathname: string) => pathname,
+  getResourceContexts: () => [],
+  getResourceIds: () => [],
+  getResourceSlugs: () => [],
+  isResourceInScope: () => true
+};
+
+function withModuleScope(children: ReactNode) {
+  return (
+    <ModuleScopeContextProvider value={moduleScopeStub}>
+      {children}
+    </ModuleScopeContextProvider>
+  );
+}
+
 describe('events route smoke test', () => {
   it('navigates to /events and renders fixture data', async () => {
     const router = createMemoryRouter(
       [
         {
           path: '/',
-          element: (
+          element: withModuleScope(
             <AppHubEventsContext.Provider value={appHubClient}>
               <Outlet />
             </AppHubEventsContext.Provider>

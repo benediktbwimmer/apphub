@@ -28,6 +28,7 @@ import type {
   WorkflowRunStep
 } from '../types';
 import { useAppHubEvent, type AppHubSocketEvent } from '../../events/context';
+import { useModuleScope } from '../../modules/ModuleScopeContext';
 
 
 export type WorkflowRunsContextValue = {
@@ -52,6 +53,22 @@ export type WorkflowRunsContextValue = {
 
 const WorkflowRunsContext = createContext<WorkflowRunsContextValue | undefined>(undefined);
 
+function extractRunIdentifier(run: unknown, key: 'id' | 'workflowDefinitionId'): string | null {
+  if (!run || typeof run !== 'object') {
+    return null;
+  }
+  const record = run as Record<string, unknown>;
+  const value = record[key];
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  return null;
+}
+
 export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
   const {
     authorizedFetch,
@@ -64,6 +81,9 @@ export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
     getWorkflowById,
     serviceStatuses
   } = useWorkflowDefinitions();
+  const moduleScope = useModuleScope();
+  const { kind: moduleScopeKind, isResourceInScope } = moduleScope;
+  const isModuleScoped = moduleScopeKind === 'module';
 
   const [workflowDetail, setWorkflowDetail] = useState<WorkflowDefinition | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -86,7 +106,20 @@ export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
       setDetailLoading(true);
       setDetailError(null);
       try {
-        const { workflow: detail, runs: detailRuns } = await getWorkflowDetail(authorizedFetch, slug);
+        if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
+          setDetailError('Workflow not available in current module');
+          setWorkflowDetail(null);
+          workflowDetailRef.current = null;
+          setRuns([]);
+          runsRef.current = [];
+          setSelectedRunId(null);
+          selectedRunIdRef.current = null;
+          setRunSteps([]);
+          return;
+        }
+        const { workflow: detail, runs: detailRuns } = await getWorkflowDetail(authorizedFetch, slug, {
+          moduleId: isModuleScoped ? moduleScope.moduleId ?? undefined : undefined
+        });
         setWorkflowDetail(detail);
         workflowDetailRef.current = detail;
 
@@ -118,7 +151,7 @@ export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
         setDetailLoading(false);
       }
     },
-    [authorizedFetch, updateRuntimeSummary]
+    [authorizedFetch, isModuleScoped, isResourceInScope, moduleScope.moduleId, updateRuntimeSummary]
   );
 
   const loadRunSteps = useCallback(
@@ -126,6 +159,12 @@ export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
       setStepsLoading(true);
       setStepsError(null);
       try {
+        if (isModuleScoped && !isResourceInScope('workflow-run', runId)) {
+          setStepsError('Run not available in current module');
+          setRunSteps([]);
+          setStepsLoading(false);
+          return;
+        }
         const { run: normalizedRun, steps: normalizedSteps } = await listWorkflowRunSteps(
           authorizedFetch,
           runId
@@ -154,7 +193,7 @@ export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
         setStepsLoading(false);
       }
     },
-    [authorizedFetch, getWorkflowById, updateRuntimeSummary]
+    [authorizedFetch, getWorkflowById, isModuleScoped, isResourceInScope, updateRuntimeSummary]
   );
 
   const selectedRun = useMemo(
@@ -248,13 +287,16 @@ export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
       if (!definition) {
         return;
       }
+      if (isModuleScoped && !isResourceInScope('workflow-definition', definition.id) && !isResourceInScope('workflow-definition', definition.slug)) {
+        return;
+      }
       const currentDetail = workflowDetailRef.current;
       if (currentDetail && currentDetail.id === definition.id) {
         workflowDetailRef.current = definition;
         setWorkflowDetail(definition);
       }
     },
-    []
+    [isModuleScoped, isResourceInScope]
   );
 
   const applyWorkflowRunUpdate = useCallback(
@@ -307,11 +349,24 @@ export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
 
   const handleWorkflowRunEvent = useCallback(
     (event: Extract<AppHubSocketEvent, { type: typeof WORKFLOW_RUN_EVENT_TYPES[number] }>) => {
-      if (event.data?.run) {
-        applyWorkflowRunUpdate(event.data.run);
+      const run = event.data?.run;
+      if (!run) {
+        return;
       }
+      if (isModuleScoped) {
+        const runId = extractRunIdentifier(run, 'id');
+        const workflowDefinitionId = extractRunIdentifier(run, 'workflowDefinitionId');
+        const runInScope = runId ? isResourceInScope('workflow-run', runId) : false;
+        const workflowInScope = workflowDefinitionId
+          ? isResourceInScope('workflow-definition', workflowDefinitionId)
+          : false;
+        if (!runInScope && !workflowInScope) {
+          return;
+        }
+      }
+      applyWorkflowRunUpdate(run);
     },
-    [applyWorkflowRunUpdate]
+    [applyWorkflowRunUpdate, isModuleScoped, isResourceInScope]
   );
 
   useAppHubEvent('workflow.definition.updated', handleWorkflowDefinitionEvent);

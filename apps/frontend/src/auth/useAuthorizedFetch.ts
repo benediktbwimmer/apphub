@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuth } from './useAuth';
+import type { AuthorizedFetch } from '../lib/apiClient';
 
 type FetchArgs = Parameters<typeof fetch>;
 
@@ -21,7 +22,7 @@ function resolveInput(input: FetchInput): FetchInput {
   return input;
 }
 
-export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => Promise<Response> {
+export function useAuthorizedFetch(): AuthorizedFetch {
   const { activeToken } = useAuth();
 
   const fetcher = useCallback(
@@ -30,6 +31,14 @@ export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => P
       const tokenValue = activeToken?.trim();
       if (tokenValue && !headers.has('Authorization')) {
         headers.set('Authorization', `Bearer ${tokenValue}`);
+      }
+      const moduleId =
+        typeof globalThis !== 'undefined'
+          ? ((globalThis as unknown as Record<string, string | null>).__APPHUB_ACTIVE_MODULE_ID ?? null)
+          : null;
+      const normalizedModuleId = typeof moduleId === 'string' ? moduleId.trim() : '';
+      if (normalizedModuleId && !headers.has('X-AppHub-Module-Id')) {
+        headers.set('X-AppHub-Module-Id', normalizedModuleId);
       }
       if (!headers.has('Content-Type') && init?.body && !(init.body instanceof FormData)) {
         headers.set('Content-Type', 'application/json');
@@ -42,7 +51,7 @@ export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => P
       });
     },
     [activeToken]
-  ) as ((input: FetchInput, init?: FetchInit) => Promise<Response>) & { authToken?: string | null };
+  ) as AuthorizedFetch;
 
   fetcher.authToken = activeToken?.trim() ?? activeToken ?? null;
 
