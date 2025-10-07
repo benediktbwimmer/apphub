@@ -37,7 +37,7 @@ import { refreshManifestCache } from '../cache/manifestCache';
 import { deriveManifestShardKey } from '../service/manifestShard';
 import { computePartitionIndexForRows } from '../indexing/partitionIndex';
 import { executePartitionBuild } from './partitionBuilderClient';
-import { getStagingWriteManager, resetStagingWriteManager } from './stagingManager';
+import { getStagingWriteManager } from './stagingManager';
 import { resolveFlushThresholds, maybePrepareDatasetFlush } from './flushPlanner';
 import {
   DuckDbSpoolManager,
@@ -402,7 +402,6 @@ export async function processIngestionJob(
   payload: IngestionJobPayload
 ): Promise<IngestionProcessingResult> {
   const config = loadServiceConfig();
-  await resetStagingWriteManager();
   const stagingManager = getStagingWriteManager(config);
   const datasetSlug = payload.datasetSlug.trim();
   const span = startSpan('timestore.ingest.process', {
