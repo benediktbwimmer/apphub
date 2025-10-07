@@ -158,6 +158,22 @@ const TABLE_BODY_ROW_BASE_CLASSES = 'cursor-pointer transition-colors';
 
 const TABLE_BODY_ROW_SELECTED_CLASSES = 'bg-accent-soft shadow-elevation-sm';
 
+function extractRunIdentifier(run: unknown, key: string): string | null {
+  if (!run || typeof run !== 'object') {
+    return null;
+  }
+  const record = run as Record<string, unknown>;
+  const value = record[key];
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  return null;
+}
+
 const TABLE_BODY_ROW_DEFAULT_CLASSES = 'bg-surface-glass hover:bg-accent-soft/60';
 
 const TABLE_META_TEXT_CLASSES = 'text-scale-xs text-secondary';
@@ -1287,12 +1303,13 @@ function RunsPageContent() {
         scheduleWorkflowReload();
         return;
       }
-      const runId = event.data?.run?.id ?? null;
+      const run = event.data?.run;
+      const runId = extractRunIdentifier(run, 'id');
       if (runId && isResourceInScope('workflow-run', runId)) {
         scheduleWorkflowReload();
         return;
       }
-      const workflowId = event.data?.run?.workflowDefinitionId ?? null;
+      const workflowId = extractRunIdentifier(run, 'workflowDefinitionId');
       if (workflowId && isResourceInScope('workflow-definition', workflowId)) {
         scheduleWorkflowReload();
       }
@@ -1306,12 +1323,13 @@ function RunsPageContent() {
         scheduleJobReload();
         return;
       }
-      const runId = event.data?.run?.id ?? null;
+      const run = event.data?.run;
+      const runId = extractRunIdentifier(run, 'id');
       if (runId && isResourceInScope('job-run', runId)) {
         scheduleJobReload();
         return;
       }
-      const jobDefinitionId = event.data?.run?.jobDefinitionId ?? null;
+      const jobDefinitionId = extractRunIdentifier(run, 'jobDefinitionId');
       if (jobDefinitionId && isResourceInScope('job-definition', jobDefinitionId)) {
         scheduleJobReload();
       }

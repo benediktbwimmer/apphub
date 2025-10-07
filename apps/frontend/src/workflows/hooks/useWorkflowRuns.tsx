@@ -53,6 +53,22 @@ export type WorkflowRunsContextValue = {
 
 const WorkflowRunsContext = createContext<WorkflowRunsContextValue | undefined>(undefined);
 
+function extractRunIdentifier(run: unknown, key: 'id' | 'workflowDefinitionId'): string | null {
+  if (!run || typeof run !== 'object') {
+    return null;
+  }
+  const record = run as Record<string, unknown>;
+  const value = record[key];
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  return null;
+}
+
 export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
   const {
     authorizedFetch,
@@ -338,7 +354,13 @@ export function WorkflowRunsProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (isModuleScoped) {
-        if (!isResourceInScope('workflow-run', run.id) && !isResourceInScope('workflow-definition', run.workflowDefinitionId)) {
+        const runId = extractRunIdentifier(run, 'id');
+        const workflowDefinitionId = extractRunIdentifier(run, 'workflowDefinitionId');
+        const runInScope = runId ? isResourceInScope('workflow-run', runId) : false;
+        const workflowInScope = workflowDefinitionId
+          ? isResourceInScope('workflow-definition', workflowDefinitionId)
+          : false;
+        if (!runInScope && !workflowInScope) {
           return;
         }
       }

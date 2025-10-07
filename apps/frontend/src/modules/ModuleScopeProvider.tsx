@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { useAppHubEvent } from '../events/context';
+import { useAppHubEvent, type AppHubSocketEvent } from '../events/context';
 import { ModuleScopeContextProvider, type ModuleScopeContextValue } from './ModuleScopeContext';
-import type { ModuleResourceContext, ModuleSummary } from './types';
+import type { ModuleResourceContext, ModuleResourceType, ModuleSummary } from './types';
 import { fetchModuleResources, fetchModules } from './api';
 
 type ModuleScopeProviderProps = {
@@ -140,6 +140,8 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
     return versions[0];
   }, [moduleId, resources]);
 
+  type ModuleContextEvent = Extract<AppHubSocketEvent, { type: 'module.context.updated' | 'module.context.deleted' }>;
+
   const resourceIndex = useMemo(() => {
     const contextsByType = new Map<ModuleResourceType, ModuleResourceContext[]>();
     const idsByType = new Map<ModuleResourceType, Set<string>>();
@@ -268,7 +270,7 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
   );
 
   const handleModuleContextEvent = useCallback(
-    (event: { type: string; data: { context: ModuleResourceContext } }) => {
+    (event: ModuleContextEvent) => {
       if (!moduleId) {
         return;
       }

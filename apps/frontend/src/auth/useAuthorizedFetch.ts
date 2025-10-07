@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuth } from './useAuth';
+import type { AuthorizedFetch } from '../lib/apiClient';
 
 type FetchArgs = Parameters<typeof fetch>;
 
@@ -21,7 +22,7 @@ function resolveInput(input: FetchInput): FetchInput {
   return input;
 }
 
-export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => Promise<Response> {
+export function useAuthorizedFetch(): AuthorizedFetch {
   const { activeToken } = useAuth();
 
   const fetcher = useCallback(
@@ -50,7 +51,7 @@ export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => P
       });
     },
     [activeToken]
-  ) as ((input: FetchInput, init?: FetchInit) => Promise<Response>) & { authToken?: string | null };
+  ) as AuthorizedFetch;
 
   fetcher.authToken = activeToken?.trim() ?? activeToken ?? null;
 

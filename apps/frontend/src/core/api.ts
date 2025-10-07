@@ -56,7 +56,7 @@ function createClient(token: Token): CoreClientInstance {
     headers: () => {
       const moduleId = getActiveModuleId();
       if (!moduleId) {
-        return {};
+        return undefined;
       }
       return { 'X-AppHub-Module-Id': moduleId };
     }

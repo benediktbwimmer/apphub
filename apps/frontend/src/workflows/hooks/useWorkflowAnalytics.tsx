@@ -81,10 +81,14 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
       }
       const existing = workflowAnalyticsRef.current[slug];
       const targetRange = range ?? existing?.rangeKey ?? ANALYTICS_DEFAULT_RANGE;
-      const moduleId = isModuleScoped ? moduleScope.moduleId ?? undefined : undefined;
-      const query = targetRange === 'custom'
-        ? { moduleId } as WorkflowAnalyticsQuery
-        : { range: targetRange, moduleId } as WorkflowAnalyticsQuery;
+      const moduleId = isModuleScoped ? moduleScope.moduleId : null;
+      const query: WorkflowAnalyticsQuery = {};
+      if (targetRange !== 'custom') {
+        query.range = targetRange;
+      }
+      if (moduleId) {
+        query.moduleId = moduleId;
+      }
       try {
         const [stats, metrics] = await Promise.all([
           getWorkflowStats(authorizedFetch, slug, query),
@@ -192,11 +196,17 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
 
   const handleAnalyticsEvent = useCallback(
     (event: Extract<AppHubSocketEvent, { type: typeof WORKFLOW_ANALYTICS_EVENT }>) => {
-      if (event.data?.slug) {
-        const slug = String(event.data.slug);
-        if (!isModuleScoped || isResourceInScope('workflow-definition', slug)) {
-          handleAnalyticsSnapshot(event.data);
-        }
+      const payload = event.data;
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+      const record = payload as { slug?: unknown };
+      const slug = typeof record.slug === 'string' ? record.slug : null;
+      if (!slug) {
+        return;
+      }
+      if (!isModuleScoped || isResourceInScope('workflow-definition', slug)) {
+        handleAnalyticsSnapshot(payload);
       }
     },
     [handleAnalyticsSnapshot, isModuleScoped, isResourceInScope]

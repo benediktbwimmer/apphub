@@ -1,8 +1,7 @@
 import type { ModuleResourceContext, ModuleResourcesResponse, ModuleSummary } from './types';
+import type { AuthorizedFetch as CoreAuthorizedFetch } from '../lib/apiClient';
 
-export type AuthorizedFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> & {
-  authToken?: string | null;
-};
+export type AuthorizedFetch = CoreAuthorizedFetch;
 
 type FetchOptions = {
   signal?: AbortSignal;

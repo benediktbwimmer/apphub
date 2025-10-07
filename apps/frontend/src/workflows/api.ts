@@ -591,8 +591,17 @@ export async function fetchWorkflowTopologyGraph(
   };
 }
 
-export async function listWorkflowDefinitions(token: TokenInput): Promise<WorkflowDefinition[]> {
-  const payload = await requestJson(token,  '/workflows', {
+export async function listWorkflowDefinitions(
+  token: TokenInput,
+  params: { moduleId?: string | null } = {}
+): Promise<WorkflowDefinition[]> {
+  const searchParams = new URLSearchParams();
+  if (params.moduleId) {
+    searchParams.set('moduleId', params.moduleId);
+  }
+  const query = searchParams.toString();
+  const path = `/workflows${query ? `?${query}` : ''}`;
+  const payload = await requestJson(token, path, {
     schema: optionalDataArraySchema,
     errorMessage: 'Failed to load workflows'
   });
@@ -723,7 +732,7 @@ export async function searchWorkflowRuns(
   return results;
 }
 
-type WorkflowAnalyticsQuery = {
+export type WorkflowAnalyticsQuery = {
   range?: '24h' | '7d' | '30d';
   bucket?: '15m' | 'hour' | 'day';
   from?: string;
