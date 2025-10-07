@@ -40,6 +40,7 @@ import type {
   WorkflowTriggerDelivery
 } from '../types';
 import { ApiError } from '../api';
+import { useModuleScope } from '../../modules/ModuleScopeContext';
 
 
 type TriggerDeliveryState = {
@@ -112,6 +113,9 @@ const WorkflowEventTriggersContext = createContext<WorkflowEventTriggersContextV
 export function WorkflowEventTriggersProvider({ children }: { children: ReactNode }) {
   const { authorizedFetch, pushToast } = useWorkflowAccess();
   const { selectedSlug } = useWorkflowDefinitions();
+  const moduleScope = useModuleScope();
+  const { kind: moduleScopeKind, isResourceInScope } = moduleScope;
+  const isModuleScoped = moduleScopeKind === 'module';
 
   const [eventTriggerState, setEventTriggerState] = useState<Record<string, EventTriggerListState>>({});
   const eventTriggerStateRef = useRef<Record<string, EventTriggerListState>>({});
@@ -168,6 +172,9 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
   const loadEventTriggers = useCallback(
     async (slug: string, options: { filters?: WorkflowEventTriggerFilters; force?: boolean } = {}) => {
       if (!slug) {
+        return;
+      }
+      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
         return;
       }
       const currentState = eventTriggerStateRef.current;
@@ -230,7 +237,7 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
         }
       }
     },
-    [authorizedFetch, pushToast, selectedSlug]
+    [authorizedFetch, isModuleScoped, isResourceInScope, pushToast, selectedSlug]
   );
 
   const handleEventTriggerCreated = useCallback(
@@ -309,6 +316,9 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
       if (!slug) {
         throw new Error('Workflow slug is required');
       }
+      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
+        throw new Error('Workflow is not in the active module scope');
+      }
       setEventTriggerState((current) => ({
         ...current,
         [slug]: {
@@ -350,13 +360,16 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
         throw error;
       }
     },
-    [authorizedFetch, handleEventTriggerCreated, pushToast]
+    [authorizedFetch, handleEventTriggerCreated, isModuleScoped, isResourceInScope, pushToast]
   );
 
   const updateEventTrigger = useCallback(
     async (slug: string, triggerId: string, input: WorkflowEventTriggerUpdateInput) => {
       if (!slug) {
         throw new Error('Workflow slug is required');
+      }
+      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
+        throw new Error('Workflow is not in the active module scope');
       }
       setEventTriggerState((current) => ({
         ...current,
@@ -399,7 +412,7 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
         throw error;
       }
     },
-    [authorizedFetch, handleEventTriggerUpdated, pushToast]
+    [authorizedFetch, handleEventTriggerUpdated, isModuleScoped, isResourceInScope, pushToast]
   );
 
   const deleteEventTrigger = useCallback(
@@ -409,6 +422,9 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
       }
       if (!triggerId) {
         throw new Error('Trigger id is required');
+      }
+      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
+        throw new Error('Workflow is not in the active module scope');
       }
       setEventTriggerState((current) => ({
         ...current,
@@ -448,12 +464,15 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
         throw error;
       }
     },
-    [authorizedFetch, handleEventTriggerDeleted, pushToast]
+    [authorizedFetch, handleEventTriggerDeleted, isModuleScoped, isResourceInScope, pushToast]
   );
 
   const loadTriggerDeliveries = useCallback(
     async (slug: string, triggerId: string, query: WorkflowTriggerDeliveriesQuery = {}) => {
       if (!slug || !triggerId) {
+        return;
+      }
+      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
         return;
       }
       setTriggerDeliveryState((current) => {
@@ -508,7 +527,7 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
         });
       }
     },
-    [authorizedFetch, pushToast]
+    [authorizedFetch, isModuleScoped, isResourceInScope, pushToast]
   );
 
   const loadEventSamples = useCallback(
@@ -740,12 +759,20 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
       setSelectedTriggerId(null);
       return;
     }
+    if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
+      setSelectedTriggerId(null);
+      return;
+    }
     void loadEventTriggers(selectedSlug, { force: true });
     void loadEventSchedulerHealth();
-  }, [selectedSlug, loadEventSchedulerHealth, loadEventTriggers]);
+  }, [isModuleScoped, isResourceInScope, loadEventSchedulerHealth, loadEventTriggers, selectedSlug]);
 
   useEffect(() => {
     if (!selectedSlug) {
+      return;
+    }
+    if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
+      setSelectedTriggerId(null);
       return;
     }
     const entry = eventTriggerState[selectedSlug];
@@ -759,14 +786,17 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
       }
       return entry.items[0].id;
     });
-  }, [eventTriggerState, selectedSlug]);
+  }, [eventTriggerState, isModuleScoped, isResourceInScope, selectedSlug]);
 
   useEffect(() => {
     if (!selectedSlug || !selectedEventTrigger) {
       return;
     }
+    if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
+      return;
+    }
     void loadTriggerDeliveries(selectedSlug, selectedEventTrigger.id);
-  }, [selectedSlug, selectedEventTrigger, loadTriggerDeliveries]);
+  }, [isModuleScoped, isResourceInScope, loadTriggerDeliveries, selectedEventTrigger, selectedSlug]);
 
   const value = useMemo<WorkflowEventTriggersContextValue>(
     () => ({

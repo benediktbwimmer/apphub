@@ -1,13 +1,42 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import Navbar from '../Navbar';
 import { PRIMARY_NAV_ITEMS } from '../../routes/paths';
+import { ModuleScopeContextProvider, type ModuleScopeContextValue } from '../../modules/ModuleScopeContext';
+import type { ReactNode } from 'react';
+
+const moduleScopeStub: ModuleScopeContextValue = {
+  kind: 'module',
+  moduleId: 'test-module',
+  moduleVersion: '1.0.0',
+  modules: [],
+  loadingModules: false,
+  modulesError: null,
+  resources: [],
+  loadingResources: false,
+  resourcesError: null,
+  setModuleId: vi.fn(),
+  buildModulePath: (path: string) => path,
+  stripModulePrefix: (pathname: string) => pathname,
+  getResourceContexts: () => [],
+  getResourceIds: () => [],
+  getResourceSlugs: () => [],
+  isResourceInScope: () => true
+};
+
+function renderWithModuleScope(ui: ReactNode) {
+  return render(
+    <ModuleScopeContextProvider value={moduleScopeStub}>
+      {ui}
+    </ModuleScopeContextProvider>
+  );
+}
 
 describe('Navbar', () => {
   it('renders the sidebar navigation with icon links and highlights the active route', () => {
-    render(
-      <MemoryRouter initialEntries={["/services"]}>
+    renderWithModuleScope(
+      <MemoryRouter initialEntries={['/services']}>
         <Navbar />
       </MemoryRouter>
     );
@@ -24,8 +53,8 @@ describe('Navbar', () => {
   });
 
   it('retains the overlay variant for fullscreen previews', () => {
-    render(
-      <MemoryRouter initialEntries={["/overview"]}>
+    renderWithModuleScope(
+      <MemoryRouter initialEntries={['/overview']}>
         <Navbar variant="overlay" />
       </MemoryRouter>
     );

@@ -116,9 +116,17 @@ async function coreJson<T>(token: TokenInput, options: CoreJsonOptions): Promise
   }
 }
 
-export async function fetchSchedules(token: TokenInput): Promise<WorkflowScheduleSummary[]> {
+export async function fetchSchedules(
+  token: TokenInput,
+  options: { moduleId?: string | null } = {}
+): Promise<WorkflowScheduleSummary[]> {
+  const params = new URLSearchParams();
+  if (options.moduleId) {
+    params.set('moduleId', options.moduleId);
+  }
+  const query = params.toString();
   const payload = await coreJson<{ data?: unknown }>(token, {
-    url: '/workflow-schedules',
+    url: `/workflow-schedules${query ? `?${query}` : ''}`,
     errorMessage: 'Failed to load workflow schedules'
   });
   if (!payload || !Array.isArray(payload.data)) {

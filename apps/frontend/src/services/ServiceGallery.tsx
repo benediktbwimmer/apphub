@@ -9,6 +9,7 @@ import { usePreviewLayout } from '../settings/previewLayoutContext';
 import { Spinner } from '../components';
 import type { ModuleServiceRuntimeConfig, ServiceSummary } from './types';
 import { usePollingResource } from '../hooks/usePollingResource';
+import { useModuleScope } from '../modules/ModuleScopeContext';
 import {
   SERVICE_ALERT_CLASSES,
   SERVICE_EMPTY_STATE_CLASSES,
@@ -256,20 +257,24 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
 export default function ServiceGallery() {
   const { activeToken: authToken } = useAuth();
   const { width } = usePreviewLayout();
+  const moduleScope = useModuleScope();
   const fetchServices = useCallback(
-    async ({
-      signal
-    }: {
-      authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-      signal: AbortSignal;
-    }) => {
+    async ({ signal }: { authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>; signal: AbortSignal }) => {
       if (!authToken) {
         return [];
+      }
+      if (moduleScope.kind === 'module') {
+        if (!moduleScope.moduleId) {
+          return [];
+        }
+        if (moduleScope.loadingResources) {
+          return [];
+        }
       }
       const services = await listServices(authToken, { signal });
       return services;
     },
-    [authToken]
+    [authToken, moduleScope.kind, moduleScope.loadingResources, moduleScope.moduleId]
   );
 
   const {
@@ -286,34 +291,143 @@ export default function ServiceGallery() {
     ? formatFetchError(error, 'Failed to load services', API_BASE_URL)
     : null;
 
-  const previewableServices = useMemo(() => {
-    const entries = services
-      .filter((service) => !isServiceHiddenFromOverview(service))
-      .map((service) => {
+  const moduleServiceIdSet = useMemo(() => {
+    if (moduleScope.kind !== 'module' || !moduleScope.resources) {
+      return null;
+    }
+    const contexts = moduleScope.resources.filter((context) => context.resourceType === 'service');
+    return new Set(contexts.map((context) => context.resourceId));
+  }, [moduleScope.kind, moduleScope.resources]);
+
+  const scopedServices = useMemo(() => {
+    if (moduleScope.kind !== 'module') {
+      return services;
+    }
+    const currentModuleId = moduleScope.moduleId;
+    if (!currentModuleId) {
+      return [];
+    }
+    return services.filter((service) => {
+      const moduleConfig = toModuleServiceConfig(service.metadata?.config);
+      const manifestModuleId = moduleConfig?.module?.id?.trim();
+      if (manifestModuleId && manifestModuleId === currentModuleId) {
+        return true;
+      }
+      if (moduleServiceIdSet && moduleServiceIdSet.has(service.id)) {
+        return true;
+      }
+      return false;
+    });
+  }, [moduleScope.kind, moduleScope.moduleId, moduleServiceIdSet, services]);
+
+  const servicesByModule = useMemo(() => {
+    const grouped = new Map<string, ServiceSummary[]>();
+    const unassigned: ServiceSummary[] = [];
+    const sourceServices = moduleScope.kind === 'module' ? scopedServices : services;
+
+    for (const service of sourceServices) {
+      const moduleConfig = toModuleServiceConfig(service.metadata?.config);
+      const moduleId = moduleConfig?.module?.id?.trim();
+      if (moduleId) {
+        const collection = grouped.get(moduleId) ?? [];
+        collection.push(service);
+        grouped.set(moduleId, collection);
+      } else if (moduleScope.kind !== 'module') {
+        unassigned.push(service);
+      }
+    }
+
+    return { grouped, unassigned } as const;
+  }, [moduleScope.kind, scopedServices, services]);
+
+  const buildPreviewEntries = useCallback(
+    (serviceList: ServiceSummary[]) => {
+      const seen = new Set<string>();
+      const entries: Array<{ service: ServiceSummary; embedUrl: string }> = [];
+
+      for (const service of serviceList) {
+        if (seen.has(service.id)) {
+          continue;
+        }
+        seen.add(service.id);
+        if (isServiceHiddenFromOverview(service)) {
+          continue;
+        }
         const embedUrl = normalizePreviewUrl(extractRuntimeUrl(service));
         if (!embedUrl) {
-          return null;
+          continue;
         }
-        return { service, embedUrl };
-      })
-      .filter(
-        (entry): entry is { service: ServiceSummary; embedUrl: string } => entry !== null
-      );
-
-    entries.sort((a, b) => {
-      // Prioritize healthy services so working previews appear first.
-      const priorityA = STATUS_PRIORITY[a.service.status] ?? UNKNOWN_STATUS_PRIORITY;
-      const priorityB = STATUS_PRIORITY[b.service.status] ?? UNKNOWN_STATUS_PRIORITY;
-      if (priorityA !== priorityB) {
-        return priorityA - priorityB;
+        entries.push({ service, embedUrl });
       }
-      const nameA = a.service.displayName ?? a.service.slug;
-      const nameB = b.service.displayName ?? b.service.slug;
-      return nameA.localeCompare(nameB);
+
+      entries.sort((a, b) => {
+        const priorityA = STATUS_PRIORITY[a.service.status] ?? UNKNOWN_STATUS_PRIORITY;
+        const priorityB = STATUS_PRIORITY[b.service.status] ?? UNKNOWN_STATUS_PRIORITY;
+        if (priorityA !== priorityB) {
+          return priorityA - priorityB;
+        }
+        const nameA = a.service.displayName ?? a.service.slug;
+        const nameB = b.service.displayName ?? b.service.slug;
+        return nameA.localeCompare(nameB);
+      });
+
+      return entries;
+    },
+    []
+  );
+
+  const moduleSections = useMemo(() => {
+    if (moduleScope.kind === 'module') {
+      const entries = buildPreviewEntries(scopedServices);
+      return entries.length > 0
+        ? [
+            {
+              moduleId: moduleScope.moduleId ?? 'module',
+              moduleVersion: moduleScope.moduleVersion,
+              entries
+            }
+          ]
+        : [];
+    }
+
+    const sections: Array<{
+      moduleId: string;
+      moduleVersion: string | null;
+      entries: ReturnType<typeof buildPreviewEntries>;
+    }> = [];
+
+    for (const [moduleId, serviceList] of servicesByModule.grouped.entries()) {
+      const moduleInfo = moduleScope.modules.find((module) => module.id === moduleId) ?? null;
+      sections.push({
+        moduleId,
+        moduleVersion: moduleInfo?.latestVersion ?? null,
+        entries: buildPreviewEntries(serviceList)
+      });
+    }
+
+    sections.sort((a, b) => {
+      const displayA = moduleScope.modules.find((module) => module.id === a.moduleId)?.displayName ?? a.moduleId;
+      const displayB = moduleScope.modules.find((module) => module.id === b.moduleId)?.displayName ?? b.moduleId;
+      return displayA.localeCompare(displayB);
     });
 
-    return entries;
-  }, [services]);
+    return sections;
+  }, [
+    buildPreviewEntries,
+    moduleScope.kind,
+    moduleScope.moduleId,
+    moduleScope.moduleVersion,
+    moduleScope.modules,
+    scopedServices,
+    servicesByModule.grouped
+  ]);
+
+  const unassignedEntries = useMemo(() => {
+    if (moduleScope.kind === 'module') {
+      return [];
+    }
+    return buildPreviewEntries(servicesByModule.unassigned);
+  }, [buildPreviewEntries, moduleScope.kind, servicesByModule.unassigned]);
 
   const gridTemplateColumns = useMemo(() => {
     const clampedWidth = Math.round(width);
@@ -346,17 +460,78 @@ export default function ServiceGallery() {
           <div className={SERVICE_LOADING_CARD_CLASSES}>
             <Spinner label="Loading services" size="sm" />
           </div>
-        ) : previewableServices.length === 0 ? (
+        ) : moduleScope.kind === 'module' && moduleScope.loadingResources ? (
+          <div className={SERVICE_LOADING_CARD_CLASSES}>
+            <Spinner label="Loading module services" size="sm" />
+          </div>
+        ) : moduleScope.kind === 'module' && moduleSections.length === 0 ? (
+          <div className={SERVICE_EMPTY_STATE_CLASSES}>No services registered for this module.</div>
+        ) : moduleScope.kind === 'module' ? (
+          moduleSections.map((section) => (
+            <ModuleServiceSection
+              key={section.moduleId}
+              title={moduleScope.modules.find((module) => module.id === section.moduleId)?.displayName ?? section.moduleId}
+              subtitle={section.moduleVersion ? `Version ${section.moduleVersion}` : undefined}
+              entries={section.entries}
+              gridTemplateColumns={gridTemplateColumns}
+            />
+          ))
+        ) : moduleSections.length === 0 && unassignedEntries.length === 0 ? (
           <div className={SERVICE_EMPTY_STATE_CLASSES}>
             No services with previews available yet.
           </div>
         ) : (
-          <div className={SERVICE_GRID_GAP_CLASSES} style={{ gridTemplateColumns }}>
-            {previewableServices.map(({ service, embedUrl }) => (
-              <ServicePreviewCard key={service.id} service={service} embedUrl={embedUrl} />
+          <div className="flex flex-col gap-10">
+            {moduleSections.map((section) => (
+              <ModuleServiceSection
+                key={section.moduleId}
+                title={moduleScope.modules.find((module) => module.id === section.moduleId)?.displayName ?? section.moduleId}
+                subtitle={section.moduleVersion ? `Version ${section.moduleVersion}` : undefined}
+                entries={section.entries}
+                gridTemplateColumns={gridTemplateColumns}
+              />
             ))}
+            {unassignedEntries.length > 0 && (
+              <ModuleServiceSection
+                key="unassigned"
+                title="Unscoped services"
+                subtitle="Services not associated with a module"
+                entries={unassignedEntries}
+                gridTemplateColumns={gridTemplateColumns}
+              />
+            )}
           </div>
         )}
+      </div>
+    </section>
+  );
+}
+
+function ModuleServiceSection({
+  title,
+  subtitle,
+  entries,
+  gridTemplateColumns
+}: {
+  title: string;
+  subtitle?: string;
+  entries: Array<{ service: ServiceSummary; embedUrl: string }>;
+  gridTemplateColumns: string;
+}) {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-scale-sm font-weight-semibold text-primary">{title}</h2>
+        {subtitle && <p className="text-scale-xs text-muted">{subtitle}</p>}
+      </div>
+      <div className={SERVICE_GRID_GAP_CLASSES} style={{ gridTemplateColumns }}>
+        {entries.map(({ service, embedUrl }) => (
+          <ServicePreviewCard key={service.id} service={service} embedUrl={embedUrl} />
+        ))}
       </div>
     </section>
   );

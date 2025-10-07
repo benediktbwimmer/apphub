@@ -66,6 +66,7 @@ import {
 import type { RuntimeScalingSnapshot } from '../runtimeScaling/policies';
 import { getRuntimeScalingTarget, type RuntimeScalingTargetKey } from '../runtimeScaling/targets';
 import { publishRuntimeScalingUpdate } from '../runtimeScaling/notifications';
+import { resolveModuleScope, handleModuleScopeError } from './shared/moduleScope';
 
 const DEFAULT_SAMPLING_STALE_MINUTES = normalizePositiveNumber(
   process.env.EVENT_SAMPLING_STALE_MINUTES,
@@ -1082,6 +1083,15 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, query.moduleId, ['event']);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleEventIds = moduleScope?.hasFilters ? moduleScope.getIds('event') : undefined;
+
     const parseTimestamp = (value: unknown, field: string): string | undefined => {
       if (value === undefined || value === null) {
         return undefined;
@@ -1130,7 +1140,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         to,
         limit,
         jsonPath: jsonPath && jsonPath.length > 0 ? jsonPath : undefined,
-        cursor: cursor ?? undefined
+        cursor: cursor ?? undefined,
+        eventIds: moduleEventIds ?? undefined
       });
 
       const schema = buildWorkflowEventSchema(result.events);

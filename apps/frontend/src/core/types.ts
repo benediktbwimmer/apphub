@@ -1,6 +1,7 @@
 import type { KeyboardEventHandler } from 'react';
 import type { WorkflowEventRecordView } from '@apphub/shared/coreEvents';
 import type { SavedSearch, SavedSearchCreateInput } from '../savedSearches/types';
+import type { ModuleResourceContext } from '../modules/types';
 
 export type TagKV = {
   key: string;
@@ -269,7 +270,9 @@ export type CoreSocketEvent =
   | { type: 'job.run.failed'; data: { run: unknown } }
   | { type: 'job.run.canceled'; data: { run: unknown } }
   | { type: 'job.run.expired'; data: { run: unknown } }
-  | { type: 'workflow.analytics.snapshot'; data: unknown };
+  | { type: 'workflow.analytics.snapshot'; data: unknown }
+  | { type: 'module.context.updated'; data: { context: ModuleResourceContext } }
+  | { type: 'module.context.deleted'; data: { context: ModuleResourceContext } };
 
 export type SearchParseResult = {
   tags: string[];
