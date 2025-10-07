@@ -57,13 +57,15 @@ Prometheus exports `apphub_stream_mirror_publish_total{result}` and `apphub_stre
 
 ### Compose Stack
 
-`docker/demo-stack.compose.yml` and `docker/e2e-stack.compose.yml` define a `redpanda` service plus a one-shot `redpanda-init` container that bootstraps topics. Override the following in `.env` to expose different ports or toggle streaming:
+`docker/demo-stack.compose.yml` and `docker/e2e-stack.compose.yml` define a `redpanda` service plus a one-shot `redpanda-init` container that bootstraps topics. The demo stack also exposes Redpanda Console at `http://localhost:${APPHUB_REDPANDA_CONSOLE_PORT:-28000}` for inspecting topics and messages. Override the following in `.env` to expose different ports or toggle streaming:
 
 ```env
 APPHUB_STREAMING_ENABLED=true
 APPHUB_STREAM_BROKER_URL=redpanda:9092
 APPHUB_REDPANDA_PORT=19092
 APPHUB_REDPANDA_ADMIN_PORT=19644
+APPHUB_REDPANDA_CONSOLE_URL=http://localhost:28000
+APPHUB_MINIO_CONSOLE_URL=http://localhost:9401
 ```
 
 ## Minikube & Kubernetes

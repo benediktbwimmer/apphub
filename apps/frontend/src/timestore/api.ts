@@ -13,6 +13,7 @@ import type {
   ManifestResponsePayload,
   PatchDatasetRequest,
   QueryResponse,
+  StreamingStatus,
   RetentionPolicy,
   RetentionResponse,
   SavedSqlQuery,
@@ -41,6 +42,7 @@ import {
   savedSqlQueryResponseSchema,
   sqlQueryResultSchema,
   sqlSchemaResponseSchema,
+  streamingStatusSchema,
   timestoreAiSqlSuggestionSchema
 } from './types';
 
@@ -108,6 +110,16 @@ export type TimestoreAiSqlRequest = {
 async function parseJson<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
   const payload = await response.json();
   return schema.parse(payload);
+}
+
+export async function fetchStreamingStatus(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>
+): Promise<StreamingStatus> {
+  const response = await authorizedFetch(createTimestoreUrl('/streaming/status').toString());
+  if (!response.ok) {
+    throw new Error('Failed to load streaming status');
+  }
+  return parseJson(response, streamingStatusSchema);
 }
 
 async function parseDatasetApiError(response: Response, fallback: string): Promise<never> {

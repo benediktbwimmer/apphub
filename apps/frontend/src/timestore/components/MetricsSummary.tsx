@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { LifecycleMetricsSnapshot } from '../types';
+import type { LifecycleMetricsSnapshot, StreamingStatus } from '../types';
 import { findMetricValue, formatInstant, parsePrometheusMetrics, sumMetricValues } from '../utils';
 import {
   CARD_SURFACE_SOFT,
@@ -9,6 +9,15 @@ import {
   STATUS_MESSAGE,
   STATUS_META
 } from '../timestoreTokens';
+import { Sparkline } from '../../observability/components/Sparkline';
+
+interface StreamingSummaryCard {
+  state: StreamingStatus['state'];
+  bufferedRows: number;
+  openWindows: number;
+  datasets: number;
+  sparklineRows: number[];
+}
 
 interface MetricsSummaryProps {
   lifecycleMetrics: LifecycleMetricsSnapshot | null;
@@ -16,6 +25,7 @@ interface MetricsSummaryProps {
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
+  streamingSummary?: StreamingSummaryCard | null;
 }
 
 function formatRate(success: number, failure: number): string {
@@ -41,7 +51,14 @@ function formatDuration(value: number | null): string {
 
 const PANEL_SHADOW = 'shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)]';
 
-export function MetricsSummary({ lifecycleMetrics, metricsText, loading, error, onRefresh }: MetricsSummaryProps) {
+export function MetricsSummary({
+  lifecycleMetrics,
+  metricsText,
+  loading,
+  error,
+  onRefresh,
+  streamingSummary
+}: MetricsSummaryProps) {
   const derived = useMemo(() => {
     if (!metricsText) {
       return null;
@@ -87,7 +104,12 @@ export function MetricsSummary({ lifecycleMetrics, metricsText, loading, error, 
       ) : error ? (
         <div className={`mt-4 ${STATUS_BANNER_DANGER}`}>{error}</div>
       ) : (
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div
+          className={`mt-4 grid gap-4 ${streamingSummary ? 'lg:grid-cols-3 md:grid-cols-2' : 'md:grid-cols-2'}`}
+        >
+          {streamingSummary ? (
+            <StreamingMetricCard summary={streamingSummary} />
+          ) : null}
           <MetricCard
             title="Ingestion"
             primary={derived ? formatRate(derived.ingestSuccess, derived.ingestFailure) : 'n/a'}
@@ -132,6 +154,36 @@ function MetricCard({ title, primary, secondary, tertiary }: MetricCardProps) {
       <p className="mt-2 text-scale-lg font-weight-semibold text-primary">{primary}</p>
       <p className={STATUS_META}>{secondary}</p>
       <p className={STATUS_META}>{tertiary}</p>
+    </div>
+  );
+}
+
+function StreamingMetricCard({ summary }: { summary: StreamingSummaryCard }) {
+  const stateLabel = summary.state === 'ready' ? 'Ready' : summary.state === 'disabled' ? 'Disabled' : 'Attention';
+  return (
+    <div className={`${CARD_SURFACE_SOFT} text-scale-sm`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h5 className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted">Streaming backlog</h5>
+          <p className="mt-2 text-scale-lg font-weight-semibold text-primary">
+            {summary.bufferedRows.toLocaleString()} rows
+          </p>
+          <p className={STATUS_META}>
+            State: <span className="font-weight-semibold capitalize">{stateLabel}</span>
+          </p>
+        </div>
+        <Sparkline data={summary.sparklineRows} height={48} className="h-12 w-24" />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-scale-xs uppercase tracking-[0.2em] text-muted">
+        <div>
+          <span className="block text-secondary">Open windows</span>
+          <span className={STATUS_META}>{summary.openWindows.toLocaleString()}</span>
+        </div>
+        <div>
+          <span className="block text-secondary">Hot buffer datasets</span>
+          <span className={STATUS_META}>{summary.datasets.toLocaleString()}</span>
+        </div>
+      </div>
     </div>
   );
 }

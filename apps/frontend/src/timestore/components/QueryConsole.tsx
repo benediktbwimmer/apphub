@@ -9,6 +9,8 @@ import {
   BADGE_PILL,
   BADGE_PILL_ACCENT,
   BADGE_PILL_MUTED,
+  BADGE_PILL_SUCCESS,
+  BADGE_PILL_DANGER,
   CARD_SURFACE,
   CARD_SURFACE_SOFT,
   CHECKBOX_INPUT,
@@ -674,6 +676,46 @@ export function QueryConsole({
             </span>
             <span>Requested {formatInstant(result.requestedAt)}</span>
           </div>
+          {result.response.streaming ? (
+            <div className={`${CARD_SURFACE_SOFT} flex flex-col gap-2 p-4 text-scale-sm text-secondary`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-scale-xs uppercase tracking-[0.2em] text-muted">Streaming integration</span>
+                <span
+                  className={`${
+                    result.response.streaming.bufferState === 'ready'
+                      ? BADGE_PILL_SUCCESS
+                      : result.response.streaming.bufferState === 'unavailable'
+                        ? BADGE_PILL_DANGER
+                        : BADGE_PILL_MUTED
+                  } px-3 py-1 text-scale-xs uppercase tracking-[0.2em]`}
+                >
+                  {result.response.streaming.bufferState}
+                </span>
+              </div>
+              <p className={STATUS_META}>
+                {result.response.streaming.rows.toLocaleString()} hot-buffer row(s) merged • Fresh:{' '}
+                {result.response.streaming.fresh ? 'yes' : 'no'}
+              </p>
+              <div className={`grid gap-2 text-scale-xs uppercase tracking-[0.2em] text-muted sm:grid-cols-2`}>
+                <span>
+                  Watermark:{' '}
+                  <span className={STATUS_META}>
+                    {result.response.streaming.watermark
+                      ? formatInstant(result.response.streaming.watermark)
+                      : 'n/a'}
+                  </span>
+                </span>
+                <span>
+                  Latest event:{' '}
+                  <span className={STATUS_META}>
+                    {result.response.streaming.latestTimestamp
+                      ? formatInstant(result.response.streaming.latestTimestamp)
+                      : 'n/a'}
+                  </span>
+                </span>
+              </div>
+            </div>
+          ) : null}
           <div className={TABLE_CONTAINER}>
             <table className={TABLE_CLASSES}>
               <thead className="bg-surface-muted">

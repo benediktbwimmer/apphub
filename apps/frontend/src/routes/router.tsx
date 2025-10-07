@@ -10,6 +10,7 @@ import ServicesLayout from '../services/ServicesLayout';
 import TimestoreDatasetsPage from '../timestore/TimestoreDatasetsPage';
 import TimestoreLayout from '../timestore/TimestoreLayout';
 import TimestoreSqlEditorPage from '../timestore/sql/TimestoreSqlEditorPage';
+import TimestoreStreamingPage from '../timestore/TimestoreStreamingPage';
 import MetastoreExplorerPage from '../metastore/MetastoreExplorerPage';
 import FilestoreLayout from '../filestore/FilestoreLayout';
 import ServicesRouteError from '../services/ServicesRouteError';
@@ -87,6 +88,10 @@ export const appRouteConfig: RouteObject[] = [
               {
                 path: ROUTE_SEGMENTS.servicesTimestoreDatasets,
                 element: <TimestoreDatasetsPage />
+              },
+              {
+                path: ROUTE_SEGMENTS.servicesTimestoreStreaming,
+                element: <TimestoreStreamingPage />
               },
               {
                 path: ROUTE_SEGMENTS.servicesTimestoreSql,

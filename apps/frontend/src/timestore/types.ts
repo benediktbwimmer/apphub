@@ -244,14 +244,76 @@ export const lifecycleRunQueuedSchema = z.object({
 
 export type LifecycleRunResponse = z.infer<typeof lifecycleRunCompletedSchema> | z.infer<typeof lifecycleRunQueuedSchema>;
 
+export const queryStreamingMetadataSchema = z
+  .object({
+    enabled: z.boolean(),
+    bufferState: z.enum(['disabled', 'ready', 'unavailable']),
+    rows: z.number(),
+    watermark: z.string().nullable().optional(),
+    latestTimestamp: z.string().nullable().optional(),
+    fresh: z.boolean()
+  })
+  .nullable()
+  .optional();
+
+export type QueryStreamingMetadata = z.infer<typeof queryStreamingMetadataSchema>;
+
 export const queryResponseSchema = z.object({
   rows: z.array(z.record(z.string(), z.unknown())),
   columns: z.array(z.string()),
   mode: z.enum(['raw', 'downsampled']),
-  warnings: z.array(z.string()).optional()
+  warnings: z.array(z.string()).optional(),
+  streaming: queryStreamingMetadataSchema
 });
 
 export type QueryResponse = z.infer<typeof queryResponseSchema>;
+
+export const streamingBatcherConnectorSchema = z.object({
+  connectorId: z.string(),
+  datasetSlug: z.string(),
+  topic: z.string(),
+  groupId: z.string(),
+  state: z.enum(['starting', 'running', 'stopped', 'error']),
+  bufferedWindows: z.number(),
+  bufferedRows: z.number(),
+  openWindows: z.number(),
+  lastMessageAt: z.string().nullable(),
+  lastFlushAt: z.string().nullable(),
+  lastEventTimestamp: z.string().nullable(),
+  lastError: z.string().nullable()
+});
+
+export const streamingBatcherSummarySchema = z.object({
+  configured: z.number(),
+  running: z.number(),
+  failing: z.number(),
+  state: z.enum(['disabled', 'ready', 'degraded']),
+  connectors: z.array(streamingBatcherConnectorSchema)
+});
+
+export const streamingStatusSchema = z.object({
+  enabled: z.boolean(),
+  state: z.enum(['disabled', 'ready', 'degraded', 'unconfigured']),
+  reason: z.string().nullable(),
+  broker: z.object({
+    configured: z.boolean(),
+    reachable: z.boolean().nullable(),
+    lastCheckedAt: z.string().nullable(),
+    error: z.string().nullable()
+  }),
+  batchers: streamingBatcherSummarySchema,
+  hotBuffer: z.object({
+    enabled: z.boolean(),
+    state: z.enum(['disabled', 'ready', 'unavailable']),
+    datasets: z.number(),
+    healthy: z.boolean(),
+    lastRefreshAt: z.string().nullable(),
+    lastIngestAt: z.string().nullable()
+  }),
+  mirrors: z.record(z.boolean()).optional()
+});
+
+export type StreamingStatus = z.infer<typeof streamingStatusSchema>;
 
 export const sqlSchemaColumnSchema = z.object({
   name: z.string(),

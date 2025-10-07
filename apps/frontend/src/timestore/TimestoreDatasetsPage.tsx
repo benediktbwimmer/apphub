@@ -25,6 +25,8 @@ import DatasetHistoryPanel from './components/DatasetHistoryPanel';
 import { formatInstant } from './utils';
 import { useDatasetDetails } from './hooks/useDatasetDetails';
 import { useDatasetHistory } from './hooks/useDatasetHistory';
+import { useStreamingStatus } from './hooks/useStreamingStatus';
+import { DatasetStreamingSummary } from './components/DatasetStreamingSummary';
 import {
   CARD_SURFACE,
   FIELD_LABEL,
@@ -115,6 +117,14 @@ export default function TimestoreDatasetsPage() {
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [datasetOverrides, setDatasetOverrides] = useState<Record<string, DatasetRecord>>({});
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  const {
+    status: streamingStatus,
+    history: streamingHistory,
+    loading: streamingLoading,
+    error: streamingError,
+    refresh: refreshStreaming
+  } = useStreamingStatus();
 
   const {
     dataset: datasetResource,
@@ -312,6 +322,21 @@ export default function TimestoreDatasetsPage() {
   const activeDatasetForAdmin = datasetDetail ?? selectedDatasetRecord;
 
   const datasetSlugForQuery = datasetDetail?.slug ?? selectedDatasetRecord?.slug ?? null;
+
+  const streamingSummary = useMemo(() => {
+    if (!streamingStatus || !streamingStatus.enabled) {
+      return null;
+    }
+    const bufferedRows = streamingStatus.batchers.connectors.reduce((total, connector) => total + connector.bufferedRows, 0);
+    const openWindows = streamingStatus.batchers.connectors.reduce((total, connector) => total + connector.openWindows, 0);
+    return {
+      state: streamingStatus.state,
+      bufferedRows,
+      openWindows,
+      datasets: streamingStatus.hotBuffer.datasets,
+      sparklineRows: streamingHistory.map((sample) => sample.bufferedRows)
+    } as const;
+  }, [streamingHistory, streamingStatus]);
 
   const schemaFields = useMemo<DatasetSchemaField[]>(() => {
     const [latestManifest] = manifestEntries;
@@ -557,6 +582,15 @@ export default function TimestoreDatasetsPage() {
                   )}
                 </div>
 
+                <DatasetStreamingSummary
+                  datasetSlug={datasetSlugForQuery}
+                  streamingStatus={streamingStatus}
+                  history={streamingHistory}
+                  loading={streamingLoading}
+                  error={streamingError}
+                  onRefresh={refreshStreaming}
+                />
+
                 <CollapsibleSection
                   title="Advanced dataset controls"
                   description="Configure metadata, retention, lifecycle automation, and metrics."
@@ -604,6 +638,7 @@ export default function TimestoreDatasetsPage() {
                       loading={metricsLoading}
                       error={metricsErrorMessage}
                       onRefresh={refreshMetrics}
+                      streamingSummary={streamingSummary}
                     />
                   </div>
                 </CollapsibleSection>

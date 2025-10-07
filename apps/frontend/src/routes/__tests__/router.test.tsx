@@ -37,6 +37,15 @@ describe('appRouteConfig', () => {
     expect(childSegments.has(ROUTE_SEGMENTS.servicesOverview)).toBe(true);
     expect(childSegments.has(ROUTE_SEGMENTS.servicesTimestore)).toBe(true);
     expect(childSegments.has(ROUTE_SEGMENTS.servicesMetastore)).toBe(true);
+
+    const timestoreRoute = serviceChildren.find((child) => child.path === ROUTE_SEGMENTS.servicesTimestore);
+    const timestoreChildren = timestoreRoute?.children ?? [];
+    const timestoreSegments = new Set(
+      timestoreChildren.map((child) => (child.index ? 'index' : child.path))
+    );
+    expect(timestoreSegments.has(ROUTE_SEGMENTS.servicesTimestoreDatasets)).toBe(true);
+    expect(timestoreSegments.has(ROUTE_SEGMENTS.servicesTimestoreStreaming)).toBe(true);
+    expect(timestoreSegments.has(ROUTE_SEGMENTS.servicesTimestoreSql)).toBe(true);
   });
 
   it('nests settings routes including appearance and import', () => {

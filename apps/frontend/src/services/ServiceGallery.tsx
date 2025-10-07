@@ -1,6 +1,7 @@
 import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { API_BASE_URL } from '../config';
+import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
+import { API_BASE_URL, EXTERNAL_CONSOLES, type ExternalConsoleLink } from '../config';
 import { useAuth } from '../auth/useAuth';
 import { normalizePreviewUrl, isLoopbackHost } from '../utils/url';
 import { formatFetchError } from '../core/utils';
@@ -321,6 +322,12 @@ export default function ServiceGallery() {
 
   return (
     <section className="flex flex-col gap-6">
+      {EXTERNAL_CONSOLES.length > 0 ? (
+        <div className={SERVICE_PAGE_CONTAINER_CLASSES}>
+          <ExternalConsoleSection links={EXTERNAL_CONSOLES} />
+        </div>
+      ) : null}
+
       <div className={SERVICE_PAGE_CONTAINER_CLASSES}>
         {errorMessage ? (
           <div className={classNames(SERVICE_ALERT_CLASSES, getStatusToneClasses('danger'))}>
@@ -350,6 +357,46 @@ export default function ServiceGallery() {
             ))}
           </div>
         )}
+      </div>
+    </section>
+  );
+}
+
+interface ExternalConsoleSectionProps {
+  links: readonly ExternalConsoleLink[];
+}
+
+function ExternalConsoleSection({ links }: ExternalConsoleSectionProps) {
+  return (
+    <section className="flex flex-col gap-4">
+      <div>
+        <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-accent">
+          External consoles
+        </span>
+        <h2 className="mt-1 text-scale-base font-weight-semibold text-primary">Operational dashboards</h2>
+        <p className="text-scale-sm text-secondary">
+          Jump to broker, storage, and messaging consoles provisioned alongside the stack.
+        </p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {links.map((link) => (
+          <a
+            key={link.id}
+            href={link.url}
+            target="_blank"
+            rel="noreferrer"
+            className="group flex items-start justify-between gap-4 rounded-2xl border border-subtle bg-surface-glass-soft px-4 py-4 text-left transition hover:border-accent hover:bg-surface-glass"
+          >
+            <div className="flex flex-col gap-2">
+              <span className="text-scale-sm font-weight-semibold text-primary">{link.label}</span>
+              {link.description ? (
+                <p className="text-scale-xs text-secondary">{link.description}</p>
+              ) : null}
+              <span className="text-scale-2xs uppercase tracking-[0.2em] text-muted">{link.url}</span>
+            </div>
+            <ArrowTopRightOnSquareIcon className="h-5 w-5 text-muted transition group-hover:text-accent" aria-hidden />
+          </a>
+        ))}
       </div>
     </section>
   );
