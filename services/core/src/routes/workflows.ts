@@ -17,6 +17,7 @@ import {
   listWorkflowAutoRunsForDefinition,
   updateWorkflowDefinition,
   updateWorkflowRun,
+  updateWorkflowRunStep,
   listWorkflowAssetDeclarationsBySlug,
   updateWorkflowAssetAutoMaterialize,
   listLatestWorkflowAssetSnapshots,
@@ -40,14 +41,17 @@ import {
   listTriggerPauseEvents,
   listSourcePauseEvents,
   listWorkflowRunExecutionHistory,
-  listWorkflowRunProducedAssets
+  listWorkflowRunProducedAssets,
+  appendWorkflowExecutionHistory
 } from '../db/index';
 import type {
   JsonValue,
   WorkflowAssetDeclaration,
   WorkflowAssetDeclarationRecord,
   WorkflowAssetSnapshotRecord,
-  WorkflowStepDefinition
+  WorkflowStepDefinition,
+  WorkflowRunRecord,
+  WorkflowRunStepRecord
 } from '../db/types';
 import {
   applyDagMetadataToSteps,
@@ -390,6 +394,12 @@ const workflowRunReplayBodySchema = z
     allowStaleAssets: z.boolean().optional()
   })
   .partial();
+
+const workflowRunCancelBodySchema = z
+  .object({
+    reason: z.string().trim().min(1).max(200).optional()
+  })
+  .strict();
 
 const ASSET_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 
@@ -2499,6 +2509,241 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
           assets: diff.assets.map((entry) => serializeAssetDiffEntry(entry))
         },
         staleAssets: staleAssets.map((entry) => serializeStaleAssetWarning(entry))
+      }
+    };
+  });
+
+  app.post('/workflow-runs/:runId/cancel', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateRunId = typeof rawParams?.runId === 'string' ? rawParams.runId : 'unknown';
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflow-runs.cancel',
+      resource: `workflow-run:${candidateRunId}`,
+      requiredScopes: WORKFLOW_RUN_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = workflowRunIdParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = workflowRunCancelBodySchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const run = await getWorkflowRunById(parseParams.data.runId);
+    if (!run) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'run_not_found',
+        runId: parseParams.data.runId
+      });
+      return { error: 'workflow run not found' };
+    }
+
+    if (run.status === 'succeeded' || run.status === 'failed') {
+      reply.status(409);
+      await authResult.auth.log('failed', {
+        reason: 'run_not_cancellable',
+        runId: run.id,
+        status: run.status
+      });
+      return { error: `workflow run is already ${run.status}` };
+    }
+
+    if (run.status === 'canceled') {
+      reply.status(200);
+      await authResult.auth.log('succeeded', {
+        reason: 'run_cancel_noop',
+        runId: run.id
+      });
+      return {
+        data: {
+          run: serializeWorkflowRun(run)
+        }
+      };
+    }
+
+    let steps: WorkflowRunStepRecord[];
+    try {
+      steps = await listWorkflowRunSteps(run.id);
+    } catch (err) {
+      request.log.error(
+        { err, runId: run.id },
+        'Failed to list workflow run steps for cancellation'
+      );
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'step_list_failed',
+        runId: run.id,
+        message: (err as Error).message ?? 'unknown'
+      });
+      return { error: 'failed to load workflow run steps' };
+    }
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const reason = parseBody.data.reason ?? 'Canceled by operator request';
+    const contextPatchSteps: Record<string, Record<string, JsonValue | null>> = {};
+    const cancelledStepIds: string[] = [];
+    const updatedSteps: WorkflowRunStepRecord[] = [];
+
+    for (const step of steps) {
+      const shouldCancel = step.status === 'running' || step.status === 'pending';
+      let nextStep: WorkflowRunStepRecord = step;
+      if (shouldCancel) {
+        const stepErrorMessage = step.errorMessage ?? reason;
+        cancelledStepIds.push(step.id);
+        try {
+          const updated = await updateWorkflowRunStep(step.id, {
+            status: 'skipped',
+            completedAt: nowIso,
+            nextAttemptAt: null,
+            retryState: 'completed',
+            retryMetadata: null,
+            retryAttempts: step.retryAttempts,
+            errorMessage: stepErrorMessage
+          });
+          if (updated) {
+            nextStep = updated;
+          }
+        } catch (err) {
+          request.log.error(
+            { err, runId: run.id, stepId: step.id },
+            'Failed to cancel workflow run step'
+          );
+          reply.status(500);
+          await authResult.auth.log('failed', {
+            reason: 'step_cancel_failed',
+            runId: run.id,
+            stepId: step.id,
+            message: (err as Error).message ?? 'unknown'
+          });
+          return { error: 'failed to cancel workflow run step' };
+        }
+
+        contextPatchSteps[nextStep.stepId] = {
+          status: 'skipped',
+          completedAt: nowIso,
+          errorMessage: stepErrorMessage ?? null,
+          resolutionError: false
+        };
+      }
+      updatedSteps.push(nextStep);
+    }
+
+    const totalSteps = updatedSteps.length;
+    const completedSteps = updatedSteps.reduce((count, step) => {
+      if (step.status === 'succeeded' || step.status === 'skipped') {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+
+    const metricsBase =
+      run.metrics && typeof run.metrics === 'object' && !Array.isArray(run.metrics)
+        ? (run.metrics as Record<string, JsonValue>)
+        : {};
+    const metrics: Record<string, JsonValue> = {
+      ...metricsBase,
+      totalSteps,
+      completedSteps,
+      cancelledSteps: cancelledStepIds.length
+    };
+
+    let durationMs = run.durationMs ?? 0;
+    if (typeof run.startedAt === 'string') {
+      const startedAtMs = Date.parse(run.startedAt);
+      if (Number.isFinite(startedAtMs)) {
+        const elapsed = Math.max(0, Math.round(now.getTime() - startedAtMs));
+        if (elapsed > durationMs) {
+          durationMs = elapsed;
+        }
+      }
+    }
+
+    const contextPatch =
+      Object.keys(contextPatchSteps).length > 0
+        ? { steps: contextPatchSteps, lastUpdatedAt: nowIso }
+        : undefined;
+
+    let updatedRun: WorkflowRunRecord | null = null;
+    try {
+      updatedRun = await updateWorkflowRun(run.id, {
+        status: 'canceled',
+        errorMessage: reason,
+        currentStepId: null,
+        currentStepIndex: null,
+        completedAt: nowIso,
+        durationMs,
+        metrics: metrics as JsonValue,
+        contextPatch
+      });
+    } catch (err) {
+      request.log.error(
+        { err, runId: run.id },
+        'Failed to update workflow run during cancellation'
+      );
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'run_cancel_failed',
+        runId: run.id,
+        message: (err as Error).message ?? 'unknown'
+      });
+      return { error: 'failed to cancel workflow run' };
+    }
+
+    if (!updatedRun) {
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'run_cancel_missing',
+        runId: run.id
+      });
+      return { error: 'failed to cancel workflow run' };
+    }
+
+    try {
+      const historyPayload = {
+        reason,
+        cancelledAt: nowIso,
+        cancelledBy: authResult.auth.identity.subject ?? null,
+        cancelledStepIds
+      } as Record<string, JsonValue>;
+      await appendWorkflowExecutionHistory({
+        workflowRunId: updatedRun.id,
+        eventType: 'run.canceled',
+        eventPayload: historyPayload
+      });
+    } catch (err) {
+      request.log.error(
+        { err, runId: updatedRun.id },
+        'Failed to append workflow run cancellation history'
+      );
+    }
+
+    reply.status(200);
+    await authResult.auth.log('succeeded', {
+      reason: 'run_cancelled',
+      runId: updatedRun.id,
+      cancelledStepCount: cancelledStepIds.length
+    });
+    return {
+      data: {
+        run: serializeWorkflowRun(updatedRun)
       }
     };
   });

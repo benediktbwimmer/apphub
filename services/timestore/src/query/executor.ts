@@ -39,6 +39,8 @@ const DEFAULT_MAX_EXPRESSION_DEPTH = 10_000;
 const STAGING_SCHEMA = 'staging';
 const STAGING_METADATA_TABLE = '__ingestion_batches';
 const STAGING_BATCH_ID_COLUMN = '__batch_id';
+const STAGING_ATTACH_BUSY_RETRIES = 5;
+const STAGING_ATTACH_BUSY_DELAY_MS = 100;
 
 export async function applyDefaultDuckDbSettings(
   connection: any,
@@ -529,7 +531,38 @@ function resolveCanonicalFields(plan: QueryPlan): FieldDefinition[] {
   if (plan.schemaFields.length > 0) {
     return plan.schemaFields;
   }
-  return [];
+  const fields = new Map<string, FieldDefinition>();
+  const registerField = (name: string | null | undefined, type: FieldType) => {
+    if (!name) {
+      return;
+    }
+    const trimmed = name.trim();
+    if (!trimmed || fields.has(trimmed)) {
+      return;
+    }
+    fields.set(trimmed, { name: trimmed, type });
+  };
+
+  registerField(plan.timestampColumn, 'timestamp');
+
+  if (Array.isArray(plan.columns)) {
+    for (const column of plan.columns) {
+      const normalized = typeof column === 'string' ? column : null;
+      if (!normalized) {
+        continue;
+      }
+      const type: FieldType = normalized === plan.timestampColumn ? 'timestamp' : 'string';
+      registerField(normalized, type);
+    }
+  }
+  if (plan.columnFilters) {
+    for (const column of Object.keys(plan.columnFilters)) {
+      const type: FieldType = column === plan.timestampColumn ? 'timestamp' : 'string';
+      registerField(column, type);
+    }
+  }
+
+  return Array.from(fields.values());
 }
 
 function buildPartitionSelect(
@@ -594,6 +627,25 @@ function buildColumnFilterClause(columnFilters: Record<string, ColumnPredicate>)
     }
   }
   return expressions.length > 0 ? expressions.join(' AND ') : '1 = 1';
+}
+
+function isDuckDbBusyLockError(error: unknown): boolean {
+  const message = (() => {
+    if (error instanceof Error) {
+      return error.message ?? '';
+    }
+    if (typeof error === 'string') {
+      return error;
+    }
+    return error ? String(error) : '';
+  })();
+  return message.includes('Could not set lock on file');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function columnPredicateToSql(column: string, predicate: ColumnPredicate): string | null {
@@ -822,10 +874,11 @@ async function integratePendingStaging(
   const escapedPath = databasePath.replace(/'/g, "''");
   let stagingTableCreated = false;
   let pendingRowCount = 0;
+  let stagingCorruptionError: Error | null = null;
 
   const stagingManager = getStagingWriteManager(config);
   const spoolManager = stagingManager.getSpoolManager();
-  const releaseLock = await spoolManager.acquireDatasetReadLock(plan.datasetSlug);
+  let releaseLock = await spoolManager.acquireDatasetReadLock(plan.datasetSlug);
   let lockReleased = false;
   const release = () => {
     if (lockReleased) {
@@ -834,23 +887,51 @@ async function integratePendingStaging(
     releaseLock();
     lockReleased = true;
   };
-
-  try {
-    await run(connection, `ATTACH '${escapedPath}' AS ${quoteIdentifier(alias)} (READ_ONLY)`);
-  } catch (error) {
-    release();
-    console.warn(`[timestore] failed to attach staging database for dataset ${plan.datasetSlug}`, error);
-    if (isDuckDbCorruptionError(error)) {
-      try {
-        await spoolManager.markDatasetCorrupted(plan.datasetSlug, error);
-      } catch (recoveryError) {
-        console.warn(
-          `[timestore] failed to recover corrupted staging database for dataset ${plan.datasetSlug}`,
-          recoveryError
-        );
-      }
+  const reacquireDatasetLock = async () => {
+    if (!lockReleased) {
+      releaseLock();
+      lockReleased = true;
     }
-    return null;
+    releaseLock = await spoolManager.acquireDatasetReadLock(plan.datasetSlug);
+    lockReleased = false;
+  };
+
+  const attachSql = `ATTACH '${escapedPath}' AS ${quoteIdentifier(alias)} (READ_ONLY)`;
+  let attachAttempt = 0;
+  for (; attachAttempt < STAGING_ATTACH_BUSY_RETRIES; attachAttempt += 1) {
+    try {
+      await run(connection, attachSql);
+      break;
+    } catch (error) {
+      const isBusy = isDuckDbBusyLockError(error);
+      const isLastAttempt = attachAttempt === STAGING_ATTACH_BUSY_RETRIES - 1;
+      if (!isBusy || isLastAttempt) {
+        release();
+        console.warn(`[timestore] failed to attach staging database for dataset ${plan.datasetSlug}`, error);
+        if (isDuckDbCorruptionError(error)) {
+          try {
+            await spoolManager.markDatasetCorrupted(plan.datasetSlug, error);
+          } catch (recoveryError) {
+            console.warn(
+              `[timestore] failed to recover corrupted staging database for dataset ${plan.datasetSlug}`,
+              recoveryError
+            );
+          }
+        }
+        return null;
+      }
+      const backoffMs = STAGING_ATTACH_BUSY_DELAY_MS * Math.max(1, attachAttempt + 1);
+      console.warn(
+        `[timestore] staging database busy for dataset ${plan.datasetSlug}; retrying ATTACH`,
+        {
+          datasetSlug: plan.datasetSlug,
+          attempt: attachAttempt + 1,
+          maxAttempts: STAGING_ATTACH_BUSY_RETRIES
+        }
+      );
+      await delay(backoffMs);
+      await reacquireDatasetLock();
+    }
   }
 
   const metadataTableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(STAGING_METADATA_TABLE)}`;
@@ -894,16 +975,26 @@ async function integratePendingStaging(
           .map((field) => field.name)
           .filter((fieldName) => !availableColumns.has(fieldName));
 
-        if (missingColumns.length > 0) {
+        if (missingColumns.length > 0 || availableColumns.size === 0) {
+          const missing = missingColumns.length > 0
+            ? missingColumns
+            : canonicalFields.map((field) => field.name);
           console.warn('[timestore:staging] missing canonical columns in staging table', {
             datasetSlug: plan.datasetSlug,
             tableName,
             tableRef,
             discoverySource: columnInfo.source,
-            missingColumns,
+            missingColumns: missing,
             availableColumns: Array.from(availableColumns)
           });
-        } else if (availableColumns.size <= 1) {
+          stagingCorruptionError = new Error(
+            `Staging table ${tableName} is missing required columns: ${missing.join(', ') || 'all columns'}`
+          );
+          stagingSelects.length = 0;
+          break;
+        }
+
+        if (availableColumns.size <= 1) {
           console.warn('[timestore:staging] limited columns discovered in staging table', {
             datasetSlug: plan.datasetSlug,
             tableName,
@@ -935,7 +1026,7 @@ async function integratePendingStaging(
         stagingSelects.push(selectSql);
       }
 
-      if (stagingSelects.length > 0) {
+      if (stagingSelects.length > 0 && !stagingCorruptionError) {
         const unionSql = stagingSelects.join('\nUNION ALL\n');
         await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows');
         await run(connection, `CREATE TEMP TABLE staging_dataset_rows AS ${unionSql}`);
@@ -957,6 +1048,19 @@ async function integratePendingStaging(
   } finally {
     await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
     release();
+  }
+
+  if (stagingCorruptionError) {
+    try {
+      await spoolManager.markDatasetCorrupted(plan.datasetSlug, stagingCorruptionError);
+    } catch (error) {
+      console.warn('[timestore:staging] failed to mark dataset corrupted after column mismatch', {
+        datasetSlug: plan.datasetSlug,
+        error
+      });
+    }
+    await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows').catch(() => undefined);
+    return null;
   }
 
   if (!stagingTableCreated) {

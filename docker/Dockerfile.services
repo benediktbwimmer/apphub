@@ -79,7 +79,8 @@ RUN npm run build --workspace @apphub/core \
  && npm run build --workspace @apphub/filestore-client \
  && npm run build --workspace @apphub/streaming \
  && npm run build --workspace @apphub/module-toolkit \
- && npm run build --workspace @apphub/observatory-module
+ && npm run build --workspace @apphub/observatory-module \
+ && npm run build --workspace @apphub/cli
 
 RUN npm prune --omit=dev
 

@@ -38,7 +38,7 @@ import { deriveManifestShardKey } from '../service/manifestShard';
 import { computePartitionIndexForRows } from '../indexing/partitionIndex';
 import { executePartitionBuild } from './partitionBuilderClient';
 import { getStagingWriteManager, resetStagingWriteManager } from './stagingManager';
-import { resolveFlushThresholds, maybePrepareDatasetFlush } from './flushPlanner';
+import { resolveFlushThresholds, shouldTriggerFlush } from './flushPlanner';
 import {
   DuckDbSpoolManager,
   type PreparedFlushBatch,
@@ -52,6 +52,7 @@ import {
   type SchemaCompatibilityResult,
   type SchemaMigrationPlan
 } from '../schema/compatibility';
+import { enqueueFlushJob } from '../queue';
 
 class SchemaEvolutionError extends Error {
   readonly reasons: string[];
@@ -85,6 +86,18 @@ interface FlushExecutionContext {
 
 interface FlushExecutionOutcome {
   latestManifest: DatasetManifestWithPartitions | null;
+}
+
+function isDuckDbConnectionError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === 'string' && code.toUpperCase() === 'DUCKDB_NODEJS_ERROR') {
+    return true;
+  }
+  const message = error.message ?? '';
+  return message.includes('Connection Error: Connection was never established or has been closed already');
 }
 
 async function performPreparedFlush(context: FlushExecutionContext): Promise<FlushExecutionOutcome> {
@@ -402,18 +415,27 @@ export async function processIngestionJob(
   payload: IngestionJobPayload
 ): Promise<IngestionProcessingResult> {
   const config = loadServiceConfig();
-  await resetStagingWriteManager();
-  const stagingManager = getStagingWriteManager(config);
+  let stagingManager = getStagingWriteManager(config);
   const datasetSlug = payload.datasetSlug.trim();
   const span = startSpan('timestore.ingest.process', {
     'timestore.dataset_slug': datasetSlug
   });
   const start = process.hrtime.bigint();
+  let spoolManager = stagingManager.getSpoolManager();
+  let storageTarget!: StorageTargetRecord;
+  let dataset!: DatasetRecord;
+  let previousManifest: DatasetManifestWithPartitions | null = null;
+  let baselineManifest: DatasetManifestWithPartitions | null = null;
+  let reusePartitionRef:
+    | ((
+        partition: DatasetPartitionRecord,
+        idempotencyKey: string | null | undefined
+      ) => Promise<IngestionProcessingResult | null>)
+    | undefined;
   try {
-    const storageTarget = await resolveStorageTarget(payload);
+    storageTarget = await resolveStorageTarget(payload);
 
     const existingDataset = await getDatasetBySlug(datasetSlug);
-    let dataset: DatasetRecord;
     if (!existingDataset) {
       dataset = await createDataset({
         id: `ds-${randomUUID()}`,
@@ -435,7 +457,7 @@ export async function processIngestionJob(
       dataset = existingDataset;
     }
 
-    const reuseExistingPartition = async (
+    reusePartitionRef = async (
       partition: DatasetPartitionRecord,
       idempotencyKey: string | null | undefined
     ): Promise<IngestionProcessingResult | null> => {
@@ -542,8 +564,8 @@ export async function processIngestionJob(
     }
 
     const manifestShard = deriveManifestShardKey(startTime);
-    const previousManifest = await getLatestPublishedManifest(dataset.id, { shard: manifestShard });
-    const baselineManifest = previousManifest ?? (await getLatestPublishedManifest(dataset.id));
+    previousManifest = await getLatestPublishedManifest(dataset.id, { shard: manifestShard });
+    baselineManifest = previousManifest ?? (await getLatestPublishedManifest(dataset.id));
 
     let compatibility: SchemaCompatibilityResult | null = null;
     if (baselineManifest?.schemaVersionId) {
@@ -577,7 +599,9 @@ export async function processIngestionJob(
       ingestionSignature
     );
     if (existingPartitionBySignature) {
-      const reused = await reuseExistingPartition(existingPartitionBySignature, payload.idempotencyKey ?? null);
+      const reused = reusePartitionRef
+        ? await reusePartitionRef(existingPartitionBySignature, payload.idempotencyKey ?? null)
+        : null;
       if (reused) {
         endSpan(span);
         return reused;
@@ -609,9 +633,10 @@ export async function processIngestionJob(
 
     const spoolManager = stagingManager.getSpoolManager();
     const flushThresholds = resolveFlushThresholds(config, dataset);
-    const flushPreparation = await maybePrepareDatasetFlush(spoolManager, datasetSlug, flushThresholds);
+    const stagingSummary = await spoolManager.getDatasetSummary(datasetSlug);
+    const flushTriggered = shouldTriggerFlush(stagingSummary, flushThresholds);
 
-    if (!flushPreparation) {
+    if (!flushTriggered) {
       observeIngestionJob({
         datasetSlug,
         result: 'success',
@@ -627,38 +652,20 @@ export async function processIngestionJob(
         flushPending: true
       } satisfies IngestionProcessingResult;
     }
-
-    const flushStart = process.hrtime.bigint();
-    const flushBatchCount = flushPreparation.result.batches.length;
-    const flushRowCount = flushPreparation.result.batches.reduce(
-      (total, batch) => total + Math.max(0, Number(batch.rowCount ?? 0)),
-      0
-    );
-
+    let flushJob: Awaited<ReturnType<typeof enqueueFlushJob>> | null = null;
     try {
-      const { latestManifest } = await performPreparedFlush({
-        dataset,
-        datasetSlug,
-        storageTarget,
-        config,
-        spoolManager,
-        flushResult: flushPreparation.result,
-        baselineManifest,
-        previousManifest,
-        reusePartition: async (partition, idempotencyKey) => {
-          const reused = await reuseExistingPartition(partition, idempotencyKey ?? null);
-          return reused?.manifest ?? null;
-        }
+      flushJob = await enqueueFlushJob(datasetSlug, {
+        storageTargetId: storageTarget.id
       });
-
-      observeStagingFlush({
+    } catch (error) {
+      console.error('[timestore:ingest] failed to enqueue flush job', {
         datasetSlug,
-        result: 'success',
-        durationSeconds: durationSince(flushStart),
-        batches: flushBatchCount,
-        rows: flushRowCount
+        error: error instanceof Error ? error.message : error
       });
+    }
 
+    if (flushJob?.mode === 'inline' && flushJob.result) {
+      // Inline mode executes the flush immediately.
       observeIngestionJob({
         datasetSlug,
         result: 'success',
@@ -668,30 +675,146 @@ export async function processIngestionJob(
       endSpan(span);
       return {
         dataset,
-        manifest: latestManifest ?? previousManifest ?? baselineManifest ?? null,
+        manifest: flushJob.result.manifest ?? previousManifest ?? baselineManifest ?? null,
         storageTarget,
         idempotencyKey: payload.idempotencyKey,
-        flushPending: false
+        flushPending: flushJob.result.status !== 'flushed' && flushJob.result.rows > 0
       } satisfies IngestionProcessingResult;
-    } catch (error) {
-      observeStagingFlush({
+    }
+
+    observeIngestionJob({
+      datasetSlug,
+      result: 'success',
+      durationSeconds: durationSince(start)
+    });
+
+    endSpan(span);
+    return {
+      dataset,
+      manifest: previousManifest ?? baselineManifest ?? null,
+      storageTarget,
+      idempotencyKey: payload.idempotencyKey,
+      flushPending: true
+    } satisfies IngestionProcessingResult;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isDuckDbConnectionError(error)) {
+      if (!dataset || !storageTarget) {
+        console.error('[timestore:ingest] staging connection error encountered before dataset resolved', {
+          datasetSlug,
+          error: error instanceof Error
+            ? {
+                message: error.message,
+                code: (error as { code?: unknown }).code ?? null,
+                stack: error.stack ?? null
+              }
+            : error
+        });
+        observeIngestionJob({
+          datasetSlug,
+          result: 'failure',
+          durationSeconds: durationSince(start)
+        });
+        endSpan(span, error);
+        throw error;
+      }
+      console.warn('[timestore:ingest] staging connection lost during flush scheduling; attempting inline flush', {
         datasetSlug,
-        result: 'failure',
-        durationSeconds: durationSince(flushStart),
-        batches: flushBatchCount,
-        rows: flushRowCount
+        error: error instanceof Error
+          ? {
+              message: error.message,
+              code: (error as { code?: unknown }).code ?? null
+            }
+          : error
+      });
+      await resetStagingWriteManager().catch((resetError) => {
+        console.warn('[timestore:ingest] failed to reset staging manager after connection loss', {
+          datasetSlug,
+          error: resetError instanceof Error ? resetError.message : resetError
+        });
+      });
+      stagingManager = getStagingWriteManager(config);
+      spoolManager = stagingManager.getSpoolManager();
+      const flushStart = process.hrtime.bigint();
+      const prepared = await spoolManager.prepareFlush(datasetSlug);
+      if (prepared && prepared.batches.length > 0) {
+        const flushBatchCount = prepared.batches.length;
+        const flushRowCount = prepared.batches.reduce(
+          (total, batch) => total + Math.max(0, Number(batch.rowCount ?? 0)),
+          0
+        );
+        try {
+          const { latestManifest } = await performPreparedFlush({
+            dataset,
+            datasetSlug,
+            storageTarget,
+            config,
+            spoolManager,
+            flushResult: prepared,
+            baselineManifest,
+            previousManifest,
+            reusePartition: async (partition, idempotencyKey) => {
+          const reused = reusePartitionRef
+            ? await reusePartitionRef(partition, idempotencyKey ?? null)
+            : null;
+          return reused?.manifest ?? null;
+        }
       });
 
+          observeStagingFlush({
+            datasetSlug,
+            result: 'success',
+            durationSeconds: durationSince(flushStart),
+            batches: flushBatchCount,
+            rows: flushRowCount
+          });
+
+          observeIngestionJob({
+            datasetSlug,
+            result: 'success',
+            durationSeconds: durationSince(start)
+          });
+
+          endSpan(span);
+          return {
+            dataset,
+            manifest: latestManifest ?? previousManifest ?? baselineManifest ?? null,
+            storageTarget,
+            idempotencyKey: payload.idempotencyKey,
+            flushPending: false
+          } satisfies IngestionProcessingResult;
+        } catch (inlineFlushError) {
+          observeStagingFlush({
+            datasetSlug,
+            result: 'failure',
+            durationSeconds: durationSince(flushStart),
+            batches: flushBatchCount,
+            rows: flushRowCount
+          });
+          console.error('[timestore:ingest] inline flush fallback failed', {
+            datasetSlug,
+            error: inlineFlushError instanceof Error ? inlineFlushError.message : inlineFlushError
+          });
+        }
+      }
       observeIngestionJob({
         datasetSlug,
-        result: 'failure',
+        result: 'success',
         durationSeconds: durationSince(start)
       });
-
-      endSpan(span, error);
-      throw error;
+      endSpan(span);
+      return {
+        dataset,
+        manifest: previousManifest ?? baselineManifest ?? null,
+        storageTarget,
+        idempotencyKey: payload.idempotencyKey,
+        flushPending: true
+      } satisfies IngestionProcessingResult;
     }
-  } catch (error) {
+    console.error('[timestore:ingest] ingestion job error', {
+      datasetSlug,
+      error: error instanceof Error ? { message: error.message, stack: error.stack } : error
+    });
     observeIngestionJob({
       datasetSlug,
       result: 'failure',
