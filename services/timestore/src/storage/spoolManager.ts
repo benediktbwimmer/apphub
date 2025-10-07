@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { setStagingSummaryMetrics } from '../observability/metrics';
+import { TIMESTORE_DEBUG_ENABLED } from './index';
 import type { FieldDefinition, FieldType } from './index';
 
 export interface DuckDbSpoolManagerOptions {
@@ -116,12 +117,22 @@ interface DatasetSpoolContext {
   connection: any;
   initialized: boolean;
   metadataReady: boolean;
+  corruptionRecoveryAttempts: number;
 }
 
 const SPOOL_SCHEMA = 'staging';
 const METADATA_TABLE = '__ingestion_batches';
 const INTERNAL_BATCH_ID_COLUMN = '__batch_id';
 const INTERNAL_STAGED_AT_COLUMN = '__staged_at';
+const SKIP_FLUSH_RESET = (process.env.TIMESTORE_SKIP_FLUSH_RESET ?? '').toLowerCase();
+const SKIP_FLUSH_RESET_ENABLED = ['1', 'true', 'yes', 'on'].includes(SKIP_FLUSH_RESET);
+const CORRUPTION_ERROR_PATTERNS = [
+  'Serialization Error: Failed to deserialize',
+  'field id mismatch',
+  'failure while replaying wal',
+  'corrupt wal file',
+  'connection was never established or has been closed'
+];
 
 export class DuckDbSpoolManager {
   private readonly rootReady: Promise<void>;
@@ -347,6 +358,13 @@ export class DuckDbSpoolManager {
     });
   }
 
+  async markDatasetCorrupted(datasetSlug: string, reason: unknown): Promise<void> {
+    await this.runWithDatasetLock(datasetSlug, async () => {
+      const context = await this.getDatasetContext(datasetSlug);
+      await this.recoverCorruptedDataset(context, reason);
+    });
+  }
+
   async close(): Promise<void> {
     const contexts = Array.from(this.datasetContexts.values());
     this.datasetContexts.clear();
@@ -363,6 +381,10 @@ export class DuckDbSpoolManager {
   private async getDatasetContext(datasetSlug: string): Promise<DatasetSpoolContext> {
     const existing = this.datasetContexts.get(datasetSlug);
     if (existing) {
+      this.logFlushDebug('dataset context cache hit', {
+        datasetSlug,
+        databasePath: existing.databasePath
+      });
       return existing;
     }
 
@@ -374,9 +396,24 @@ export class DuckDbSpoolManager {
     const parsedPath = path.parse(databasePath);
     const catalogName = parsedPath.name;
 
+    this.logFlushDebug('initializing dataset context', {
+      datasetSlug,
+      databasePath,
+      datasetDir
+    });
+
     const duckdb = loadDuckDb();
+    this.logFlushDebug('creating duckdb connection', {
+      datasetSlug,
+      databasePath
+    });
     const db = new duckdb.Database(databasePath);
     const connection = db.connect();
+
+    this.logFlushDebug('duckdb connection established', {
+      datasetSlug,
+      databasePath
+    });
 
     const context: DatasetSpoolContext = {
       datasetSlug,
@@ -387,7 +424,8 @@ export class DuckDbSpoolManager {
       db,
       connection,
       initialized: false,
-      metadataReady: false
+      metadataReady: false,
+      corruptionRecoveryAttempts: 0
     };
 
     this.datasetContexts.set(datasetSlug, context);
@@ -473,46 +511,113 @@ export class DuckDbSpoolManager {
     }
   }
 
-  private async ensureMetadataTable(context: DatasetSpoolContext): Promise<void> {
+  private async ensureMetadataTable(
+    context: DatasetSpoolContext,
+    retriesRemaining = 2
+  ): Promise<void> {
     if (context.metadataReady) {
       return;
     }
 
-    const metadataTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, METADATA_TABLE);
+    this.logFlushDebug('ensuring metadata table', {
+      datasetSlug: context.datasetSlug,
+      databasePath: context.databasePath
+    });
+
     await run(
       context.connection,
-      `CREATE TABLE IF NOT EXISTS ${metadataTable} (
-        ingestion_signature VARCHAR PRIMARY KEY,
-        batch_id VARCHAR NOT NULL,
-        table_name VARCHAR NOT NULL,
-        schema_json VARCHAR NOT NULL,
-        partition_key_json VARCHAR NOT NULL,
-        partition_attributes_json VARCHAR,
-        time_range_start TIMESTAMP NOT NULL,
-        time_range_end TIMESTAMP NOT NULL,
-        row_count BIGINT NOT NULL,
-        received_at TIMESTAMP NOT NULL,
-        staged_at TIMESTAMP NOT NULL,
-        idempotency_key VARCHAR,
-        schema_defaults_json VARCHAR,
-        schema_backfill_requested BOOLEAN,
-        flush_token VARCHAR,
-        flush_started_at TIMESTAMP
-      )`
+      `CREATE SCHEMA IF NOT EXISTS ${quoteIdentifier(context.catalogName)}.${quoteIdentifier(SPOOL_SCHEMA)}`
     );
 
-    await this.ensureMetadataColumns(context);
-    await this.resetIncompleteFlushes(context);
-    context.metadataReady = true;
+    try {
+      await run(
+        context.connection,
+        `CREATE SCHEMA IF NOT EXISTS ${quoteIdentifier(context.catalogName)}.${quoteIdentifier(SPOOL_SCHEMA)}`
+      );
+
+      const metadataTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, METADATA_TABLE);
+      await run(
+        context.connection,
+        `CREATE TABLE IF NOT EXISTS ${metadataTable} (
+          ingestion_signature VARCHAR PRIMARY KEY,
+          batch_id VARCHAR NOT NULL,
+          table_name VARCHAR NOT NULL,
+          schema_json VARCHAR NOT NULL,
+          partition_key_json VARCHAR NOT NULL,
+          partition_attributes_json VARCHAR,
+          time_range_start TIMESTAMP NOT NULL,
+          time_range_end TIMESTAMP NOT NULL,
+          row_count BIGINT NOT NULL,
+          received_at TIMESTAMP NOT NULL,
+          staged_at TIMESTAMP NOT NULL,
+          idempotency_key VARCHAR,
+          schema_defaults_json VARCHAR,
+          schema_backfill_requested BOOLEAN,
+          flush_token VARCHAR,
+          flush_started_at TIMESTAMP
+        )`
+      );
+
+      this.logFlushDebug('metadata table ensured', {
+        datasetSlug: context.datasetSlug,
+        databasePath: context.databasePath
+      });
+
+      await this.ensureMetadataColumns(context);
+      this.logFlushDebug('metadata columns ensured', {
+        datasetSlug: context.datasetSlug,
+        databasePath: context.databasePath
+      });
+
+      if (SKIP_FLUSH_RESET_ENABLED) {
+        this.logFlushDebug('skipping incomplete flush reset (flag enabled)', {
+          datasetSlug: context.datasetSlug,
+          databasePath: context.databasePath
+        });
+      } else {
+        await this.resetIncompleteFlushes(context);
+        this.logFlushDebug('incomplete flushes reset', {
+          datasetSlug: context.datasetSlug,
+          databasePath: context.databasePath
+        });
+      }
+      context.metadataReady = true;
+
+      this.logFlushDebug('metadata table ready', {
+        datasetSlug: context.datasetSlug,
+        databasePath: context.databasePath
+      });
+    } catch (error) {
+      this.logFlushDebug('ensureMetadataTable encountered error', {
+        datasetSlug: context.datasetSlug,
+        databasePath: context.databasePath,
+        error: extractDuckDbMessage(error)
+      });
+      if (isDuckDbCorruptionError(error) && retriesRemaining > 0) {
+        await this.recoverCorruptedDataset(context, error);
+        await this.ensureMetadataTable(context, retriesRemaining - 1);
+        return;
+      }
+      throw error;
+    }
   }
 
   private async ensureMetadataColumns(context: DatasetSpoolContext): Promise<void> {
     const metadataTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, METADATA_TABLE);
     const escaped = metadataTable.replace(/"/g, '""');
+    this.logFlushDebug('fetching metadata column info', {
+      datasetSlug: context.datasetSlug,
+      databasePath: context.databasePath
+    });
     const existingColumns = await all(
       context.connection,
       `PRAGMA table_info('${escaped}')`
     );
+    this.logFlushDebug('metadata column info fetched', {
+      datasetSlug: context.datasetSlug,
+      databasePath: context.databasePath,
+      columnCount: existingColumns.length
+    });
     const columnNames = new Set(existingColumns.map((column) => String(column.name ?? '')));
 
     if (!columnNames.has('flush_token')) {
@@ -543,10 +648,91 @@ export class DuckDbSpoolManager {
 
   private async resetIncompleteFlushes(context: DatasetSpoolContext): Promise<void> {
     const metadataTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, METADATA_TABLE);
+    this.logFlushDebug('resetting incomplete flushes', {
+      datasetSlug: context.datasetSlug,
+      databasePath: context.databasePath
+    });
+    const pendingResetRow = await firstRow(
+      context.connection,
+      `SELECT COUNT(*)::BIGINT AS pending FROM ${metadataTable} WHERE flush_token IS NOT NULL`
+    );
+    const pendingReset = Number(pendingResetRow?.pending ?? 0n);
+    if (pendingReset === 0) {
+      this.logFlushDebug('no incomplete flush rows found', {
+        datasetSlug: context.datasetSlug,
+        databasePath: context.databasePath
+      });
+      return;
+    }
+
     await run(
       context.connection,
       `UPDATE ${metadataTable} SET flush_token = NULL, flush_started_at = NULL WHERE flush_token IS NOT NULL`
     );
+    this.logFlushDebug('incomplete flush rows cleared', {
+      datasetSlug: context.datasetSlug,
+      databasePath: context.databasePath,
+      rowsCleared: pendingReset
+    });
+  }
+
+  private async recoverCorruptedDataset(context: DatasetSpoolContext, reason: unknown): Promise<void> {
+    this.logFlushDebug('detected potential duckdb corruption', {
+      datasetSlug: context.datasetSlug,
+      databasePath: context.databasePath,
+      reason: reason instanceof Error ? reason.message : String(reason),
+      attempts: context.corruptionRecoveryAttempts
+    });
+
+    if (context.corruptionRecoveryAttempts >= 3) {
+      this.logFlushDebug('corruption recovery attempts exhausted', {
+        datasetSlug: context.datasetSlug,
+        databasePath: context.databasePath
+      });
+      throw reason instanceof Error ? reason : new Error(String(reason));
+    }
+
+    context.corruptionRecoveryAttempts += 1;
+
+    await closeConnection(context.connection).catch(() => undefined);
+    if (isCloseable(context.db)) {
+      try {
+        context.db.close();
+      } catch (error) {
+        this.logFlushDebug('error closing corrupted duckdb database', {
+          datasetSlug: context.datasetSlug,
+          error: error instanceof Error ? error.message : error
+        });
+      }
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = `${context.databasePath}.corrupt-${timestamp}`;
+
+    await fs.mkdir(context.directory, { recursive: true });
+
+    await fs.rename(context.databasePath, backupPath).catch((error: NodeJS.ErrnoException) => {
+      if (error && error.code !== 'ENOENT') {
+        throw error;
+      }
+    });
+    await fs.rm(`${context.databasePath}.wal`, { force: true }).catch(() => undefined);
+
+    const duckdb = loadDuckDb();
+    const db = new duckdb.Database(context.databasePath);
+    const connection = db.connect();
+
+    context.db = db;
+    context.connection = connection;
+    context.initialized = false;
+    context.metadataReady = false;
+    context.corruptionRecoveryAttempts = 0;
+
+    this.logFlushDebug('reinitialized staging database after corruption', {
+      datasetSlug: context.datasetSlug,
+      databasePath: context.databasePath,
+      backupPath
+    });
   }
 
   private async listTables(context: DatasetSpoolContext): Promise<string[]> {
@@ -683,6 +869,11 @@ export class DuckDbSpoolManager {
       await this.ensureMetadataTable(context);
       const metadataTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, METADATA_TABLE);
 
+      this.logFlushDebug('prepareFlush invoked', {
+        datasetSlug: context.datasetSlug,
+        databasePath: context.databasePath
+      });
+
       const pendingBatches = await all(
         context.connection,
         `SELECT
@@ -705,6 +896,11 @@ export class DuckDbSpoolManager {
          ORDER BY staged_at ASC`
       );
 
+      this.logFlushDebug('metadata query completed', {
+        datasetSlug: context.datasetSlug,
+        pendingBatchCount: pendingBatches.length
+      });
+
       if (pendingBatches.length === 0) {
         return null;
       }
@@ -712,8 +908,25 @@ export class DuckDbSpoolManager {
       const flushToken = randomUUID();
       const now = new Date();
 
+      this.logFlushDebug('pending batches selected', {
+        datasetSlug: context.datasetSlug,
+        flushToken,
+        batchCount: pendingBatches.length,
+        batches: pendingBatches.map((batch) => ({
+          batchId: String(batch.batch_id ?? ''),
+          tableName: String(batch.table_name ?? ''),
+          rowCount: Number(batch.row_count ?? 0),
+          stagedAt: batch.staged_at ? new Date(batch.staged_at).toISOString() : null
+        }))
+      });
+
       await run(context.connection, 'BEGIN TRANSACTION');
       try {
+        this.logFlushDebug('assigning flush token to batches', {
+          datasetSlug: context.datasetSlug,
+          flushToken,
+          batchCount: pendingBatches.length
+        });
         for (const batch of pendingBatches) {
           await run(
             context.connection,
@@ -754,7 +967,38 @@ export class DuckDbSpoolManager {
             `${sanitizeTableName(tableName)}-${String(batch.batch_id ?? '')}.parquet`
           );
           await fs.rm(parquetFilePath, { force: true });
+          this.logFlushDebug('exporting staging batch to parquet', {
+            datasetSlug: context.datasetSlug,
+            flushToken,
+            batchId: String(batch.batch_id ?? ''),
+            tableName,
+            schemaColumns: schema.map((field) => `${field.name}:${field.type}`),
+            destinationPath: parquetFilePath
+          });
           await this.exportBatchToParquet(context, tableName, schema, String(batch.batch_id ?? ''), parquetFilePath);
+
+          if (TIMESTORE_DEBUG_ENABLED) {
+            try {
+              const stats = await fs.stat(parquetFilePath);
+              this.logFlushDebug('parquet export complete', {
+                datasetSlug: context.datasetSlug,
+                flushToken,
+                batchId: String(batch.batch_id ?? ''),
+                tableName,
+                fileSizeBytes: stats.size,
+                destinationPath: parquetFilePath
+              });
+            } catch (error) {
+              this.logFlushDebug('parquet export missing or unreadable', {
+                datasetSlug: context.datasetSlug,
+                flushToken,
+                batchId: String(batch.batch_id ?? ''),
+                tableName,
+                destinationPath: parquetFilePath,
+                error: error instanceof Error ? error.message : error
+              });
+            }
+          }
           const rows = await this.readBatchRows(context, tableName, schema, String(batch.batch_id ?? ''));
 
           batches.push({
@@ -960,13 +1204,28 @@ export class DuckDbSpoolManager {
         ORDER BY ${quoteIdentifier(INTERNAL_STAGED_AT_COLUMN)}`,
       batchId
     );
-    return rows.map((row) => {
+    const mappedRows = rows.map((row) => {
       const output: Record<string, unknown> = {};
       for (const field of schema) {
         output[field.name] = (row as Record<string, unknown>)[field.name];
       }
       return output;
     });
+    this.logFlushDebug('read staging batch rows', {
+      datasetSlug: context.datasetSlug,
+      tableName,
+      batchId,
+      rowCount: mappedRows.length,
+      columnCount: schema.length
+    });
+    return mappedRows;
+  }
+
+  private logFlushDebug(message: string, details: Record<string, unknown>): void {
+    if (!TIMESTORE_DEBUG_ENABLED) {
+      return;
+    }
+    console.info('[timestore:flush]', message, details);
   }
 
   private async exportBatchToParquet(
@@ -982,6 +1241,14 @@ export class DuckDbSpoolManager {
     const qualifiedTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, tableName);
     const columnList = schema.map((field) => quoteIdentifier(field.name)).join(', ');
     const escapedPath = destinationPath.replace(/'/g, "''");
+    this.logFlushDebug('issuing COPY statement for staging batch', {
+      datasetSlug: context.datasetSlug,
+      tableName,
+      batchId,
+      destinationPath,
+      qualifiedTable,
+      columnList
+    });
     await run(
       context.connection,
       `COPY (
@@ -991,6 +1258,12 @@ export class DuckDbSpoolManager {
       ) TO '${escapedPath}' (FORMAT PARQUET)`,
       batchId
     );
+    this.logFlushDebug('COPY statement completed', {
+      datasetSlug: context.datasetSlug,
+      tableName,
+      batchId,
+      destinationPath
+    });
   }
 
   private async runWithDatasetLock<T>(datasetSlug: string, fn: () => Promise<T>): Promise<T> {
@@ -1220,4 +1493,25 @@ function isMissingTableError(error: unknown): boolean {
     return false;
   }
   return /does not exist/i.test(error.message ?? '');
+}
+
+function extractDuckDbMessage(error: unknown): string {
+  if (!error) {
+    return '';
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (typeof error === 'object' && error && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
+    return (error as { message: string }).message;
+  }
+  return String(error);
+}
+
+export function isDuckDbCorruptionError(error: unknown): boolean {
+  const message = extractDuckDbMessage(error).toLowerCase();
+  if (!message) {
+    return false;
+  }
+  return CORRUPTION_ERROR_PATTERNS.some((pattern) => message.includes(pattern.toLowerCase()));
 }
