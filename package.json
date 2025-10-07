@@ -53,7 +53,9 @@
     "minikube:verify": "node scripts/minikube-verify.mjs",
     "e2e": "tsx tests/e2e/observatory.e2e.ts",
     "e2e:timestore": "tsx tests/e2e/timestore.e2e.ts",
-    "module:admin": "npm run module:admin --workspace @apphub/core --"
+    "module:admin": "npm run module:admin --workspace @apphub/core --",
+    "deploy:website": "node scripts/deploy-website.mjs",
+    "deploy:demo": "node scripts/deploy-demo-stack.mjs"
   },
   "devDependencies": {
     "@rolldown/pluginutils": "^1.0.0-beta.35",

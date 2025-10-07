@@ -28,15 +28,15 @@ Infrastructure-as-code for hosting the AppHub demo stack on a single EC2 instanc
    - Launch the EC2 instance and bootstrap Docker + docker compose plugin, clone the repo, deploy the stack, and configure nginx.
    - Configure CloudWatch metrics/logs, SNS alerts, and the monthly budget control.
    - When `enable_managed_dns = true`, also create ACM certificates, CloudFront distribution, S3 bucket policy, and Route53 records.
-6. **Publish the marketing site** after each build. With `enable_managed_dns = false` (default), the static bundle is served locally via nginx; once CloudFront is active the same steps sync to S3 and optionally invalidate the CDN cache:
+6. **Deploy the latest marketing site or demo stack** using the helper scripts when you are ready to promote a branch:
    ```bash
-   npm run build --workspace @apphub/website
-   aws s3 sync ../../apps/website/dist s3://$(terraform output -raw website_bucket)
-   DIST_ID=$(terraform output -raw website_distribution_id 2>/dev/null || true)
-   if [ -n "$DIST_ID" ]; then
-     aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths '/*'
-   fi
+   # Marketing site (builds the requested branch, syncs to S3, rsyncs to the VM when CloudFront is disabled)
+   npm run deploy:website -- --branch main
+
+   # Demo stack (checks out the branch on the VM and rebuilds the compose stack)
+   npm run deploy:demo -- --branch main
    ```
+   Pass any Git branch name to target feature branches (for example `--branch feat/marketing-refresh`).
 7. **Rotate tokens/secrets** as needed via Parameter Store (`/apphub/demo/...`) and restart the stack (docker compose or systemd).
 
 ## Post-apply validation
@@ -91,14 +91,13 @@ The Terraform security group opens:
 - To re-run the bootstrap script, update `/etc/systemd/system/apphub-demo.service` or invoke docker compose manually; the rendered user-data script lives in `infra/aws-demo/templates/user_data.sh.tmpl`.
 - Security group changes applied manually (e.g., opening ports 4000/4173) are captured in Terraform—rerun `terraform plan` before the next apply to pick them up.
 
-## Manual publish cheat sheet
-While DNS is pending:
-1. Build locally: `npm run build --workspace @apphub/website`.
-2. Copy to server: `scp -r apps/website/dist ec2-user@<elastic-ip>:/tmp/apphub-website-dist`.
-3. Install on server:
-   ```bash
-   ssh ec2-user@<elastic-ip> 'sudo rm -rf /opt/apphub/website/dist && sudo mv /tmp/apphub-website-dist /opt/apphub/website/dist && sudo chown -R ec2-user:ec2-user /opt/apphub/website && sudo systemctl reload nginx'
-   ```
-4. Verify: `curl -I http://<elastic-ip>/` should return `200 OK`.
+## Deployment helper commands
 
-Once delegation is live, flip `enable_managed_dns` to `true`, run `terraform apply`, and switch browser access to the CloudFront-backed URLs (`https://www.osiris-apphub.com`, `https://demo.osiris-apphub.com`).
+Two scripts under `npm run` automate common deployment flows once Terraform has provisioned the stack and you have AWS credentials configured locally:
+
+| Command | Purpose |
+| --- | --- |
+| `npm run deploy:website -- --branch main` | Builds the marketing site from the requested branch in an isolated worktree, syncs the bundle to the demo S3 bucket, issues a CloudFront invalidation when available, and rsyncs the files to `/opt/apphub/website/dist` (reloading nginx) when CloudFront is disabled. |
+| `npm run deploy:demo -- --branch main` | SSH-es into the demo VM, checks out the requested branch under `/opt/apphub/source`, runs `git clean`, and restarts the docker compose stack with `--build`. |
+
+Both commands accept `--host <hostname-or-ip>` to override the target derived from Terraform outputs. Use `--no-invalidate` with the website script if you want to skip the CloudFront cache purge.
