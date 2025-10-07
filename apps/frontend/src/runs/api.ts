@@ -148,6 +148,7 @@ export type WorkflowActivityFilters = {
   search?: string;
   from?: string;
   to?: string;
+  moduleId?: string | null;
 };
 
 export type JobRunFilters = {
@@ -155,6 +156,7 @@ export type JobRunFilters = {
   jobSlugs?: string[];
   runtimes?: string[];
   search?: string;
+  moduleId?: string | null;
 };
 
 function appendArray(values: string[] | undefined, key: string, query: URLSearchParams): void {
@@ -194,6 +196,9 @@ function buildWorkflowActivityQuery(params: {
   if (filters.to) {
     query.set('to', filters.to);
   }
+  if (filters.moduleId) {
+    query.set('moduleId', filters.moduleId);
+  }
   const result = query.toString();
   return result ? `?${result}` : '';
 }
@@ -212,6 +217,9 @@ function buildJobRunQuery(params: { limit?: number; offset?: number; filters?: J
   appendArray(filters.runtimes, 'runtime', query);
   if (filters.search) {
     query.set('search', filters.search);
+  }
+  if (filters.moduleId) {
+    query.set('moduleId', filters.moduleId);
   }
   const result = query.toString();
   return result ? `?${result}` : '';

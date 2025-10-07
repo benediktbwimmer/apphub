@@ -26,187 +26,194 @@ import PreviewSettingsPage from '../settings/PreviewSettingsPage';
 import AdminToolsPage from '../settings/AdminToolsPage';
 import ThemeSettingsPage from '../settings/ThemeSettingsPage';
 import TopologyRoute from './TopologyRoute';
-import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
+import { ROUTE_SEGMENTS } from './paths';
 import AssetsPage from '../dataAssets/AssetsPage';
 import ObservabilityPage from '../observability/ObservabilityPage';
+
+const layoutChildren: RouteObject[] = [
+  {
+    index: true,
+    element: <Navigate to="overview" replace />
+  },
+  {
+    path: ROUTE_SEGMENTS.overview,
+    element: <OverviewRoute />
+  },
+  {
+    path: ROUTE_SEGMENTS.observability,
+    element: (
+      <RequireOperatorToken>
+        <ObservabilityPage />
+      </RequireOperatorToken>
+    )
+  },
+  {
+    path: ROUTE_SEGMENTS.core,
+    element: <CoreRoute />
+  },
+  {
+    path: ROUTE_SEGMENTS.events,
+    element: <EventsExplorerPage />
+  },
+  {
+    path: ROUTE_SEGMENTS.assets,
+    element: <AssetsPage />
+  },
+  {
+    path: ROUTE_SEGMENTS.services,
+    element: <ServicesLayout />,
+    errorElement: <ServicesRouteError />,
+    children: [
+      {
+        index: true,
+        element: <Navigate to="overview" replace />
+      },
+      {
+        path: ROUTE_SEGMENTS.servicesOverview,
+        element: <ServiceGallery />
+      },
+      {
+        path: ROUTE_SEGMENTS.servicesTimestore,
+        element: <TimestoreLayout />,
+        children: [
+          {
+            index: true,
+            element: <Navigate to="datasets" replace />
+          },
+          {
+            path: ROUTE_SEGMENTS.servicesTimestoreDatasets,
+            element: <TimestoreDatasetsPage />
+          },
+          {
+            path: ROUTE_SEGMENTS.servicesTimestoreSql,
+            element: <TimestoreSqlEditorPage />
+          }
+        ]
+      },
+      {
+        path: ROUTE_SEGMENTS.servicesFilestore,
+        element: <FilestoreLayout />
+      },
+      {
+        path: ROUTE_SEGMENTS.servicesMetastore,
+        element: <MetastoreExplorerPage />
+      }
+    ]
+  },
+  {
+    path: ROUTE_SEGMENTS.runs,
+    element: (
+      <RequireOperatorToken>
+        <RunsPage />
+      </RequireOperatorToken>
+    )
+  },
+  {
+    path: ROUTE_SEGMENTS.jobs,
+    element: (
+      <RequireOperatorToken>
+        <JobsPage />
+      </RequireOperatorToken>
+    )
+  },
+  {
+    path: ROUTE_SEGMENTS.workflows,
+    element: (
+      <RequireOperatorToken>
+        <WorkflowsPage />
+      </RequireOperatorToken>
+    )
+  },
+  {
+    path: ROUTE_SEGMENTS.topology,
+    element: (
+      <RequireOperatorToken>
+        <TopologyRoute />
+      </RequireOperatorToken>
+    )
+  },
+  {
+    path: ROUTE_SEGMENTS.schedules,
+    element: (
+      <RequireOperatorToken>
+        <SchedulesPage />
+      </RequireOperatorToken>
+    )
+  },
+  {
+    path: ROUTE_SEGMENTS.settings,
+    element: <SettingsLayout />,
+    children: [
+      {
+        index: true,
+        element: <Navigate to={ROUTE_SEGMENTS.settingsAppearance} replace />
+      },
+      {
+        path: ROUTE_SEGMENTS.settingsAppearance,
+        element: <ThemeSettingsPage />
+      },
+      {
+        path: ROUTE_SEGMENTS.settingsPreview,
+        element: <PreviewSettingsPage />
+      },
+      {
+        path: ROUTE_SEGMENTS.settingsApiAccess,
+        element: <ApiAccessPage />
+      },
+      {
+        path: ROUTE_SEGMENTS.settingsRuntimeScaling,
+        element: (
+          <RequireOperatorToken>
+            <RuntimeScalingSettingsPage />
+          </RequireOperatorToken>
+        )
+      },
+      {
+        path: ROUTE_SEGMENTS.settingsImport,
+        element: (
+          <RequireOperatorToken>
+            <ImportRoute />
+          </RequireOperatorToken>
+        )
+      },
+      {
+        path: ROUTE_SEGMENTS.settingsAiBuilder,
+        element: <AiBuilderSettingsPage />
+      },
+      {
+        path: ROUTE_SEGMENTS.settingsAdmin,
+        element: (
+          <RequireOperatorToken>
+            <AdminToolsPage />
+          </RequireOperatorToken>
+        )
+      }
+    ]
+  },
+  {
+    path: 'submit',
+    element: <LegacyImportRedirect from="/submit" />
+  },
+  {
+    path: 'import-manifest',
+    element: <LegacyImportRedirect from="/import-manifest" />
+  },
+  {
+    path: '*',
+    element: <Navigate to="overview" replace />
+  }
+];
 
 export const appRouteConfig: RouteObject[] = [
   {
     path: '/',
     element: <AppLayout />,
-    children: [
-      {
-        index: true,
-        element: <Navigate to={ROUTE_PATHS.overview} replace />
-      },
-      {
-        path: ROUTE_SEGMENTS.overview,
-        element: <OverviewRoute />
-      },
-      {
-        path: ROUTE_SEGMENTS.observability,
-        element: (
-          <RequireOperatorToken>
-            <ObservabilityPage />
-          </RequireOperatorToken>
-        )
-      },
-      {
-        path: ROUTE_SEGMENTS.core,
-        element: <CoreRoute />
-      },
-      {
-        path: ROUTE_SEGMENTS.events,
-        element: <EventsExplorerPage />
-      },
-      {
-        path: ROUTE_SEGMENTS.assets,
-        element: <AssetsPage />
-      },
-      {
-        path: ROUTE_SEGMENTS.services,
-        element: <ServicesLayout />,
-        errorElement: <ServicesRouteError />,
-        children: [
-          {
-            index: true,
-            element: <Navigate to={ROUTE_PATHS.servicesOverview} replace />
-          },
-          {
-            path: ROUTE_SEGMENTS.servicesOverview,
-            element: <ServiceGallery />
-          },
-          {
-            path: ROUTE_SEGMENTS.servicesTimestore,
-            element: <TimestoreLayout />,
-            children: [
-              {
-                index: true,
-                element: <Navigate to={ROUTE_PATHS.servicesTimestoreDatasets} replace />
-              },
-              {
-                path: ROUTE_SEGMENTS.servicesTimestoreDatasets,
-                element: <TimestoreDatasetsPage />
-              },
-              {
-                path: ROUTE_SEGMENTS.servicesTimestoreSql,
-                element: <TimestoreSqlEditorPage />
-              }
-            ]
-          },
-          {
-            path: ROUTE_SEGMENTS.servicesFilestore,
-            element: <FilestoreLayout />
-          },
-          {
-            path: ROUTE_SEGMENTS.servicesMetastore,
-            element: <MetastoreExplorerPage />
-          }
-        ]
-      },
-      {
-        path: ROUTE_SEGMENTS.runs,
-        element: (
-          <RequireOperatorToken>
-            <RunsPage />
-          </RequireOperatorToken>
-        )
-      },
-      {
-        path: ROUTE_SEGMENTS.jobs,
-        element: (
-          <RequireOperatorToken>
-            <JobsPage />
-          </RequireOperatorToken>
-        )
-      },
-      {
-        path: ROUTE_SEGMENTS.workflows,
-        element: (
-          <RequireOperatorToken>
-            <WorkflowsPage />
-          </RequireOperatorToken>
-        )
-      },
-      {
-        path: ROUTE_SEGMENTS.topology,
-        element: (
-          <RequireOperatorToken>
-            <TopologyRoute />
-          </RequireOperatorToken>
-        )
-      },
-      {
-        path: ROUTE_SEGMENTS.schedules,
-        element: (
-          <RequireOperatorToken>
-            <SchedulesPage />
-          </RequireOperatorToken>
-        )
-      },
-      {
-        path: ROUTE_SEGMENTS.settings,
-        element: <SettingsLayout />,
-        children: [
-          {
-            index: true,
-            element: <Navigate to={ROUTE_PATHS.settingsAppearance} replace />
-          },
-          {
-            path: ROUTE_SEGMENTS.settingsAppearance,
-            element: <ThemeSettingsPage />
-          },
-          {
-            path: ROUTE_SEGMENTS.settingsPreview,
-            element: <PreviewSettingsPage />
-          },
-          {
-            path: ROUTE_SEGMENTS.settingsApiAccess,
-            element: <ApiAccessPage />
-          },
-          {
-            path: ROUTE_SEGMENTS.settingsRuntimeScaling,
-            element: (
-              <RequireOperatorToken>
-                <RuntimeScalingSettingsPage />
-              </RequireOperatorToken>
-            )
-          },
-          {
-            path: ROUTE_SEGMENTS.settingsImport,
-            element: (
-              <RequireOperatorToken>
-                <ImportRoute />
-              </RequireOperatorToken>
-            )
-          },
-          {
-            path: ROUTE_SEGMENTS.settingsAiBuilder,
-            element: <AiBuilderSettingsPage />
-          },
-          {
-            path: ROUTE_SEGMENTS.settingsAdmin,
-            element: (
-              <RequireOperatorToken>
-                <AdminToolsPage />
-              </RequireOperatorToken>
-            )
-          }
-        ]
-      },
-      {
-        path: 'submit',
-        element: <LegacyImportRedirect from="/submit" />
-      },
-      {
-        path: 'import-manifest',
-        element: <LegacyImportRedirect from="/import-manifest" />
-      },
-      {
-        path: '*',
-        element: <Navigate to={ROUTE_PATHS.overview} replace />
-      }
-    ]
+    children: layoutChildren
+  },
+  {
+    path: '/modules/:moduleId',
+    element: <AppLayout />,
+    children: layoutChildren
   }
 ];
 

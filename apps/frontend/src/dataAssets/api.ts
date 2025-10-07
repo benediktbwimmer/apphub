@@ -81,9 +81,14 @@ async function coreJson<T>(token: TokenInput, options: CoreJsonOptions): Promise
   }
 }
 
-export async function fetchAssetGraph(token: TokenInput): Promise<AssetGraphData> {
+export async function fetchAssetGraph(
+  token: TokenInput,
+  options: { moduleId?: string | null } = {}
+): Promise<AssetGraphData> {
+  const query = options.moduleId ? { moduleId: options.moduleId } : undefined;
   const payload = await coreJson<{ data?: unknown }>(token, {
     url: '/assets/graph',
+    query,
     errorMessage: 'Failed to load asset graph'
   });
   const normalized = normalizeAssetGraphResponse(payload);
@@ -97,7 +102,7 @@ export async function markAssetPartitionStale(
   token: TokenInput,
   slug: string,
   assetId: string,
-  options: { partitionKey?: string | null; note?: string | null } = {}
+  options: { partitionKey?: string | null; note?: string | null; moduleId?: string | null } = {}
 ): Promise<void> {
   const body: Record<string, string> = {};
   if (options.partitionKey && options.partitionKey.length > 0) {
@@ -106,10 +111,14 @@ export async function markAssetPartitionStale(
   if (options.note && options.note.length > 0) {
     body.note = options.note;
   }
+  const query: Record<string, QueryValue> | undefined = options.moduleId
+    ? { moduleId: options.moduleId }
+    : undefined;
   await coreJson(token, {
     method: 'POST',
     url: `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/stale`,
     body,
+    query,
     errorMessage: 'Failed to mark asset partition stale'
   });
 }
@@ -118,12 +127,25 @@ export async function clearAssetPartitionStale(
   token: TokenInput,
   slug: string,
   assetId: string,
-  partitionKey?: string | null
+  partitionKey?: string | null,
+  moduleId?: string | null
 ): Promise<void> {
   await coreJson(token, {
     method: 'DELETE',
     url: `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/stale`,
-    query: partitionKey ? { partitionKey } : undefined,
+    query: (() => {
+      if (!partitionKey && !moduleId) {
+        return undefined;
+      }
+      const params: Record<string, QueryValue> = {};
+      if (partitionKey && partitionKey.length > 0) {
+        params.partitionKey = partitionKey;
+      }
+      if (moduleId) {
+        params.moduleId = moduleId;
+      }
+      return Object.keys(params).length > 0 ? params : undefined;
+    })(),
     errorMessage: 'Failed to clear asset partition stale flag'
   });
 }
@@ -131,7 +153,12 @@ export async function clearAssetPartitionStale(
 export async function triggerWorkflowRun(
   token: TokenInput,
   slug: string,
-  options: { partitionKey?: string | null; triggeredBy?: string | null; parameters?: unknown } = {}
+  options: {
+    partitionKey?: string | null;
+    triggeredBy?: string | null;
+    parameters?: unknown;
+    moduleId?: string | null;
+  } = {}
 ): Promise<WorkflowRun> {
   const body: Record<string, unknown> = {
     triggeredBy: options.triggeredBy ?? 'assets-ui'
@@ -142,10 +169,12 @@ export async function triggerWorkflowRun(
   if (options.parameters !== undefined) {
     body.parameters = options.parameters;
   }
+  const query = options.moduleId ? { moduleId: options.moduleId } : undefined;
   const payload = await coreJson<{ data?: unknown }>(token, {
     method: 'POST',
     url: `/workflows/${encodeURIComponent(slug)}/run`,
     body,
+    query,
     errorMessage: 'Failed to trigger workflow run'
   });
   const runRecord = normalizeWorkflowRun(payload?.data);
@@ -159,7 +188,7 @@ export async function saveAssetPartitionParameters(
   token: TokenInput,
   slug: string,
   assetId: string,
-  input: { partitionKey?: string | null; parameters: unknown }
+  input: { partitionKey?: string | null; parameters: unknown; moduleId?: string | null }
 ): Promise<SavedPartitionParameters> {
   const body: Record<string, unknown> = {
     parameters: input.parameters
@@ -173,6 +202,7 @@ export async function saveAssetPartitionParameters(
     method: 'PUT',
     url: `/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/partition-parameters`,
     body,
+    query: input.moduleId ? { moduleId: input.moduleId } : undefined,
     errorMessage: 'Failed to save partition parameters'
   });
   const data = (payload?.data ?? null) as Record<string, unknown> | null;
@@ -196,11 +226,15 @@ export async function deleteAssetPartitionParameters(
   token: TokenInput,
   slug: string,
   assetId: string,
-  partitionKey?: string | null
+  partitionKey?: string | null,
+  moduleId?: string | null
 ): Promise<void> {
   const params = new URLSearchParams();
   if (typeof partitionKey === 'string' && partitionKey.length > 0) {
     params.set('partitionKey', partitionKey);
+  }
+  if (moduleId) {
+    params.set('moduleId', moduleId);
   }
   const query = params.toString();
   await coreJson(token, {

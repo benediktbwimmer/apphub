@@ -16,6 +16,8 @@ import { fetchWorkflowDefinitions } from '../workflows/api';
 import type { WorkflowDefinition, WorkflowSchedule } from '../workflows/types';
 import { formatTimestamp } from '../workflows/formatters';
 import ScheduleFormDialog from './ScheduleFormDialog';
+import { useModuleScope } from '../modules/ModuleScopeContext';
+import { ModuleScopeGate } from '../modules/ModuleScopeGate';
 import {
   SCHEDULE_ALERT_DANGER,
   SCHEDULE_EMPTY_STATE,
@@ -56,6 +58,10 @@ type FormState = {
 export default function SchedulesPage(): JSX.Element {
   const { activeToken: authToken } = useAuth();
   const { pushToast } = useToasts();
+  const moduleScope = useModuleScope();
+
+  const isModuleScoped = moduleScope.kind === 'module';
+  const activeModuleId = isModuleScoped ? moduleScope.moduleId : null;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,10 +75,23 @@ export default function SchedulesPage(): JSX.Element {
     if (!authToken) {
       return;
     }
+    if (!isModuleScoped) {
+      setSchedules([]);
+      setError(null);
+      return;
+    }
+    if (isModuleScoped && moduleScope.loadingResources) {
+      return;
+    }
+    if (isModuleScoped && !activeModuleId) {
+      setSchedules([]);
+      setError(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchSchedules(authToken);
+      const data = await fetchSchedules(authToken, { moduleId: activeModuleId ?? undefined });
       setSchedules(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load schedules';
@@ -80,15 +99,26 @@ export default function SchedulesPage(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [authToken]);
+  }, [authToken, activeModuleId, isModuleScoped, moduleScope.loadingResources]);
 
   const loadWorkflows = useCallback(async () => {
     if (!authToken) {
       return;
     }
+    if (!isModuleScoped) {
+      setWorkflows([]);
+      return;
+    }
+    if (isModuleScoped && moduleScope.loadingResources) {
+      return;
+    }
+    if (isModuleScoped && !activeModuleId) {
+      setWorkflows([]);
+      return;
+    }
     setWorkflowsLoading(true);
     try {
-      const definitions = await fetchWorkflowDefinitions(authToken);
+      const definitions = await fetchWorkflowDefinitions(authToken, { moduleId: activeModuleId ?? undefined });
       setWorkflows(definitions);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load workflows';
@@ -100,12 +130,14 @@ export default function SchedulesPage(): JSX.Element {
     } finally {
       setWorkflowsLoading(false);
     }
-  }, [authToken, pushToast]);
+  }, [authToken, activeModuleId, isModuleScoped, moduleScope.loadingResources, pushToast]);
 
   useEffect(() => {
     void loadSchedules();
     void loadWorkflows();
   }, [loadSchedules, loadWorkflows]);
+
+  const shouldShowModuleGate = moduleScope.kind !== 'module' || moduleScope.loadingResources;
 
   const workflowOptions = useMemo(() => {
     return workflows
@@ -223,6 +255,10 @@ export default function SchedulesPage(): JSX.Element {
     },
     [authToken, pushToast]
   );
+
+  if (shouldShowModuleGate) {
+    return <ModuleScopeGate resourceName="schedules" />;
+  }
 
   return (
     <div className="flex flex-col gap-6">

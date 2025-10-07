@@ -23,4 +23,5 @@ export * from './workflowEventSamples';
 export * from './workflowEventSamplingReplay';
 export * from './runtimeScaling';
 export * from './modules';
+export * from './moduleResourceContexts';
 export * from './assetRecovery';
