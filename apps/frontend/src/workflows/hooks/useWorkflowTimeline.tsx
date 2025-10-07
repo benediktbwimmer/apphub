@@ -19,7 +19,6 @@ import {
   type WorkflowTimelineSnapshot,
   type WorkflowTimelineTriggerStatus
 } from '../types';
-import { useModuleScope } from '../../modules/ModuleScopeContext';
 
 const STATUS_SET = new Set<WorkflowTimelineTriggerStatus>(WORKFLOW_TIMELINE_TRIGGER_STATUSES);
 
@@ -99,9 +98,6 @@ function buildQuery(
 export function WorkflowTimelineProvider({ children }: { children: ReactNode }) {
   const { authorizedFetch } = useWorkflowAccess();
   const { selectedSlug } = useWorkflowDefinitions();
-  const moduleScope = useModuleScope();
-  const { kind: moduleScopeKind, isResourceInScope } = moduleScope;
-  const isModuleScoped = moduleScopeKind === 'module';
 
   const [timelineState, setTimelineState] = useState<Record<string, TimelineStateEntry>>({});
   const timelineStateRef = useRef<Record<string, TimelineStateEntry>>({});
@@ -120,15 +116,7 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
       if (!slug) {
         return;
       }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
-        return;
-      }
       const nextQuery = buildQuery(slug, overrides, timelineStateRef.current);
-      if (isModuleScoped) {
-        nextQuery.moduleId = moduleScope.moduleId ?? undefined;
-      } else {
-        delete nextQuery.moduleId;
-      }
       setTimelineState((current) => {
         const existing = current[slug] ?? createDefaultTimelineState();
         return {
@@ -170,14 +158,11 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
         });
       }
     },
-    [authorizedFetch, isModuleScoped, isResourceInScope, moduleScope.moduleId]
+    [authorizedFetch]
   );
 
   useEffect(() => {
     if (!selectedSlug) {
-      return;
-    }
-    if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
       return;
     }
     const entry = timelineStateRef.current[selectedSlug];
@@ -187,7 +172,7 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
     if (!entry || !entry.snapshot) {
       void loadTimeline(selectedSlug, {});
     }
-  }, [isModuleScoped, isResourceInScope, loadTimeline, selectedSlug]);
+  }, [selectedSlug, loadTimeline]);
 
   const timelineEntry = selectedSlug ? timelineState[selectedSlug] : undefined;
 
@@ -207,15 +192,12 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
       if (!slug) {
         return;
       }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
-        return;
-      }
       if (!WORKFLOW_TIMELINE_RANGE_KEYS.includes(range)) {
         return;
       }
       void loadTimeline(slug, { range });
     },
-    [isModuleScoped, isResourceInScope, loadTimeline]
+    [loadTimeline]
   );
 
   const setTimelineStatuses = useCallback(
@@ -224,22 +206,16 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
       if (!slug) {
         return;
       }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
-        return;
-      }
       const sanitized = statuses.filter((status) => STATUS_SET.has(status));
       void loadTimeline(slug, { statuses: sanitized });
     },
-    [isModuleScoped, isResourceInScope, loadTimeline]
+    [loadTimeline]
   );
 
   const toggleTimelineStatus = useCallback(
     (status: WorkflowTimelineTriggerStatus) => {
       const slug = selectedSlugRef.current;
       if (!slug) {
-        return;
-      }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
         return;
       }
       const currentStatuses = timelineStateRef.current[slug]?.query.statuses ?? [];
@@ -249,7 +225,7 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
         : [...currentStatuses, status];
       void loadTimeline(slug, { statuses: next });
     },
-    [isModuleScoped, isResourceInScope, loadTimeline]
+    [loadTimeline]
   );
 
   const clearTimelineStatuses = useCallback(() => {
@@ -257,22 +233,16 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
     if (!slug) {
       return;
     }
-    if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
-      return;
-    }
     void loadTimeline(slug, { statuses: [] });
-  }, [isModuleScoped, isResourceInScope, loadTimeline]);
+  }, [loadTimeline]);
 
   const refreshTimeline = useCallback(() => {
     const slug = selectedSlugRef.current;
     if (!slug) {
       return;
     }
-    if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
-      return;
-    }
     void loadTimeline(slug, {});
-  }, [isModuleScoped, isResourceInScope, loadTimeline]);
+  }, [loadTimeline]);
 
   const timelineHasMore = useMemo(() => {
     if (!timelineEntry?.snapshot) {
@@ -290,13 +260,10 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
     if (!slug) {
       return;
     }
-    if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
-      return;
-    }
     const currentLimit = timelineStateRef.current[slug]?.query.limit ?? TIMELINE_PAGE_SIZE;
     const nextLimit = currentLimit + TIMELINE_PAGE_SIZE;
     return loadTimeline(slug, { limit: nextLimit });
-  }, [isModuleScoped, isResourceInScope, loadTimeline]);
+  }, [loadTimeline]);
 
   const value = useMemo<WorkflowTimelineContextValue>(() => ({
     timeline: timelineEntry?.snapshot ?? null,

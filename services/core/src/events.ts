@@ -13,8 +13,7 @@ import type {
   JobBundleVersionRecord,
   WorkflowDefinitionRecord,
   WorkflowRunRecord,
-  WorkflowEventRecord,
-  ModuleResourceContextRecord
+  WorkflowEventRecord
 } from './db/index';
 import type {
   AssetExpiredEventData,
@@ -81,8 +80,6 @@ export type ApphubEvent =
   | { type: 'workflow.run.succeeded'; data: { run: WorkflowRunRecord } }
   | { type: 'workflow.run.failed'; data: { run: WorkflowRunRecord } }
   | { type: 'workflow.run.canceled'; data: { run: WorkflowRunRecord } }
-  | { type: 'module.context.updated'; data: { context: ModuleResourceContextRecord } }
-  | { type: 'module.context.deleted'; data: { context: ModuleResourceContextRecord } }
   | { type: 'asset.produced'; data: AssetProducedEventData }
   | { type: 'asset.expired'; data: AssetExpiredEventData }
   | { type: 'metastore.record.created'; data: MetastoreRecordEventData }

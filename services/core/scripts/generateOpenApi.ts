@@ -86,11 +86,7 @@ async function generateOpenApiSpec() {
   await app.register(async (instance) =>
     registerServiceRoutes(instance, {
       registry: {
-        importManifestModule: async () => ({
-          servicesApplied: 0,
-          networksApplied: 0,
-          moduleVersion: '0'
-        })
+        importManifestModule: async () => ({ servicesApplied: 0, networksApplied: 0 })
       }
     })
   );

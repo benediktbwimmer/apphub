@@ -37,20 +37,10 @@ export class WorkflowsService {
    * @returns def_68 Workflow definitions currently available.
    * @throws ApiError
    */
-  public getWorkflows({
-    moduleId,
-  }: {
-    /**
-     * Optional module identifier to scope workflow definitions.
-     */
-    moduleId?: (string | Array<string>),
-  }): CancelablePromise<def_68> {
+  public getWorkflows(): CancelablePromise<def_68> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/workflows',
-      query: {
-        'moduleId': moduleId,
-      },
       errors: {
         500: `The server failed to fetch workflow definitions.`,
       },
@@ -98,7 +88,6 @@ export class WorkflowsService {
     search,
     from,
     to,
-    moduleId,
   }: {
     /**
      * Workflow slug to inspect.
@@ -122,10 +111,6 @@ export class WorkflowsService {
     search?: string,
     from?: string,
     to?: string,
-    /**
-     * Optional module identifier to scope workflow runs.
-     */
-    moduleId?: (string | Array<string>),
   }): CancelablePromise<def_72> {
     return this.httpRequest.request({
       method: 'GET',
@@ -143,7 +128,6 @@ export class WorkflowsService {
         'search': search,
         'from': from,
         'to': to,
-        'moduleId': moduleId,
       },
       errors: {
         400: `The request parameters or query failed validation.`,
@@ -195,20 +179,10 @@ export class WorkflowsService {
    * @returns def_86 Current asset graph snapshot.
    * @throws ApiError
    */
-  public getAssetsGraph({
-    moduleId,
-  }: {
-    /**
-     * Optional module identifier to scope workflow assets.
-     */
-    moduleId?: (string | Array<string>),
-  }): CancelablePromise<def_86> {
+  public getAssetsGraph(): CancelablePromise<def_86> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/assets/graph',
-      query: {
-        'moduleId': moduleId,
-      },
       errors: {
         500: `Failed to build the workflow asset graph.`,
       },

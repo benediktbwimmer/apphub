@@ -237,7 +237,6 @@ export type JobRunFilters = {
   jobSlugs?: string[];
   runtimes?: string[];
   search?: string;
-  moduleIds?: string[];
 };
 
 export type JobRunListResult = Awaited<ReturnType<typeof listJobRuns>>;
@@ -525,8 +524,8 @@ function toJobSummary(job: JobDefinitionRecord) {
 export class JobService {
   constructor(private readonly deps: JobServiceDependencies) {}
 
-  async listJobDefinitions(options: { moduleIds?: string[] } = {}): Promise<JobDefinitionRecord[]> {
-    return this.deps.listJobDefinitions(options);
+  async listJobDefinitions(): Promise<JobDefinitionRecord[]> {
+    return this.deps.listJobDefinitions();
   }
 
   async getRuntimeReadiness() {

@@ -77,9 +77,7 @@ import {
   type ModuleArtifactRecord,
   type ModuleRecord,
   type ModuleTargetRecord,
-  type ModuleTargetRuntimeConfigRecord,
-  type ModuleResourceContextRecord,
-  type ModuleResourceType
+  type ModuleTargetRuntimeConfigRecord
 } from './types';
 import type {
   BuildRow,
@@ -120,8 +118,7 @@ import type {
   ModuleArtifactRow,
   ModuleRow,
   ModuleTargetRow,
-  ModuleTargetConfigRow,
-  ModuleResourceContextRow
+  ModuleTargetConfigRow
 } from './rowTypes';
 import type {
   ServiceRecord,
@@ -1682,22 +1679,6 @@ export function mapModuleTargetConfigRow(row: ModuleTargetConfigRow): ModuleTarg
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies ModuleTargetRuntimeConfigRecord;
-}
-
-export function mapModuleResourceContextRow(row: ModuleResourceContextRow): ModuleResourceContextRecord {
-  return {
-    moduleId: row.module_id,
-    moduleVersion: row.module_version ?? null,
-    resourceType: row.resource_type as ModuleResourceType,
-    resourceId: row.resource_id,
-    resourceSlug: row.resource_slug ?? null,
-    resourceName: row.resource_name ?? null,
-    resourceVersion: row.resource_version ?? null,
-    isShared: Boolean(row.is_shared),
-    metadata: parseJsonColumn(row.metadata),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  } satisfies ModuleResourceContextRecord;
 }
 
 function parseJsonColumn(value: unknown): JsonValue | null {

@@ -6,8 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, afterEach, before, test } from 'node:test';
-import { createEmbeddedPostgres, stopEmbeddedPostgres } from '../../../tests/helpers';
-import type EmbeddedPostgres from 'embedded-postgres';
+import EmbeddedPostgres from 'embedded-postgres';
 import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
@@ -90,7 +89,7 @@ before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'filestore-s3-pg-'));
   dataDirectory = dataRoot;
   const port = 56500 + Math.floor(Math.random() * 1000);
-  const embedded: EmbeddedPostgres = createEmbeddedPostgres({
+  const embedded = new EmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -167,7 +166,9 @@ after(async () => {
   if (clientModule) {
     await clientModule.closePool();
   }
-  await stopEmbeddedPostgres(postgres);
+  if (postgres) {
+    await postgres.stop();
+  }
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }

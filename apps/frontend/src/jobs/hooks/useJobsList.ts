@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
 import { fetchJobs } from '../api';
 import type { JobDefinitionSummary } from '../../workflows/api';
-import { useModuleScope } from '../../modules/ModuleScopeContext';
 
 export type UseJobsListResult = {
   jobs: JobDefinitionSummary[];
@@ -14,14 +13,6 @@ export type UseJobsListResult = {
 
 export function useJobsList(): UseJobsListResult {
   const { activeToken } = useAuth();
-  const moduleScope = useModuleScope();
-  const {
-    kind: moduleScopeKind,
-    moduleId,
-    loadingResources: moduleLoadingResources,
-    isResourceInScope
-  } = moduleScope;
-  const isModuleScoped = moduleScopeKind === 'module';
   const [jobs, setJobs] = useState<JobDefinitionSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,24 +29,6 @@ export function useJobsList(): UseJobsListResult {
       };
     }
 
-    if (isModuleScoped) {
-      if (!moduleId) {
-        setJobs([]);
-        setLoading(false);
-        setError(null);
-        return () => {
-          canceled = true;
-        };
-      }
-      if (moduleLoadingResources) {
-        setLoading(true);
-        setError(null);
-        return () => {
-          canceled = true;
-        };
-      }
-    }
-
     const controller = new AbortController();
     const run = async () => {
       setLoading(true);
@@ -63,19 +36,7 @@ export function useJobsList(): UseJobsListResult {
       try {
         const data = await fetchJobs(activeToken, { signal: controller.signal });
         if (!canceled) {
-          const filtered = data.filter((job) => {
-            if (job.runtime !== 'module') {
-              return !isModuleScoped;
-            }
-            if (!isModuleScoped) {
-              return true;
-            }
-            if (isResourceInScope('job-definition', job.id)) {
-              return true;
-            }
-            return isResourceInScope('job-definition', job.slug);
-          });
-          setJobs(filtered);
+          setJobs(data);
         }
       } catch (err) {
         if (!canceled) {
@@ -95,27 +56,7 @@ export function useJobsList(): UseJobsListResult {
       canceled = true;
       controller.abort();
     };
-  }, [
-    activeToken,
-    isModuleScoped,
-    isResourceInScope,
-    moduleId,
-    moduleLoadingResources,
-    refreshToken
-  ]);
-
-  useEffect(() => {
-    if (!isModuleScoped) {
-      return;
-    }
-    setJobs((current) =>
-      current.filter(
-        (job) =>
-          job.runtime === 'module' &&
-          (isResourceInScope('job-definition', job.id) || isResourceInScope('job-definition', job.slug))
-      )
-    );
-  }, [isModuleScoped, isResourceInScope]);
+  }, [activeToken, refreshToken]);
 
   const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
 

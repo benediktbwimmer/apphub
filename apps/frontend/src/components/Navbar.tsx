@@ -1,8 +1,7 @@
-import { useCallback, useMemo, type ChangeEvent } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { JSX } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { PRIMARY_NAV_ITEMS, type PrimaryNavKey } from '../routes/paths';
-import { useModuleScope } from '../modules/ModuleScopeContext';
 
 interface NavbarProps {
   variant?: 'default' | 'overlay';
@@ -34,45 +33,28 @@ const NAV_ICON_MAP: Record<PrimaryNavKey, IconComponent> = {
 
 export default function Navbar({ variant = 'default', onExitFullscreen }: NavbarProps) {
   const location = useLocation();
-  const moduleScope = useModuleScope();
   const isOverlay = variant === 'overlay';
 
-  const activePath = useMemo(() => {
-    const stripped = moduleScope.stripModulePrefix(location.pathname).replace(/\/$/, '');
-    return stripped || '/';
-  }, [location.pathname, moduleScope]);
+  const activePath = useMemo(() => location.pathname.replace(/\/$/, '') || '/', [location.pathname]);
 
   const isPathActive = useCallback<PathPredicate>(
     (path) => {
-      const target = moduleScope.stripModulePrefix(moduleScope.buildModulePath(path));
-      if (target === '/') {
+      if (path === '/') {
         return activePath === '/';
       }
-      return activePath === target || activePath.startsWith(`${target}/`);
+      return activePath === path || activePath.startsWith(`${path}/`);
     },
-    [activePath, moduleScope]
+    [activePath]
   );
 
   if (isOverlay) {
-    return (
-      <OverlayNavbar
-        isPathActive={isPathActive}
-        onExitFullscreen={onExitFullscreen}
-        moduleScope={moduleScope}
-      />
-    );
+    return <OverlayNavbar isPathActive={isPathActive} onExitFullscreen={onExitFullscreen} />;
   }
 
-  return <SidebarNavbar isPathActive={isPathActive} moduleScope={moduleScope} />;
+  return <SidebarNavbar isPathActive={isPathActive} />;
 }
 
-function SidebarNavbar({
-  isPathActive,
-  moduleScope
-}: {
-  isPathActive: PathPredicate;
-  moduleScope: ReturnType<typeof useModuleScope>;
-}) {
+function SidebarNavbar({ isPathActive }: { isPathActive: PathPredicate }) {
   return (
     <aside className="flex-shrink-0 lg:sticky lg:top-10 lg:self-start">
       <div className="flex h-full max-h-[calc(100vh-5rem)] flex-col items-center gap-6 rounded-3xl border border-subtle bg-surface-glass px-4 py-5 text-primary shadow-elevation-lg backdrop-blur-md">
@@ -82,7 +64,6 @@ function SidebarNavbar({
           </span>
           <span className="text-scale-sm font-weight-semibold text-primary">AppHub</span>
         </div>
-        <ModuleSwitcher variant="sidebar" moduleScope={moduleScope} />
         <nav
           aria-label="Primary"
           className="flex w-full flex-1 flex-row flex-wrap items-center justify-center gap-2 overflow-y-auto pb-1 lg:flex-col lg:flex-nowrap lg:items-center lg:gap-2"
@@ -93,7 +74,7 @@ function SidebarNavbar({
             return (
               <Link
                 key={item.key}
-                to={moduleScope.buildModulePath(item.path)}
+                to={item.path}
                 aria-current={isActive ? 'page' : undefined}
                 aria-label={item.label}
                 title={item.label}
@@ -132,15 +113,7 @@ function Tooltip({ label }: { label: string }) {
   );
 }
 
-function OverlayNavbar({
-  isPathActive,
-  onExitFullscreen,
-  moduleScope
-}: {
-  isPathActive: PathPredicate;
-  onExitFullscreen?: () => void;
-  moduleScope: ReturnType<typeof useModuleScope>;
-}) {
+function OverlayNavbar({ isPathActive, onExitFullscreen }: { isPathActive: PathPredicate; onExitFullscreen?: () => void }) {
   const containerClasses =
     'rounded-3xl border border-default bg-surface-sunken-glass px-5 py-4 text-inverse shadow-elevation-lg backdrop-blur';
 
@@ -162,14 +135,13 @@ function OverlayNavbar({
         <span className="text-scale-lg font-weight-semibold">AppHub</span>
       </div>
       <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-4">
-        <ModuleSwitcher variant="overlay" moduleScope={moduleScope} />
         <div className={tabGroupClasses} role="tablist" aria-label="Pages">
           {PRIMARY_NAV_ITEMS.map((item) => {
             const isActive = isPathActive(item.path);
             return (
               <Link
                 key={item.key}
-                to={moduleScope.buildModulePath(item.path)}
+                to={item.path}
                 role="tab"
                 aria-selected={isActive}
                 aria-current={isActive ? 'page' : undefined}
@@ -197,65 +169,6 @@ function OverlayNavbar({
         )}
       </div>
     </nav>
-  );
-}
-
-function ModuleSwitcher({
-  variant,
-  moduleScope
-}: {
-  variant: 'sidebar' | 'overlay';
-  moduleScope: ReturnType<typeof useModuleScope>;
-}) {
-  const { moduleId, moduleVersion, modules, loadingModules, setModuleId } = moduleScope;
-
-  const handleChange = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      const value = event.target.value;
-      if (value === '__all__') {
-        setModuleId(null);
-      } else {
-        setModuleId(value);
-      }
-    },
-    [setModuleId]
-  );
-
-  const selectedModule = moduleId ? modules.find((entry) => entry.id === moduleId) ?? null : null;
-
-  const containerClasses =
-    variant === 'sidebar'
-      ? 'w-full rounded-2xl border border-subtle bg-surface-muted px-3 py-2 text-left'
-      : 'flex flex-col gap-1 rounded-2xl border border-default bg-surface-sunken-glass px-4 py-3 text-left';
-
-  return (
-    <div className={`${containerClasses} text-scale-xs font-weight-semibold uppercase tracking-[0.15em] text-muted`}>
-      <label className="flex flex-col gap-2">
-        <span>Module Scope</span>
-        <select
-          className="w-full rounded-xl border border-subtle bg-surface-base px-3 py-2 text-scale-sm font-weight-medium text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          value={moduleId ?? '__all__'}
-          onChange={handleChange}
-          disabled={loadingModules}
-        >
-          <option value="__all__">All modules</option>
-          {modules.map((module) => (
-            <option key={module.id} value={module.id}>
-              {module.displayName ?? module.id}
-            </option>
-          ))}
-        </select>
-      </label>
-      {selectedModule && (
-        <div className="mt-2 text-scale-2xs font-weight-regular text-secondary normal-case tracking-normal">
-          <div className="font-weight-semibold text-scale-xs text-primary">{selectedModule.displayName ?? selectedModule.id}</div>
-          {moduleVersion && <div className="text-scale-2xs text-muted">Version {moduleVersion}</div>}
-          {selectedModule.description && (
-            <p className="mt-1 text-muted">{selectedModule.description}</p>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 

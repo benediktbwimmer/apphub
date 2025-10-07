@@ -75,27 +75,11 @@ function resolveBucketInterval(range: AnalyticsTimeRange, bucketInterval?: strin
 
 export async function getWorkflowRunStatsBySlug(
   slug: string,
-  options: AnalyticsOptions & { moduleIds?: string[] | null } = {}
+  options: AnalyticsOptions = {}
 ): Promise<WorkflowRunStats> {
   return useConnection(async (client) => {
-    const normalizedModuleIds = Array.isArray(options.moduleIds)
-      ? Array.from(new Set(options.moduleIds.map((id) => id.trim()).filter((id) => id.length > 0)))
-      : null;
-
-    const definition = await fetchWorkflowDefinitionBySlugOrThrow(client, slug, {
-      moduleIds: normalizedModuleIds
-    });
+    const definition = await fetchWorkflowDefinitionBySlugOrThrow(client, slug);
     const range = normalizeTimeRange(options);
-
-    const moduleFilterClause = normalizedModuleIds && normalizedModuleIds.length > 0
-      ? `AND EXISTS (
-          SELECT 1
-            FROM module_resource_contexts mrc
-           WHERE mrc.resource_type = 'workflow-run'
-             AND mrc.resource_id = workflow_runs.id
-             AND mrc.module_id = ANY($4::text[])
-        )`
-      : '';
 
     const { rows: statusRows } = await client.query<{ status: string | null; count: string }>(
       `SELECT status, COUNT(*)::bigint AS count
@@ -103,11 +87,8 @@ export async function getWorkflowRunStatsBySlug(
         WHERE workflow_definition_id = $1
           AND created_at >= $2
           AND created_at < $3
-          ${moduleFilterClause}
         GROUP BY status`,
-      normalizedModuleIds && normalizedModuleIds.length > 0
-        ? [definition.id, range.from.toISOString(), range.to.toISOString(), normalizedModuleIds]
-        : [definition.id, range.from.toISOString(), range.to.toISOString()]
+      [definition.id, range.from.toISOString(), range.to.toISOString()]
     );
 
     const statusCounts: WorkflowRunStatusCounts = {};
@@ -125,11 +106,8 @@ export async function getWorkflowRunStatsBySlug(
         WHERE workflow_definition_id = $1
           AND duration_ms IS NOT NULL
           AND created_at >= $2
-          AND created_at < $3
-          ${moduleFilterClause}`,
-      normalizedModuleIds && normalizedModuleIds.length > 0
-        ? [definition.id, range.from.toISOString(), range.to.toISOString(), normalizedModuleIds]
-        : [definition.id, range.from.toISOString(), range.to.toISOString()]
+          AND created_at < $3`,
+      [definition.id, range.from.toISOString(), range.to.toISOString()]
     );
 
     const averageDurationMs = (() => {
@@ -153,13 +131,10 @@ export async function getWorkflowRunStatsBySlug(
         AND status = 'failed'
         AND created_at >= $2
         AND created_at < $3
-        ${moduleFilterClause}
       GROUP BY category
       ORDER BY count DESC
       LIMIT 20`,
-      normalizedModuleIds && normalizedModuleIds.length > 0
-        ? [definition.id, range.from.toISOString(), range.to.toISOString(), normalizedModuleIds]
-        : [definition.id, range.from.toISOString(), range.to.toISOString()]
+      [definition.id, range.from.toISOString(), range.to.toISOString()]
     );
 
     const failureCategories = failureRows.map((row) => ({
@@ -188,28 +163,12 @@ export async function getWorkflowRunStatsBySlug(
 
 export async function getWorkflowRunMetricsBySlug(
   slug: string,
-  options: MetricsOptions & { moduleIds?: string[] | null } = {}
+  options: MetricsOptions = {}
 ): Promise<WorkflowRunMetrics> {
   return useConnection(async (client) => {
-    const normalizedModuleIds = Array.isArray(options.moduleIds)
-      ? Array.from(new Set(options.moduleIds.map((id) => id.trim()).filter((id) => id.length > 0)))
-      : null;
-
-    const definition = await fetchWorkflowDefinitionBySlugOrThrow(client, slug, {
-      moduleIds: normalizedModuleIds
-    });
+    const definition = await fetchWorkflowDefinitionBySlugOrThrow(client, slug);
     const range = normalizeTimeRange(options);
     const bucketInterval = resolveBucketInterval(range, options.bucketInterval);
-
-    const moduleFilterClause = normalizedModuleIds && normalizedModuleIds.length > 0
-      ? `AND EXISTS (
-            SELECT 1
-              FROM module_resource_contexts mrc
-             WHERE mrc.resource_type = 'workflow-run'
-               AND mrc.resource_id = run_source.run_id
-               AND mrc.module_id = ANY($5::text[])
-          )`
-      : '';
 
     const { rows } = await client.query<{
       bucket_start: Date;
@@ -225,12 +184,11 @@ export async function getWorkflowRunMetricsBySlug(
          SELECT generate_series($2::timestamptz, $3::timestamptz, $4::interval) AS bucket_start
        ),
        run_source AS (
-         SELECT id AS run_id, created_at, status, duration_ms
+         SELECT created_at, status, duration_ms
            FROM workflow_runs
           WHERE workflow_definition_id = $1
             AND created_at >= $2
             AND created_at < $3
-            ${moduleFilterClause}
        )
        SELECT
          bucket_start,
@@ -247,9 +205,12 @@ export async function getWorkflowRunMetricsBySlug(
         AND run_source.created_at < bucket_start + $4::interval
        GROUP BY bucket_start
        ORDER BY bucket_start`,
-      normalizedModuleIds && normalizedModuleIds.length > 0
-        ? [definition.id, range.from.toISOString(), range.to.toISOString(), bucketInterval, normalizedModuleIds]
-        : [definition.id, range.from.toISOString(), range.to.toISOString(), bucketInterval]
+      [
+        definition.id,
+        range.from.toISOString(),
+        range.to.toISOString(),
+        bucketInterval
+      ]
     );
 
     const series: WorkflowRunMetricsPoint[] = [];

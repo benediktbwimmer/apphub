@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { createEmbeddedPostgres, stopEmbeddedPostgres } from '@apphub/test-helpers';
-import type EmbeddedPostgres from 'embedded-postgres';
+import EmbeddedPostgres from 'embedded-postgres';
 import { backfillServiceRegistry } from '../src/serviceRegistryBackfill';
 import {
   getServiceBySlug,
@@ -35,7 +34,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   }
   cleanupDir = await mkdtemp(path.join(tmpdir(), 'service-registry-backfill-'));
   const port = 49_000 + Math.floor(Math.random() * 1000);
-  const instance: EmbeddedPostgres = createEmbeddedPostgres({
+  const instance = new EmbeddedPostgres({
     databaseDir: cleanupDir,
     port,
     user: 'postgres',
@@ -56,7 +55,7 @@ async function shutdownEmbeddedPostgres(): Promise<void> {
   const dir = cleanupDir;
   cleanupDir = null;
   if (instance) {
-    await stopEmbeddedPostgres(instance);
+    await instance.stop();
   }
   if (dir) {
     await rm(dir, { recursive: true, force: true });

@@ -1,7 +1,6 @@
 import process from 'node:process';
 
 import { scheduleForcedExit, logActiveHandles } from './forceExit';
-import { stopAllEmbeddedPostgres } from './embeddedPostgres';
 
 const DEFAULT_CLEANUP_TIMEOUT_MS = 60_000;
 
@@ -39,11 +38,7 @@ export async function runE2E(
   } else {
     console.info('[runE2E] Starting scenario');
   }
-  const cleanupHandlers: CleanupHandler[] = [
-    async () => {
-      await stopAllEmbeddedPostgres();
-    }
-  ];
+  const cleanupHandlers: CleanupHandler[] = [];
   let exitCode = 0;
   let shutdownPromise: Promise<void> | null = null;
   let receivedSignal = false;

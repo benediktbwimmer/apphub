@@ -127,10 +127,6 @@ export type LoadedManifestEntry = Omit<ManifestEntryInput, 'env'> & {
   env?: ResolvedManifestEnvVar[];
   sources: string[];
   baseUrlSource: 'manifest' | 'env';
-  module?: {
-    id: string;
-    version?: string | null;
-  };
 };
 
 export type LoadedWorkflowDefinition = {
@@ -766,7 +762,6 @@ function addManifestEntries(
     variables?: Record<string, string> | null;
     placeholderMode: PlaceholderMode;
     errors: ManifestLoadError[];
-    moduleContext?: { id: string; version?: string | null };
   }
 ) {
   for (const entry of entries) {
@@ -781,21 +776,14 @@ function addManifestEntries(
       placeholderMode: options.placeholderMode,
       errors: options.errors
     });
-    const moduleContext = options.moduleContext
-      ? { id: options.moduleContext.id, version: options.moduleContext.version ?? null }
-      : undefined;
-
-    const normalizedEntry: LoadedManifestEntry = {
-      ...(entry as LoadedManifestEntry),
+    target.push({
+      ...entry,
       slug,
       env,
       tags: cloneTags(entry.tags),
       sources: [moduleSource, sourceLabel],
-      baseUrlSource: 'manifest',
-      module: moduleContext
-    };
-
-    target.push(normalizedEntry);
+      baseUrlSource: 'manifest'
+    });
   }
 }
 
@@ -941,8 +929,7 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
         metadataLookup,
         variables,
         placeholderMode,
-        errors,
-        moduleContext: { id: moduleId }
+        errors
       });
       addManifestNetworks(networks, manifestDescriptors.networks, moduleSource, manifestSourceLabel, {
         collector: placeholderCollector,
@@ -1003,14 +990,13 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
   }
 
   if (config.services?.length) {
-  addManifestEntries(entries, config.services, moduleSource, sourceLabel, {
-    collector: placeholderCollector,
-    metadataLookup,
-    variables,
-    placeholderMode,
-    errors,
-    moduleContext: { id: moduleId }
-  });
+    addManifestEntries(entries, config.services, moduleSource, sourceLabel, {
+      collector: placeholderCollector,
+      metadataLookup,
+      variables,
+      placeholderMode,
+      errors
+    });
   }
 
   if (config.networks?.length) {

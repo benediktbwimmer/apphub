@@ -154,29 +154,12 @@ async function fetchWorkflowDefinitionById(
 
 async function fetchWorkflowDefinitionBySlug(
   client: PoolClient,
-  slug: string,
-  options: { moduleIds?: string[] | null } = {}
+  slug: string
 ): Promise<WorkflowDefinitionRecord | null> {
-  const moduleIds = Array.isArray(options.moduleIds)
-    ? Array.from(new Set(options.moduleIds.map((id) => id.trim()).filter((id) => id.length > 0)))
-    : null;
-
-  const params: unknown[] = [slug];
-  let query = 'SELECT * FROM workflow_definitions WHERE slug = $1';
-
-  if (moduleIds && moduleIds.length > 0) {
-    params.push(moduleIds);
-    query += `
-      AND EXISTS (
-        SELECT 1
-          FROM module_resource_contexts mrc
-         WHERE mrc.resource_type = 'workflow-definition'
-           AND mrc.resource_id = workflow_definitions.id
-           AND mrc.module_id = ANY($${params.length}::text[])
-      )`;
-  }
-
-  const { rows } = await client.query<WorkflowDefinitionRow>(query, params);
+  const { rows } = await client.query<WorkflowDefinitionRow>(
+    'SELECT * FROM workflow_definitions WHERE slug = $1',
+    [slug]
+  );
   if (rows.length === 0) {
     return null;
   }
@@ -277,37 +260,17 @@ async function attachEventTriggersToDefinitions(
 
 async function fetchWorkflowDefinitionsByIds(
   client: PoolClient,
-  ids: readonly string[],
-  options: { moduleIds?: string[] | null } = {}
+  ids: readonly string[]
 ): Promise<Map<string, WorkflowDefinitionRecord>> {
   if (ids.length === 0) {
     return new Map();
   }
 
-  const moduleIds = Array.isArray(options.moduleIds)
-    ? Array.from(new Set(options.moduleIds.map((id) => id.trim()).filter((id) => id.length > 0)))
-    : null;
-
-  const params: unknown[] = [ids];
-  let whereClause = 'WHERE id = ANY($1::text[])';
-
-  if (moduleIds && moduleIds.length > 0) {
-    params.push(moduleIds);
-    whereClause += `
-      AND EXISTS (
-        SELECT 1
-          FROM module_resource_contexts mrc
-         WHERE mrc.resource_type = 'workflow-definition'
-           AND mrc.resource_id = workflow_definitions.id
-           AND mrc.module_id = ANY($${params.length}::text[])
-      )`;
-  }
-
   const { rows } = await client.query<WorkflowDefinitionRow>(
     `SELECT *
        FROM workflow_definitions
-      ${whereClause}`,
-    params
+      WHERE id = ANY($1::text[])`,
+    [ids]
   );
 
   const definitions = rows.map(mapWorkflowDefinitionRow);
@@ -335,31 +298,10 @@ async function fetchWorkflowScheduleById(
   return mapWorkflowScheduleRow(rows[0]);
 }
 
-export async function listWorkflowDefinitions(options: { moduleIds?: string[] | null } = {}): Promise<WorkflowDefinitionRecord[]> {
-  const moduleIds = Array.isArray(options.moduleIds)
-    ? Array.from(new Set(options.moduleIds.map((id) => id.trim()).filter((id) => id.length > 0)))
-    : null;
-
+export async function listWorkflowDefinitions(): Promise<WorkflowDefinitionRecord[]> {
   return useConnection(async (client) => {
-    const params: Array<string[] | string> = [];
-    const conditions: string[] = [];
-
-    if (moduleIds && moduleIds.length > 0) {
-      const paramIndex = params.push(moduleIds);
-      conditions.push(`EXISTS (
-        SELECT 1
-          FROM module_resource_contexts mrc
-         WHERE mrc.resource_type = 'workflow-definition'
-           AND mrc.resource_id = workflow_definitions.id
-           AND mrc.module_id = ANY($${paramIndex}::text[])
-      )`);
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
     const { rows } = await client.query<WorkflowDefinitionRow>(
-      `SELECT * FROM workflow_definitions ${whereClause} ORDER BY slug ASC`,
-      params
+      'SELECT * FROM workflow_definitions ORDER BY slug ASC'
     );
     const definitions = rows.map(mapWorkflowDefinitionRow);
     await attachSchedulesToDefinitions(client, definitions);
@@ -368,11 +310,8 @@ export async function listWorkflowDefinitions(options: { moduleIds?: string[] | 
   });
 }
 
-export async function getWorkflowDefinitionBySlug(
-  slug: string,
-  options: { moduleIds?: string[] | null } = {}
-): Promise<WorkflowDefinitionRecord | null> {
-  return useConnection((client) => fetchWorkflowDefinitionBySlug(client, slug, options));
+export async function getWorkflowDefinitionBySlug(slug: string): Promise<WorkflowDefinitionRecord | null> {
+  return useConnection((client) => fetchWorkflowDefinitionBySlug(client, slug));
 }
 
 export async function getWorkflowDefinitionById(id: string): Promise<WorkflowDefinitionRecord | null> {
@@ -611,40 +550,20 @@ export async function listDueWorkflowSchedules({
   });
 }
 
-export async function listWorkflowSchedulesWithWorkflow(options: { moduleIds?: string[] | null } = {}): Promise<WorkflowScheduleWithDefinition[]> {
-  const moduleIds = Array.isArray(options.moduleIds)
-    ? Array.from(new Set(options.moduleIds.map((id) => id.trim()).filter((id) => id.length > 0)))
-    : null;
-
+export async function listWorkflowSchedulesWithWorkflow(): Promise<WorkflowScheduleWithDefinition[]> {
   return useConnection(async (client) => {
-    const params: unknown[] = [];
-    let whereClause = '';
-
-    if (moduleIds && moduleIds.length > 0) {
-      params.push(moduleIds);
-      whereClause = `WHERE EXISTS (
-        SELECT 1
-          FROM module_resource_contexts mrc
-         WHERE mrc.resource_type = 'workflow-definition'
-           AND mrc.resource_id = workflow_schedules.workflow_definition_id
-           AND mrc.module_id = ANY($${params.length}::text[])
-      )`;
-    }
-
     const { rows } = await client.query<WorkflowScheduleRow>(
       `SELECT *
          FROM workflow_schedules
-        ${whereClause}
         ORDER BY is_active DESC,
                  CASE WHEN next_run_at IS NULL THEN 1 ELSE 0 END,
                  next_run_at ASC NULLS LAST,
-                 created_at ASC`,
-      params
+                 created_at ASC`
     );
 
     const schedules = rows.map(mapWorkflowScheduleRow);
     const definitionIds = Array.from(new Set(schedules.map((schedule) => schedule.workflowDefinitionId)));
-    const definitions = await fetchWorkflowDefinitionsByIds(client, definitionIds, { moduleIds });
+    const definitions = await fetchWorkflowDefinitionsByIds(client, definitionIds);
 
     const results: WorkflowScheduleWithDefinition[] = [];
     for (const schedule of schedules) {
@@ -1848,12 +1767,8 @@ export async function updateWorkflowScheduleRuntimeMetadata(
   return schedule;
 }
 
-export async function fetchWorkflowDefinitionBySlugOrThrow(
-  client: PoolClient,
-  slug: string,
-  options: { moduleIds?: string[] | null } = {}
-) {
-  const definition = await fetchWorkflowDefinitionBySlug(client, slug, options);
+export async function fetchWorkflowDefinitionBySlugOrThrow(client: PoolClient, slug: string) {
+  const definition = await fetchWorkflowDefinitionBySlug(client, slug);
   if (!definition) {
     throw new Error(`Workflow with slug ${slug} not found`);
   }

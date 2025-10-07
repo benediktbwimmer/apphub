@@ -22,8 +22,6 @@ import { useSavedEventViews } from './useSavedEventViews';
 import { useEventHealthSnapshot } from './useEventHealthSnapshot';
 import EventsHealthRail from './EventsHealthRail';
 import type { EventSavedViewRecord } from '@apphub/shared/eventsExplorer';
-import { useModuleScope } from '../modules/ModuleScopeContext';
-import { ModuleScopeGate } from '../modules/ModuleScopeGate';
 
 type EventsExplorerListProps = {
   events: WorkflowEventSample[];
@@ -138,7 +136,7 @@ function fromLocalInputValue(value: string): string {
   return date.toISOString();
 }
 
-function EventsExplorerPageContent() {
+export default function EventsExplorerPage() {
   const authorizedFetch = useAuthorizedFetch();
   const {
     filters,
@@ -794,12 +792,4 @@ function ConnectionBadge({
       {label}
     </span>
   );
-}
-
-export default function EventsExplorerPage() {
-  const moduleScope = useModuleScope();
-  if (moduleScope.kind !== 'module' || moduleScope.loadingResources) {
-    return <ModuleScopeGate resourceName="events" />;
-  }
-  return <EventsExplorerPageContent />;
 }

@@ -27,7 +27,6 @@ import type {
   WorkflowRuntimeSummary
 } from '../types';
 import { useWorkflowAccess } from './useWorkflowAccess';
-import { useModuleScope } from '../../modules/ModuleScopeContext';
 
 export const INITIAL_FILTERS: WorkflowFiltersState = {
   statuses: [],
@@ -67,12 +66,6 @@ const WorkflowDefinitionsContext = createContext<WorkflowDefinitionsContextValue
 
 export function WorkflowDefinitionsProvider({ children }: { children: ReactNode }) {
   const { authorizedFetch } = useWorkflowAccess();
-  const moduleScope = useModuleScope();
-  const {
-    kind: moduleScopeKind,
-    isResourceInScope
-  } = moduleScope;
-  const isModuleScoped = moduleScopeKind === 'module';
 
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
@@ -104,48 +97,6 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
     }));
   }, []);
 
-  const isWorkflowInScope = useCallback(
-    (definition: WorkflowDefinition | null | undefined) => {
-      if (!definition) {
-        return false;
-      }
-      if (!isModuleScoped) {
-        return true;
-      }
-      if (isResourceInScope('workflow-definition', definition.id)) {
-        return true;
-      }
-      return isResourceInScope('workflow-definition', definition.slug);
-    },
-    [isModuleScoped, isResourceInScope]
-  );
-
-  const filterWorkflowsForScope = useCallback(
-    (definitions: WorkflowDefinition[]) => {
-      if (!isModuleScoped) {
-        return definitions;
-      }
-      return definitions.filter((definition) => isWorkflowInScope(definition));
-    },
-    [isModuleScoped, isWorkflowInScope]
-  );
-
-  const isServiceInScope = useCallback(
-    (serviceId: string | null | undefined, slug?: string | null) => {
-      if (!isModuleScoped) {
-        return true;
-      }
-      if (serviceId && isResourceInScope('service', serviceId)) {
-        return true;
-      }
-      if (slug) {
-        return isResourceInScope('service', slug);
-      }
-      return false;
-    },
-    [isModuleScoped, isResourceInScope]
-  );
-
   const hydrateRuntimeSummaries = useCallback(
     (definitions: WorkflowDefinition[]) => {
       if (definitions.length === 0) {
@@ -175,11 +126,7 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
               break;
             }
             try {
-              const runParams: { limit?: number; offset?: number; moduleId?: string | null } = { limit: 1 };
-              if (isModuleScoped) {
-                runParams.moduleId = moduleScope.moduleId ?? undefined;
-              }
-              const { runs } = await listWorkflowRunsForSlug(authorizedFetch, definition.slug, runParams);
+              const { runs } = await listWorkflowRunsForSlug(authorizedFetch, definition.slug, { limit: 1 });
               if (hydrationGenerationRef.current !== generation) {
                 break;
               }
@@ -202,7 +149,7 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
 
       void Promise.allSettled(tasks);
     },
-    [authorizedFetch, isModuleScoped, moduleScope.moduleId, updateRuntimeSummary]
+    [authorizedFetch, updateRuntimeSummary]
   );
 
   const seedRuntimeSummaryFromMetadata = useCallback((workflow: WorkflowDefinition) => {
@@ -216,76 +163,46 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
     }));
   }, []);
 
-  const applyWorkflowDefinitionUpdate = useCallback(
-    (payload: unknown) => {
-      const definition = normalizeWorkflowDefinition(payload);
-      if (!definition) {
-        return;
-      }
-
-      if (!isWorkflowInScope(definition)) {
-        const filtered = workflowsRef.current.filter((entry) => entry.id !== definition.id);
-        workflowsRef.current = filtered;
-        setWorkflows(filtered);
-        setSelectedSlug((current) => {
-          if (current && filtered.some((workflow) => workflow.slug === current)) {
-            return current;
-          }
-          const nextSlug = filtered[0]?.slug ?? null;
-          selectedSlugRef.current = nextSlug;
-          return nextSlug;
-        });
-        return;
-      }
-
-      setWorkflows((current) => {
-        const index = current.findIndex((entry) => entry.id === definition.id);
-        const next =
-          index === -1
-            ? [...current, definition]
-            : current.map((entry, entryIndex) => (entryIndex === index ? definition : entry));
-        const scoped = filterWorkflowsForScope(next);
-        const sorted = scoped.slice().sort((a, b) => a.slug.localeCompare(b.slug));
-        workflowsRef.current = sorted;
-        return sorted;
-      });
-      seedRuntimeSummaryFromMetadata(definition);
-      setSelectedSlug((current) => {
-        if (current && workflowsRef.current.some((workflow) => workflow.slug === current)) {
-          selectedSlugRef.current = current;
-          return current;
-        }
-        const nextSlug = workflowsRef.current[0]?.slug ?? null;
-        selectedSlugRef.current = nextSlug;
-        return nextSlug;
-      });
-    },
-    [filterWorkflowsForScope, isWorkflowInScope, seedRuntimeSummaryFromMetadata]
-  );
+  const applyWorkflowDefinitionUpdate = useCallback((payload: unknown) => {
+    const definition = normalizeWorkflowDefinition(payload);
+    if (!definition) {
+      return;
+    }
+    setWorkflows((current) => {
+      const index = current.findIndex((entry) => entry.id === definition.id);
+      const next =
+        index === -1
+          ? [...current, definition]
+          : current.map((entry, entryIndex) => (entryIndex === index ? definition : entry));
+      const sorted = next.slice().sort((a, b) => a.slug.localeCompare(b.slug));
+      workflowsRef.current = sorted;
+      return sorted;
+    });
+    seedRuntimeSummaryFromMetadata(definition);
+    if (!selectedSlugRef.current) {
+      selectedSlugRef.current = definition.slug;
+      setSelectedSlug(definition.slug);
+    }
+  }, [seedRuntimeSummaryFromMetadata, setSelectedSlug]);
 
   const loadWorkflows = useCallback(async () => {
     setWorkflowsLoading(true);
     setWorkflowsError(null);
     try {
-      const normalized = isModuleScoped
-        ? await listWorkflowDefinitions(authorizedFetch, {
-            moduleId: moduleScope.moduleId ?? undefined
-          })
-        : await listWorkflowDefinitions(authorizedFetch);
-      const scoped = filterWorkflowsForScope(normalized);
-      setWorkflows(scoped);
-      workflowsRef.current = scoped;
-      scoped.forEach(seedRuntimeSummaryFromMetadata);
-      hydrateRuntimeSummaries(scoped);
-      if (scoped.length > 0) {
+      const normalized = await listWorkflowDefinitions(authorizedFetch);
+      setWorkflows(normalized);
+      workflowsRef.current = normalized;
+      normalized.forEach(seedRuntimeSummaryFromMetadata);
+      hydrateRuntimeSummaries(normalized);
+      if (normalized.length > 0) {
         setSelectedSlug((current) => {
-          if (current && scoped.some((workflow) => workflow.slug === current)) {
+          if (current) {
             selectedSlugRef.current = current;
             return current;
           }
-          const nextSlug = scoped[0]?.slug ?? null;
-          selectedSlugRef.current = nextSlug;
-          return nextSlug;
+          const nextSlug = normalized[0]?.slug;
+          selectedSlugRef.current = nextSlug ?? null;
+          return nextSlug ?? null;
         });
       } else {
         selectedSlugRef.current = null;
@@ -297,35 +214,7 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
     } finally {
       setWorkflowsLoading(false);
     }
-  }, [
-    authorizedFetch,
-    filterWorkflowsForScope,
-    hydrateRuntimeSummaries,
-    isModuleScoped,
-    moduleScope.moduleId,
-    seedRuntimeSummaryFromMetadata
-  ]);
-
-  useEffect(() => {
-    if (!isModuleScoped) {
-      return;
-    }
-    const filtered = filterWorkflowsForScope(workflowsRef.current);
-    if (filtered.length === workflowsRef.current.length) {
-      return;
-    }
-    workflowsRef.current = filtered;
-    setWorkflows(filtered);
-    setSelectedSlug((current) => {
-      if (current && filtered.some((workflow) => workflow.slug === current)) {
-        selectedSlugRef.current = current;
-        return current;
-      }
-      const nextSlug = filtered[0]?.slug ?? null;
-      selectedSlugRef.current = nextSlug;
-      return nextSlug;
-    });
-  }, [filterWorkflowsForScope, isModuleScoped]);
+  }, [authorizedFetch, seedRuntimeSummaryFromMetadata, hydrateRuntimeSummaries]);
 
   const loadServices = useCallback(async () => {
     try {
@@ -339,9 +228,6 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
         if (!slug) {
           continue;
         }
-        if (!isServiceInScope(entry.id, slug)) {
-          continue;
-        }
         const status = typeof entry.status === 'string' ? entry.status.toLowerCase() : 'unknown';
         nextStatuses[slug] = status;
       }
@@ -349,7 +235,7 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
     } catch {
       // Ignore failures; consumers surface workflow data regardless of service reachability.
     }
-  }, [authorizedFetch, isServiceInScope]);
+  }, [authorizedFetch]);
 
   const workflowSummaries = useMemo<WorkflowSummary[]>(() => {
     return workflows.map((workflow) => {

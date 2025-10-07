@@ -18,8 +18,7 @@ export const workflowAnalyticsQuerySchema = z
     from: z.string().optional(),
     to: z.string().optional(),
     range: z.enum(ANALYTICS_RANGE_OPTIONS).optional(),
-    bucket: z.enum(ANALYTICS_BUCKET_OPTIONS).optional(),
-    moduleId: z.union([z.string(), z.array(z.string())]).optional()
+    bucket: z.enum(ANALYTICS_BUCKET_OPTIONS).optional()
   })
   .partial()
   .strict();

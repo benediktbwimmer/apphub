@@ -16,19 +16,6 @@ export type WorkflowAutoRunClaim = {
 
 const DEFAULT_STALE_CLAIM_MS = 5 * 60 * 1000;
 
-function normalizeModuleIds(moduleIds?: string[] | null): string[] | null {
-  if (!Array.isArray(moduleIds)) {
-    return null;
-  }
-  const normalized = moduleIds
-    .map((id) => (typeof id === 'string' ? id.trim() : ''))
-    .filter((id) => id.length > 0);
-  if (normalized.length === 0) {
-    return null;
-  }
-  return Array.from(new Set(normalized));
-}
-
 function toIso(date: Date): string {
   return date.toISOString();
 }
@@ -156,39 +143,8 @@ export async function releaseWorkflowAutoRun(
 }
 
 export async function getWorkflowAutoRunClaim(
-  workflowDefinitionId: string,
-  options: { moduleIds?: string[] | null } = {}
+  workflowDefinitionId: string
 ): Promise<WorkflowAutoRunClaim | null> {
-  const moduleIds = normalizeModuleIds(options.moduleIds ?? null);
-  const params: unknown[] = [workflowDefinitionId];
-  let moduleParamIndex: number | null = null;
-  if (moduleIds && moduleIds.length > 0) {
-    moduleParamIndex = params.length + 1;
-    params.push(moduleIds);
-  }
-
-  const moduleFilter = moduleParamIndex
-    ? `AND (
-         EXISTS (
-           SELECT 1
-             FROM module_resource_contexts def_ctx
-            WHERE def_ctx.resource_type = 'workflow-definition'
-              AND def_ctx.resource_id = air.workflow_definition_id
-              AND def_ctx.module_id = ANY($${moduleParamIndex}::text[])
-         )
-         OR (
-           air.workflow_run_id IS NOT NULL
-           AND EXISTS (
-             SELECT 1
-               FROM module_resource_contexts run_ctx
-              WHERE run_ctx.resource_type = 'workflow-run'
-                AND run_ctx.resource_id = air.workflow_run_id
-                AND run_ctx.module_id = ANY($${moduleParamIndex}::text[])
-           )
-         )
-       )`
-    : '';
-
   const { rows } = await withConnection((client) =>
     client.query<{
       workflow_definition_id: string;
@@ -210,12 +166,9 @@ export async function getWorkflowAutoRunClaim(
               context,
               claim_owner,
               claimed_at
-         FROM asset_materializer_inflight_runs air
-        WHERE air.workflow_definition_id = $1
-          ${moduleFilter}
-        ORDER BY air.claimed_at DESC
-        LIMIT 1`,
-      params
+         FROM asset_materializer_inflight_runs
+        WHERE workflow_definition_id = $1`,
+      [workflowDefinitionId]
     )
   );
 
@@ -238,34 +191,14 @@ export async function getWorkflowAutoRunClaim(
 }
 
 export async function getFailureState(
-  workflowDefinitionId: string,
-  options: { moduleIds?: string[] | null } = {}
+  workflowDefinitionId: string
 ): Promise<{ failures: number; nextEligibleAt: string | null } | null> {
-  const moduleIds = normalizeModuleIds(options.moduleIds ?? null);
-  const params: unknown[] = [workflowDefinitionId];
-  let moduleParamIndex: number | null = null;
-  if (moduleIds && moduleIds.length > 0) {
-    moduleParamIndex = params.length + 1;
-    params.push(moduleIds);
-  }
-
-  const moduleFilter = moduleParamIndex
-    ? `AND EXISTS (
-         SELECT 1
-           FROM module_resource_contexts def_ctx
-          WHERE def_ctx.resource_type = 'workflow-definition'
-            AND def_ctx.resource_id = afs.workflow_definition_id
-            AND def_ctx.module_id = ANY($${moduleParamIndex}::text[])
-       )`
-    : '';
-
   const { rows } = await withConnection((client) =>
     client.query<{ failures: number; next_eligible_at: string | null }>(
       `SELECT failures, next_eligible_at
-         FROM asset_materializer_failure_state afs
-        WHERE afs.workflow_definition_id = $1
-          ${moduleFilter}`,
-      params
+         FROM asset_materializer_failure_state
+        WHERE workflow_definition_id = $1`,
+      [workflowDefinitionId]
     )
   );
 

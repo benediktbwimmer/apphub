@@ -5,7 +5,7 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { Spinner, CopyButton, Modal } from '../components';
 import { useToasts } from '../components/toast';
 import { ROUTE_PATHS } from '../routes/paths';
-import { useAppHubEvent, type AppHubSocketEvent } from '../events/context';
+import { useAppHubEvent } from '../events/context';
 import {
   fetchJobRuns,
   fetchWorkflowActivity,
@@ -34,8 +34,6 @@ import type {
   WorkflowRunStatusDiffEntry,
   WorkflowRunAssetDiffEntry
 } from './types';
-import { useModuleScope } from '../modules/ModuleScopeContext';
-import { ModuleScopeGate } from '../modules/ModuleScopeGate';
 
 type RunsTabKey = 'workflows' | 'jobs';
 
@@ -157,22 +155,6 @@ const TABLE_HEAD_CELL_CLASSES =
 const TABLE_BODY_ROW_BASE_CLASSES = 'cursor-pointer transition-colors';
 
 const TABLE_BODY_ROW_SELECTED_CLASSES = 'bg-accent-soft shadow-elevation-sm';
-
-function extractRunIdentifier(run: unknown, key: string): string | null {
-  if (!run || typeof run !== 'object') {
-    return null;
-  }
-  const record = run as Record<string, unknown>;
-  const value = record[key];
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-  if (typeof value === 'number') {
-    return String(value);
-  }
-  return null;
-}
 
 const TABLE_BODY_ROW_DEFAULT_CLASSES = 'bg-surface-glass hover:bg-accent-soft/60';
 
@@ -728,9 +710,6 @@ const JOB_RUN_EVENT_TYPES = [
   'job.run.expired'
 ] as const;
 
-type WorkflowRunEvent = Extract<AppHubSocketEvent, { type: (typeof WORKFLOW_RUN_EVENT_TYPES)[number] }>;
-type JobRunEvent = Extract<AppHubSocketEvent, { type: (typeof JOB_RUN_EVENT_TYPES)[number] }>;
-
 type WorkflowRunsState = {
   items: WorkflowActivityEntry[];
   meta: RunListMeta | null;
@@ -814,17 +793,7 @@ function statusChipClass(status: string): string {
   return getStatusToneClasses(status);
 }
 
-function RunsPageContent() {
-  const moduleScope = useModuleScope();
-  const { kind: moduleScopeKind, getResourceSlugs, isResourceInScope } = moduleScope;
-  const moduleWorkflowSlugs = useMemo(
-    () => getResourceSlugs('workflow-definition'),
-    [getResourceSlugs]
-  );
-  const moduleJobSlugs = useMemo(
-    () => getResourceSlugs('job-definition'),
-    [getResourceSlugs]
-  );
+export default function RunsPage() {
   const authorizedFetch = useAuthorizedFetch();
   const { pushToast } = useToasts();
   const navigate = useNavigate();
@@ -999,33 +968,6 @@ function RunsPageContent() {
         loadingMore: append,
         error: append ? prev.error : null
       }));
-
-      const scopedSlugs = moduleWorkflowSlugs;
-      if (scopedSlugs.length === 0) {
-        setWorkflowState((prev) => ({
-          ...prev,
-          items: [],
-          meta: {
-            limit: WORKFLOW_PAGE_SIZE,
-            offset,
-            hasMore: false,
-            nextOffset: null
-          },
-          loading: false,
-          loadingMore: false,
-          error: null,
-          loaded: true
-        }));
-        return;
-      }
-
-      queryFilters.workflowSlugs = scopedSlugs;
-      if (moduleScopeKind === 'module') {
-        queryFilters.moduleId = moduleScope.moduleId ?? undefined;
-      } else {
-        delete queryFilters.moduleId;
-      }
-
       try {
         const result = await fetchWorkflowActivity(authorizedFetch, {
           limit: WORKFLOW_PAGE_SIZE,
@@ -1055,7 +997,7 @@ function RunsPageContent() {
         }));
       }
     },
-    [authorizedFetch, moduleScope.moduleId, moduleScopeKind, moduleWorkflowSlugs]
+    [authorizedFetch]
   );
 
   const loadJobRuns = useCallback(
@@ -1069,33 +1011,6 @@ function RunsPageContent() {
         loadingMore: append,
         error: append ? prev.error : null
       }));
-
-      const scopedSlugs = moduleJobSlugs;
-      if (scopedSlugs.length === 0) {
-        setJobState((prev) => ({
-          ...prev,
-          items: [],
-          meta: {
-            limit: JOB_PAGE_SIZE,
-            offset,
-            hasMore: false,
-            nextOffset: null
-          },
-          loading: false,
-          loadingMore: false,
-          error: null,
-          loaded: true
-        }));
-        return;
-      }
-
-      queryFilters.jobSlugs = scopedSlugs;
-      if (moduleScopeKind === 'module') {
-        queryFilters.moduleId = moduleScope.moduleId ?? undefined;
-      } else {
-        delete queryFilters.moduleId;
-      }
-
       try {
         const result = await fetchJobRuns(authorizedFetch, {
           limit: JOB_PAGE_SIZE,
@@ -1122,7 +1037,7 @@ function RunsPageContent() {
         }));
       }
     },
-    [authorizedFetch, moduleJobSlugs, moduleScope.moduleId, moduleScopeKind]
+    [authorizedFetch]
   );
 
   const handleApplySavedView = useCallback(
@@ -1297,46 +1212,6 @@ function RunsPageContent() {
     }, 250);
   }, [loadJobRuns]);
 
-  const handleWorkflowRunEvent = useCallback(
-    (event: WorkflowRunEvent) => {
-      if (moduleScopeKind !== 'module') {
-        scheduleWorkflowReload();
-        return;
-      }
-      const run = event.data?.run;
-      const runId = extractRunIdentifier(run, 'id');
-      if (runId && isResourceInScope('workflow-run', runId)) {
-        scheduleWorkflowReload();
-        return;
-      }
-      const workflowId = extractRunIdentifier(run, 'workflowDefinitionId');
-      if (workflowId && isResourceInScope('workflow-definition', workflowId)) {
-        scheduleWorkflowReload();
-      }
-    },
-    [isResourceInScope, moduleScopeKind, scheduleWorkflowReload]
-  );
-
-  const handleJobRunEvent = useCallback(
-    (event: JobRunEvent) => {
-      if (moduleScopeKind !== 'module') {
-        scheduleJobReload();
-        return;
-      }
-      const run = event.data?.run;
-      const runId = extractRunIdentifier(run, 'id');
-      if (runId && isResourceInScope('job-run', runId)) {
-        scheduleJobReload();
-        return;
-      }
-      const jobDefinitionId = extractRunIdentifier(run, 'jobDefinitionId');
-      if (jobDefinitionId && isResourceInScope('job-definition', jobDefinitionId)) {
-        scheduleJobReload();
-      }
-    },
-    [isResourceInScope, moduleScopeKind, scheduleJobReload]
-  );
-
   useEffect(() => {
     void loadWorkflowRuns();
   }, [loadWorkflowRuns]);
@@ -1467,8 +1342,8 @@ function RunsPageContent() {
     };
   }, []);
 
-  useAppHubEvent(WORKFLOW_RUN_EVENT_TYPES, handleWorkflowRunEvent);
-  useAppHubEvent(JOB_RUN_EVENT_TYPES, handleJobRunEvent);
+  useAppHubEvent(WORKFLOW_RUN_EVENT_TYPES, scheduleWorkflowReload);
+  useAppHubEvent(JOB_RUN_EVENT_TYPES, scheduleJobReload);
 
   const workflowNextOffset = workflowState.meta?.nextOffset ?? null;
   const workflowHasMore = Boolean(workflowState.meta?.hasMore && workflowNextOffset !== null);
@@ -1927,14 +1802,6 @@ function RunsPageContent() {
       />
     </div>
   );
-}
-
-export default function RunsPage() {
-  const moduleScope = useModuleScope();
-  if (moduleScope.kind !== 'module' || moduleScope.loadingResources) {
-    return <ModuleScopeGate resourceName="runs" />;
-  }
-  return <RunsPageContent />;
 }
 
 type WorkflowRunsTableProps = {

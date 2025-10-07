@@ -14,8 +14,6 @@ import {
 import type { BundleEditorData, JobRunSummary } from './api';
 import { getStatusToneClasses } from '../theme/statusTokens';
 import { formatDuration } from '../workflows/formatters';
-import { useModuleScope } from '../modules/ModuleScopeContext';
-import { ModuleScopeGate } from '../modules/ModuleScopeGate';
 
 const SIDEBAR_CONTAINER_CLASSES =
   'rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-md transition-colors';
@@ -42,7 +40,6 @@ type ModuleJobsSidebarProps = {
   error: string | null;
   onSearchTermChange: (value: string) => void;
   onSelectJob: (slug: string) => void;
-  moduleName: string;
 };
 
 function ModuleJobsSidebar({
@@ -53,8 +50,7 @@ function ModuleJobsSidebar({
   loading,
   error,
   onSearchTermChange,
-  onSelectJob,
-  moduleName
+  onSelectJob
 }: ModuleJobsSidebarProps) {
   return (
     <aside className="lg:w-72">
@@ -73,7 +69,7 @@ function ModuleJobsSidebar({
             className={SIDEBAR_INPUT_CLASSES}
           />
           <div className="text-scale-xs text-muted">
-            Showing {filteredJobs.length} of {jobs.length} jobs in {moduleName}
+            Showing {filteredJobs.length} of {jobs.length} module jobs
           </div>
         </div>
         <ul className="flex max-h-[28rem] flex-col gap-1 overflow-y-auto pr-2">
@@ -328,31 +324,10 @@ export default function JobsPage() {
     loading: jobsLoading,
     error: jobsError
   } = useJobsList();
-  const moduleScope = useModuleScope();
-
-  const moduleJobIdSet = useMemo(() => {
-    if (moduleScope.kind !== 'module' || !moduleScope.resources) {
-      return null;
-    }
-    return new Set(
-      moduleScope.resources
-        .filter((context) => context.resourceType === 'job-definition')
-        .map((context) => context.resourceId)
-    );
-  }, [moduleScope.kind, moduleScope.resources]);
 
   const moduleJobs = useMemo(
-    () =>
-      sortedJobs.filter((job) => {
-        if (job.runtime !== 'module') {
-          return false;
-        }
-        if (moduleScope.kind !== 'module') {
-          return true;
-        }
-        return moduleJobIdSet ? moduleJobIdSet.has(job.id) : false;
-      }),
-    [moduleJobIdSet, moduleScope.kind, sortedJobs]
+    () => sortedJobs.filter((job) => job.runtime === 'module'),
+    [sortedJobs]
   );
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -390,19 +365,13 @@ export default function JobsPage() {
   );
 
   const jobSnapshot = useJobSnapshot(selectedSlug);
-  const moduleInfo = moduleScope.modules.find((module) => module.id === moduleScope.moduleId) ?? null;
-  const moduleTitle = moduleInfo?.displayName ?? moduleScope.moduleId ?? 'Module';
-
-  if (moduleScope.kind !== 'module' || moduleScope.loadingResources) {
-    return <ModuleScopeGate resourceName="jobs" />;
-  }
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <h1 className="text-scale-xl font-weight-semibold text-primary">{moduleTitle} jobs</h1>
+        <h1 className="text-scale-xl font-weight-semibold text-primary">Jobs</h1>
         <p className="text-scale-sm text-secondary">
-          Inspect module jobs, review their bindings, and check recent activity.
+          Inspect module jobs, review their bindings, and check recent activity for the demo stack.
         </p>
       </div>
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -415,7 +384,6 @@ export default function JobsPage() {
           error={jobsError}
           onSearchTermChange={setSearchTerm}
           onSelectJob={setSelectedSlug}
-          moduleName={moduleTitle}
         />
         <section className="flex-1">
           {moduleJobs.length === 0 && !jobsLoading ? (

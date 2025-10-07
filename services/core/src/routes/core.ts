@@ -16,14 +16,12 @@ import {
   serializeService,
   serializeWorkflowDefinition,
   serializeWorkflowRun,
-  serializeModuleResourceContext,
   type SerializedBuild,
   type SerializedLaunch,
   type SerializedRepository,
   type SerializedService,
   type SerializedWorkflowDefinition,
-  type SerializedWorkflowRun,
-  type SerializedModuleResourceContext
+  type SerializedWorkflowRun
 } from './shared/serializers';
 import type { IngestionEvent } from '../db/index';
 import {
@@ -74,8 +72,6 @@ type OutboundEvent =
   | { type: 'service.updated'; data: { service: SerializedService } }
   | { type: 'workflow.definition.updated'; data: { workflow: SerializedWorkflowDefinition } }
   | { type: WorkflowRunEventType; data: { run: SerializedWorkflowRun } }
-  | { type: 'module.context.updated'; data: { context: SerializedModuleResourceContext } }
-  | { type: 'module.context.deleted'; data: { context: SerializedModuleResourceContext } }
   | { type: 'workflow.analytics.snapshot'; data: WorkflowAnalyticsSnapshotData }
   | { type: 'workflow.event.received'; data: { event: WorkflowEventRecordView } }
   | { type: 'asset.produced'; data: AssetProducedEventData }
@@ -149,12 +145,6 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
       return {
         type: 'workflow.definition.updated',
         data: { workflow: serializeWorkflowDefinition(event.data.workflow) }
-      };
-    case 'module.context.updated':
-    case 'module.context.deleted':
-      return {
-        type: event.type,
-        data: { context: serializeModuleResourceContext(event.data.context) }
       };
     case 'workflow.run.updated':
     case 'workflow.run.pending':

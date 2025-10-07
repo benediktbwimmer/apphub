@@ -26,20 +26,10 @@ export class JobsService {
    * @returns def_45 Job definitions currently available to run.
    * @throws ApiError
    */
-  public getJobs({
-    moduleId,
-  }: {
-    /**
-     * Optional module identifier to scope job definitions.
-     */
-    moduleId?: (string | Array<string>),
-  }): CancelablePromise<def_45> {
+  public getJobs(): CancelablePromise<def_45> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/jobs',
-      query: {
-        'moduleId': moduleId,
-      },
     });
   }
   /**
@@ -94,7 +84,6 @@ export class JobsService {
     job,
     runtime,
     search,
-    moduleId,
   }: {
     limit?: number,
     offset?: number,
@@ -111,10 +100,6 @@ export class JobsService {
      */
     runtime?: string,
     search?: string,
-    /**
-     * Optional module identifier to scope job runs.
-     */
-    moduleId?: (string | Array<string>),
   }): CancelablePromise<def_48> {
     return this.httpRequest.request({
       method: 'GET',
@@ -126,7 +111,6 @@ export class JobsService {
         'job': job,
         'runtime': runtime,
         'search': search,
-        'moduleId': moduleId,
       },
       errors: {
         400: `The job run filters were invalid.`,
@@ -182,7 +166,6 @@ export class JobsService {
     job,
     runtime,
     search,
-    moduleId,
   }: {
     /**
      * Job definition slug.
@@ -203,10 +186,6 @@ export class JobsService {
      */
     runtime?: string,
     search?: string,
-    /**
-     * Optional module identifier to scope job runs.
-     */
-    moduleId?: (string | Array<string>),
   }): CancelablePromise<def_49> {
     return this.httpRequest.request({
       method: 'GET',
@@ -221,7 +200,6 @@ export class JobsService {
         'job': job,
         'runtime': runtime,
         'search': search,
-        'moduleId': moduleId,
       },
       errors: {
         400: `The job lookup parameters were invalid.`,

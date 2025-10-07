@@ -2,10 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { useConnection, useTransaction } from './utils';
 import {
-  deleteModuleAssignmentsForResource,
-  upsertModuleResourceContext
-} from './moduleResourceContexts';
-import {
   type JobDefinitionCreateInput,
   type JobDefinitionRecord,
   type JobRunCompletionInput,
@@ -140,126 +136,10 @@ function emitJobRunEvents(run: JobRunRecord | null, { forceUpdatedEvent = true }
   emitApphubEvent({ type: statusEvent, data: { run } });
 }
 
-function buildJobModuleContextMetadata(definition: JobDefinitionRecord): JsonValue {
-  const metadata: Record<string, JsonValue> = {
-    slug: definition.slug,
-    runtime: definition.runtime,
-    type: definition.type,
-    version: definition.version
-  } satisfies Record<string, JsonValue>;
-
-  if (definition.metadata) {
-    metadata.metadata = definition.metadata as JsonValue;
-  }
-
-  if (definition.defaultParameters) {
-    metadata.defaultParameters = definition.defaultParameters as JsonValue;
-  }
-
-  return metadata;
-}
-
-const TERMINAL_JOB_RUN_STATUSES: ReadonlySet<JobRunStatus> = new Set([
-  'succeeded',
-  'failed',
-  'canceled',
-  'expired'
-]);
-
-function buildJobRunModuleContextMetadata(run: JobRunRecord): JsonValue {
-  return {
-    jobDefinitionId: run.jobDefinitionId,
-    status: run.status,
-    attempt: run.attempt,
-    scheduledAt: run.scheduledAt,
-    startedAt: run.startedAt ?? null,
-    completedAt: run.completedAt ?? null,
-    lastHeartbeatAt: run.lastHeartbeatAt ?? null,
-    retryCount: run.retryCount,
-    failureReason: run.failureReason ?? null
-  } satisfies Record<string, JsonValue>;
-}
-
-async function syncJobRunModuleContext(run: JobRunRecord): Promise<void> {
-  const binding = run.moduleBinding;
-  if (!binding) {
-    await deleteModuleAssignmentsForResource('job-run', run.id);
-    return;
-  }
-
-  if (TERMINAL_JOB_RUN_STATUSES.has(run.status)) {
-    await deleteModuleAssignmentsForResource('job-run', run.id);
-    return;
-  }
-
-  try {
-    await upsertModuleResourceContext({
-      moduleId: binding.moduleId,
-      moduleVersion: binding.moduleVersion,
-      resourceType: 'job-run',
-      resourceId: run.id,
-      resourceSlug: run.jobDefinitionId,
-      resourceName: null,
-      resourceVersion: String(run.attempt),
-      metadata: buildJobRunModuleContextMetadata(run)
-    });
-  } catch (err) {
-    console.warn('[jobs] failed to sync job run module context', {
-      jobRunId: run.id,
-      moduleId: binding.moduleId,
-      error: err instanceof Error ? err.message : String(err)
-    });
-  }
-}
-
-async function syncJobDefinitionModuleContext(definition: JobDefinitionRecord): Promise<void> {
-  const binding = definition.moduleBinding;
-  if (!binding || !binding.moduleId.trim()) {
-    await deleteModuleAssignmentsForResource('job-definition', definition.id);
-    return;
-  }
-
-  // Ensure we do not retain stale module contexts when a job definition moves between modules.
-  await deleteModuleAssignmentsForResource('job-definition', definition.id);
-
-  try {
-    await upsertModuleResourceContext({
-      moduleId: binding.moduleId.trim(),
-      moduleVersion: binding.moduleVersion?.trim() ?? null,
-      resourceType: 'job-definition',
-      resourceId: definition.id,
-      resourceSlug: definition.slug,
-      resourceName: definition.name,
-      resourceVersion: String(definition.version),
-      metadata: buildJobModuleContextMetadata(definition)
-    });
-  } catch (err) {
-    console.warn('[jobs] failed to sync job definition module context', {
-      jobDefinitionId: definition.id,
-      moduleId: binding.moduleId,
-      error: err instanceof Error ? err.message : String(err)
-    });
-  }
-}
-
-export async function listJobDefinitions(options: { moduleIds?: string[] | null } = {}): Promise<JobDefinitionRecord[]> {
-  const moduleIds = Array.isArray(options.moduleIds)
-    ? Array.from(new Set(options.moduleIds.map((id) => id.trim()).filter((id) => id.length > 0)))
-    : null;
-
+export async function listJobDefinitions(): Promise<JobDefinitionRecord[]> {
   return useConnection(async (client) => {
-    const params: Array<string[]> = [];
-    const whereClauses: string[] = [];
-
-    if (moduleIds && moduleIds.length > 0) {
-      params.push(moduleIds);
-      whereClauses.push(`module_id = ANY($${params.length}::text[])`);
-    }
-
-    const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
     const { rows } = await client.query<JobDefinitionRow>(
-      `SELECT * FROM job_definitions ${where} ORDER BY slug ASC`,
-      params
+      'SELECT * FROM job_definitions ORDER BY slug ASC'
     );
     return rows.map(mapJobDefinitionRow);
   });
@@ -407,7 +287,6 @@ export async function createJobDefinition(
     throw new Error('failed to create job definition');
   }
 
-  await syncJobDefinitionModuleContext(definition);
   emitJobDefinitionEvent(definition);
   return definition;
 }
@@ -417,18 +296,11 @@ export async function deleteJobDefinitionBySlug(slug: string): Promise<boolean> 
   if (!trimmed) {
     return false;
   }
-  const deletedId = await useConnection(async (client) => {
-    const { rows } = await client.query<{ id: string }>(
-      'DELETE FROM job_definitions WHERE slug = $1 RETURNING id',
-      [trimmed]
-    );
-    return rows[0]?.id ?? null;
+  return useConnection(async (client) => {
+    const result = await client.query('DELETE FROM job_definitions WHERE slug = $1', [trimmed]);
+    const affected = result.rowCount ?? 0;
+    return affected > 0;
   });
-  if (!deletedId) {
-    return false;
-  }
-  await deleteModuleAssignmentsForResource('job-definition', deletedId);
-  return true;
 }
 
 export async function upsertJobDefinition(
@@ -521,12 +393,12 @@ export async function upsertJobDefinition(
           binding?.targetFingerprint ?? null
         ]
       );
-    if (rows.length === 0) {
-      throw new Error('failed to insert job definition');
+      if (rows.length === 0) {
+        throw new Error('failed to insert job definition');
+      }
+      definition = mapJobDefinitionRow(rows[0]);
+      return;
     }
-    definition = mapJobDefinitionRow(rows[0]);
-    return;
-  }
 
     const nextMetadata = input.metadata ?? existing.metadata ?? {};
     const nextRetryPolicy = input.retryPolicy ?? existing.retryPolicy ?? {};
@@ -586,7 +458,6 @@ export async function upsertJobDefinition(
     throw new Error('failed to upsert job definition');
   }
 
-  await syncJobDefinitionModuleContext(definition);
   emitJobDefinitionEvent(definition);
   return definition;
 }
@@ -630,7 +501,6 @@ type JobRunListFilters = {
   jobSlugs?: string[];
   runtimes?: string[];
   search?: string;
-  moduleIds?: string[];
 };
 
 export async function listJobRuns(
@@ -643,7 +513,7 @@ export async function listJobRuns(
 
   return useConnection(async (client) => {
     const conditions: string[] = [];
-    const params: Array<string | number | string[]> = [];
+    const params: unknown[] = [];
 
     if (Array.isArray(filters.statuses) && filters.statuses.length > 0) {
       const statuses = Array.from(
@@ -687,16 +557,6 @@ export async function listJobRuns(
            OR jd.name ILIKE $${params.length}
          )`
       );
-    }
-
-    if (Array.isArray(filters.moduleIds) && filters.moduleIds.length > 0) {
-      const moduleIds = Array.from(
-        new Set(filters.moduleIds.map((moduleId) => moduleId.trim()).filter((moduleId) => moduleId.length > 0))
-      );
-      if (moduleIds.length > 0) {
-        params.push(moduleIds);
-        conditions.push(`jd.module_id = ANY($${params.length}::text[])`);
-      }
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -880,7 +740,6 @@ export async function createJobRun(
     throw new Error('failed to create job run');
   }
 
-  await syncJobRunModuleContext(run);
   emitJobRunEvents(run);
   return run;
 }
@@ -946,7 +805,6 @@ export async function startJobRun(
   }
 
   const run = mapJobRunRow(row);
-  await syncJobRunModuleContext(run);
   if (changed) {
     emitJobRunEvents(run);
   }
@@ -1055,7 +913,6 @@ export async function completeJobRun(
   }
 
   const run = mapJobRunRow(row);
-  await syncJobRunModuleContext(run);
   if (changed) {
     emitJobRunEvents(run);
   }
@@ -1167,7 +1024,6 @@ export async function updateJobRun(
   }
 
   const run = mapJobRunRow(row);
-  await syncJobRunModuleContext(run);
   if (changed) {
     emitJobRunEvents(run, { forceUpdatedEvent: true });
   }

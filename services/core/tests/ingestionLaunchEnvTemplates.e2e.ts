@@ -4,8 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
 import path from 'node:path';
-import { createEmbeddedPostgres, stopEmbeddedPostgres, runE2E } from '@apphub/test-helpers';
-import type EmbeddedPostgres from 'embedded-postgres';
+import EmbeddedPostgres from 'embedded-postgres';
+import { runE2E } from '@apphub/test-helpers';
 
 async function findAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -33,7 +33,7 @@ runE2E(async ({ registerCleanup }) => {
   registerCleanup(() => rm(dataRoot, { recursive: true, force: true }));
 
   const port = await findAvailablePort();
-  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
+  const postgres = new EmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -46,7 +46,7 @@ runE2E(async ({ registerCleanup }) => {
   await postgres.createDatabase('apphub');
 
   registerCleanup(async () => {
-    await stopEmbeddedPostgres(postgres);
+    await postgres.stop();
   });
 
   process.env.DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;

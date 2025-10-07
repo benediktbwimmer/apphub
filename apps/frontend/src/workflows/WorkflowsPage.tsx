@@ -19,16 +19,8 @@ import ManualRunDialog from './components/ManualRunDialog';
 import WorkflowTopologyPreview from './components/WorkflowTopologyPreview';
 import { INITIAL_FILTERS, WorkflowsProviders, useWorkflowsController } from './hooks/useWorkflowsController';
 import type { WorkflowTriggerDeliveriesQuery } from './api';
-import { useModuleScope } from '../modules/ModuleScopeContext';
-import { ModuleScopeGate } from '../modules/ModuleScopeGate';
 
 export default function WorkflowsPage() {
-  const moduleScope = useModuleScope();
-
-  if (moduleScope.kind !== 'module' || moduleScope.loadingResources) {
-    return <ModuleScopeGate resourceName="workflows" />;
-  }
-
   return (
     <WorkflowsProviders>
       <WorkflowsPageContent />

@@ -11,7 +11,6 @@ import {
   listServices,
   setServiceStatus,
   upsertService,
-  upsertModuleResourceContext,
   type JsonValue,
   type ServiceRecord,
   type ServiceStatusUpdate,
@@ -42,12 +41,7 @@ import {
 } from '../serviceManifestHelpers';
 import { getServiceHealthSnapshot, getServiceHealthSnapshots } from '../serviceRegistry';
 import { schemaRef } from '../openapi/definitions';
-import { handleModuleScopeError, resolveModuleScope } from './shared/moduleScope';
-import type {
-  WorkflowDefinitionRecord,
-  WorkflowStepDefinition,
-  WorkflowTriggerDefinition
-} from '../db/types';
+import type { WorkflowStepDefinition, WorkflowTriggerDefinition } from '../db/types';
 import type { ModuleManifest } from '@apphub/module-sdk';
 
 const SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? '';
@@ -281,78 +275,6 @@ async function handleS3ModuleArtifact(params: {
   };
 }
 
-function buildWorkflowModuleContextMetadata(
-  workflow: LoadedWorkflowDefinition,
-  definition: WorkflowDefinitionRecord
-): JsonValue {
-  const metadata: Record<string, JsonValue> = {
-    sources: workflow.sources,
-    slug: definition.slug,
-    name: definition.name,
-    version: definition.version,
-    parametersSchema: definition.parametersSchema,
-    defaultParameters: definition.defaultParameters,
-    dag: JSON.parse(JSON.stringify(definition.dag)) as JsonValue
-  } satisfies Record<string, JsonValue>;
-
-  if (definition.metadata) {
-    metadata.metadata = definition.metadata;
-  }
-
-  if (workflow.definition.metadata !== undefined && workflow.definition.metadata !== null) {
-    metadata.manifest = workflow.definition.metadata as JsonValue;
-  }
-
-  return metadata;
-}
-
-async function applyModuleVersionToWorkflows(
-  moduleId: string,
-  moduleVersion: string,
-  workflows: LoadedWorkflowDefinition[],
-  logger: FastifyBaseLogger
-): Promise<void> {
-  const version = moduleVersion.trim();
-  if (!version) {
-    return;
-  }
-
-  const workflowBySlug = new Map<string, LoadedWorkflowDefinition>();
-  for (const workflow of workflows) {
-    const slug = workflow.definition.slug.trim().toLowerCase();
-    if (!slug) {
-      continue;
-    }
-    if (!workflowBySlug.has(slug)) {
-      workflowBySlug.set(slug, workflow);
-    }
-  }
-
-  for (const [slug, workflow] of workflowBySlug.entries()) {
-    try {
-      const definition = await getWorkflowDefinitionBySlug(slug);
-      if (!definition) {
-        continue;
-      }
-      await upsertModuleResourceContext({
-        moduleId,
-        moduleVersion: version,
-        resourceType: 'workflow-definition',
-        resourceId: definition.id,
-        resourceSlug: definition.slug,
-        resourceName: definition.name,
-        resourceVersion: String(definition.version),
-        metadata: buildWorkflowModuleContextMetadata(workflow, definition)
-      });
-    } catch (err) {
-      logger.warn(
-        { err, workflow: slug, moduleId, moduleVersion: version },
-        'Failed to update workflow module context version'
-      );
-    }
-  }
-}
-
 async function upsertModuleWorkflows(
   workflows: LoadedWorkflowDefinition[],
   options: { moduleId: string; logger: FastifyBaseLogger }
@@ -362,28 +284,6 @@ async function upsertModuleWorkflows(
   }
 
   const failures: Array<{ slug: string; error: Error }> = [];
-  const upsertContextForDefinition = async (
-    source: LoadedWorkflowDefinition,
-    definition: WorkflowDefinitionRecord
-  ) => {
-    try {
-      await upsertModuleResourceContext({
-        moduleId: options.moduleId,
-        moduleVersion: null,
-        resourceType: 'workflow-definition',
-        resourceId: definition.id,
-        resourceSlug: definition.slug,
-        resourceName: definition.name,
-        resourceVersion: String(definition.version),
-        metadata: buildWorkflowModuleContextMetadata(source, definition)
-      });
-    } catch (err) {
-      options.logger.warn(
-        { err, workflow: definition.slug, moduleId: options.moduleId },
-        'Failed to upsert workflow module context'
-      );
-    }
-  };
 
   for (const workflow of workflows) {
     try {
@@ -415,7 +315,7 @@ async function upsertModuleWorkflows(
 
       const existing = await getWorkflowDefinitionBySlug(slug);
       if (!existing) {
-        const definitionRecord = await createWorkflowDefinition({
+        await createWorkflowDefinition({
           slug,
           name,
           version,
@@ -432,9 +332,8 @@ async function upsertModuleWorkflows(
           { workflow: slug, moduleId: options.moduleId, sources: workflow.sources },
           'Imported workflow definition from module'
         );
-        await upsertContextForDefinition(workflow, definitionRecord);
       } else {
-        const updatedDefinition = await updateWorkflowDefinition(slug, {
+        await updateWorkflowDefinition(slug, {
           name,
           version,
           description,
@@ -446,9 +345,6 @@ async function upsertModuleWorkflows(
           metadata,
           dag: dagMetadata
         });
-        if (updatedDefinition) {
-          await upsertContextForDefinition(workflow, updatedDefinition);
-        }
         options.logger.info(
           { workflow: slug, moduleId: options.moduleId, sources: workflow.sources },
           'Updated workflow definition from module'
@@ -696,7 +592,7 @@ export type ServiceRoutesOptions = {
       moduleId: string;
       entries: LoadedManifestEntry[];
       networks: LoadedServiceNetwork[];
-    }) => Promise<{ servicesApplied: number; networksApplied: number; moduleVersion: string }>;
+    }) => Promise<{ servicesApplied: number; networksApplied: number }>;
   };
 };
 
@@ -860,9 +756,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
       return { error: 'failed to import workflows for module' };
     }
 
-    let manifestImportResult: { servicesApplied: number; networksApplied: number; moduleVersion: string };
     try {
-      manifestImportResult = await registry.importManifestModule({
+      await registry.importManifestModule({
         moduleId: preview.moduleId,
         entries: preview.entries,
         networks: preview.networks
@@ -876,25 +771,10 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
       return { error: 'failed to apply service manifest' };
     }
 
-    try {
-      await applyModuleVersionToWorkflows(
-        preview.moduleId,
-        manifestImportResult.moduleVersion,
-        preview.workflows,
-        request.log
-      );
-    } catch (err) {
-      request.log.warn(
-        { err, module: preview.moduleId },
-        'failed to update workflow module version context'
-      );
-    }
-
     reply.status(201);
     return {
       data: {
         module: preview.moduleId,
-        moduleVersion: manifestImportResult.moduleVersion,
         resolvedCommit: preview.resolvedCommit ?? commit ?? image ?? null,
         servicesDiscovered: preview.entries.length,
         networksDiscovered: preview.networks.length,
@@ -950,11 +830,7 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
           type: 'object',
           additionalProperties: true,
           properties: {
-            source: { type: 'string', enum: ['module', 'external'] },
-            moduleId: {
-              anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
-              description: 'Optional module identifier to scope services.'
-            }
+            source: { type: 'string', enum: ['module', 'external'] }
           }
         },
         response: {
@@ -965,10 +841,7 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     },
     async (request, reply) => {
       const parseQuery = z
-        .object({
-          source: serviceSourceFilterSchema.optional(),
-          moduleId: z.union([z.string(), z.array(z.string())]).optional()
-        })
+        .object({ source: serviceSourceFilterSchema.optional() })
         .passthrough()
         .safeParse(request.query ?? {});
 
@@ -977,33 +850,18 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
         return { error: parseQuery.error.flatten() };
       }
 
-      const { source, moduleId } = parseQuery.data;
-
-      let moduleScope;
-      try {
-        moduleScope = await resolveModuleScope(request, moduleId, ['service']);
-      } catch (error) {
-        return handleModuleScopeError(reply, error);
-      }
-
+      const { source } = parseQuery.data;
       const services = await listServices();
-      const sourceFiltered = source
+      const filteredServices = source
         ? services.filter((service) => service.source === source)
         : services;
-
-      const filteredServices = moduleScope?.hasFilters
-        ? moduleScope.filter(sourceFiltered, 'service', (service) => ({
-            id: service.id,
-            slug: service.slug
-          }))
-        : sourceFiltered;
 
       const healthSnapshots = await getServiceHealthSnapshots(
         filteredServices.map((service) => service.slug)
       );
       const healthyCount = filteredServices.filter((service) => service.status === 'healthy').length;
       const unhealthyCount = filteredServices.length - healthyCount;
-      const sourceCounts = filteredServices.reduce(
+      const sourceCounts = services.reduce(
         (acc, service) => {
           acc[service.source] = (acc[service.source] ?? 0) + 1;
           return acc;
@@ -1019,13 +877,7 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
           total: filteredServices.length,
           healthyCount,
           unhealthyCount,
-          filters:
-            source || (moduleScope?.hasFilters && moduleScope.moduleIds.length > 0)
-              ? {
-                  ...(source ? { source } : {}),
-                  ...(moduleScope?.hasFilters ? { moduleId: moduleScope.moduleIds } : {})
-                }
-              : null,
+          filters: source ? { source } : null,
           sourceCounts
         }
       };

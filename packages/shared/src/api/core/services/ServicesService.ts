@@ -17,20 +17,14 @@ export class ServicesService {
    */
   public getServices({
     source,
-    moduleId,
   }: {
     source?: 'module' | 'external',
-    /**
-     * Optional module identifier to scope services.
-     */
-    moduleId?: (string | Array<string>),
   }): CancelablePromise<def_35> {
     return this.httpRequest.request({
       method: 'GET',
       url: '/services',
       query: {
         'source': source,
-        'moduleId': moduleId,
       },
       errors: {
         400: `The query parameters were invalid.`,

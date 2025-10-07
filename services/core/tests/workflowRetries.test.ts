@@ -1,8 +1,7 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { createEmbeddedPostgres, stopEmbeddedPostgres } from '@apphub/test-helpers';
-import type EmbeddedPostgres from 'embedded-postgres';
+import EmbeddedPostgres from 'embedded-postgres';
 import net from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -52,7 +51,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'apphub-workflow-retry-pg-'));
   const port = await findAvailablePort();
 
-  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
+  const postgres = new EmbeddedPostgres({
     databaseDir: dataRoot,
     persistent: false,
     port,
@@ -72,7 +71,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   embeddedPostgres = postgres;
   embeddedCleanup = async () => {
     try {
-      await stopEmbeddedPostgres(postgres);
+      await postgres.stop();
     } finally {
       await rm(dataRoot, { recursive: true, force: true });
     }

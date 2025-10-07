@@ -17,19 +17,6 @@ import { useConnection, useTransaction } from '../../db/utils';
 import { randomUUID } from 'node:crypto';
 import { PoolClient } from 'pg';
 
-function normalizeModuleIds(moduleIds?: string[] | null): string[] | null {
-  if (!Array.isArray(moduleIds)) {
-    return null;
-  }
-  const normalized = moduleIds
-    .map((id) => (typeof id === 'string' ? id.trim() : ''))
-    .filter((id) => id.length > 0);
-  if (normalized.length === 0) {
-    return null;
-  }
-  return Array.from(new Set(normalized));
-}
-
 type AssetDeclarationRowInput = {
   stepId: string;
   direction: WorkflowAssetDirection;
@@ -184,57 +171,23 @@ async function fetchWorkflowAssetDeclarationsByDefinitionId(
 
 async function fetchWorkflowAssetDeclarationsBySlug(
   client: PoolClient,
-  slug: string,
-  options: { moduleIds?: string[] | null } = {}
+  slug: string
 ): Promise<WorkflowAssetDeclarationRecord[]> {
-  const moduleIds = normalizeModuleIds(options.moduleIds ?? null);
-  const params: unknown[] = [slug];
-  let moduleClause = '';
-
-  if (moduleIds && moduleIds.length > 0) {
-    params.push(moduleIds);
-    moduleClause = `
-      AND EXISTS (
-        SELECT 1
-          FROM module_resource_contexts mrc
-         WHERE mrc.resource_type = 'workflow-definition'
-           AND mrc.resource_id = defs.id
-           AND mrc.module_id = ANY($${params.length}::text[])
-      )`;
-  }
-
   const { rows } = await client.query<WorkflowAssetDeclarationRow>(
     `SELECT declarations.*
        FROM workflow_asset_declarations declarations
        INNER JOIN workflow_definitions defs ON defs.id = declarations.workflow_definition_id
-       WHERE defs.slug = $1${moduleClause}
+       WHERE defs.slug = $1
        ORDER BY declarations.step_id, declarations.direction, declarations.asset_id`,
-    params
+    [slug]
   );
   return rows.map(mapWorkflowAssetDeclarationRow);
 }
 
 async function fetchLatestWorkflowAssetSnapshots(
   client: PoolClient,
-  workflowDefinitionId: string,
-  options: { moduleIds?: string[] | null } = {}
+  workflowDefinitionId: string
 ): Promise<WorkflowAssetSnapshotRecord[]> {
-  const moduleIds = normalizeModuleIds(options.moduleIds ?? null);
-  const params: unknown[] = [workflowDefinitionId];
-  let moduleClause = '';
-
-  if (moduleIds && moduleIds.length > 0) {
-    params.push(moduleIds);
-    moduleClause = `
-        AND EXISTS (
-          SELECT 1
-            FROM module_resource_contexts mrc
-           WHERE mrc.resource_type = 'workflow-run'
-             AND mrc.resource_id = run.id
-             AND mrc.module_id = ANY($${params.length}::text[])
-        )`;
-  }
-
   const { rows } = await client.query<WorkflowAssetSnapshotRow>(
     `SELECT DISTINCT ON (asset.asset_id, COALESCE(asset.partition_key, ''))
          asset.*,
@@ -245,14 +198,13 @@ async function fetchLatestWorkflowAssetSnapshots(
        FROM workflow_run_step_assets asset
        JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
        JOIN workflow_runs run ON run.id = asset.workflow_run_id
-      WHERE asset.workflow_definition_id = $1
-        ${moduleClause}
+       WHERE asset.workflow_definition_id = $1
        ORDER BY asset.asset_id,
                 COALESCE(asset.partition_key, ''),
                 asset.produced_at DESC,
                 asset.created_at DESC,
                 asset.id DESC`,
-    params
+    [workflowDefinitionId]
   );
   return rows.map(mapWorkflowAssetSnapshotRow);
 }
@@ -262,8 +214,7 @@ async function fetchWorkflowAssetHistory(
   workflowDefinitionId: string,
   assetId: string,
   limit: number,
-  partitionKey?: string | null,
-  options: { moduleIds?: string[] | null } = {}
+  partitionKey?: string | null
 ): Promise<WorkflowAssetSnapshotRecord[]> {
   const params: unknown[] = [workflowDefinitionId, assetId];
   let partitionClause = '';
@@ -276,20 +227,6 @@ async function fetchWorkflowAssetHistory(
   params.push(limit);
   const limitIndex = params.length;
 
-  const moduleIds = normalizeModuleIds(options.moduleIds ?? null);
-  let moduleClause = '';
-  if (moduleIds && moduleIds.length > 0) {
-    params.push(moduleIds);
-    moduleClause = `
-        AND EXISTS (
-          SELECT 1
-            FROM module_resource_contexts mrc
-           WHERE mrc.resource_type = 'workflow-run'
-             AND mrc.resource_id = run.id
-             AND mrc.module_id = ANY($${params.length}::text[])
-        )`;
-  }
-
   const { rows } = await client.query<WorkflowAssetSnapshotRow>(
     `SELECT asset.*,
             step.status AS step_status,
@@ -301,7 +238,6 @@ async function fetchWorkflowAssetHistory(
        JOIN workflow_runs run ON run.id = asset.workflow_run_id
       WHERE asset.workflow_definition_id = $1
         AND asset.asset_id = $2${partitionClause}
-        ${moduleClause}
      ORDER BY asset.produced_at DESC,
               asset.created_at DESC,
               asset.id DESC
@@ -428,25 +364,8 @@ async function deleteWorkflowAssetPartitionParameters(
 async function fetchWorkflowAssetPartitions(
   client: PoolClient,
   workflowDefinitionId: string,
-  assetId: string,
-  options: { moduleIds?: string[] | null } = {}
+  assetId: string
 ): Promise<WorkflowAssetPartitionSummary[]> {
-  const moduleIds = normalizeModuleIds(options.moduleIds ?? null);
-  const params: unknown[] = [workflowDefinitionId, assetId];
-  let moduleClause = '';
-
-  if (moduleIds && moduleIds.length > 0) {
-    params.push(moduleIds);
-    moduleClause = `
-        AND EXISTS (
-          SELECT 1
-            FROM module_resource_contexts mrc
-           WHERE mrc.resource_type = 'workflow-run'
-             AND mrc.resource_id = run.id
-             AND mrc.module_id = ANY($${params.length}::text[])
-        )`;
-  }
-
   const { rows } = await client.query<WorkflowAssetSnapshotRow>(
     `SELECT asset.*,
             step.status AS step_status,
@@ -458,12 +377,11 @@ async function fetchWorkflowAssetPartitions(
        JOIN workflow_runs run ON run.id = asset.workflow_run_id
       WHERE asset.workflow_definition_id = $1
         AND asset.asset_id = $2
-        ${moduleClause}
      ORDER BY COALESCE(asset.partition_key, ''),
               asset.produced_at DESC,
               asset.created_at DESC,
               asset.id DESC`,
-    params
+    [workflowDefinitionId, assetId]
   );
   const staleRecords = await fetchWorkflowAssetStalePartitionsForAsset(
     client,
@@ -566,10 +484,9 @@ export async function listWorkflowAssetDeclarations(
 }
 
 export async function listWorkflowAssetDeclarationsBySlug(
-  slug: string,
-  options: { moduleIds?: string[] | null } = {}
+  slug: string
 ): Promise<WorkflowAssetDeclarationRecord[]> {
-  return useConnection((client) => fetchWorkflowAssetDeclarationsBySlug(client, slug, options));
+  return useConnection((client) => fetchWorkflowAssetDeclarationsBySlug(client, slug));
 }
 
 function applyAutoMaterializeUpdates(
@@ -692,37 +609,29 @@ export async function updateWorkflowAssetAutoMaterialize(
 }
 
 export async function listLatestWorkflowAssetSnapshots(
-  workflowDefinitionId: string,
-  options: { moduleIds?: string[] | null } = {}
+  workflowDefinitionId: string
 ): Promise<WorkflowAssetSnapshotRecord[]> {
   return useConnection((client) =>
-    fetchLatestWorkflowAssetSnapshots(client, workflowDefinitionId, options)
+    fetchLatestWorkflowAssetSnapshots(client, workflowDefinitionId)
   );
 }
 
 export async function listWorkflowAssetHistory(
   workflowDefinitionId: string,
   assetId: string,
-  {
-    limit = 10,
-    partitionKey,
-    moduleIds
-  }: { limit?: number; partitionKey?: string | null; moduleIds?: string[] | null } = {}
+  { limit = 10, partitionKey }: { limit?: number; partitionKey?: string | null } = {}
 ): Promise<WorkflowAssetSnapshotRecord[]> {
   const normalizedLimit = Math.max(1, Math.min(limit, 100));
   return useConnection((client) =>
-    fetchWorkflowAssetHistory(client, workflowDefinitionId, assetId, normalizedLimit, partitionKey, {
-      moduleIds
-    })
+    fetchWorkflowAssetHistory(client, workflowDefinitionId, assetId, normalizedLimit, partitionKey)
   );
 }
 
 export async function listWorkflowAssetPartitions(
   workflowDefinitionId: string,
-  assetId: string,
-  options: { moduleIds?: string[] | null } = {}
+  assetId: string
 ): Promise<WorkflowAssetPartitionSummary[]> {
-  return useConnection((client) => fetchWorkflowAssetPartitions(client, workflowDefinitionId, assetId, options));
+  return useConnection((client) => fetchWorkflowAssetPartitions(client, workflowDefinitionId, assetId));
 }
 
 export async function listWorkflowAssetStalePartitions(
@@ -852,5 +761,4 @@ export type WorkflowRunListFilters = {
   search?: string;
   from?: string;
   to?: string;
-  moduleIds?: string[];
 };

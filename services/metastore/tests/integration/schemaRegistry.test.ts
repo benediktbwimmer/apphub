@@ -5,8 +5,7 @@ import net from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createEmbeddedPostgres, stopEmbeddedPostgres } from '@apphub/test-helpers';
-import type EmbeddedPostgres from 'embedded-postgres';
+import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import { runE2E } from '@apphub/test-helpers';
 
@@ -61,7 +60,7 @@ async function setupMetastore(): Promise<MetastoreContext> {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'metastore-schema-pg-'));
   const port = await findAvailablePort();
 
-  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
+  const postgres = new EmbeddedPostgres({
     databaseDir: dataDir,
     port,
     user: 'postgres',
@@ -145,7 +144,7 @@ runE2E(async ({ registerCleanup }) => {
   });
 
   registerCleanup(async () => {
-    await stopEmbeddedPostgres(postgres);
+    await postgres.stop();
   });
 
   registerCleanup(async () => {

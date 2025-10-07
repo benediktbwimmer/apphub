@@ -6,12 +6,12 @@ import net from 'node:net';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createEmbeddedPostgres, stopEmbeddedPostgres, runE2E } from '@apphub/test-helpers';
-import type EmbeddedPostgres from 'embedded-postgres';
+import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import type { JobRunContext, JobResult } from '../src/jobs/runtime';
 import { refreshSecretStore } from '../src/secretStore';
 import { emitApphubEvent } from '../src/events';
+import { runE2E } from '@apphub/test-helpers';
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
 
@@ -59,7 +59,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'apphub-workflows-pg-'));
   const port = await findAvailablePort();
 
-  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
+  const postgres = new EmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -76,7 +76,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
 
   embeddedPostgresCleanup = async () => {
     try {
-      await stopEmbeddedPostgres(postgres);
+      await postgres.stop();
     } finally {
       await rm(dataRoot, { recursive: true, force: true });
     }

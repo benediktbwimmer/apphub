@@ -37571,27 +37571,6 @@
         "tags": [
           "Jobs"
         ],
-        "parameters": [
-          {
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            },
-            "in": "query",
-            "name": "moduleId",
-            "required": false,
-            "description": "Optional module identifier to scope job definitions."
-          }
-        ],
         "responses": {
           "200": {
             "description": "Job definitions currently available to run.",
@@ -37781,25 +37760,6 @@
             "in": "query",
             "name": "search",
             "required": false
-          },
-          {
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            },
-            "in": "query",
-            "name": "moduleId",
-            "required": false,
-            "description": "Optional module identifier to scope job runs."
           }
         ],
         "security": [
@@ -38016,25 +37976,6 @@
             "in": "query",
             "name": "search",
             "required": false
-          },
-          {
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            },
-            "in": "query",
-            "name": "moduleId",
-            "required": false,
-            "description": "Optional module identifier to scope job runs."
           },
           {
             "schema": {
@@ -38958,34 +38899,6 @@
         }
       }
     },
-    "/modules": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/modules/{moduleId}/resources": {
-      "get": {
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "path",
-            "name": "moduleId",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
     "/ai/timestore/sql": {
       "post": {
         "responses": {
@@ -39251,27 +39164,6 @@
         "summary": "List workflow definitions",
         "tags": [
           "Workflows"
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            },
-            "in": "query",
-            "name": "moduleId",
-            "required": false,
-            "description": "Optional module identifier to scope workflow definitions."
-          }
         ],
         "responses": {
           "200": {
@@ -39590,25 +39482,6 @@
             "in": "query",
             "name": "to",
             "required": false
-          },
-          {
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            },
-            "in": "query",
-            "name": "moduleId",
-            "required": false,
-            "description": "Optional module identifier to scope workflow runs."
           },
           {
             "schema": {
@@ -40050,27 +39923,6 @@
           "Workflows"
         ],
         "description": "Aggregates asset producers and consumers across all registered workflows.",
-        "parameters": [
-          {
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            },
-            "in": "query",
-            "name": "moduleId",
-            "required": false,
-            "description": "Optional module identifier to scope workflow assets."
-          }
-        ],
         "responses": {
           "200": {
             "description": "Current asset graph snapshot.",
@@ -40322,25 +40174,6 @@
             "in": "query",
             "name": "source",
             "required": false
-          },
-          {
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            },
-            "in": "query",
-            "name": "moduleId",
-            "required": false,
-            "description": "Optional module identifier to scope services."
           }
         ],
         "responses": {

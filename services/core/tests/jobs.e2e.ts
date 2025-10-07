@@ -4,8 +4,8 @@ import net from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createEmbeddedPostgres, stopEmbeddedPostgres, runE2E } from '@apphub/test-helpers';
-import type EmbeddedPostgres from 'embedded-postgres';
+import EmbeddedPostgres from 'embedded-postgres';
+import { runE2E } from '@apphub/test-helpers';
 import type { FastifyInstance } from 'fastify';
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
@@ -46,7 +46,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'apphub-jobs-pg-'));
   const port = await findAvailablePort();
 
-  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
+  const postgres = new EmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -63,7 +63,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
 
   embeddedPostgresCleanup = async () => {
     try {
-      await stopEmbeddedPostgres(postgres);
+      await postgres.stop();
     } finally {
       await rm(dataRoot, { recursive: true, force: true });
     }

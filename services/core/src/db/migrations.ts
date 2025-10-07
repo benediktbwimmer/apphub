@@ -1463,29 +1463,6 @@ const migrations: Migration[] = [
            ('role-admin', 'workflows:read')
        ON CONFLICT DO NOTHING;`
     ]
-  },
-  {
-    id: '052_module_resource_contexts',
-    statements: [
-      `CREATE TABLE IF NOT EXISTS module_resource_contexts (
-         module_id TEXT NOT NULL,
-         module_version TEXT,
-         resource_type TEXT NOT NULL,
-         resource_id TEXT NOT NULL,
-         resource_slug TEXT,
-         resource_name TEXT,
-         resource_version TEXT,
-         is_shared BOOLEAN NOT NULL DEFAULT FALSE,
-         metadata JSONB,
-         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-         PRIMARY KEY (module_id, resource_type, resource_id)
-       );`,
-      `CREATE INDEX IF NOT EXISTS idx_module_resource_contexts_resource
-         ON module_resource_contexts(resource_type, resource_id);`,
-      `CREATE INDEX IF NOT EXISTS idx_module_resource_contexts_module
-         ON module_resource_contexts(module_id, resource_type);`
-    ]
   }
 ];
 

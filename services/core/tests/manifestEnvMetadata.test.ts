@@ -71,11 +71,7 @@ async function run() {
 
   const app = Fastify();
   const stubRegistry = {
-    importManifestModule: async () => ({
-      servicesApplied: 2,
-      networksApplied: 1,
-      moduleVersion: '1'
-    })
+    importManifestModule: async () => ({ servicesApplied: 2, networksApplied: 1 })
   } as const;
   await registerServiceRoutes(app, { registry: stubRegistry });
   try {

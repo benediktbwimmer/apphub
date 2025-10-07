@@ -26,7 +26,6 @@ import type { BundleEditorSnapshot } from '../jobs/bundleEditor';
 import type { JobDefinitionRecord, JsonValue } from '../db/types';
 import type { AiGeneratedBundleSuggestion } from '../ai/bundlePublisher';
 import { schemaRef } from '../openapi/definitions';
-import { handleModuleScopeError, resolveModuleScope } from './shared/moduleScope';
 
 const jobService = createJobService();
 
@@ -108,8 +107,7 @@ const jobRunListQuerySchema = z
         }
         return undefined;
       }, z.array(z.string()).optional()),
-    search: z.string().max(200).optional(),
-    moduleId: z.union([z.string(), z.array(z.string())]).optional()
+    search: z.string().max(200).optional()
   })
   .partial();
 
@@ -138,11 +136,7 @@ const jobRunListQueryOpenApiSchema = {
       type: 'string',
       description: 'Comma-separated list of runtimes to filter (node,python,docker,module).'
     },
-    search: { type: 'string', maxLength: 200 },
-    moduleId: {
-      anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
-      description: 'Optional module identifier to scope job runs.'
-    }
+    search: { type: 'string', maxLength: 200 }
   }
 } as const;
 
@@ -269,37 +263,15 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: ['Jobs'],
         summary: 'List job definitions',
-        querystring: {
-          type: 'object',
-          additionalProperties: true,
-          properties: {
-            moduleId: {
-              anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
-              description: 'Optional module identifier to scope job definitions.'
-            }
-          }
-        },
         response: {
           200: jobDefinitionListResponse('Job definitions currently available to run.')
         }
       }
     },
-    async (request, reply) => {
-      let moduleScope;
-      try {
-        const moduleIdValue = (request.query as { moduleId?: unknown } | undefined)?.moduleId;
-        moduleScope = await resolveModuleScope(request, moduleIdValue, ['job-definition']);
-      } catch (error) {
-        return handleModuleScopeError(reply, error);
-      }
-
-      const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
-      const jobs = await jobService.listJobDefinitions({ moduleIds });
-      const filteredJobs = moduleScope?.hasFilters
-        ? moduleScope.filter(jobs, 'job-definition', (job) => ({ id: job.id, slug: job.slug }))
-        : jobs;
+    async (_request, reply) => {
+      const jobs = await jobService.listJobDefinitions();
       reply.status(200);
-      return { data: filteredJobs.map((job) => serializeJobDefinition(job)) };
+      return { data: jobs.map((job) => serializeJobDefinition(job)) };
     }
   );
 
@@ -360,54 +332,30 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
         return { error: parseQuery.error.flatten() };
       }
 
-      let moduleScope;
-      try {
-        moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
-          'job-definition',
-          'job-run'
-        ]);
-      } catch (error) {
-        return handleModuleScopeError(reply, error);
-      }
-
       const limit = Math.min(Math.max(parseQuery.data.limit ?? 25, 1), 50);
       const offset = Math.max(parseQuery.data.offset ?? 0, 0);
-      const slugSet = new Set<string>(parseQuery.data.job ?? []);
-      if (moduleScope?.hasFilters) {
-        for (const slug of moduleScope.getSlugs('job-definition')) {
-          slugSet.add(slug);
-        }
-      }
       const filters = {
         statuses: parseQuery.data.status,
-        jobSlugs: slugSet.size > 0 ? Array.from(slugSet) : undefined,
+        jobSlugs: parseQuery.data.job,
         runtimes: parseQuery.data.runtime,
-        search: parseQuery.data.search,
-        moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
+        search: parseQuery.data.search
       };
       const { items, hasMore } = await jobService.listJobRuns({ limit, offset, filters });
-
-      const scopedItems = moduleScope?.hasFilters
-        ? items.filter((entry) =>
-            moduleScope.matches('job-run', { id: entry.run.id }) ||
-            moduleScope.matches('job-definition', { id: entry.job.id, slug: entry.job.slug })
-          )
-        : items;
 
       reply.status(200);
       await authResult.auth.log('succeeded', {
         action: 'job-runs.list',
-        count: scopedItems.length,
+        count: items.length,
         limit,
         offset,
-        hasMore: hasMore && scopedItems.length > 0
+        hasMore
       });
       return {
-        data: scopedItems.map((entry) => serializeJobRunWithDefinition(entry)),
+        data: items.map((entry) => serializeJobRunWithDefinition(entry)),
         meta: {
           limit,
           offset,
-          hasMore: hasMore && scopedItems.length > 0,
+          hasMore,
           nextOffset: hasMore ? offset + limit : null
         }
       };

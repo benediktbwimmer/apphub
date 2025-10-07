@@ -93,22 +93,8 @@ export async function insertWorkflowEvent(event: WorkflowEventInsert): Promise<W
 export async function listWorkflowEvents(
   options: WorkflowEventQueryOptions = {}
 ): Promise<WorkflowEventQueryResult> {
-  const eventIds = Array.isArray(options.eventIds)
-    ? Array.from(new Set(options.eventIds.map((id) => id.trim()).filter((id) => id.length > 0)))
-    : null;
-
-  if (eventIds && eventIds.length === 0) {
-    const limit = clampLimit(options.limit);
-    return {
-      events: [],
-      limit,
-      hasMore: false,
-      nextCursor: null
-    } satisfies WorkflowEventQueryResult;
-  }
-
   const conditions: string[] = [];
-  const params: Array<string | number | string[]> = [];
+  const params: Array<string | number> = [];
   let index = 1;
 
   if (options.type) {
@@ -153,12 +139,6 @@ export async function listWorkflowEvents(
   if (options.jsonPath) {
     conditions.push(`jsonb_path_exists(payload, $${index}::jsonpath)`);
     params.push(options.jsonPath);
-    index += 1;
-  }
-
-  if (eventIds && eventIds.length > 0) {
-    params.push(eventIds);
-    conditions.push(`id = ANY($${index}::text[])`);
     index += 1;
   }
 

@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import http from 'node:http';
-import { createEmbeddedPostgres, stopEmbeddedPostgres } from '../../../tests/helpers';
+import EmbeddedPostgres from 'embedded-postgres';
 import { encodeFilestoreNodeFiltersParam } from '@apphub/shared/filestoreFilters';
 import { runE2E } from '../../../tests/helpers';
 
@@ -69,7 +69,7 @@ runE2E(async ({ registerCleanup }) => {
   });
 
   const port = 57000 + Math.floor(Math.random() * 1000);
-  const postgres = createEmbeddedPostgres({
+  const postgres = new EmbeddedPostgres({
     databaseDir: dataDir,
     port,
     user: 'postgres',
@@ -81,7 +81,7 @@ runE2E(async ({ registerCleanup }) => {
   await postgres.start();
   await postgres.createDatabase('apphub');
   registerCleanup(async () => {
-    await stopEmbeddedPostgres(postgres);
+    await postgres.stop();
   });
 
   process.env.FILESTORE_DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;

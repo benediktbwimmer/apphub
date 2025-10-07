@@ -22,8 +22,7 @@ import {
   type WorkflowEventRecord,
   type WorkflowActivityEntry,
   type WorkflowExecutionHistoryRecord,
-  type WorkflowRunStepAssetRecord,
-  type ModuleResourceContextRecord
+  type WorkflowRunStepAssetRecord
 } from '../../db/index';
 import type { BundleDownloadInfo } from '../../jobs/bundleStorage';
 import type { WorkflowJsonValue } from '../../workflows/zodSchemas';
@@ -649,22 +648,6 @@ export function serializeWorkflowEvent(event: WorkflowEventRecord) {
   };
 }
 
-export function serializeModuleResourceContext(context: ModuleResourceContextRecord) {
-  return {
-    moduleId: context.moduleId,
-    moduleVersion: context.moduleVersion,
-    resourceType: context.resourceType,
-    resourceId: context.resourceId,
-    resourceSlug: context.resourceSlug,
-    resourceName: context.resourceName,
-    resourceVersion: context.resourceVersion,
-    isShared: context.isShared,
-    metadata: context.metadata,
-    createdAt: context.createdAt,
-    updatedAt: context.updatedAt
-  };
-}
-
 export type SerializedRepository = ReturnType<typeof serializeRepository>;
 export type SerializedBuild = ReturnType<typeof serializeBuild>;
 export type SerializedLaunch = ReturnType<typeof serializeLaunch>;
@@ -680,4 +663,3 @@ export type SerializedWorkflowEventTrigger = ReturnType<typeof serializeWorkflow
 export type SerializedWorkflowTriggerDelivery = ReturnType<typeof serializeWorkflowTriggerDelivery>;
 export type SerializedWorkflowActivityEntry = ReturnType<typeof serializeWorkflowActivityEntry>;
 export type SerializedWorkflowEventRecord = ReturnType<typeof serializeWorkflowEvent>;
-export type SerializedModuleResourceContext = ReturnType<typeof serializeModuleResourceContext>;

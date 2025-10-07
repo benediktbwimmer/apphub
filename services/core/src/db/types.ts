@@ -361,7 +361,6 @@ export type WorkflowEventQueryOptions = {
   jsonPath?: string | null;
   limit?: number;
   cursor?: WorkflowEventCursor | null;
-  eventIds?: string[] | null;
 };
 
 export type WorkflowEventQueryResult = {
@@ -885,50 +884,6 @@ export type ModuleRecord = {
   isEnabled: boolean;
   createdAt: string;
   updatedAt: string;
-};
-
-export type ModuleResourceType =
-  | 'service'
-  | 'service-network'
-  | 'workflow-definition'
-  | 'workflow-run'
-  | 'job-definition'
-  | 'job-run'
-  | 'asset'
-  | 'event'
-  | 'view'
-  | 'metric';
-
-export type ModuleResourceContextRecord = {
-  moduleId: string;
-  moduleVersion: string | null;
-  resourceType: ModuleResourceType;
-  resourceId: string;
-  resourceSlug: string | null;
-  resourceName: string | null;
-  resourceVersion: string | null;
-  isShared: boolean;
-  metadata: JsonValue | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ModuleResourceContextUpsertInput = {
-  moduleId: string;
-  moduleVersion?: string | null;
-  resourceType: ModuleResourceType;
-  resourceId: string;
-  resourceSlug?: string | null;
-  resourceName?: string | null;
-  resourceVersion?: string | null;
-  isShared?: boolean;
-  metadata?: JsonValue | null;
-};
-
-export type ModuleResourceContextDeleteInput = {
-  moduleId: string;
-  resourceType: ModuleResourceType;
-  resourceId: string;
 };
 
 export type WorkflowTriggerScheduleDefinition = {

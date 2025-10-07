@@ -4,8 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
-import { createEmbeddedPostgres, stopEmbeddedPostgres } from '@apphub/test-helpers';
-import type EmbeddedPostgres from 'embedded-postgres';
+import EmbeddedPostgres from 'embedded-postgres';
 import { randomUUID } from 'node:crypto';
 import type { WorkflowEventCursor, WorkflowEventInsert } from '../src/db/types';
 
@@ -29,7 +28,7 @@ async function allocatePort(): Promise<number> {
 async function startDatabase(): Promise<() => Promise<void>> {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'apphub-workflow-events-db-'));
   const port = await allocatePort();
-  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
+  const postgres = new EmbeddedPostgres({
     databaseDir: dataDir,
     port,
     user: 'postgres',
@@ -46,7 +45,7 @@ async function startDatabase(): Promise<() => Promise<void>> {
 
   return async () => {
     try {
-    await stopEmbeddedPostgres(postgres);
+      await postgres.stop();
     } finally {
       await rm(dataDir, { recursive: true, force: true });
     }

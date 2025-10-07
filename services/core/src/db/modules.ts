@@ -642,17 +642,6 @@ export async function listModules(): Promise<ModuleRecord[]> {
   });
 }
 
-export async function getModuleById(moduleId: string): Promise<ModuleRecord | null> {
-  const normalized = normalizeModuleId(moduleId);
-  return useConnection(async (client) => {
-    const { rows } = await client.query<ModuleRow>('SELECT * FROM modules WHERE id = $1', [normalized]);
-    if (rows.length === 0) {
-      return null;
-    }
-    return mapModuleRow(rows[0]);
-  });
-}
-
 export async function setModuleEnablement(options: {
   moduleId: string;
   enabled: boolean;

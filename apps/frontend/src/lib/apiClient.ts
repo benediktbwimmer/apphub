@@ -4,9 +4,7 @@ type FetchArgs = Parameters<typeof fetch>;
 type FetchInput = FetchArgs[0];
 type FetchInit = FetchArgs[1];
 
-export type AuthorizedFetch = ((input: FetchInput, init?: FetchInit) => Promise<Response>) & {
-  authToken?: string | null;
-};
+export type AuthorizedFetch = (input: FetchInput, init?: FetchInit) => Promise<Response>;
 
 export type QueryValue =
   | string
