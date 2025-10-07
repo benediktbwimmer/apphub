@@ -87,9 +87,9 @@ const triggers = [
       }
     ],
     parameterTemplate: {
-      partitionKey: '{{ event.payload.partitionKey | default: event.payload.workflowSlug }}',
-      burstReason: '{{ event.payload.reason }}',
-      burstFinishedAt: '{{ event.payload.expiresAt }}'
+      partitionKey: '{{ event.payload.partitionKey | default: event.payload.workflowSlug | default: "" }}',
+      burstReason: '{{ event.payload.reason | default: "" }}',
+      burstFinishedAt: '{{ event.payload.expiresAt | default: "" }}'
     },
     metadata: {
       lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')

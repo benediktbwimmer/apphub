@@ -26,6 +26,9 @@ export interface FieldDefinition {
   type: FieldType;
 }
 
+const TIMESTORE_DEBUG_FLAG = (process.env.TIMESTORE_DEBUG ?? '').toLowerCase();
+export const TIMESTORE_DEBUG_ENABLED = ['1', 'true', 'yes', 'on'].includes(TIMESTORE_DEBUG_FLAG);
+
 export interface PartitionWriteRequest {
   datasetSlug: string;
   partitionId: string;
@@ -260,12 +263,29 @@ class S3StorageDriver implements StorageDriver {
     });
   }
 
+  private logDebug(message: string, details: Record<string, unknown> = {}): void {
+    if (!TIMESTORE_DEBUG_ENABLED) {
+      return;
+    }
+    console.info('[timestore:storage:s3]', message, details);
+  }
+
   async writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult> {
     const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
     if (request.sourceFilePath) {
       const { Upload, PutObjectCommand } = loadAwsS3Dependencies();
       const stats = await fs.stat(request.sourceFilePath);
       const checksum = await computeFileChecksum(request.sourceFilePath);
+
+      this.logDebug('writePartition streaming source file', {
+        datasetSlug: request.datasetSlug,
+        partitionId: request.partitionId,
+        tableName: request.tableName,
+        relativePath,
+        fileSizeBytes: stats.size,
+        hasRows: Boolean(request.rows),
+        sourceFilePath: request.sourceFilePath
+      });
 
       if (stats.size >= S3_MULTIPART_THRESHOLD_BYTES) {
         const upload = new Upload({
@@ -279,16 +299,44 @@ class S3StorageDriver implements StorageDriver {
           partSize: S3_MULTIPART_PART_SIZE_BYTES,
           leavePartsOnError: false
         });
-        await upload.done();
+        try {
+          await upload.done();
+          this.logDebug('multipart upload completed', {
+            relativePath,
+            bucket: this.options.bucket,
+            bytesUploaded: stats.size
+          });
+        } catch (error) {
+          this.logDebug('multipart upload failed', {
+            relativePath,
+            bucket: this.options.bucket,
+            error: error instanceof Error ? error.message : error
+          });
+          throw error;
+        }
       } else {
         const stream = createReadStream(request.sourceFilePath);
-        await this.client.send(
-          new PutObjectCommand({
-            Bucket: this.options.bucket,
-            Key: relativePath,
-            Body: stream
-          })
-        );
+        try {
+          await this.client.send(
+            new PutObjectCommand({
+              Bucket: this.options.bucket,
+              Key: relativePath,
+              Body: stream
+            })
+          );
+          this.logDebug('single-part upload completed', {
+            relativePath,
+            bucket: this.options.bucket,
+            bytesUploaded: stats.size
+          });
+        } catch (error) {
+          this.logDebug('single-part upload failed', {
+            relativePath,
+            bucket: this.options.bucket,
+            error: error instanceof Error ? error.message : error
+          });
+          throw error;
+        }
       }
 
       return {
@@ -307,15 +355,40 @@ class S3StorageDriver implements StorageDriver {
     const tempFile = path.join(tempDir, `${request.partitionId}.parquet`);
     try {
       await writeParquetFile(tempFile, request.tableName, request.schema, request.rows);
+      const tempFileStats = await fs.stat(tempFile);
+      this.logDebug('writeParquetFile completed', {
+        datasetSlug: request.datasetSlug,
+        partitionId: request.partitionId,
+        tableName: request.tableName,
+        relativePath,
+        rowCount: request.rows.length,
+        schemaColumns: request.schema.map((field) => `${field.name}:${field.type}`),
+        tempFilePath: tempFile,
+        fileSizeBytes: tempFileStats.size
+      });
       const { PutObjectCommand } = loadAwsS3Dependencies();
       const stream = createReadStream(tempFile);
-      await this.client.send(
-        new PutObjectCommand({
-          Bucket: this.options.bucket,
-          Key: relativePath,
-          Body: stream
-        })
-      );
+      try {
+        await this.client.send(
+          new PutObjectCommand({
+            Bucket: this.options.bucket,
+            Key: relativePath,
+            Body: stream
+          })
+        );
+        this.logDebug('parquet upload completed', {
+          relativePath,
+          bucket: this.options.bucket,
+          bytesUploaded: tempFileStats.size
+        });
+      } catch (error) {
+        this.logDebug('parquet upload failed', {
+          relativePath,
+          bucket: this.options.bucket,
+          error: error instanceof Error ? error.message : error
+        });
+        throw error;
+      }
       const fileBuffer = await fs.readFile(tempFile);
       const checksum = createHash('sha1').update(fileBuffer).digest('hex');
       return {

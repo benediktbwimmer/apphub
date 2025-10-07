@@ -35,12 +35,10 @@ const definition: WorkflowDefinition = {
       jobSlug: 'observatory-visualization-runner',
       parameters: {
         partitionKey: '{{ parameters.partitionKey }}',
-        partitionWindow:
-          "{{ parameters.partitionWindow | default: event.payload.partitionKeyFields.window | default: event.payload.partitionKey | default: parameters.partitionKey | split: 'window=' | last | default: event.payload.partitionKey | default: parameters.partitionKey }}",
-        instrumentId:
-          "{{ parameters.instrumentId | default: event.payload.partitionKeyFields.instrument | default: parameters.partitionKey | split: 'instrument=' | last | default: parameters.partitionKey }}",
+        partitionWindow: '{{ parameters.partitionWindow | default: parameters.partitionKey }}',
+        instrumentId: '{{ parameters.instrumentId | default: "" }}',
         siteFilter: '{{ parameters.siteFilter | default: "" }}',
-        lookbackMinutes: '{{ parameters.lookbackMinutes | default: defaultParameters.lookbackMinutes }}'
+        lookbackMinutes: '{{ parameters.lookbackMinutes | default: 720 }}'
       },
       storeResultAs: 'visualizations',
       produces: [
@@ -101,8 +99,10 @@ const triggers = [
       }
     ],
     parameterTemplate: {
-      partitionKey: '{{ event.payload.partitionKey }}',
-      lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
+      partitionKey: '{{ event.payload.partitionKey | default: "" }}',
+      partitionWindow: '{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey | default: "" }}',
+      instrumentId: '{{ event.payload.partitionKeyFields.instrument | default: "" }}',
+      lookbackMinutes: 720
     },
     metadata: {
       lookbackMinutes: moduleSetting('dashboard.lookbackMinutes'),

@@ -38,6 +38,7 @@ const definition: WorkflowDefinition = {
       id: 'plan-reprocessing',
       name: 'Plan calibration reprocessing',
       type: 'job',
+      dependsOn: ['import-calibration'],
       jobSlug: 'observatory-calibration-planner',
       parameters: {
         calibrations: [
@@ -53,7 +54,7 @@ const definition: WorkflowDefinition = {
   ]
 };
 
-const CALIBRATION_IMPORT_TRIGGERS_ENABLED = false;
+const CALIBRATION_IMPORT_TRIGGERS_ENABLED = true;
 
 const triggers = CALIBRATION_IMPORT_TRIGGERS_ENABLED
   ? [

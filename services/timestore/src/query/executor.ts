@@ -7,16 +7,20 @@ import {
   type QueryExecutionBackendConfig,
   type ServiceConfig
 } from '../config/serviceConfig';
+import { getStagingWriteManager } from '../ingestion/stagingManager';
+import { isDuckDbCorruptionError } from '../storage/spoolManager';
 import type { QueryPlan, QueryPlanPartition } from './planner';
 import type { StorageTargetRecord } from '../db/metadata';
 import {
   resolveGcsDriverOptions,
   resolveAzureDriverOptions,
   resolveAzureBlobHost,
+  TIMESTORE_DEBUG_ENABLED,
   type ResolvedGcsOptions,
-  type ResolvedAzureOptions
+  type ResolvedAzureOptions,
+  type FieldDefinition,
+  type FieldType
 } from '../storage';
-import type { FieldDefinition, FieldType } from '../storage';
 import type {
   ColumnPredicate,
   BooleanColumnPredicate,
@@ -823,6 +827,17 @@ async function integratePendingStaging(
     await run(connection, `ATTACH '${escapedPath}' AS ${quoteIdentifier(alias)} (READ_ONLY)`);
   } catch (error) {
     console.warn(`[timestore] failed to attach staging database for dataset ${plan.datasetSlug}`, error);
+    if (isDuckDbCorruptionError(error)) {
+      try {
+        const stagingManager = getStagingWriteManager(config);
+        await stagingManager.getSpoolManager().markDatasetCorrupted(plan.datasetSlug, error);
+      } catch (recoveryError) {
+        console.warn(
+          `[timestore] failed to recover corrupted staging database for dataset ${plan.datasetSlug}`,
+          recoveryError
+        );
+      }
+    }
     return null;
   }
 
@@ -950,6 +965,15 @@ function buildStagingSelect(input: BuildStagingSelectInput): string {
   const timestampColumn = `${tableAlias}.${quoteIdentifier(plan.timestampColumn)}`;
   const escapedTableName = escapeSqlLiteral(tableName);
 
+  if (TIMESTORE_DEBUG_ENABLED) {
+    console.info('[timestore:staging] select planning', {
+      datasetSlug: plan.datasetSlug,
+      tableName,
+      availableColumns: Array.from(availableColumns),
+      projectedColumns: canonicalFields.map((field) => field.name)
+    });
+  }
+
   const whereParts = [
     'b.flush_token IS NULL',
     `b.table_name = '${escapedTableName}'`,
@@ -966,12 +990,37 @@ function buildStagingSelect(input: BuildStagingSelectInput): string {
 }
 
 async function fetchTableColumns(connection: any, tableRef: string): Promise<Set<string>> {
+  const columns = new Set<string>();
+  const normalizedParts = tableRef
+    .split('.')
+    .map((part) => part.replace(/^"|"$/g, ''))
+    .filter((part) => part.length > 0);
+
+  if (normalizedParts.length === 3) {
+    const pragmaTarget = normalizedParts.join('.').replace(/'/g, "''");
+    try {
+      const pragmaRows = await all(connection, `PRAGMA table_info('${pragmaTarget}')`);
+      for (const row of pragmaRows as Array<{ name?: unknown }>) {
+        if (typeof row?.name === 'string' && row.name.trim().length > 0) {
+          columns.add(row.name.trim());
+        }
+      }
+    } catch {
+      // fall back to DESCRIBE below
+    }
+    if (columns.size > 0) {
+      return columns;
+    }
+  }
+
   try {
     const rows = await all(connection, `DESCRIBE SELECT * FROM ${tableRef}`);
-    return extractColumnNames(rows as QueryResultRow[]);
+    extractColumnNames(rows as QueryResultRow[]).forEach((name) => columns.add(name));
   } catch {
-    return new Set<string>();
+    // ignore; return whatever we collected so far (possibly empty)
   }
+
+  return columns;
 }
 
 function buildCanonicalProjections(
