@@ -370,6 +370,7 @@ export type WorkflowTimelineQuery = {
   range?: WorkflowTimelineRangeKey;
   limit?: number;
   statuses?: WorkflowTimelineTriggerStatus[];
+  moduleId?: string | null;
 };
 
 export type WorkflowTimelineResult = {
@@ -612,7 +613,7 @@ export type WorkflowDefinitionRunListMeta = {
 export async function listWorkflowRunsForSlug(
   token: TokenInput,
   slug: string,
-  params: { limit?: number; offset?: number } = {}
+  params: { limit?: number; offset?: number; moduleId?: string | null } = {}
 ): Promise<{ runs: WorkflowRun[]; meta: WorkflowDefinitionRunListMeta }> {
   const searchParams = new URLSearchParams();
   if (typeof params.limit === 'number') {
@@ -620,6 +621,9 @@ export async function listWorkflowRunsForSlug(
   }
   if (typeof params.offset === 'number') {
     searchParams.set('offset', String(params.offset));
+  }
+  if (params.moduleId) {
+    searchParams.set('moduleId', params.moduleId);
   }
   const query = searchParams.toString();
   const response = await requestJson(token,  `/workflows/${encodeURIComponent(slug)}/runs${query ? `?${query}` : ''}`, {
@@ -724,6 +728,7 @@ type WorkflowAnalyticsQuery = {
   bucket?: '15m' | 'hour' | 'day';
   from?: string;
   to?: string;
+  moduleId?: string | null;
 };
 
 function buildAnalyticsQuery(params?: WorkflowAnalyticsQuery): string {
@@ -742,6 +747,9 @@ function buildAnalyticsQuery(params?: WorkflowAnalyticsQuery): string {
   }
   if (params.to) {
     searchParams.set('to', params.to);
+  }
+  if (params.moduleId) {
+    searchParams.set('moduleId', params.moduleId);
   }
   const query = searchParams.toString();
   return query ? `?${query}` : '';
@@ -784,7 +792,7 @@ export async function getWorkflowRunMetrics(
 export async function getWorkflowAutoMaterializeOps(
   token: TokenInput,
   slug: string,
-  options: { limit?: number; offset?: number } = {}
+  options: { limit?: number; offset?: number; moduleId?: string | null } = {}
 ): Promise<WorkflowAutoMaterializeOps> {
   const params = new URLSearchParams();
   if (options.limit !== undefined) {
@@ -792,6 +800,9 @@ export async function getWorkflowAutoMaterializeOps(
   }
   if (options.offset !== undefined) {
     params.set('offset', String(options.offset));
+  }
+  if (options.moduleId) {
+    params.set('moduleId', options.moduleId);
   }
   const query = params.toString();
   const payload = await requestJson(token, 
@@ -810,9 +821,15 @@ export async function getWorkflowAutoMaterializeOps(
 
 export async function getWorkflowDetail(
   token: TokenInput,
-  slug: string
+  slug: string,
+  options: { moduleId?: string | null } = {}
 ): Promise<{ workflow: WorkflowDefinition; runs: WorkflowRun[] }> {
-  const payload = await requestJson(token,  `/workflows/${slug}`, {
+  const params = new URLSearchParams();
+  if (options.moduleId) {
+    params.set('moduleId', options.moduleId);
+  }
+  const query = params.toString();
+  const payload = await requestJson(token,  `/workflows/${slug}${query ? `?${query}` : ''}`, {
     schema: z.object({
       data: z
         .object({
@@ -1195,6 +1212,9 @@ export async function getWorkflowTimeline(
       }
     }
   }
+  if (query.moduleId) {
+    params.set('moduleId', query.moduleId);
+  }
   const search = params.toString();
   const payload = await requestJson<{ data?: unknown; meta?: unknown }>(
     token,
@@ -1212,11 +1232,21 @@ export async function getWorkflowTimeline(
 }
 
 export async function fetchWorkflowDefinitions(
-  token: TokenInput
+  token: TokenInput,
+  options: { moduleId?: string | null } = {}
 ): Promise<WorkflowDefinition[]> {
-  const payload = await requestJson<{ data?: unknown }>(token, '/workflows', {
-    errorMessage: 'Failed to load workflows'
-  });
+  const params = new URLSearchParams();
+  if (options.moduleId) {
+    params.set('moduleId', options.moduleId);
+  }
+  const query = params.toString();
+  const payload = await requestJson<{ data?: unknown }>(
+    token,
+    `/workflows${query ? `?${query}` : ''}`,
+    {
+      errorMessage: 'Failed to load workflows'
+    }
+  );
   if (!payload.data || !Array.isArray(payload.data)) {
     return [];
   }
@@ -1228,11 +1258,21 @@ export async function fetchWorkflowDefinitions(
 
 export async function fetchWorkflowAssets(
   token: TokenInput,
-  slug: string
+  slug: string,
+  options: { moduleId?: string | null } = {}
 ): Promise<WorkflowAssetInventoryEntry[]> {
-  const payload = await requestJson<unknown>(token, `/workflows/${encodeURIComponent(slug)}/assets`, {
-    errorMessage: 'Failed to load workflow assets'
-  });
+  const params = new URLSearchParams();
+  if (options.moduleId) {
+    params.set('moduleId', options.moduleId);
+  }
+  const query = params.toString();
+  const payload = await requestJson<unknown>(
+    token,
+    `/workflows/${encodeURIComponent(slug)}/assets${query ? `?${query}` : ''}`,
+    {
+      errorMessage: 'Failed to load workflow assets'
+    }
+  );
   return normalizeWorkflowAssetInventoryResponse(payload);
 }
 
@@ -1240,11 +1280,14 @@ export async function fetchWorkflowAssetHistory(
   token: TokenInput,
   slug: string,
   assetId: string,
-  options: { limit?: number } = {}
+  options: { limit?: number; moduleId?: string | null } = {}
 ): Promise<WorkflowAssetDetail | null> {
   const params = new URLSearchParams();
   if (options.limit !== undefined) {
     params.set('limit', String(options.limit));
+  }
+  if (options.moduleId) {
+    params.set('moduleId', options.moduleId);
   }
   const query = params.toString();
   try {
@@ -1306,11 +1349,14 @@ export async function fetchWorkflowAssetPartitions(
   token: TokenInput,
   slug: string,
   assetId: string,
-  options: { lookback?: number } = {}
+  options: { lookback?: number; moduleId?: string | null } = {}
 ): Promise<WorkflowAssetPartitions | null> {
   const params = new URLSearchParams();
   if (options.lookback !== undefined) {
     params.set('lookback', String(options.lookback));
+  }
+  if (options.moduleId) {
+    params.set('moduleId', options.moduleId);
   }
   const query = params.toString();
   try {
