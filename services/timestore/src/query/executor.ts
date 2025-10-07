@@ -823,14 +823,26 @@ async function integratePendingStaging(
   let stagingTableCreated = false;
   let pendingRowCount = 0;
 
+  const stagingManager = getStagingWriteManager(config);
+  const spoolManager = stagingManager.getSpoolManager();
+  const releaseLock = await spoolManager.acquireDatasetReadLock(plan.datasetSlug);
+  let lockReleased = false;
+  const release = () => {
+    if (lockReleased) {
+      return;
+    }
+    releaseLock();
+    lockReleased = true;
+  };
+
   try {
     await run(connection, `ATTACH '${escapedPath}' AS ${quoteIdentifier(alias)} (READ_ONLY)`);
   } catch (error) {
+    release();
     console.warn(`[timestore] failed to attach staging database for dataset ${plan.datasetSlug}`, error);
     if (isDuckDbCorruptionError(error)) {
       try {
-        const stagingManager = getStagingWriteManager(config);
-        await stagingManager.getSpoolManager().markDatasetCorrupted(plan.datasetSlug, error);
+        await spoolManager.markDatasetCorrupted(plan.datasetSlug, error);
       } catch (recoveryError) {
         console.warn(
           `[timestore] failed to recover corrupted staging database for dataset ${plan.datasetSlug}`,
@@ -848,73 +860,103 @@ async function integratePendingStaging(
       `SELECT DISTINCT table_name FROM ${metadataTableRef} WHERE flush_token IS NULL`
     );
 
-    if (pendingTables.length === 0) {
-      return null;
-    }
+    if (pendingTables.length > 0) {
+      const stagingSelects: string[] = [];
+      for (let index = 0; index < pendingTables.length; index += 1) {
+        const tableNameValue = pendingTables[index]?.table_name;
+        if (typeof tableNameValue !== 'string' || tableNameValue.trim().length === 0) {
+          continue;
+        }
+        const tableName = tableNameValue.trim();
+        const tableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(tableName)}`;
 
-    const stagingSelects: string[] = [];
-    for (let index = 0; index < pendingTables.length; index += 1) {
-      const tableNameValue = pendingTables[index]?.table_name;
-      if (typeof tableNameValue !== 'string' || tableNameValue.trim().length === 0) {
-        continue;
+        const overlapRows = await all(
+          connection,
+          `SELECT 1
+             FROM ${metadataTableRef}
+            WHERE flush_token IS NULL
+              AND table_name = ?
+              AND time_range_start <= ?
+              AND time_range_end >= ?
+            LIMIT 1`,
+          tableName,
+          plan.rangeEnd,
+          plan.rangeStart
+        );
+
+        if (overlapRows.length === 0) {
+          continue;
+        }
+
+        const columnInfo = await fetchTableColumns(connection, tableRef);
+        const availableColumns = columnInfo.columns;
+        const missingColumns = canonicalFields
+          .map((field) => field.name)
+          .filter((fieldName) => !availableColumns.has(fieldName));
+
+        if (missingColumns.length > 0) {
+          console.warn('[timestore:staging] missing canonical columns in staging table', {
+            datasetSlug: plan.datasetSlug,
+            tableName,
+            tableRef,
+            discoverySource: columnInfo.source,
+            missingColumns,
+            availableColumns: Array.from(availableColumns)
+          });
+        } else if (availableColumns.size <= 1) {
+          console.warn('[timestore:staging] limited columns discovered in staging table', {
+            datasetSlug: plan.datasetSlug,
+            tableName,
+            tableRef,
+            discoverySource: columnInfo.source,
+            availableColumns: Array.from(availableColumns),
+            canonicalColumns: canonicalFields.map((field) => field.name)
+          });
+        } else if (TIMESTORE_DEBUG_ENABLED) {
+          console.info('[timestore:staging] staging table column coverage', {
+            datasetSlug: plan.datasetSlug,
+            tableName,
+            tableRef,
+            discoverySource: columnInfo.source,
+            columnCount: availableColumns.size
+          });
+        }
+
+        const tableAlias = `stg${index}`;
+        const selectSql = buildStagingSelect({
+          tableRef,
+          tableAlias,
+          metadataTableRef,
+          tableName,
+          plan,
+          canonicalFields,
+          availableColumns
+        });
+        stagingSelects.push(selectSql);
       }
-      const tableName = tableNameValue.trim();
-      const tableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(tableName)}`;
 
-      const overlapRows = await all(
-        connection,
-        `SELECT 1
-           FROM ${metadataTableRef}
-          WHERE flush_token IS NULL
-            AND table_name = ?
-            AND time_range_start <= ?
-            AND time_range_end >= ?
-          LIMIT 1`,
-        tableName,
-        plan.rangeEnd,
-        plan.rangeStart
-      );
+      if (stagingSelects.length > 0) {
+        const unionSql = stagingSelects.join('\nUNION ALL\n');
+        await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows');
+        await run(connection, `CREATE TEMP TABLE staging_dataset_rows AS ${unionSql}`);
+        stagingTableCreated = true;
 
-      if (overlapRows.length === 0) {
-        continue;
+        const rowCountRows = await all(
+          connection,
+          `SELECT COALESCE(SUM(row_count), 0)::BIGINT AS row_count
+             FROM ${metadataTableRef}
+            WHERE flush_token IS NULL
+              AND time_range_start <= ?
+              AND time_range_end >= ?`,
+          plan.rangeEnd,
+          plan.rangeStart
+        );
+        pendingRowCount = Number(rowCountRows[0]?.row_count ?? 0n);
       }
-
-      const availableColumns = await fetchTableColumns(connection, tableRef);
-      const tableAlias = `stg${index}`;
-      const selectSql = buildStagingSelect({
-        tableRef,
-        tableAlias,
-        metadataTableRef,
-        tableName,
-        plan,
-        canonicalFields,
-        availableColumns
-      });
-      stagingSelects.push(selectSql);
     }
-
-    if (stagingSelects.length === 0) {
-      return null;
-    }
-
-    const unionSql = stagingSelects.join('\nUNION ALL\n');
-    await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows');
-    await run(connection, `CREATE TEMP TABLE staging_dataset_rows AS ${unionSql}`);
-    stagingTableCreated = true;
-
-    const rowCountRows = await all(
-      connection,
-      `SELECT COALESCE(SUM(row_count), 0)::BIGINT AS row_count
-         FROM ${metadataTableRef}
-        WHERE flush_token IS NULL
-          AND time_range_start <= ?
-          AND time_range_end >= ?`,
-      plan.rangeEnd,
-      plan.rangeStart
-    );
-    pendingRowCount = Number(rowCountRows[0]?.row_count ?? 0n);
   } finally {
     await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
+    release();
   }
 
   if (!stagingTableCreated) {
@@ -957,6 +999,13 @@ interface BuildStagingSelectInput {
   availableColumns: Set<string>;
 }
 
+type ColumnDiscoverySource = 'pragma' | 'describe' | 'none';
+
+interface TableColumnDiscovery {
+  columns: Set<string>;
+  source: ColumnDiscoverySource;
+}
+
 function buildStagingSelect(input: BuildStagingSelectInput): string {
   const { tableRef, tableAlias, metadataTableRef, tableName, plan, canonicalFields, availableColumns } = input;
   const projections = buildCanonicalProjections(canonicalFields, availableColumns, tableAlias);
@@ -989,8 +1038,10 @@ function buildStagingSelect(input: BuildStagingSelectInput): string {
          WHERE ${whereParts.join(' AND ')}`;
 }
 
-async function fetchTableColumns(connection: any, tableRef: string): Promise<Set<string>> {
+async function fetchTableColumns(connection: any, tableRef: string): Promise<TableColumnDiscovery> {
   const columns = new Set<string>();
+  let source: ColumnDiscoverySource = 'none';
+  let lastError: unknown = null;
   const normalizedParts = tableRef
     .split('.')
     .map((part) => part.replace(/^"|"$/g, ''))
@@ -1005,22 +1056,54 @@ async function fetchTableColumns(connection: any, tableRef: string): Promise<Set
           columns.add(row.name.trim());
         }
       }
-    } catch {
+      if (columns.size > 0) {
+        source = 'pragma';
+      }
+    } catch (error) {
+      lastError = error;
       // fall back to DESCRIBE below
     }
-    if (columns.size > 0) {
-      return columns;
+  }
+
+  if (source !== 'pragma') {
+    try {
+      const rows = await all(connection, `DESCRIBE SELECT * FROM ${tableRef}`);
+      extractColumnNames(rows as QueryResultRow[]).forEach((name) => columns.add(name));
+      if (columns.size > 0) {
+        source = 'describe';
+      }
+    } catch (error) {
+      lastError = error;
+      // ignore; return whatever we collected so far (possibly empty)
     }
   }
 
-  try {
-    const rows = await all(connection, `DESCRIBE SELECT * FROM ${tableRef}`);
-    extractColumnNames(rows as QueryResultRow[]).forEach((name) => columns.add(name));
-  } catch {
-    // ignore; return whatever we collected so far (possibly empty)
+  if (source === 'none' && TIMESTORE_DEBUG_ENABLED) {
+    console.info('[timestore:staging] column discovery returned no columns', {
+      tableRef,
+      normalizedParts,
+      lastError: formatErrorMessage(lastError)
+    });
   }
 
-  return columns;
+  return { columns, source } satisfies TableColumnDiscovery;
+}
+
+function formatErrorMessage(error: unknown): string | null {
+  if (!error) {
+    return null;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
 }
 
 function buildCanonicalProjections(

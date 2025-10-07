@@ -378,6 +378,10 @@ export class DuckDbSpoolManager {
     );
   }
 
+  async acquireDatasetReadLock(datasetSlug: string): Promise<() => void> {
+    return this.acquireDatasetLock(datasetSlug);
+  }
+
   private async getDatasetContext(datasetSlug: string): Promise<DatasetSpoolContext> {
     const existing = this.datasetContexts.get(datasetSlug);
     if (existing) {
@@ -1267,29 +1271,37 @@ export class DuckDbSpoolManager {
   }
 
   private async runWithDatasetLock<T>(datasetSlug: string, fn: () => Promise<T>): Promise<T> {
+    const release = await this.acquireDatasetLock(datasetSlug);
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  private async acquireDatasetLock(datasetSlug: string): Promise<() => void> {
     const existing = this.datasetLocks.get(datasetSlug) ?? Promise.resolve();
-    let release: () => void = () => undefined;
+    let release!: () => void;
     const current = existing.then(
       () => new Promise<void>((resolve) => {
         release = resolve;
       })
     );
     this.datasetLocks.set(datasetSlug, current);
-    try {
-      await existing;
-      const result = await fn();
+
+    await existing;
+
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
       release();
       if (this.datasetLocks.get(datasetSlug) === current) {
         this.datasetLocks.delete(datasetSlug);
       }
-      return result;
-    } catch (error) {
-      release();
-      if (this.datasetLocks.get(datasetSlug) === current) {
-        this.datasetLocks.delete(datasetSlug);
-      }
-      throw error;
-    }
+    };
   }
 }
 
