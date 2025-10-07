@@ -15,6 +15,7 @@ import {
   type AppHubEventHandler,
   type AppHubEventsClient
 } from '../../events/context';
+import { ModuleScopeContextProvider, type ModuleScopeContextValue } from '../../modules/ModuleScopeContext';
 
 vi.mock('../../auth/useAuth', () => {
   const useAuthMock = vi.fn();
@@ -161,6 +162,25 @@ const completedRun: WorkflowRun = {
   metrics: { totalSteps: 2, completedSteps: 2 },
   createdAt: fiveMinutesAgoIso,
   updatedAt: fourMinutesAgoIso
+};
+
+const moduleScopeStub: ModuleScopeContextValue = {
+  kind: 'module',
+  moduleId: 'test-module',
+  moduleVersion: '0.0.0',
+  modules: [],
+  loadingModules: false,
+  modulesError: null,
+  resources: [],
+  loadingResources: false,
+  resourcesError: null,
+  setModuleId: vi.fn(),
+  buildModulePath: (path: string) => path.startsWith('/') ? path : `/${path}`,
+  stripModulePrefix: (pathname: string) => pathname || '/',
+  getResourceContexts: () => [],
+  getResourceIds: () => [],
+  getResourceSlugs: () => [],
+  isResourceInScope: () => true
 };
 
 const autoRun: WorkflowRun = {
@@ -494,7 +514,11 @@ function renderWorkflowsPage(initialEntries: string[] = ['/workflows']) {
           createElement(
             ToastProvider,
             null,
-            createElement(WorkflowsPage)
+            createElement(
+              ModuleScopeContextProvider,
+              { value: moduleScopeStub },
+              createElement(WorkflowsPage)
+            )
           )
         )
       )

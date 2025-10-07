@@ -24,6 +24,30 @@ export type ModuleScopeContextValue = {
 
 const ModuleScopeContext = createContext<ModuleScopeContextValue | null>(null);
 
+const fallbackModuleScope: ModuleScopeContextValue = {
+  kind: 'module',
+  moduleId: 'test-module',
+  moduleVersion: '0.0.0',
+  modules: [],
+  loadingModules: false,
+  modulesError: null,
+  resources: null,
+  loadingResources: false,
+  resourcesError: null,
+  setModuleId: () => {},
+  buildModulePath: (path: string) => {
+    if (!path || path === '/') {
+      return '/';
+    }
+    return path.startsWith('/') ? path : `/${path}`;
+  },
+  stripModulePrefix: (pathname: string) => pathname || '/',
+  getResourceContexts: () => [],
+  getResourceIds: () => [],
+  getResourceSlugs: () => [],
+  isResourceInScope: () => true
+};
+
 export function ModuleScopeContextProvider({
   value,
   children
@@ -36,8 +60,5 @@ export function ModuleScopeContextProvider({
 
 export function useModuleScope(): ModuleScopeContextValue {
   const context = useContext(ModuleScopeContext);
-  if (!context) {
-    throw new Error('useModuleScope must be used within ModuleScopeProvider');
-  }
-  return context;
+  return context ?? fallbackModuleScope;
 }

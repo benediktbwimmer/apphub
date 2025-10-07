@@ -5,14 +5,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
-import EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres, runE2E } from '@apphub/test-helpers';
+import type EmbeddedPostgres from 'embedded-postgres';
 import { Queue } from 'bullmq';
 import { normalizeEventEnvelope } from '@apphub/event-bus';
 import { retryWorkflowTriggerDelivery } from '../src/eventTriggerProcessor';
 import { ingestWorkflowEvent } from '../src/workflowEvents';
 import { resetDatabasePool } from '../src/db/client';
 import { EVENT_TRIGGER_QUEUE_NAME, type EventTriggerJobData } from '../src/queue';
-import { runE2E } from '@apphub/test-helpers';
 type CoreDbModule = typeof import('../src/db');
 
 let dbModule: CoreDbModule | null = null;
@@ -57,7 +57,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'apphub-event-triggers-pg-'));
   const port = await findAvailablePort();
 
-  const postgres = new EmbeddedPostgres({
+  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
     databaseDir: dataRoot,
     persistent: false,
     port,
@@ -77,7 +77,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   embeddedPostgres = postgres;
   embeddedCleanup = async () => {
     try {
-      await postgres.stop();
+      await stopEmbeddedPostgres(postgres);
     } finally {
       await rm(dataRoot, { recursive: true, force: true });
     }

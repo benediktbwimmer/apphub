@@ -413,7 +413,11 @@ describe('useWorkflowsController', () => {
     await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
     expect(result.current.runs).toHaveLength(1);
     expect(listWorkflowDefinitionsMock).toHaveBeenCalled();
-    expect(getWorkflowDetailMock).toHaveBeenCalledWith(expect.any(Function), 'demo-workflow');
+    expect(getWorkflowDetailMock).toHaveBeenCalledWith(
+      expect.any(Function),
+      'demo-workflow',
+      { moduleId: 'test-module' }
+    );
 
     await act(async () => {
       await result.current.handleManualRun({ parameters: {} });
@@ -495,7 +499,11 @@ describe('useWorkflowsController', () => {
     await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
     await waitFor(() => expect(result.current.assetInventoryLoading).toBe(false));
 
-    expect(fetchWorkflowAssetsMock).toHaveBeenCalledWith(expect.any(Function), 'demo-workflow');
+    expect(fetchWorkflowAssetsMock).toHaveBeenCalledWith(
+      expect.any(Function),
+      'demo-workflow',
+      { moduleId: 'test-module' }
+    );
     expect(result.current.assetInventory).toEqual(assetInventory);
     expect(result.current.assetInventoryError).toBeNull();
   });

@@ -219,6 +219,9 @@ async function syncJobDefinitionModuleContext(definition: JobDefinitionRecord): 
     return;
   }
 
+  // Ensure we do not retain stale module contexts when a job definition moves between modules.
+  await deleteModuleAssignmentsForResource('job-definition', definition.id);
+
   try {
     await upsertModuleResourceContext({
       moduleId: binding.moduleId.trim(),

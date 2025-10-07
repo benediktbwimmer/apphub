@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { after } from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
-import EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from '@apphub/test-helpers';
+import type EmbeddedPostgres from 'embedded-postgres';
 
 const ipcDir = path.join(tmpdir(), 'apphub-tsx-ipc');
 try {
@@ -61,7 +62,7 @@ async function startEmbeddedPostgres(): Promise<void> {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'apphub-core-pg-'));
   const port = await findAvailablePort();
 
-  const postgres = new EmbeddedPostgres({
+  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -78,7 +79,7 @@ async function startEmbeddedPostgres(): Promise<void> {
 
   embeddedCleanup = async () => {
     try {
-      await postgres.stop();
+      await stopEmbeddedPostgres(postgres);
     } finally {
       await rm(dataRoot, { recursive: true, force: true });
     }
