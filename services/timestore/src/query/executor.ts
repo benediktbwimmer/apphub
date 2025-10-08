@@ -9,7 +9,8 @@ import {
 } from '../config/serviceConfig';
 import { getStagingWriteManager } from '../ingestion/stagingManager';
 import { isDuckDbCorruptionError } from '../storage/spoolManager';
-import type { QueryPlan, QueryPlanPartition } from './planner';
+import { sanitizeDatasetSlug } from '../sql/stagingSchema';
+import type { DownsamplePlan, QueryPlan, QueryPlanPartition } from './planner';
 import type { StorageTargetRecord } from '../db/metadata';
 import {
   resolveGcsDriverOptions,
@@ -29,7 +30,9 @@ import type {
   TimestampPartitionKeyPredicate
 } from '../types/partitionFilters';
 import { assessPartitionAccessError } from './partitionDiagnostics';
-import { queryStreamingHotBuffer, getStreamingHotBufferStatus } from '../streaming/hotBuffer';
+import { getStreamingHotBufferStatus } from '../streaming/hotBuffer';
+import { HotBufferRowSource, StagingRowSource, type RowSourceResult } from './rowSources';
+import { recordUnifiedRowSourceRows, recordUnifiedRowSourceWarning } from '../observability/metrics';
 
 interface QueryResultRow {
   [key: string]: unknown;
@@ -74,6 +77,7 @@ export interface QueryExecutionResult {
   mode: 'raw' | 'downsampled';
   warnings: string[];
   streaming?: QueryStreamingMetadata;
+  sources?: QueryRowSourceBreakdown;
 }
 
 export interface QueryStreamingMetadata {
@@ -85,20 +89,214 @@ export interface QueryStreamingMetadata {
   fresh: boolean;
 }
 
+export interface QueryRowSourceBreakdown {
+  published: {
+    rows: number;
+    partitions: number;
+  };
+  staging: {
+    rows: number;
+  };
+  hotBuffer: {
+    rows: number;
+  };
+}
+
+interface HotBufferMetadata {
+  bufferState: 'disabled' | 'ready' | 'unavailable';
+  watermark: string | null;
+  latestTimestamp: string | null;
+}
+
 export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
+  const config = loadServiceConfig();
+  const baseResult = await executeBackendPlan(plan);
+  if (plan.mode !== 'raw') {
+    return {
+      ...baseResult,
+      warnings: dedupeWarnings(baseResult.warnings ?? [])
+    };
+  }
+  return mergeRowSources(plan, baseResult, config);
+}
+
+async function executeBackendPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
   const { backend } = plan.execution;
-  let baseResult: QueryExecutionResult;
   switch (backend.kind) {
     case 'duckdb_local':
-      baseResult = await executeDuckDbPlan(plan);
-      break;
+      return executeDuckDbPlan(plan);
     case 'duckdb_cluster':
-      baseResult = await executeClusteredDuckDbPlan(plan, backend);
-      break;
+      return executeClusteredDuckDbPlan(plan, backend);
     default:
       throw new Error(`Unsupported query execution backend: ${backend.kind}`);
   }
-  return applyStreamingOverlay(plan, baseResult);
+}
+
+async function mergeRowSources(
+  plan: QueryPlan,
+  baseResult: QueryExecutionResult,
+  config: ServiceConfig
+): Promise<QueryExecutionResult> {
+  const warnings = [...(baseResult.warnings ?? [])];
+  const publishedRows = baseResult.rows.length;
+  const publishedRowSet = new Set(baseResult.rows);
+  if (publishedRows > 0) {
+    recordUnifiedRowSourceRows(plan.datasetSlug, 'published', 'query', publishedRows);
+  }
+  const rowSourceOptions = {
+    dataset: plan.dataset,
+    timestampColumn: plan.timestampColumn,
+    rangeStart: plan.rangeStart,
+    rangeEnd: plan.rangeEnd,
+    limit: plan.limit,
+    columns: plan.columns,
+    config
+  };
+
+  const combinedRows: Record<string, unknown>[] = [...baseResult.rows];
+  let stagingRows: Record<string, unknown>[] = [];
+  let streamingRows: Record<string, unknown>[] = [];
+
+  try {
+    const stagingSource = new StagingRowSource();
+    const stagingResult = await stagingSource.fetchRows(rowSourceOptions);
+    stagingRows = stagingResult.rows;
+    if (stagingResult.rows.length > 0) {
+      combinedRows.push(...stagingResult.rows);
+      recordUnifiedRowSourceRows(plan.datasetSlug, 'staging', 'query', stagingResult.rows.length);
+      const emptyViewWarning = `No readable partitions found for dataset ${plan.datasetSlug}; returning empty result.`;
+      const warningIndex = warnings.indexOf(emptyViewWarning);
+      if (warningIndex >= 0) {
+        warnings.splice(warningIndex, 1);
+      }
+      warnings.push(
+        `Included ${stagingResult.rows.length} staged row(s) pending flush for dataset ${plan.datasetSlug}.`
+      );
+    }
+  } catch (error) {
+    console.warn('[timestore] failed to read staging rows', {
+      datasetSlug: plan.dataset.slug,
+      error: error instanceof Error ? error.message : error
+    });
+    warnings.push('Failed to read staging rows; results may be incomplete.');
+    const reason = error instanceof Error ? error.message : String(error);
+    recordUnifiedRowSourceWarning(plan.datasetSlug, 'staging', 'query', reason);
+  }
+
+  const streamingEnabled = config.features.streaming.enabled && config.streaming.hotBuffer.enabled;
+  const status = getStreamingHotBufferStatus();
+  const streamingMetadata: QueryStreamingMetadata = {
+    enabled: streamingEnabled,
+    bufferState: streamingEnabled ? status.state : 'disabled',
+    rows: 0,
+    watermark: null,
+    latestTimestamp: null,
+    fresh: streamingEnabled ? status.state === 'ready' : true
+  } satisfies QueryStreamingMetadata;
+
+  if (!streamingEnabled || status.state === 'disabled') {
+    const finalRows = finalizeRows(plan, combinedRows);
+    const finalColumns = mergeColumns(baseResult.columns, finalRows);
+    const sources = summarizeRowSources(
+      finalRows,
+      publishedRowSet,
+      stagingRows,
+      streamingRows,
+      plan.partitions.length
+    );
+    return {
+      ...baseResult,
+      rows: finalRows,
+      columns: finalColumns,
+      warnings: dedupeWarnings(warnings),
+      streaming: streamingMetadata,
+      sources
+    } satisfies QueryExecutionResult;
+  }
+
+  let hotBufferResult: RowSourceResult | null = null;
+  let hotBufferError: unknown = null;
+  try {
+    const hotBufferSource = new HotBufferRowSource();
+    hotBufferResult = await hotBufferSource.fetchRows(rowSourceOptions);
+  } catch (error) {
+    hotBufferError = error;
+    console.warn('[timestore] failed to read streaming hot buffer', {
+      datasetSlug: plan.dataset.slug,
+      error: error instanceof Error ? error.message : error
+    });
+  }
+
+  const hotBufferMetadata = normalizeHotBufferMetadata(hotBufferResult?.metadata);
+  const bufferState = hotBufferMetadata.bufferState;
+  if (bufferState === 'unavailable' || hotBufferError) {
+    if (config.streaming.hotBuffer.fallbackMode === 'error') {
+      throw new Error('Streaming hot buffer is unavailable and fallback mode is set to error.');
+    }
+    warnings.push('Streaming hot buffer unavailable; served Parquet partitions only.');
+    const warningReason = hotBufferError
+      ? hotBufferError instanceof Error
+        ? hotBufferError.message
+        : String(hotBufferError)
+      : bufferState;
+    recordUnifiedRowSourceWarning(plan.datasetSlug, 'hot_buffer', 'query', warningReason);
+    const finalRows = finalizeRows(plan, combinedRows);
+    const finalColumns = mergeColumns(baseResult.columns, finalRows);
+    const sources = summarizeRowSources(
+      finalRows,
+      publishedRowSet,
+      stagingRows,
+      streamingRows,
+      plan.partitions.length
+    );
+    return {
+      ...baseResult,
+      rows: finalRows,
+      columns: finalColumns,
+      warnings: dedupeWarnings(warnings),
+      streaming: {
+        ...streamingMetadata,
+        bufferState: 'unavailable',
+        fresh: false
+      },
+      sources
+    } satisfies QueryExecutionResult;
+  }
+
+  streamingRows = hotBufferResult?.rows ?? [];
+  if (streamingRows.length > 0) {
+    combinedRows.push(...streamingRows);
+    recordUnifiedRowSourceRows(plan.datasetSlug, 'hot_buffer', 'query', streamingRows.length);
+  }
+
+  const finalRows = finalizeRows(plan, combinedRows);
+  const finalColumns = mergeColumns(baseResult.columns, finalRows);
+  const sources = summarizeRowSources(
+    finalRows,
+    publishedRowSet,
+    stagingRows,
+    streamingRows,
+    plan.partitions.length
+  );
+
+  return {
+    ...baseResult,
+    rows: finalRows,
+    columns: finalColumns,
+    warnings: dedupeWarnings(warnings),
+    streaming: {
+      enabled: true,
+      bufferState,
+      rows: sources.hotBuffer.rows,
+      watermark: hotBufferMetadata.watermark,
+      latestTimestamp: hotBufferMetadata.latestTimestamp,
+      fresh: determineFreshness(
+        hotBufferMetadata.latestTimestamp,
+        plan.rangeEnd
+      )
+    },
+    sources
+  } satisfies QueryExecutionResult;
 }
 
 async function executeClusteredDuckDbPlan(
@@ -181,97 +379,19 @@ function mergeClusterResults(results: QueryExecutionResult[], plan: QueryPlan): 
   } satisfies QueryExecutionResult;
 }
 
-function applyStreamingOverlay(plan: QueryPlan, baseResult: QueryExecutionResult): QueryExecutionResult {
-  const config = loadServiceConfig();
-  const streamingEnabled = config.features.streaming.enabled && config.streaming.hotBuffer.enabled;
-  const status = getStreamingHotBufferStatus();
-  const warnings = [...baseResult.warnings];
-
-  const streamingMetadata: QueryStreamingMetadata = {
-    enabled: streamingEnabled,
-    bufferState: streamingEnabled ? status.state : 'disabled',
-    rows: 0,
-    watermark: null,
-    latestTimestamp: null,
-    fresh: streamingEnabled ? status.state === 'ready' : true
-  } satisfies QueryStreamingMetadata;
-
-  if (!streamingEnabled || status.state === 'disabled' || plan.mode !== 'raw') {
-    return {
-      ...baseResult,
-      warnings: dedupeWarnings(warnings),
-      streaming: streamingMetadata
-    } satisfies QueryExecutionResult;
+function finalizeRows(
+  plan: QueryPlan,
+  rows: Record<string, unknown>[]
+): Record<string, unknown>[] {
+  if (rows.length === 0) {
+    return [];
   }
-
-  const hotBufferResult = queryStreamingHotBuffer(plan.datasetSlug, {
-    rangeStart: plan.rangeStart,
-    rangeEnd: plan.rangeEnd,
-    limit: plan.limit,
-    timestampColumn: plan.timestampColumn
-  });
-
-  if (hotBufferResult.bufferState === 'unavailable') {
-    if (config.streaming.hotBuffer.fallbackMode === 'error') {
-      throw new Error('Streaming hot buffer is unavailable and fallback mode is set to error.');
-    }
-    warnings.push('Streaming hot buffer unavailable; served Parquet partitions only.');
-    return {
-      ...baseResult,
-      warnings: dedupeWarnings(warnings),
-      streaming: {
-        ...streamingMetadata,
-        bufferState: 'unavailable',
-        fresh: false
-      }
-    } satisfies QueryExecutionResult;
+  const sorted = [...rows];
+  sorted.sort((a, b) => compareRowsByTimestamp(a, b, plan.timestampColumn));
+  if (plan.limit && plan.limit > 0 && sorted.length > plan.limit) {
+    return sorted.slice(0, plan.limit);
   }
-
-  const streamingRows = hotBufferResult.rows ?? [];
-  if (streamingRows.length === 0) {
-    return {
-      ...baseResult,
-      warnings: dedupeWarnings(warnings),
-      streaming: {
-        ...streamingMetadata,
-        bufferState: hotBufferResult.bufferState,
-        watermark: hotBufferResult.watermark,
-        latestTimestamp: hotBufferResult.latestTimestamp,
-        fresh: determineFreshness(hotBufferResult.latestTimestamp, plan.rangeEnd)
-      }
-    } satisfies QueryExecutionResult;
-  }
-
-  const baseRows = [...baseResult.rows];
-  const combinedRows = [...baseRows, ...streamingRows];
-  const streamingRowSet = new Set(streamingRows);
-  combinedRows.sort((a, b) => compareRowsByTimestamp(a, b, plan.timestampColumn));
-
-  let limitedRows = combinedRows;
-  if (plan.limit && plan.limit > 0 && combinedRows.length > plan.limit) {
-    limitedRows = combinedRows.slice(0, plan.limit);
-  }
-
-  const streamingIncluded = limitedRows.reduce(
-    (count, row) => (streamingRowSet.has(row) ? count + 1 : count),
-    0
-  );
-  const unifiedColumns = mergeColumns(baseResult.columns, limitedRows);
-
-  return {
-    ...baseResult,
-    rows: limitedRows,
-    columns: unifiedColumns,
-    warnings: dedupeWarnings(warnings),
-    streaming: {
-      enabled: true,
-      bufferState: hotBufferResult.bufferState,
-      rows: streamingIncluded,
-      watermark: hotBufferResult.watermark,
-      latestTimestamp: hotBufferResult.latestTimestamp,
-      fresh: determineFreshness(hotBufferResult.latestTimestamp, plan.rangeEnd)
-    }
-  } satisfies QueryExecutionResult;
+  return sorted;
 }
 
 function determineFreshness(latestTimestamp: string | null, rangeEnd: Date): boolean {
@@ -332,6 +452,60 @@ function mergeColumns(baseColumns: string[], rows: QueryResultRow[]): string[] {
   return merged;
 }
 
+function normalizeHotBufferMetadata(metadata: Record<string, unknown> | undefined): HotBufferMetadata {
+  const state = metadata?.bufferState;
+  const bufferState: HotBufferMetadata['bufferState'] =
+    state === 'ready' || state === 'disabled' ? state : 'unavailable';
+  const watermarkValue = metadata?.watermark;
+  const latestTimestampValue = metadata?.latestTimestamp;
+  return {
+    bufferState,
+    watermark: typeof watermarkValue === 'string' ? watermarkValue : null,
+    latestTimestamp: typeof latestTimestampValue === 'string' ? latestTimestampValue : null
+  };
+}
+
+function summarizeRowSources(
+  finalRows: Record<string, unknown>[],
+  publishedRowSet: Set<Record<string, unknown>>,
+  stagingRows: Record<string, unknown>[],
+  streamingRows: Record<string, unknown>[],
+  partitions: number
+): QueryRowSourceBreakdown {
+  const stagingRowSet = new Set(stagingRows);
+  const streamingRowSet = new Set(streamingRows);
+  let publishedIncluded = 0;
+  let stagingIncluded = 0;
+  let streamingIncluded = 0;
+
+  for (const row of finalRows) {
+    if (streamingRowSet.has(row)) {
+      streamingIncluded += 1;
+      continue;
+    }
+    if (stagingRowSet.has(row)) {
+      stagingIncluded += 1;
+      continue;
+    }
+    if (publishedRowSet.has(row)) {
+      publishedIncluded += 1;
+    }
+  }
+
+  return {
+    published: {
+      rows: publishedIncluded,
+      partitions
+    },
+    staging: {
+      rows: stagingIncluded
+    },
+    hotBuffer: {
+      rows: streamingIncluded
+    }
+  };
+}
+
 export async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
   const duckdb = loadDuckDb();
   const db = new duckdb.Database(':memory:');
@@ -341,25 +515,11 @@ export async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecution
 
   try {
     await applyDefaultDuckDbSettings(connection, config);
-    await prepareConnectionForPlan(connection, plan, config);
-    const canonicalFields = resolveCanonicalFields(plan);
-    const viewWarnings = await createDatasetView(connection, plan, canonicalFields);
-    warnings.push(...viewWarnings);
-    let baseViewSource = 'dataset_view';
-    const stagingIntegration = await integratePendingStaging(connection, plan, canonicalFields, config);
-    if (stagingIntegration) {
-      if (stagingIntegration.replacedEmptyView) {
-        const warningToRemove = `No readable partitions found for dataset ${plan.datasetSlug}; returning empty result.`;
-        const index = warnings.indexOf(warningToRemove);
-        if (index >= 0) {
-          warnings.splice(index, 1);
-        }
-      }
-      warnings.push(...stagingIntegration.warnings);
-      baseViewSource = stagingIntegration.baseViewName;
-    }
-
-    const baseViewName = await applyColumnFilters(connection, plan, baseViewSource);
+   await prepareConnectionForPlan(connection, plan, config);
+   const canonicalFields = resolveCanonicalFields(plan);
+   const viewWarnings = await createDatasetView(connection, plan, canonicalFields);
+   warnings.push(...viewWarnings);
+    const baseViewName = await applyColumnFilters(connection, plan, 'dataset_view');
 
     const { preparatoryQueries, selectSql, mode } = buildFinalQuery(plan, baseViewName);
     for (const query of preparatoryQueries) {
@@ -780,7 +940,7 @@ function buildFinalQuery(
 } {
   if (plan.downsample) {
     const timestampColumn = quoteIdentifier(plan.timestampColumn);
-    const windowExpression = buildWindowExpression(plan.downsample.intervalLiteral, timestampColumn);
+    const windowExpression = buildWindowExpression(plan.downsample, timestampColumn);
     const aggregations = plan.downsample.aggregations
       .map((aggregation) => `${aggregation.expression} AS ${quoteIdentifier(aggregation.alias)}`)
       .join(', ');
@@ -814,13 +974,44 @@ function buildFinalQuery(
   };
 }
 
-function buildWindowExpression(intervalLiteral: string, timestampColumn: string): string {
-  const lower = intervalLiteral.toLowerCase();
-  if (lower.startsWith('1 ')) {
-    const unit = lower.split(' ')[1] ?? 'minute';
-    return `DATE_TRUNC('${unit}', ${timestampColumn})`;
+function buildWindowExpression(downsample: DownsamplePlan, timestampColumn: string): string {
+  const { intervalLiteral, intervalSize, intervalUnit } = downsample;
+  const secondsPerUnit: Record<DownsamplePlan['intervalUnit'], number | null> = {
+    second: 1,
+    minute: 60,
+    hour: 60 * 60,
+    day: 60 * 60 * 24,
+    week: 60 * 60 * 24 * 7,
+    month: null
+  };
+
+  if (intervalSize === 1) {
+    // DuckDB 1.4.0 supports DATE_TRUNC for all basic units.
+    return `DATE_TRUNC('${intervalUnit}', ${timestampColumn})`;
   }
+
+  const unitSeconds = secondsPerUnit[intervalUnit];
+  if (unitSeconds) {
+    const bucketSeconds = unitSeconds * intervalSize;
+    return `TO_TIMESTAMP(FLOOR(DATE_PART('epoch', ${timestampColumn}) / ${bucketSeconds}) * ${bucketSeconds})`;
+  }
+
+  if (intervalUnit === 'month') {
+    return buildMonthWindowExpression(intervalSize, timestampColumn);
+  }
+
   return `DATE_BIN(INTERVAL '${intervalLiteral}', ${timestampColumn}, TIMESTAMP '1970-01-01 00:00:00')`;
+}
+
+function buildMonthWindowExpression(intervalSize: number, timestampColumn: string): string {
+  if (intervalSize === 1) {
+    return `DATE_TRUNC('month', ${timestampColumn})`;
+  }
+  const monthIndex = `(CAST(DATE_PART('year', ${timestampColumn}) AS BIGINT) * 12 + CAST(DATE_PART('month', ${timestampColumn}) AS BIGINT) - 1)`;
+  const bucketIndex = `(CAST(FLOOR(${monthIndex} / ${intervalSize}) AS BIGINT) * ${intervalSize})`;
+  const bucketYear = `(CAST(FLOOR(${bucketIndex} / 12) AS BIGINT))`;
+  const bucketMonth = `(CAST(MOD(${bucketIndex}, 12) + 1 AS BIGINT))`;
+  return `MAKE_TIMESTAMP(${bucketYear}, ${bucketMonth}, 1, 0, 0, 0)`;
 }
 
 function deriveColumns(plan: QueryPlan, mode: 'raw' | 'downsampled'): string[] {
@@ -863,21 +1054,16 @@ async function integratePendingStaging(
   await run(connection, 'DROP VIEW IF EXISTS staging_dataset_view').catch(() => undefined);
   await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows').catch(() => undefined);
 
-  const databasePath = path.join(stagingDirectory, sanitizeDatasetSlug(plan.datasetSlug), 'staging.duckdb');
+  const stagingManager = getStagingWriteManager(config);
+  const spoolManager = stagingManager.getSpoolManager();
+  const safeSlug = sanitizeDatasetSlug(plan.datasetSlug);
+  const databasePath = path.join(stagingDirectory, safeSlug, 'staging.duckdb');
   try {
     await access(databasePath);
   } catch {
     return null;
   }
 
-  const alias = `staging_${randomUUID().replace(/-/g, '_')}`;
-  const escapedPath = databasePath.replace(/'/g, "''");
-  let stagingTableCreated = false;
-  let pendingRowCount = 0;
-  let stagingCorruptionError: Error | null = null;
-
-  const stagingManager = getStagingWriteManager(config);
-  const spoolManager = stagingManager.getSpoolManager();
   let releaseLock = await spoolManager.acquireDatasetReadLock(plan.datasetSlug);
   let lockReleased = false;
   const release = () => {
@@ -887,14 +1073,12 @@ async function integratePendingStaging(
     releaseLock();
     lockReleased = true;
   };
-  const reacquireDatasetLock = async () => {
-    if (!lockReleased) {
-      releaseLock();
-      lockReleased = true;
-    }
-    releaseLock = await spoolManager.acquireDatasetReadLock(plan.datasetSlug);
-    lockReleased = false;
-  };
+
+  const alias = `staging_${randomUUID().replace(/-/g, '_')}`;
+  const escapedPath = databasePath.replace(/'/g, "''");
+  let stagingTableCreated = false;
+  let pendingRowCount = 0;
+  let stagingCorruptionError: Error | null = null;
 
   const attachSql = `ATTACH '${escapedPath}' AS ${quoteIdentifier(alias)} (READ_ONLY)`;
   let attachAttempt = 0;
@@ -906,7 +1090,6 @@ async function integratePendingStaging(
       const isBusy = isDuckDbBusyLockError(error);
       const isLastAttempt = attachAttempt === STAGING_ATTACH_BUSY_RETRIES - 1;
       if (!isBusy || isLastAttempt) {
-        release();
         console.warn(`[timestore] failed to attach staging database for dataset ${plan.datasetSlug}`, error);
         if (isDuckDbCorruptionError(error)) {
           try {
@@ -930,7 +1113,9 @@ async function integratePendingStaging(
         }
       );
       await delay(backoffMs);
-      await reacquireDatasetLock();
+      release();
+      releaseLock = await spoolManager.acquireDatasetReadLock(plan.datasetSlug);
+      lockReleased = false;
     }
   }
 
@@ -1246,15 +1431,6 @@ function extractColumnNames(rows: QueryResultRow[]): Set<string> {
       })
       .filter((value): value is string => Boolean(value))
   );
-}
-
-function sanitizeDatasetSlug(datasetSlug: string): string {
-  const trimmed = datasetSlug.trim();
-  if (trimmed.length === 0) {
-    throw new Error('datasetSlug must not be empty');
-  }
-  const normalized = trimmed.replace(/[^a-zA-Z0-9_.-]/g, '_');
-  return normalized.length > 0 ? normalized : 'dataset';
 }
 
 function run(connection: any, sql: string, ...params: unknown[]): Promise<void> {

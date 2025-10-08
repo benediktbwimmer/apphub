@@ -47,10 +47,13 @@ export interface DownsampleAggregationPlan {
 
 export interface DownsamplePlan {
   intervalLiteral: string;
+  intervalUnit: DownsampleInput['intervalUnit'];
+  intervalSize: number;
   aggregations: DownsampleAggregationPlan[];
 }
 
 export interface QueryPlan {
+  dataset: DatasetRecord;
   datasetId: string;
   datasetSlug: string;
   timestampColumn: string;
@@ -133,6 +136,7 @@ export async function buildQueryPlan(
   const execution = resolveExecutionPlan(dataset, config);
 
   return {
+    dataset,
     datasetId: dataset.id,
     datasetSlug,
     timestampColumn: request.timestampColumn,
@@ -265,6 +269,8 @@ function buildDownsamplePlan(
   const aggregationPlans = aggregations.map(createDownsampleAggregationPlan);
   return {
     intervalLiteral,
+    intervalUnit,
+    intervalSize,
     aggregations: aggregationPlans
   } satisfies DownsamplePlan;
 }

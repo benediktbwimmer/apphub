@@ -3913,6 +3913,61 @@
               }
             },
             "nullable": true
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "published",
+              "staging",
+              "hotBuffer"
+            ],
+            "properties": {
+              "published": {
+                "type": "object",
+                "required": [
+                  "rows",
+                  "partitions"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from published partitions."
+                  },
+                  "partitions": {
+                    "type": "integer",
+                    "description": "Total published partitions inspected for this query."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "staging": {
+                "type": "object",
+                "required": [
+                  "rows"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from staging batches pending flush."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "hotBuffer": {
+                "type": "object",
+                "required": [
+                  "rows"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from the streaming hot buffer."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
           }
         }
       },
@@ -8823,6 +8878,61 @@
                 "description": "True when streaming data covers the requested range end."
               }
             }
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "published",
+              "staging",
+              "hotBuffer"
+            ],
+            "properties": {
+              "published": {
+                "type": "object",
+                "required": [
+                  "rows",
+                  "partitions"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from published partitions."
+                  },
+                  "partitions": {
+                    "type": "integer",
+                    "description": "Total published partitions inspected for this query."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "staging": {
+                "type": "object",
+                "required": [
+                  "rows"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from staging batches pending flush."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "hotBuffer": {
+                "type": "object",
+                "required": [
+                  "rows"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from the streaming hot buffer."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
           }
         },
         "title": "https://timestore.apphub/schemas/DatasetQueryResponse.json"

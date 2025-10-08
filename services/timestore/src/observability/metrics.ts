@@ -161,6 +161,8 @@ interface MetricsState {
   queryRowCount: Histogram<string> | null;
   queryRemotePartitions: Counter<string> | null;
   queryPartitionDecisions: Counter<string> | null;
+  unifiedRowSourceRowsTotal: Counter<string> | null;
+  unifiedRowSourceWarningsTotal: Counter<string> | null;
   manifestCacheHitsTotal: Counter<string> | null;
   manifestCacheMissesTotal: Counter<string> | null;
   manifestCacheEvictionsTotal: Counter<string> | null;
@@ -461,6 +463,24 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
         name: `${prefix}query_partitions_total`,
         help: 'Query partition evaluation results grouped by dataset and decision',
         labelNames: ['dataset', 'decision'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const unifiedRowSourceRowsTotal = enabled
+    ? new Counter({
+        name: `${prefix}unified_row_source_rows_total`,
+        help: 'Rows served from unified row sources grouped by dataset, source, and consumer path',
+        labelNames: ['dataset', 'source', 'path'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const unifiedRowSourceWarningsTotal = enabled
+    ? new Counter({
+        name: `${prefix}unified_row_source_warnings_total`,
+        help: 'Warnings emitted when accessing unified row sources',
+        labelNames: ['dataset', 'source', 'path', 'reason'],
         registers: registerMetrics
       })
     : null;
@@ -777,6 +797,8 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     queryRowCount,
     queryRemotePartitions,
     queryPartitionDecisions,
+    unifiedRowSourceRowsTotal,
+    unifiedRowSourceWarningsTotal,
     manifestCacheHitsTotal,
     manifestCacheMissesTotal,
     manifestCacheEvictionsTotal,
@@ -1089,6 +1111,37 @@ export function recordQueryPartitionSelection(
   if (pruned > 0) {
     state.queryPartitionDecisions.labels(datasetSlug, 'pruned').inc(pruned);
   }
+}
+
+export function recordUnifiedRowSourceRows(
+  datasetSlug: string,
+  source: string,
+  path: string,
+  rows: number
+): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.unifiedRowSourceRowsTotal) {
+    return;
+  }
+  const count = Math.max(0, rows);
+  if (count === 0) {
+    return;
+  }
+  state.unifiedRowSourceRowsTotal.labels(datasetSlug, source, path).inc(count);
+}
+
+export function recordUnifiedRowSourceWarning(
+  datasetSlug: string,
+  source: string,
+  path: string,
+  reason: string
+): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.unifiedRowSourceWarningsTotal) {
+    return;
+  }
+  const normalized = reason && reason.trim().length > 0 ? reason.trim().slice(0, 120) : 'unknown';
+  state.unifiedRowSourceWarningsTotal.labels(datasetSlug, source, path, normalized).inc();
 }
 
 export function recordManifestCacheHit(source: ManifestCacheHitSource): void {

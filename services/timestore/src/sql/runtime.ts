@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
+import { StagingRowSource, HotBufferRowSource } from '../query/rowSources';
 import {
   listDatasets,
   listPublishedManifestsWithPartitions,
@@ -26,6 +27,7 @@ import {
   configureAzureSupport,
   applyDefaultDuckDbSettings
 } from '../query/executor';
+import { recordUnifiedRowSourceRows, recordUnifiedRowSourceWarning } from '../observability/metrics';
 import {
   recordRuntimeCacheEvent,
   observeRuntimeCacheRebuild,
@@ -378,6 +380,18 @@ async function buildDatasetCacheState(
     const { columns, source: schemaSource } = schemaResult;
     const partitions = await mapPartitions(aggregatedPartitions, config, storageTargetCache, warnings);
     const partitionKeys = derivePartitionKeys(partitions);
+    const timestampColumn = determineTimestampColumn(dataset, columns);
+    const stagingRows = await fetchStagingRows(dataset, timestampColumn, columns, config, warnings);
+    const hotBufferRows = await fetchHotBufferRows(dataset, timestampColumn, columns, config, warnings);
+    if (aggregatedTotals.rows > 0) {
+      recordUnifiedRowSourceRows(dataset.slug, 'published', 'sql_runtime', aggregatedTotals.rows);
+    }
+    if (stagingRows.length > 0) {
+      recordUnifiedRowSourceRows(dataset.slug, 'staging', 'sql_runtime', stagingRows.length);
+    }
+    if (hotBufferRows.length > 0) {
+      recordUnifiedRowSourceRows(dataset.slug, 'hot_buffer', 'sql_runtime', hotBufferRows.length);
+    }
     const { viewName, aliasWarning } = createViewName(dataset.slug);
     const aliasWarnings = aliasWarning ? [aliasWarning] : [];
     if (aliasWarning) {
@@ -410,7 +424,10 @@ async function buildDatasetCacheState(
       partitionKeys,
       partitions,
       viewName,
-      aliasWarnings
+      aliasWarnings,
+      timestampColumn,
+      stagingRows,
+      hotBufferRows
     } satisfies SqlDatasetContext;
     included = true;
 
@@ -565,6 +582,9 @@ export interface SqlDatasetContext {
   partitions: SqlDatasetPartitionContext[];
   viewName: string;
   aliasWarnings: string[];
+  timestampColumn: string;
+  stagingRows: Record<string, unknown>[];
+  hotBufferRows: Record<string, unknown>[];
 }
 
 export interface SqlContext {
@@ -1250,6 +1270,132 @@ function derivePartitionKeys(partitions: SqlDatasetPartitionContext[]): string[]
   return Array.from(keys).sort();
 }
 
+function determineTimestampColumn(
+  dataset: DatasetRecord,
+  columns: SqlSchemaColumnInfo[]
+): string {
+  const metadata = dataset.metadata ?? {};
+  const candidate =
+    typeof (metadata as { defaultTimestampColumn?: unknown }).defaultTimestampColumn === 'string'
+      ? String((metadata as { defaultTimestampColumn?: unknown }).defaultTimestampColumn)
+      : null;
+  if (candidate && columns.some((column) => column.name === candidate)) {
+    return candidate;
+  }
+  const timestampColumn = columns.find((column) =>
+    typeof column.type === 'string' && column.type.toUpperCase() === 'TIMESTAMP'
+  );
+  if (timestampColumn) {
+    return timestampColumn.name;
+  }
+  const fallback = columns.find((column) => column.name.toLowerCase() === 'timestamp');
+  return fallback ? fallback.name : (columns[0]?.name ?? 'timestamp');
+}
+
+async function fetchStagingRows(
+  dataset: DatasetRecord,
+  timestampColumn: string,
+  columns: SqlSchemaColumnInfo[],
+  config: ServiceConfig,
+  warnings: string[]
+): Promise<Record<string, unknown>[]> {
+  try {
+    const rowSource = new StagingRowSource();
+    const result = await rowSource.fetchRows({
+      dataset,
+      timestampColumn,
+      rangeStart: new Date(0),
+      rangeEnd: new Date('9999-12-31T23:59:59.999Z'),
+      columns: columns.map((column) => column.name),
+      config
+    });
+    return normalizeInlineRows(result.rows, columns);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    warnings.push(
+      `[timestore:sql] failed to read staging rows for dataset ${dataset.slug}: ${reason}`
+    );
+    recordUnifiedRowSourceWarning(dataset.slug, 'staging', 'sql_runtime', reason);
+    return [];
+  }
+}
+
+async function fetchHotBufferRows(
+  dataset: DatasetRecord,
+  timestampColumn: string,
+  columns: SqlSchemaColumnInfo[],
+  config: ServiceConfig,
+  warnings: string[]
+): Promise<Record<string, unknown>[]> {
+  const streamingEnabled = config.features.streaming.enabled && config.streaming.hotBuffer.enabled;
+  if (!streamingEnabled) {
+    return [];
+  }
+  try {
+    const rowSource = new HotBufferRowSource();
+    const result = await rowSource.fetchRows({
+      dataset,
+      timestampColumn,
+      rangeStart: new Date(0),
+      rangeEnd: new Date('9999-12-31T23:59:59.999Z'),
+      columns: columns.map((column) => column.name),
+      config
+    });
+    const rows = normalizeInlineRows(result.rows, columns);
+    const bufferStateValue = result.metadata?.bufferState;
+    const bufferState = typeof bufferStateValue === 'string' ? bufferStateValue : null;
+    if (bufferState && bufferState !== 'ready') {
+      warnings.push(
+        `[timestore:sql] streaming buffer for dataset ${dataset.slug} reported state ${bufferState}`
+      );
+      recordUnifiedRowSourceWarning(dataset.slug, 'hot_buffer', 'sql_runtime', bufferState);
+    }
+    return rows;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    warnings.push(
+      `[timestore:sql] failed to read streaming rows for dataset ${dataset.slug}: ${reason}`
+    );
+    recordUnifiedRowSourceWarning(dataset.slug, 'hot_buffer', 'sql_runtime', reason);
+    return [];
+  }
+}
+
+function normalizeInlineRows(
+  rows: Record<string, unknown>[],
+  columns: SqlSchemaColumnInfo[]
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const normalized: Record<string, unknown> = {};
+    for (const column of columns) {
+      const value = (row ?? {})[column.name];
+      normalized[column.name] = normalizeInlineValue(value);
+    }
+    return normalized;
+  });
+}
+
+function normalizeInlineValue(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === 'bigint') {
+    const num = Number(value);
+    return Number.isSafeInteger(num) ? num : value.toString();
+  }
+  if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return value;
+}
+
 async function loadStorageTarget(
   id: string,
   cache: Map<string, StorageTargetRecord | null>,
@@ -1274,7 +1420,10 @@ async function attachDataset(
   config: ServiceConfig
 ): Promise<string[]> {
   const warnings: string[] = [];
-  if (dataset.partitions.length === 0) {
+  const hasPublished = dataset.partitions.length > 0;
+  const hasInline = dataset.stagingRows.length > 0 || dataset.hotBufferRows.length > 0;
+
+  if (!hasPublished && !hasInline) {
     await createEmptyView(connection, dataset);
     return warnings;
   }
@@ -1307,6 +1456,16 @@ async function attachDataset(
     }
   }
 
+  const stagingTable = await createInlineRowsTable(connection, dataset, dataset.stagingRows, 'staging');
+  if (stagingTable) {
+    selects.push(buildInlineSelectFromTable(stagingTable, dataset));
+  }
+
+  const hotBufferTable = await createInlineRowsTable(connection, dataset, dataset.hotBufferRows, 'hot_buffer');
+  if (hotBufferTable) {
+    selects.push(buildInlineSelectFromTable(hotBufferTable, dataset));
+  }
+
   if (selects.length === 0) {
     await createEmptyView(connection, dataset);
     warnings.push(`No readable partitions found for dataset ${dataset.dataset.slug}; returning empty view.`);
@@ -1329,6 +1488,95 @@ async function createEmptyView(connection: DuckDbConnection, dataset: SqlDataset
     .join(', ');
   const query = `SELECT ${projections} WHERE 1=0`;
   await run(connection, `CREATE OR REPLACE VIEW ${quoteQualifiedName(dataset.viewName)} AS ${query}`);
+}
+
+async function createInlineRowsTable(
+  connection: DuckDbConnection,
+  dataset: SqlDatasetContext,
+  rows: Record<string, unknown>[],
+  suffix: string
+): Promise<string | null> {
+  if (!rows || rows.length === 0 || dataset.columns.length === 0) {
+    return rows && rows.length > 0 && dataset.columns.length === 0
+      ? await createInlineWideTable(connection, rows, suffix)
+      : null;
+  }
+
+  const tableName = `timestore_inline_${suffix}_${randomUUID().replace(/-/g, '_')}`;
+  const qualifiedName = `timestore_runtime.${tableName}`;
+  const columnDefinitions = dataset.columns
+    .map((column) => `${quoteIdentifier(column.name)} ${mapInlineColumnType(column)}`)
+    .join(', ');
+
+  await run(connection, `CREATE TABLE ${quoteQualifiedName(qualifiedName)} (${columnDefinitions})`);
+
+  if (rows.length === 0) {
+    return qualifiedName;
+  }
+
+  const placeholders = dataset.columns.map(() => '?').join(', ');
+  for (const row of rows) {
+    const values = dataset.columns.map((column) => row[column.name] ?? null);
+    await run(
+      connection,
+      `INSERT INTO ${quoteQualifiedName(qualifiedName)} VALUES (${placeholders})`,
+      ...values
+    );
+  }
+
+  return qualifiedName;
+}
+
+async function createInlineWideTable(
+  connection: DuckDbConnection,
+  rows: Record<string, unknown>[],
+  suffix: string
+): Promise<string | null> {
+  if (!rows || rows.length === 0) {
+    return null;
+  }
+  const tableName = `timestore_inline_${suffix}_${randomUUID().replace(/-/g, '_')}`;
+  const qualifiedName = `timestore_runtime.${tableName}`;
+  const columnNames = Object.keys(rows[0] ?? {});
+  if (columnNames.length === 0) {
+    return null;
+  }
+  const columnDefinitions = columnNames
+    .map((column) => `${quoteIdentifier(column)} VARCHAR`)
+    .join(', ');
+  await run(connection, `CREATE TABLE ${quoteQualifiedName(qualifiedName)} (${columnDefinitions})`);
+  const placeholders = columnNames.map(() => '?').join(', ');
+  for (const row of rows) {
+    const values = columnNames.map((column) => normalizeInlineValue(row[column]));
+    await run(
+      connection,
+      `INSERT INTO ${quoteQualifiedName(qualifiedName)} VALUES (${placeholders})`,
+      ...values
+    );
+  }
+  return qualifiedName;
+}
+
+function buildInlineSelectFromTable(tableName: string, dataset: SqlDatasetContext): string {
+  if (dataset.columns.length === 0) {
+    return `SELECT * FROM ${quoteTableReference(tableName)}`;
+  }
+  const projections = dataset.columns
+    .map((column) => quoteIdentifier(column.name))
+    .join(', ');
+  return `SELECT ${projections} FROM ${quoteTableReference(tableName)}`;
+}
+
+function mapInlineColumnType(column: SqlSchemaColumnInfo): string {
+  const type = (column.type ?? '').trim();
+  if (!type) {
+    return 'VARCHAR';
+  }
+  return type.toUpperCase();
+}
+
+function quoteTableReference(name: string): string {
+  return name.includes('.') ? quoteQualifiedName(name) : quoteIdentifier(name);
 }
 
 async function createRuntimeTables(connection: DuckDbConnection): Promise<void> {

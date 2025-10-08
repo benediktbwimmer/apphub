@@ -187,4 +187,56 @@ describe('DuckDbSpoolManager', () => {
     assert.equal(duplicate.alreadyStaged, true);
     assert.equal(duplicate.rowCount, rows.length);
   });
+
+  test('dataset read lock blocks writers across managers', async () => {
+    const datasetSlug = 'metrics.lock';
+    await manager.appendRows({
+      datasetSlug,
+      tableName: 'records',
+      schema,
+      rows: [
+        { recordedAt: new Date('2024-04-01T00:00:00Z'), value: 1, label: 'seed' }
+      ]
+    });
+
+    const releaseReadLock = await manager.acquireDatasetReadLock(datasetSlug);
+    const otherManager = new DuckDbSpoolManager({
+      directory: rootDir,
+      maxDatasetBytes: 10 * 1024 * 1024,
+      maxTotalBytes: 20 * 1024 * 1024
+    });
+
+    let appendState: 'pending' | 'fulfilled' | 'rejected' = 'pending';
+    const appendPromise = otherManager
+      .appendRows({
+        datasetSlug,
+        tableName: 'records',
+        schema,
+        rows: [
+          { recordedAt: new Date('2024-04-01T00:05:00Z'), value: 2, label: 'writer' }
+        ]
+      })
+      .then((value) => {
+        appendState = 'fulfilled';
+        return value;
+      })
+      .catch((error) => {
+        appendState = 'rejected';
+        throw error;
+      });
+
+    try {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50);
+      });
+      assert.equal(appendState, 'pending', 'writer should wait while read lock held');
+    } finally {
+      releaseReadLock();
+    }
+
+    const appended = await appendPromise;
+    assert.equal(appendState, 'fulfilled', 'writer should finish after lock released');
+    assert.equal(appended, 1);
+    await otherManager.close();
+  });
 });

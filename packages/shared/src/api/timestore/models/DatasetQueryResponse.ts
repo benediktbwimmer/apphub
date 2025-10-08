@@ -30,5 +30,29 @@ export type DatasetQueryResponse = {
      */
     fresh: boolean;
   } | null;
+  sources?: {
+    published: {
+      /**
+       * Number of rows returned from published partitions.
+       */
+      rows: number;
+      /**
+       * Total published partitions inspected for this query.
+       */
+      partitions: number;
+    };
+    staging: {
+      /**
+       * Number of rows returned from staging batches pending flush.
+       */
+      rows: number;
+    };
+    hotBuffer: {
+      /**
+       * Number of rows returned from the streaming hot buffer.
+       */
+      rows: number;
+    };
+  };
 };
 

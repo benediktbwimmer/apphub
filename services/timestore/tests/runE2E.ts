@@ -51,6 +51,23 @@ runE2E(async () => {
   const stream = run({ files: testFiles, concurrency: 1 });
 
   const failures: TestEvent[] = [];
+  let hasFailures = false;
+  let plannedTests: number | null = null;
+  let finishedTests = 0;
+  let completionResolve: (() => void) | null = null;
+  const completion = new Promise<void>((resolve) => {
+    completionResolve = resolve;
+  });
+  let idleTimer: NodeJS.Timeout | null = null;
+  const scheduleCompletionCheck = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
+    idleTimer = setTimeout(() => {
+      completionResolve?.();
+    }, 100);
+    idleTimer.unref?.();
+  };
 
   const handleWatcher = setInterval(() => {
     const handles = (process as unknown as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.();
@@ -89,6 +106,7 @@ runE2E(async () => {
     const suffix = duration ? ` (${duration.toFixed(0)}ms)` : '';
     const locationLabel = location ? ` [${location}]` : '';
     console.info(`✓ ${event.name}${locationLabel}${suffix}`);
+    scheduleCompletionCheck();
   });
 
   stream.on('test:fail', (event: EventData.TestFail) => {
@@ -100,20 +118,46 @@ runE2E(async () => {
     if (event.details?.error) {
       console.error(event.details.error);
     }
+    hasFailures = true;
+    process.exitCode = Math.max(typeof process.exitCode === 'number' ? process.exitCode : 0, 1);
     failures.push({
       name: event.name,
       durationMs: duration,
       location: event
     });
+    const signal = (event.details as { signal?: NodeJS.Signals } | undefined)?.signal;
+    const failureType = (event as { failureType?: string }).failureType;
+    if (signal || failureType === 'hookFailed') {
+      completionResolve?.();
+    }
+    scheduleCompletionCheck();
   });
 
   stream.on('test:diagnostic', (event: EventData.TestDiagnostic) => {
     const location = formatLocation({ name: event.message, location: event });
     const locationLabel = location ? ` [${location}]` : '';
     console.info(`ℹ ${event.message}${locationLabel}`);
+    scheduleCompletionCheck();
   });
 
-  await once(stream, 'close');
+  stream.on('test:plan', (event: EventData.TestPlan) => {
+    plannedTests = typeof event.details?.count === 'number' ? event.details.count : plannedTests;
+    if (plannedTests !== null && finishedTests >= plannedTests) {
+      completionResolve?.();
+    }
+    scheduleCompletionCheck();
+  });
+
+  stream.on('test:finish', () => {
+    finishedTests += 1;
+    if (plannedTests !== null && finishedTests >= plannedTests) {
+      completionResolve?.();
+    }
+    scheduleCompletionCheck();
+  });
+
+  scheduleCompletionCheck();
+  await completion;
 
   const handles = (process as unknown as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.();
   if (handles && handles.length > 0) {
@@ -140,7 +184,8 @@ runE2E(async () => {
 
   await forceCloseLingeringHandles();
 
-  if (failures.length > 0) {
+  if (hasFailures || failures.length > 0) {
+    process.exitCode = Math.max(typeof process.exitCode === 'number' ? process.exitCode : 0, 1);
     const summary = failures
       .map((event) => {
         const location = formatLocation(event);
@@ -152,9 +197,7 @@ runE2E(async () => {
   }
   // Give any pending unref timers a chance to settle before forcing exit
   await sleep(10);
-  if (typeof process.exit === 'function') {
-    process.exit(0);
-  }
+  process.exit(hasFailures ? 1 : 0);
 });
 
 async function forceCloseLingeringHandles(): Promise<void> {

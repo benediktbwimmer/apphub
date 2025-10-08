@@ -1,6 +1,17 @@
 import EmbeddedPostgres from 'embedded-postgres';
+import { cleanupSystemIpc } from './ipcCleanup';
 
 const activeInstances = new Set<EmbeddedPostgres>();
+let cleanupInFlight: Promise<void> | null = null;
+
+async function ensureSystemIpcBudget(): Promise<void> {
+  if (!cleanupInFlight) {
+    cleanupInFlight = cleanupSystemIpc().finally(() => {
+      cleanupInFlight = null;
+    });
+  }
+  await cleanupInFlight;
+}
 
 type EmbeddedPostgresOptions = ConstructorParameters<typeof EmbeddedPostgres>[0];
 
@@ -29,6 +40,11 @@ export function createEmbeddedPostgres(options?: EmbeddedPostgresOptions): Embed
 
   const instance = new EmbeddedPostgres(normalizedOptions);
   activeInstances.add(instance);
+  const originalInitialise = instance.initialise.bind(instance);
+  (instance as EmbeddedPostgres & { initialise(): Promise<void> }).initialise = async () => {
+    await ensureSystemIpcBudget();
+    return originalInitialise();
+  };
   return instance;
 }
 

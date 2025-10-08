@@ -3,15 +3,15 @@
 import './testEnv';
 
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { randomUUID, createHash } from 'node:crypto';
+import { mkdtemp, rm, mkdir, stat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, afterEach, before, test } from 'node:test';
 import type EmbeddedPostgres from 'embedded-postgres';
 import { createEmbeddedPostgres, stopEmbeddedPostgres } from './utils/embeddedPostgres';
 import fastify from 'fastify';
-import { resetCachedServiceConfig } from '../src/config/serviceConfig';
+import { loadServiceConfig, resetCachedServiceConfig } from '../src/config/serviceConfig';
 
 let schemaModule: typeof import('../src/db/schema');
 let clientModule: typeof import('../src/db/client');
@@ -25,6 +25,8 @@ let manifestCacheModule: typeof import('../src/cache/manifestCache');
 let queryRoutesModule: typeof import('../src/routes/query');
 let openApiModule: typeof import('../src/openapi/plugin');
 let metadataModule: typeof import('../src/db/metadata');
+let stagingManagerModule: typeof import('../src/ingestion/stagingManager');
+let stagingRegistryModule: typeof import('../src/db/stagingSchemaRegistry');
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
@@ -91,6 +93,8 @@ before(async () => {
   queryRoutesModule = await import('../src/routes/query');
   openApiModule = await import('../src/openapi/plugin');
   metadataModule = await import('../src/db/metadata');
+  stagingManagerModule = await import('../src/ingestion/stagingManager');
+  stagingRegistryModule = await import('../src/db/stagingSchemaRegistry');
   manifestCacheModule.__resetManifestCacheForTests();
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
@@ -99,9 +103,12 @@ before(async () => {
   await seedDataset();
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (manifestCacheModule) {
     manifestCacheModule.__resetManifestCacheForTests();
+  }
+  if (stagingManagerModule) {
+    await stagingManagerModule.resetStagingWriteManager();
   }
 });
 
@@ -177,6 +184,82 @@ async function ingestObservationPartition(input: ObservationPartitionInput): Pro
   await ingestionModule.processIngestionJob(payload);
 }
 
+async function writeParquetFile(
+  filePath: string,
+  tableName: string,
+  schema: typeof observationSchema.fields,
+  rows: Record<string, unknown>[]
+): Promise<void> {
+  const { loadDuckDb, isCloseable } = await import('@apphub/shared');
+  const duckdb = loadDuckDb();
+  const db = new duckdb.Database(':memory:');
+  const connection = db.connect();
+
+  try {
+    const columns = schema
+      .map((field) => `${quoteIdentifier(field.name)} ${mapDuckDbType(field.type)}`)
+      .join(', ');
+    await runSql(connection, `CREATE TABLE ${quoteIdentifier(tableName)} (${columns})`);
+    const columnNames = schema.map((field) => field.name);
+    const insertSql = `INSERT INTO ${quoteIdentifier(tableName)} (${columnNames.map(quoteIdentifier).join(', ')}) VALUES (${columnNames.map(() => '?').join(', ')})`;
+    for (const row of rows) {
+      const values = columnNames.map((name) => row[name]);
+      await runSql(connection, insertSql, ...values);
+    }
+    const escapedPath = filePath.replace(/'/g, "''");
+    await runSql(connection, `COPY ${quoteIdentifier(tableName)} TO '${escapedPath}' (FORMAT PARQUET)`);
+  } finally {
+    await closeConnection(connection);
+    if (isCloseable(db)) {
+      db.close();
+    }
+  }
+}
+
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function mapDuckDbType(type: typeof observationSchema.fields[number]['type']): string {
+  switch (type) {
+    case 'timestamp':
+      return 'TIMESTAMP';
+    case 'double':
+      return 'DOUBLE';
+    case 'integer':
+      return 'BIGINT';
+    case 'boolean':
+      return 'BOOLEAN';
+    case 'string':
+    default:
+      return 'VARCHAR';
+  }
+}
+
+async function runSql(connection: any, sql: string, ...params: unknown[]): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    connection.run(sql, ...params, (err: Error | null) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+async function closeConnection(connection: any): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    connection.close((err: Error | null) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 test('execute raw query over dataset partitions', async () => {
   const plan = await queryPlannerModule.buildQueryPlan('observatory-timeseries', {
     timeRange: {
@@ -193,6 +276,163 @@ test('execute raw query over dataset partitions', async () => {
   assert.deepEqual(result.columns, ['timestamp', 'temperature_c', 'humidity_percent']);
   assert.equal(result.rows.length, 6);
   assert.equal(result.rows[0]?.timestamp, '2024-01-01T00:00:00.000Z');
+});
+
+
+test('merges staged rows with published partitions', async () => {
+  const datasetSlug = `staging-merge-${randomUUID().slice(0, 8)}`;
+  const base = Date.now();
+  const config = loadServiceConfig();
+
+  const storageTarget = await metadataModule.upsertStorageTarget({
+    id: `st-${randomUUID()}`,
+    name: `local-${randomUUID().slice(0, 8)}`,
+    kind: 'local',
+    description: 'test target',
+    config: {
+      root: config.storage.root
+    }
+  });
+
+  const dataset = await metadataModule.createDataset({
+    id: `ds-${randomUUID()}`,
+    slug: datasetSlug,
+    name: 'Staging Merge Dataset',
+    defaultStorageTargetId: storageTarget.id
+  });
+
+  const schema = { fields: observationSchema.fields };
+  const checksum = createHash('sha1').update(JSON.stringify(schema)).digest('hex');
+  const schemaVersion = await metadataModule.createDatasetSchemaVersion({
+    id: `dsv-${randomUUID()}`,
+    datasetId: dataset.id,
+    version: 1,
+    description: 'staging merge schema',
+    schema,
+    checksum
+  });
+
+  const partitionId = `part-${randomUUID()}`;
+  const partitionWindow = new Date(base).toISOString().slice(0, 10);
+  const relativePath = path.posix.join(dataset.slug, `window=${partitionWindow}`, `${partitionId}.parquet`);
+  const absolutePath = path.join(config.storage.root, relativePath);
+  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await writeParquetFile(absolutePath, 'observations', observationSchema.fields, [
+    {
+      timestamp: new Date(base + 5_000).toISOString(),
+      temperature_c: 16,
+      humidity_percent: 51
+    }
+  ]);
+  const fileStats = await stat(absolutePath);
+  const fileBuffer = await readFile(absolutePath);
+  const fileChecksum = createHash('sha1').update(fileBuffer).digest('hex');
+
+  await metadataModule.createDatasetManifest({
+    id: `dm-${randomUUID()}`,
+    datasetId: dataset.id,
+    version: 1,
+    status: 'published',
+    manifestShard: 'default',
+    schemaVersionId: schemaVersion.id,
+    createdBy: 'tests',
+    partitions: [
+      {
+        id: partitionId,
+        storageTargetId: storageTarget.id,
+        fileFormat: 'parquet',
+        filePath: relativePath,
+        partitionKey: { window: partitionWindow },
+        startTime: new Date(base),
+        endTime: new Date(base + 60_000),
+        fileSizeBytes: fileStats.size,
+        rowCount: 1,
+        checksum: fileChecksum,
+        metadata: {
+          tableName: 'observations'
+        }
+      }
+    ]
+  });
+
+  await stagingRegistryModule.upsertStagingSchemaRegistry({
+    datasetId: dataset.id,
+    fields: observationSchema.fields.map((field) => ({
+      name: field.name,
+      type: field.type,
+      nullable: true,
+      description: null
+    })),
+    sourceBatchId: null
+  });
+
+  const stagingManager = stagingManagerModule.getStagingWriteManager(config);
+  const stagedTimestamp = new Date(base + 70_000).toISOString();
+  const stagingResult = await stagingManager.enqueue({
+    datasetSlug,
+    tableName: 'observations',
+    schema: observationSchema.fields,
+    rows: [
+      {
+        timestamp: stagedTimestamp,
+        temperature_c: 17,
+        humidity_percent: 49
+      }
+    ],
+    partitionKey: { window: stagedTimestamp },
+    partitionAttributes: null,
+    timeRange: {
+      start: stagedTimestamp,
+      end: new Date(base + 90_000).toISOString()
+    },
+    ingestionSignature: `sig-${randomUUID()}`,
+    receivedAt: new Date().toISOString(),
+    idempotencyKey: null,
+    schemaDefaults: null,
+    backfillRequested: false
+  });
+
+  const { StagingRowSource } = await import('../src/query/rowSources');
+  const stagingSource = new StagingRowSource();
+  const stagingPreview = await stagingSource.fetchRows({
+    dataset,
+    timestampColumn: 'timestamp',
+    rangeStart: new Date(base - 30_000),
+    rangeEnd: new Date(base + 120_000)
+  });
+  assert.equal(stagingPreview.rows.length, 1, 'expected staged row to be readable');
+
+  await stagingRegistryModule.upsertStagingSchemaRegistry({
+    datasetId: dataset.id,
+    fields: observationSchema.fields.map((field) => ({
+      name: field.name,
+      type: field.type,
+      nullable: true,
+      description: null
+    })),
+    sourceBatchId: stagingResult.batchId
+  });
+
+  const plan = await queryPlannerModule.buildQueryPlan(datasetSlug, {
+    timeRange: {
+      start: new Date(base - 30_000).toISOString(),
+      end: new Date(base + 120_000).toISOString()
+    },
+    timestampColumn: 'timestamp'
+  });
+
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+
+  assert.equal(result.mode, 'raw');
+  assert.equal(result.rows.length, 2);
+  const temperatures = result.rows.map((row) => Number(row.temperature_c)).sort((a, b) => a - b);
+  assert.deepEqual(temperatures, [16, 17]);
+  assert.ok(result.sources, 'expected unified row source summary');
+  const sources = result.sources!;
+  assert.equal(sources.published.rows, 1);
+  assert.equal(sources.published.partitions, 1);
+  assert.equal(sources.staging.rows, 1);
+  assert.equal(sources.hotBuffer.rows, 0);
 });
 
 test('query planner honours dataset execution backend overrides', async () => {

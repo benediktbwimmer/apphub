@@ -1,4 +1,3 @@
-import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 import type { DatasetRecord } from '../db/metadata';
@@ -10,8 +9,9 @@ import { loadServiceConfig } from '../config/serviceConfig';
 import { queryStreamingHotBuffer } from '../streaming/hotBuffer';
 import type { HotBufferQueryResult } from '../streaming/hotBuffer';
 import { buildQueryPlan } from './planner';
-import { executeDuckDbPlan, type QueryExecutionResult } from './executor';
+import type { QueryExecutionResult } from './executor';
 import type { QueryPlan } from './planner';
+import { getStagingWriteManager } from '../ingestion/stagingManager';
 
 interface RowSourceQueryOptions {
   dataset: DatasetRecord;
@@ -84,6 +84,38 @@ export class StagingRowSource implements RowSource {
   readonly kind = 'staging' as const;
 
   async fetchRows(options: RowSourceQueryOptions): Promise<RowSourceResult> {
+    return this.fetchRowsWithRetry(options, 2);
+  }
+
+  private async fetchRowsWithRetry(
+    options: RowSourceQueryOptions,
+    attempts: number
+  ): Promise<RowSourceResult> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        return await this.fetchRowsOnce(options);
+      } catch (error) {
+        lastError = error;
+        if (!this.isTransientConnectionError(error) || attempt === attempts - 1) {
+          throw error;
+        }
+        // brief delay to let writers finish closing handles before retrying
+        await delay(25 * (attempt + 1));
+      }
+    }
+    throw lastError;
+  }
+
+  private isTransientConnectionError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+    const message = error.message?.toLowerCase() ?? '';
+    return message.includes('connection was already closed');
+  }
+
+  private async fetchRowsOnce(options: RowSourceQueryOptions): Promise<RowSourceResult> {
     const config = options.config ?? loadServiceConfig();
     const stagingDir = config.staging?.directory;
     if (!stagingDir) {
@@ -102,57 +134,96 @@ export class StagingRowSource implements RowSource {
       return { source: this.kind, rows: [] };
     }
     const columns = this.resolveProjectedColumns(options, schemaFields);
-    const duckdb = loadDuckDb();
-    const db = new duckdb.Database(databasePath, { access_mode: 'READ_ONLY' });
-    const connection = db.connect();
-    const catalogIdentifier = quoteIdentifier(path.parse(databasePath).name);
-    const stagingSchema = `${catalogIdentifier}.${quoteIdentifier('staging')}`;
-    const metadataTable = `${stagingSchema}.${quoteIdentifier('__ingestion_batches')}`;
+    const stagingManager = getStagingWriteManager(config);
+    const spoolManager = stagingManager.getSpoolManager();
 
-    try {
-      const tables = await this.fetchPendingTables(connection, metadataTable);
-      if (tables.length === 0) {
-        return { source: this.kind, rows: [] };
+    const rows = await spoolManager.withReadConnection(options.dataset.slug, async (connection, catalogName) => {
+      const catalogIdentifier = quoteIdentifier(catalogName);
+      const stagingSchema = `${catalogIdentifier}.${quoteIdentifier('staging')}`;
+      const metadataTable = `${stagingSchema}.${quoteIdentifier('__ingestion_batches')}`;
+
+      const batches = await queryAll(connection, `
+        SELECT batch_id, table_name, schema_json
+          FROM ${metadataTable}
+         WHERE flush_token IS NULL
+         ORDER BY staged_at ASC
+      `);
+
+      if (batches.length === 0) {
+        return [] as Record<string, unknown>[];
       }
 
-      const rows: Record<string, unknown>[] = [];
       const rangeStartIso = options.rangeStart.toISOString();
       const rangeEndIso = options.rangeEnd.toISOString();
-      let remaining = options.limit ?? Number.POSITIVE_INFINITY;
+      const limit = typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0
+        ? Math.floor(options.limit)
+        : undefined;
+      let remaining = limit ?? Number.POSITIVE_INFINITY;
+      const collected: Record<string, unknown>[] = [];
+      const projection = new Set(columns.concat(options.timestampColumn));
 
-      for (const tableName of tables) {
-        if (remaining <= 0) {
+      for (const batch of batches) {
+        if (limit && remaining <= 0) {
           break;
         }
+        const tableName = typeof batch.table_name === 'string' ? batch.table_name : null;
+        if (!tableName) {
+          continue;
+        }
+        const qualifiedTable = `${stagingSchema}.${quoteIdentifier(tableName)}`;
+        const placeholderLimit = limit ? ' LIMIT ?' : '';
+        const sql = `
+          SELECT ${Array.from(projection).map(quoteIdentifier).join(', ')}
+            FROM ${qualifiedTable}
+            JOIN ${metadataTable}
+              ON ${qualifiedTable}.${quoteIdentifier('__batch_id')} = ${metadataTable}.${quoteIdentifier('batch_id')}
+           WHERE ${metadataTable}.${quoteIdentifier('flush_token')} IS NULL
+             AND ${metadataTable}.${quoteIdentifier('table_name')} = ?
+             AND ${qualifiedTable}.${quoteIdentifier(options.timestampColumn)} >= ?
+             AND ${qualifiedTable}.${quoteIdentifier(options.timestampColumn)} <= ?
+           ORDER BY ${qualifiedTable}.${quoteIdentifier(options.timestampColumn)}${placeholderLimit}`;
+        const params: unknown[] = [tableName, rangeStartIso, rangeEndIso];
+        if (limit) {
+          params.push(Math.max(1, remaining));
+        }
         try {
-          const tableRows = await this.fetchTableRows(
-            connection,
-            tableName,
-            columns,
-            options.timestampColumn,
-            rangeStartIso,
-            rangeEndIso,
-            remaining,
-            stagingSchema,
-            metadataTable
-          );
-          rows.push(...tableRows);
-          remaining -= tableRows.length;
+          const batchRows = await queryAll(connection, sql, ...params);
+          for (const row of batchRows) {
+            const projected: Record<string, unknown> = {};
+            for (const column of projection) {
+              if (Object.prototype.hasOwnProperty.call(row, column)) {
+                projected[column] = row[column];
+              }
+            }
+            collected.push(projected);
+            if (limit) {
+              remaining -= 1;
+              if (remaining <= 0) {
+                break;
+              }
+            }
+          }
         } catch {
-          // Ignore binder errors caused by missing columns; staging schema may lag.
+          // ignore binder errors from mismatched schema columns
         }
       }
 
-      return {
-        source: this.kind,
-        rows
-      };
-    } finally {
-      await closeConnection(connection);
-      if (isCloseable(db)) {
-        db.close();
-      }
-    }
+      collected.sort((a, b) => {
+        const left = toTimestampMs(a[options.timestampColumn]);
+        const right = toTimestampMs(b[options.timestampColumn]);
+        if (left === null || right === null) {
+          return 0;
+        }
+        return left - right;
+      });
+
+      return limit ? collected.slice(0, limit) : collected;
+    });
+
+    return {
+      source: this.kind,
+      rows
+    };
   }
 
   private async loadSchemaFields(datasetId: string): Promise<StagingSchemaField[]> {
@@ -179,46 +250,6 @@ export class StagingRowSource implements RowSource {
     return projection.length > 0 ? projection : schemaFields.map((field) => field.name);
   }
 
-  private async fetchPendingTables(connection: any, metadataTable: string): Promise<string[]> {
-    const result = await all(
-      connection,
-      `SELECT DISTINCT table_name
-         FROM ${metadataTable}
-        WHERE flush_token IS NULL
-          AND table_name IS NOT NULL`
-    );
-    return result
-      .map((row: Record<string, unknown>) => typeof row.table_name === 'string' ? row.table_name : null)
-      .filter((value): value is string => Boolean(value));
-  }
-
-  private async fetchTableRows(
-    connection: any,
-    tableName: string,
-    columns: string[],
-    timestampColumn: string,
-    startIso: string,
-    endIso: string,
-    limit: number,
-    stagingSchema: string,
-    metadataTable: string
-  ): Promise<Record<string, unknown>[]> {
-    const quotedColumns = columns.map(quoteIdentifier).join(', ');
-    const qualifiedTable = `${stagingSchema}.${quoteIdentifier(tableName)}`;
-    const quotedTimestamp = quoteIdentifier(timestampColumn);
-    const sql = `
-      SELECT ${quotedColumns}
-        FROM ${qualifiedTable} AS t
-        JOIN ${metadataTable} AS b
-          ON t.${quoteIdentifier('__batch_id')} = b.batch_id
-       WHERE b.flush_token IS NULL
-         AND b.table_name = ?
-         AND t.${quotedTimestamp} >= ?
-         AND t.${quotedTimestamp} <= ?
-       ORDER BY t.${quotedTimestamp}
-       LIMIT ?`;
-    return all(connection, sql, tableName, startIso, endIso, limit);
-  }
 }
 
 export class PublishedRowSource implements RowSource {
@@ -227,6 +258,7 @@ export class PublishedRowSource implements RowSource {
   async fetchRows(options: RowSourceQueryOptions): Promise<RowSourceResult> {
     const config = options.config ?? loadServiceConfig();
     const plan = await this.buildPlan(options, config);
+    const { executeDuckDbPlan } = await loadExecutorModule();
     const result = await executeDuckDbPlan(plan);
     const rows = this.projectColumns(result, options);
     return {
@@ -279,7 +311,7 @@ export class PublishedRowSource implements RowSource {
   }
 }
 
-async function all(connection: any, sql: string, ...params: unknown[]): Promise<Array<Record<string, unknown>>> {
+function queryAll(connection: any, sql: string, ...params: unknown[]): Promise<Array<Record<string, unknown>>> {
   return new Promise((resolve, reject) => {
     connection.all(sql, ...params, (err: Error | null, rows?: Array<Record<string, unknown>>) => {
       if (err) {
@@ -291,18 +323,36 @@ async function all(connection: any, sql: string, ...params: unknown[]): Promise<
   });
 }
 
-async function closeConnection(connection: any): Promise<void> {
-  return new Promise((resolve, reject) => {
-    connection.close((err: Error | null) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
 }
 
-function quoteIdentifier(identifier: string): string {
-  return `"${identifier.replace(/"/g, '""')}"`;
+function toTimestampMs(value: unknown): number | null {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isNaN(time) ? null : time;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+let executorModulePromise: Promise<typeof import('./executor')> | null = null;
+
+async function loadExecutorModule(): Promise<typeof import('./executor')> {
+  if (!executorModulePromise) {
+    executorModulePromise = import('./executor');
+  }
+  return executorModulePromise;
 }

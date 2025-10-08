@@ -145,8 +145,7 @@ export class DuckDbSpoolManager {
   }
 
   async ensureDatasetSchema(datasetSlug: string): Promise<void> {
-    await this.runWithDatasetLock(datasetSlug, async () => {
-      const context = await this.getDatasetContext(datasetSlug);
+    await this.runWithDatasetLock(datasetSlug, 'write', async (context) => {
       if (!context.initialized) {
         await run(
           context.connection,
@@ -165,8 +164,7 @@ export class DuckDbSpoolManager {
       return 0;
     }
 
-    return this.runWithDatasetLock(request.datasetSlug, async () => {
-      const context = await this.getDatasetContext(request.datasetSlug);
+    return this.runWithDatasetLock(request.datasetSlug, 'write', async (context) => {
       if (!context.initialized) {
         await run(
           context.connection,
@@ -196,8 +194,7 @@ export class DuckDbSpoolManager {
   }
 
   async getDatasetStats(datasetSlug: string): Promise<DatasetSpoolStats> {
-    return this.runWithDatasetLock(datasetSlug, async () => {
-      const context = await this.getDatasetContext(datasetSlug);
+    return this.runWithDatasetLock(datasetSlug, 'write', async (context) => {
       if (!context.initialized) {
         await run(
           context.connection,
@@ -233,8 +230,7 @@ export class DuckDbSpoolManager {
   }
 
   async stagePartition(request: StagePartitionRequest): Promise<StagePartitionResult> {
-    return this.runWithDatasetLock(request.datasetSlug, async () => {
-      const context = await this.getDatasetContext(request.datasetSlug);
+    return this.runWithDatasetLock(request.datasetSlug, 'write', async (context) => {
       if (!context.initialized) {
         await run(
           context.connection,
@@ -336,15 +332,8 @@ export class DuckDbSpoolManager {
   }
 
   async dropDatasetSchema(datasetSlug: string): Promise<void> {
-    await this.runWithDatasetLock(datasetSlug, async () => {
-      const context = this.datasetContexts.get(datasetSlug);
-      if (context) {
-        await closeConnection(context.connection).catch(() => undefined);
-        if (isCloseable(context.db)) {
-          context.db.close();
-        }
-        this.datasetContexts.delete(datasetSlug);
-      }
+    await this.runWithDatasetLock(datasetSlug, 'write', async () => {
+      this.datasetContexts.delete(datasetSlug);
 
       const safeSlug = sanitizeDatasetSlug(datasetSlug);
       const datasetDir = path.join(this.options.directory, safeSlug);
@@ -363,28 +352,49 @@ export class DuckDbSpoolManager {
   }
 
   async markDatasetCorrupted(datasetSlug: string, reason: unknown): Promise<void> {
-    await this.runWithDatasetLock(datasetSlug, async () => {
-      const context = await this.getDatasetContext(datasetSlug);
+    await this.runWithDatasetLock(datasetSlug, 'write', async (context) => {
       await this.recoverCorruptedDataset(context, reason);
       markStagingSchemaCacheStale(datasetSlug);
     });
   }
 
   async close(): Promise<void> {
-    const contexts = Array.from(this.datasetContexts.values());
     this.datasetContexts.clear();
-    await Promise.all(
-      contexts.map(async (context) => {
-        await closeConnection(context.connection).catch(() => undefined);
-        if (isCloseable(context.db)) {
-          context.db.close();
-        }
-      })
-    );
   }
 
   async acquireDatasetReadLock(datasetSlug: string): Promise<() => void> {
-    return this.acquireDatasetLock(datasetSlug);
+    const releaseDatasetLock = await this.acquireDatasetLock(datasetSlug);
+    let lockHandle: fs.FileHandle | null = null;
+    let lockPath: string | null = null;
+    try {
+      const context = await this.getDatasetContext(datasetSlug);
+      const lock = await this.acquireFilesystemLock(context);
+      lockHandle = lock.handle;
+      lockPath = lock.lockPath;
+    } catch (error) {
+      releaseDatasetLock();
+      throw error;
+    }
+
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      void this.releaseFilesystemLock(lockHandle, lockPath);
+      releaseDatasetLock();
+    };
+  }
+
+  async withReadConnection<T>(
+    datasetSlug: string,
+    fn: (connection: any, catalogName: string) => Promise<T>
+  ): Promise<T> {
+    return this.runWithDatasetLock(datasetSlug, 'write', async (context) => {
+      await this.ensureMetadataTable(context);
+      return fn(context.connection, context.catalogName);
+    });
   }
 
   private async getDatasetContext(datasetSlug: string): Promise<DatasetSpoolContext> {
@@ -411,27 +421,14 @@ export class DuckDbSpoolManager {
       datasetDir
     });
 
-    const duckdb = loadDuckDb();
-    this.logFlushDebug('creating duckdb connection', {
-      datasetSlug,
-      databasePath
-    });
-    const db = new duckdb.Database(databasePath);
-    const connection = db.connect();
-
-    this.logFlushDebug('duckdb connection established', {
-      datasetSlug,
-      databasePath
-    });
-
     const context: DatasetSpoolContext = {
       datasetSlug,
       safeSlug,
       directory: datasetDir,
       databasePath,
       catalogName,
-      db,
-      connection,
+      db: null,
+      connection: null,
       initialized: false,
       metadataReady: false,
       corruptionRecoveryAttempts: 0
@@ -714,6 +711,8 @@ export class DuckDbSpoolManager {
         });
       }
     }
+    context.connection = null;
+    context.db = null;
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = `${context.databasePath}.corrupt-${timestamp}`;
@@ -822,10 +821,9 @@ export class DuckDbSpoolManager {
   }
 
   async getDatasetSummary(datasetSlug: string): Promise<DatasetStagingSummary> {
-    return this.runWithDatasetLock(datasetSlug, async () => {
-      const context = await this.getDatasetContext(datasetSlug);
-      return this.buildDatasetSummary(context);
-    });
+    return this.runWithDatasetLock(datasetSlug, 'write', async (context) =>
+      this.buildDatasetSummary(context)
+    );
   }
 
   private async buildDatasetSummary(context: DatasetSpoolContext): Promise<DatasetStagingSummary> {
@@ -873,8 +871,7 @@ export class DuckDbSpoolManager {
   }
 
   async prepareFlush(datasetSlug: string): Promise<PreparedFlushResult | null> {
-    return this.runWithDatasetLock(datasetSlug, async () => {
-      const context = await this.getDatasetContext(datasetSlug);
+    return this.runWithDatasetLock(datasetSlug, 'write', async (context) => {
       await this.ensureMetadataTable(context);
       const metadataTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, METADATA_TABLE);
 
@@ -1046,8 +1043,7 @@ export class DuckDbSpoolManager {
   }
 
   async finalizeFlush(datasetSlug: string, flushToken: string): Promise<void> {
-    await this.runWithDatasetLock(datasetSlug, async () => {
-      const context = await this.getDatasetContext(datasetSlug);
+    await this.runWithDatasetLock(datasetSlug, 'write', async (context) => {
       await this.ensureMetadataTable(context);
       const metadataTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, METADATA_TABLE);
 
@@ -1091,16 +1087,14 @@ export class DuckDbSpoolManager {
   }
 
   async abortFlush(datasetSlug: string, flushToken: string): Promise<{ batches: number; rows: number }> {
-    return this.runWithDatasetLock(datasetSlug, async () => {
-      const context = await this.getDatasetContext(datasetSlug);
+    return this.runWithDatasetLock(datasetSlug, 'write', async (context) => {
       await this.ensureMetadataTable(context);
       return this.abortFlushInternal(context, flushToken);
     });
   }
 
   async listPendingBatches(datasetSlug: string): Promise<PendingStagingBatch[]> {
-    return this.runWithDatasetLock(datasetSlug, async () => {
-      const context = await this.getDatasetContext(datasetSlug);
+    return this.runWithDatasetLock(datasetSlug, 'write', async (context) => {
       await this.ensureMetadataTable(context);
       const metadataTable = qualifyTableName(context.catalogName, SPOOL_SCHEMA, METADATA_TABLE);
       const rows = await all(
@@ -1276,12 +1270,77 @@ export class DuckDbSpoolManager {
     });
   }
 
-  private async runWithDatasetLock<T>(datasetSlug: string, fn: () => Promise<T>): Promise<T> {
-    const release = await this.acquireDatasetLock(datasetSlug);
+  private async acquireFilesystemLock(
+    context: DatasetSpoolContext
+  ): Promise<{ handle: fs.FileHandle; lockPath: string }> {
+    const lockPath = path.join(context.directory, 'staging.lock');
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        const handle = await fs.open(lockPath, 'wx');
+        return { handle, lockPath };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code !== 'EEXIST') {
+          throw error;
+        }
+        await delay(10 * Math.max(1, attempt + 1));
+      }
+    }
+
+    await fs.rm(lockPath, { force: true }).catch(() => undefined);
+    const handle = await fs.open(lockPath, 'wx');
+    return { handle, lockPath };
+  }
+
+  private async releaseFilesystemLock(handle: fs.FileHandle | null, lockPath: string | null): Promise<void> {
+    if (!handle || !lockPath) {
+      return;
+    }
+    await handle.close().catch(() => undefined);
+    await fs.rm(lockPath, { force: true }).catch(() => undefined);
+  }
+
+  private async runWithDatasetLock<T>(
+    datasetSlug: string,
+    mode: 'write' | 'read',
+    fn: (context: DatasetSpoolContext) => Promise<T>
+  ): Promise<T> {
+    const releaseDatasetLock = await this.acquireDatasetLock(datasetSlug);
+    let lockHandle: fs.FileHandle | null = null;
+    let lockPath: string | null = null;
     try {
-      return await fn();
+      const context = await this.getDatasetContext(datasetSlug);
+      const lock = await this.acquireFilesystemLock(context);
+      lockHandle = lock.handle;
+      lockPath = lock.lockPath;
+      const duckdb = loadDuckDb();
+      const options = mode === 'read' ? { access_mode: 'READ_ONLY' } : undefined;
+      context.db = new duckdb.Database(context.databasePath, options);
+      context.connection = context.db.connect();
+      try {
+        return await fn(context);
+      } finally {
+        const activeConnection = context.connection;
+        if (activeConnection) {
+          await closeConnection(activeConnection).catch(() => undefined);
+        }
+        const activeDb = context.db;
+        if (isCloseable(activeDb)) {
+          try {
+            activeDb.close();
+          } catch (error) {
+            this.logFlushDebug('error closing duckdb database', {
+              datasetSlug: context.datasetSlug,
+              databasePath: context.databasePath,
+              error: error instanceof Error ? error.message : error
+            });
+          }
+        }
+        context.connection = null;
+        context.db = null;
+      }
     } finally {
-      release();
+      await this.releaseFilesystemLock(lockHandle, lockPath);
+      releaseDatasetLock();
     }
   }
 
@@ -1380,6 +1439,12 @@ function mapStagingTypeToFieldType(input: string): FieldDefinition['type'] {
     return 'integer';
   }
   return 'string';
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function parseJson<T>(value: unknown, fallback: T): T {

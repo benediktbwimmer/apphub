@@ -843,7 +843,51 @@ const datasetQueryResponseSchema: OpenAPIV3.SchemaObject = {
       description: 'Non-fatal issues encountered while executing the query.',
       items: stringSchema()
     },
-    streaming: nullable(datasetQueryStreamingSchema)
+    streaming: nullable(datasetQueryStreamingSchema),
+    sources: {
+      type: 'object',
+      required: ['published', 'staging', 'hotBuffer'],
+      properties: {
+        published: {
+          type: 'object',
+          required: ['rows', 'partitions'],
+          properties: {
+            rows: {
+              ...integerSchema(),
+              description: 'Number of rows returned from published partitions.'
+            },
+            partitions: {
+              ...integerSchema(),
+              description: 'Total published partitions inspected for this query.'
+            }
+          },
+          additionalProperties: false
+        },
+        staging: {
+          type: 'object',
+          required: ['rows'],
+          properties: {
+            rows: {
+              ...integerSchema(),
+              description: 'Number of rows returned from staging batches pending flush.'
+            }
+          },
+          additionalProperties: false
+        },
+        hotBuffer: {
+          type: 'object',
+          required: ['rows'],
+          properties: {
+            rows: {
+              ...integerSchema(),
+              description: 'Number of rows returned from the streaming hot buffer.'
+            }
+          },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
+    }
   }
 };
 

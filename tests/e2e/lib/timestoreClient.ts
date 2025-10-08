@@ -33,6 +33,18 @@ export interface DatasetQueryResponse {
   mode: string;
   warnings?: string[];
   streaming?: Record<string, unknown> | null;
+  sources?: {
+    published: {
+      rows: number;
+      partitions: number;
+    };
+    staging: {
+      rows: number;
+    };
+    hotBuffer: {
+      rows: number;
+    };
+  };
 }
 
 type DatasetQueryPayload =
