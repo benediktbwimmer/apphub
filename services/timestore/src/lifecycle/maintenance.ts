@@ -14,9 +14,7 @@ import {
   type PartitionWithTarget
 } from '../db/metadata';
 import { deletePartitionFile } from '../storage';
-import { performCompaction } from './compaction';
 import { enforceRetention } from './retention';
-import { performParquetExport } from './parquetExport';
 import {
   captureLifecycleMetrics,
   recordExportLatency,
@@ -324,11 +322,19 @@ async function executeOperation(
 ): Promise<LifecycleOperationExecutionResult> {
   switch (operation) {
     case 'compaction':
-      return performCompaction(context, partitions);
+      return {
+        operation,
+        status: 'skipped',
+        message: 'compaction is unavailable for ClickHouse-backed datasets'
+      } satisfies LifecycleOperationExecutionResult;
     case 'retention':
       return enforceRetention(context, partitions);
     case 'parquetExport':
-      return performParquetExport(context, partitions);
+      return {
+        operation,
+        status: 'skipped',
+        message: 'parquet exports are disabled for ClickHouse-backed datasets'
+      } satisfies LifecycleOperationExecutionResult;
     default:
       return {
         operation,

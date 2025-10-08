@@ -61,7 +61,6 @@ import {
   getSqlRuntimeCacheSnapshot,
   type SqlRuntimeInvalidationOptions
 } from '../sql/runtime';
-import { enqueueFlushJob } from '../queue';
 import { getStagingWriteManager } from '../ingestion/stagingManager';
 import { deriveManifestShardKey } from '../service/manifestShard';
 import type { PendingStagingBatch } from '../storage/spoolManager';
@@ -69,7 +68,7 @@ import type { PendingStagingBatch } from '../storage/spoolManager';
 const runRequestSchema = z.object({
   datasetId: z.string().optional(),
   datasetSlug: z.string().optional(),
-  operations: z.array(z.enum(['compaction', 'retention', 'parquetExport'])).optional(),
+  operations: z.array(z.enum(['compaction', 'retention'])).optional(),
   mode: z.enum(['inline', 'queue']).optional()
 });
 
@@ -101,11 +100,6 @@ const manifestCacheInvalidateSchema = z.object({
   shards: z.array(z.string().min(1)).max(100).optional()
 });
 
-const datasetFlushBodySchema = z
-  .object({
-    storageTargetId: z.string().min(1).optional()
-  })
-  .optional();
 
 const sqlRuntimeCacheInvalidateSchema = z
   .object({
@@ -861,94 +855,6 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post('/admin/datasets/:datasetId/flush', async (request, reply) => {
-    await authorizeAdminAccess(request as FastifyRequest);
-    const { datasetId } = datasetParamsSchema.parse(request.params);
-    const dataset = await resolveDataset(datasetId);
-    if (!dataset) {
-      reply.status(404);
-      return {
-        error: `dataset ${datasetId} not found`
-      };
-    }
-
-    const body = datasetFlushBodySchema.parse(request.body ?? {});
-    try {
-      request.log?.info(
-        {
-          event: 'dataset.flush.requested',
-          datasetId: dataset.id,
-          datasetSlug: dataset.slug,
-          storageTargetId: body?.storageTargetId ?? null
-        },
-        'dataset flush requested'
-      );
-      const enqueueResult = await enqueueFlushJob(dataset.slug, {
-        storageTargetId: body?.storageTargetId ?? undefined
-      });
-
-      if (enqueueResult.mode === 'inline' && enqueueResult.result) {
-        request.log?.info(
-          {
-            event: 'dataset.flush.completed',
-            datasetId: dataset.id,
-            datasetSlug: dataset.slug,
-            mode: 'inline',
-            status: enqueueResult.result.status,
-            batches: enqueueResult.result.batches,
-            rows: enqueueResult.result.rows
-          },
-          'dataset flush completed inline'
-        );
-        return {
-          mode: 'inline',
-          status: enqueueResult.result.status,
-          batches: enqueueResult.result.batches,
-          rows: enqueueResult.result.rows,
-          manifest: enqueueResult.result.manifest
-            ? {
-                id: enqueueResult.result.manifest.id,
-                version: enqueueResult.result.manifest.version,
-                shard: enqueueResult.result.manifest.manifestShard
-              }
-            : null
-        };
-      }
-
-      reply.status(202);
-      request.log?.info(
-        {
-          event: 'dataset.flush.queued',
-          datasetId: dataset.id,
-          datasetSlug: dataset.slug,
-          jobId: enqueueResult.jobId
-        },
-        'dataset flush enqueued'
-      );
-      return {
-        mode: 'queued',
-        status: 'queued' as const,
-        jobId: enqueueResult.jobId,
-        datasetSlug: dataset.slug
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to flush dataset staging';
-      request.log?.error(
-        {
-          event: 'dataset.flush.failed',
-          datasetId: dataset.id,
-          datasetSlug: dataset.slug,
-          error: message
-        },
-        'dataset flush failed'
-      );
-      reply.status(500);
-      return {
-        error: message
-      };
-    }
-  });
-
   app.get('/admin/datasets/:datasetId/manifest-cache', async (request, reply) => {
     await authorizeAdminAccess(request as FastifyRequest);
     const { datasetId } = datasetParamsSchema.parse(request.params);
@@ -1264,7 +1170,7 @@ async function describePendingStaging(
 }
 
 function isLifecycleOperation(value: string): value is LifecycleOperation {
-  return value === 'compaction' || value === 'retention' || value === 'parquetExport';
+  return value === 'compaction' || value === 'retention';
 }
 
 async function resolveDataset(identifier: string): Promise<DatasetRecord | null> {
@@ -1469,7 +1375,7 @@ function createAuditRequestSnapshot(body: CreateDatasetRequest, metadata: JsonOb
     name: body.name,
     description: body.description ?? null,
     status: body.status ?? 'active',
-    writeFormat: body.writeFormat ?? 'parquet',
+    writeFormat: body.writeFormat ?? 'clickhouse',
     defaultStorageTargetId: body.defaultStorageTargetId ?? null,
     metadata: cloneJsonObject(metadata)
   } satisfies JsonObject;
@@ -1498,7 +1404,7 @@ function datasetMatchesCreateRequest(
     dataset.name === body.name &&
     dataset.description === (body.description ?? null) &&
     dataset.status === (body.status ?? 'active') &&
-    dataset.writeFormat === (body.writeFormat ?? 'parquet') &&
+    dataset.writeFormat === (body.writeFormat ?? 'clickhouse') &&
     dataset.defaultStorageTargetId === (body.defaultStorageTargetId ?? null) &&
     stableJsonStringify(dataset.metadata) === stableJsonStringify(metadata)
   );

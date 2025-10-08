@@ -30,7 +30,7 @@ export type DatasetIngestionInlineResponse = {
       manifestShard?: string;
       partitionKey: Record<string, def_0>;
       storageTargetId: string;
-      fileFormat: 'duckdb' | 'parquet';
+      fileFormat: 'clickhouse';
       filePath: string;
       fileSizeBytes?: number | null;
       rowCount?: number | null;
@@ -50,7 +50,7 @@ export type DatasetIngestionInlineResponse = {
     name: string;
     description?: string | null;
     status: 'active' | 'inactive';
-    writeFormat: 'duckdb' | 'parquet';
+    writeFormat: 'clickhouse';
     defaultStorageTargetId: string | null;
     metadata: Record<string, def_0>;
     createdAt: string;

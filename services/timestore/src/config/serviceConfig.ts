@@ -4,9 +4,7 @@ import { fieldDefinitionSchema, type FieldDefinition } from '../ingestion/types'
 
 type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
-type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob';
-
-export type QueryExecutionBackendKind = 'duckdb_local' | 'duckdb_cluster';
+export type QueryExecutionBackendKind = 'clickhouse';
 
 export interface QueryExecutionBackendConfig {
   name: string;
@@ -162,7 +160,7 @@ const manifestCacheSchema = z.object({
 
 const queryExecutionBackendSchema = z.object({
   name: z.string().min(1),
-  kind: z.enum(['duckdb_local', 'duckdb_cluster']),
+  kind: z.literal('clickhouse'),
   queueName: z.string().min(1).optional(),
   maxPartitionFanout: z.number().int().positive().optional(),
   maxWorkerConcurrency: z.number().int().positive().optional()
@@ -422,6 +420,17 @@ const azureSchema = z.object({
   endpoint: z.string().min(1).optional()
 });
 
+const clickhouseSchema = z.object({
+  host: z.string().min(1),
+  httpPort: z.number().int().positive(),
+  nativePort: z.number().int().positive(),
+  username: z.string().min(1),
+  password: z.string(),
+  database: z.string().min(1),
+  secure: z.boolean(),
+  ttlDays: z.number().int().positive()
+});
+
 const configSchema = z.object({
   host: z.string(),
   port: z.number().int().nonnegative(),
@@ -493,7 +502,8 @@ const configSchema = z.object({
     streaming: z.object({
       enabled: z.boolean()
     })
-  })
+  }),
+  clickhouse: clickhouseSchema
 });
 
 export type ServiceConfig = z.infer<typeof configSchema>;
@@ -713,27 +723,27 @@ function normalizeExecutionConfig(
   backends: QueryExecutionBackendConfig[],
   defaultBackend: string
 ): QueryExecutionConfig {
-  const fallbackBackend: QueryExecutionBackendConfig = {
-    name: 'duckdb-local',
-    kind: 'duckdb_local'
-  };
+  const fallbackBackends: QueryExecutionBackendConfig[] = [
+    { name: 'clickhouse-default', kind: 'clickhouse' }
+  ];
 
   const normalizedBackends = new Map<string, QueryExecutionBackendConfig>();
   for (const backend of backends) {
     normalizedBackends.set(backend.name, backend);
   }
 
-  if (!normalizedBackends.has(fallbackBackend.name)) {
-    normalizedBackends.set(fallbackBackend.name, fallbackBackend);
+  for (const fallback of fallbackBackends) {
+    if (!normalizedBackends.has(fallback.name)) {
+      normalizedBackends.set(fallback.name, fallback);
+    }
   }
 
-  const effectiveDefault = normalizedBackends.has(defaultBackend)
-    ? defaultBackend
-    : fallbackBackend.name;
+  const preferredDefault = defaultBackend.trim().length > 0 ? defaultBackend : fallbackBackends[0].name;
+  const effectiveDefault = normalizedBackends.has(preferredDefault) ? preferredDefault : fallbackBackends[0].name;
 
-  if (!normalizedBackends.has(defaultBackend) && defaultBackend.trim().length > 0 && defaultBackend !== fallbackBackend.name) {
+  if (!normalizedBackends.has(preferredDefault) && preferredDefault !== fallbackBackends[0].name) {
     console.warn(
-      `[timestore] execution backend '${defaultBackend}' not found; falling back to '${fallbackBackend.name}'`
+      `[timestore] execution backend '${preferredDefault}' not found; falling back to '${fallbackBackends[0].name}'`
     );
   }
 
@@ -1061,6 +1071,15 @@ export function loadServiceConfig(): ServiceConfig {
   const azureAccountKey = env.TIMESTORE_AZURE_ACCOUNT_KEY;
   const azureSasToken = env.TIMESTORE_AZURE_SAS_TOKEN;
   const azureEndpoint = env.TIMESTORE_AZURE_ENDPOINT;
+  const clickhouseHost = env.TIMESTORE_CLICKHOUSE_HOST || 'clickhouse';
+  const clickhouseHttpPort = parseNumber(env.TIMESTORE_CLICKHOUSE_HTTP_PORT, 8123);
+  const clickhouseNativePort = parseNumber(env.TIMESTORE_CLICKHOUSE_NATIVE_PORT, 9000);
+  const clickhouseUsername = env.TIMESTORE_CLICKHOUSE_USER || 'apphub';
+  const clickhousePassword = env.TIMESTORE_CLICKHOUSE_PASSWORD || 'apphub';
+  const clickhouseDatabase = env.TIMESTORE_CLICKHOUSE_DATABASE || 'apphub';
+  const clickhouseSecure = parseBoolean(env.TIMESTORE_CLICKHOUSE_SECURE, false);
+  const clickhouseTtlDaysRaw = parseNumber(env.TIMESTORE_CLICKHOUSE_TTL_DAYS, 7);
+  const clickhouseTtlDays = clickhouseTtlDaysRaw > 0 ? clickhouseTtlDaysRaw : 7;
   const queryCacheEnabled = parseBoolean(env.TIMESTORE_QUERY_CACHE_ENABLED, true);
   const queryCacheDirectory = resolveCacheDirectory(env.TIMESTORE_QUERY_CACHE_DIR);
   const queryCacheMaxBytes = parseNumber(env.TIMESTORE_QUERY_CACHE_MAX_BYTES, 5 * 1024 * 1024 * 1024);
@@ -1141,7 +1160,7 @@ export function loadServiceConfig(): ServiceConfig {
   const executionDefaultBackendRaw = env.TIMESTORE_QUERY_EXECUTION_DEFAULT;
   const executionDefaultBackend = executionDefaultBackendRaw && executionDefaultBackendRaw.trim().length > 0
     ? executionDefaultBackendRaw.trim()
-    : 'duckdb-local';
+    : 'clickhouse-default';
   const executionBackends = parseExecutionBackendList(env.TIMESTORE_QUERY_EXECUTION_BACKENDS);
   const executionConfig = normalizeExecutionConfig(executionBackends, executionDefaultBackend);
 
@@ -1371,6 +1390,16 @@ export function loadServiceConfig(): ServiceConfig {
       streaming: {
         enabled: streamingFeatureEnabled
       }
+    },
+    clickhouse: {
+      host: clickhouseHost,
+      httpPort: clickhouseHttpPort > 0 ? clickhouseHttpPort : 8123,
+      nativePort: clickhouseNativePort > 0 ? clickhouseNativePort : 9000,
+      username: clickhouseUsername,
+      password: clickhousePassword,
+      database: clickhouseDatabase,
+      secure: clickhouseSecure,
+      ttlDays: clickhouseTtlDays
     }
   } satisfies ServiceConfig;
 

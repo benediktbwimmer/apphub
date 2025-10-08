@@ -94,26 +94,23 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_FILESTORE_SYNC_ENABLED` | Toggle filestore event consumer. Set to `false` to disable. | `true` |
 | `TIMESTORE_FILESTORE_DATASET_SLUG` | Dataset slug used for filestore activity ingestion. | `filestore_activity` |
 | `TIMESTORE_FILESTORE_DATASET_NAME` | Friendly dataset name for UI/query responses. | `Filestore Activity` |
-| `TIMESTORE_FILESTORE_TABLE_NAME` | DuckDB table name that stores filestore activity rows. | `filestore_activity` |
+| `TIMESTORE_FILESTORE_TABLE_NAME` | ClickHouse table name that stores filestore activity rows. | `filestore_activity` |
 | `TIMESTORE_FILESTORE_RETRY_MS` | Backoff between Redis subscribe retries when consuming events. | `3000` |
 | `FILESTORE_REDIS_URL` | Redis connection shared with the filestore service (`inline` for tests). | `redis://127.0.0.1:6379` |
 | `FILESTORE_EVENTS_CHANNEL` | Pub/sub channel that carries `filestore.*` events. | `apphub:filestore` |
 
 When the service boots it ensures the configured Postgres schema exists, runs timestore-specific migrations, and reuses the core connection pool helpers so migrations and manifests share the managed database.
 
-### DuckDB Staging Spool
-- Incoming ingestion batches first land in a per-dataset DuckDB database located under `TIMESTORE_STAGING_DIRECTORY`. Each dataset stores its spool as `staging.duckdb` alongside an automatically managed `staging.duckdb.wal` file.
-- DuckDB's write-ahead log keeps staged rows durable across restarts and unexpected crashes; on startup the spool manager replays any WAL entries before partition export resumes.
-- Disk footprint is roughly the sum of the `.duckdb` file plus its WAL. Tune `TIMESTORE_STAGING_MAX_DATASET_BYTES` and `TIMESTORE_STAGING_MAX_TOTAL_BYTES` to emit warnings when staging drifts beyond expected retention. Setting either value to `0` disables the corresponding threshold.
-- Staged rows remain on disk until the partition build workers flush them to Parquet, so size the staging directory with enough headroom to handle ingestion bursts or delayed exports.
-- Per-dataset writer queues serialize access to each staging database; set `TIMESTORE_STAGING_MAX_PENDING` to control how many batches may wait in memory before new ingestion attempts receive back-pressure.
-- Flush thresholds (`TIMESTORE_STAGING_FLUSH_MAX_ROWS`, `_MAX_BYTES`, `_MAX_AGE_MS`) determine when staged data is materialized into Parquet partitions. By default only the 1 GiB size threshold is active; when any enabled trigger trips, every pending batch for the dataset flushes atomically, ensuring idempotency and consistent manifests.
+### ClickHouse Storage
+- Incoming ingestion batches now land directly in ClickHouse tables derived from each dataset slug. The timestore manifest continues to record partition metadata, but the authoritative data lives inside ClickHouse.
+- Because ClickHouse handles durability and tiering internally, the old staging directory and flush thresholds are no longer used. Ingestion writes run idempotently by reusing the same ingestion signatures that back manifests.
+- Storage targets represent logical ClickHouse backends. Retention and maintenance workflows operate on manifest metadata while ClickHouse manages physical storage.
 
 ### Streaming & Bulk Connectors
 - Enable connector workers by setting `TIMESTORE_CONNECTORS_ENABLED=true`. When disabled, connector definitions are ignored even if configured.
 - `TIMESTORE_STREAMING_CONNECTORS` expects a JSON array. The file driver consumes newline-delimited JSON envelopes that match the ingestion schema (`offset`, `idempotencyKey`, `ingestion`). Provide `checkpointPath` and optional `dlqPath` to persist offsets and capture failures.
 - Streaming micro-batchers are configured through `TIMESTORE_STREAMING_BATCHERS`. Each descriptor maps a Kafka/Redpanda topic to a dataset slug, schema, and time window so high-frequency events are aggregated before entering the ingestion pipeline.
-- The streaming hot buffer rides on the same topic definitions. When `TIMESTORE_STREAMING_BUFFER_ENABLED=1`, the service tails high-water offsets for each batcher, keeps recent events in memory, and merges them with sealed Parquet partitions at query time. The buffer automatically evicts rows once the micro-batcher advances the watermark (persisted in `streaming_watermarks`).
+- The streaming hot buffer rides on the same topic definitions. When `TIMESTORE_STREAMING_BUFFER_ENABLED=1`, the service tails high-water offsets for each batcher, keeps recent events in memory, and merges them with ClickHouse query results at query time. The buffer automatically evicts rows once the micro-batcher advances the watermark (persisted in `streaming_watermarks`).
 - `TIMESTORE_BULK_CONNECTORS` tail directories for staged files (currently JSON). Each descriptor can override `chunkSize`, set `deleteAfterLoad`, or leave ingested files renamed with a `.processed` suffix.
 - Backpressure thresholds come from `TIMESTORE_CONNECTOR_BACKPRESSURE` (high/low watermarks + pause window); connectors pause polling when the ingestion queue depth crosses the configured limits.
 - Connector progress is tracked in JSON checkpoints so a restart resumes from the previous offset without reprocessing data.
@@ -130,13 +127,13 @@ With filestore sync enabled the server starts a background consumer that subscri
 
 ## HTTP Ingestion API
 - `POST /datasets/:datasetSlug/ingest` accepts a JSON payload containing schema metadata, a partition key, records (JSON objects), and optional `idempotency-key` header. Jobs enqueue over Redis/BullMQ unless `REDIS_URL=inline` (tests/dev) in which case ingestion runs inline.
-- Successful ingestions create a new dataset (if needed), versioned schema definition, manifest, and DuckDB partition file on the configured storage target.
+- Successful ingestions create a new dataset (if needed), versioned schema definition, manifest metadata, and append rows into the ClickHouse table backing the dataset.
 - The API responds synchronously when running inline, otherwise returns a `202 Accepted` with the enqueued job id.
 
 ## Query API
-- `POST /datasets/:datasetSlug/query` returns time-series data by scanning published partitions via DuckDB. Provide a required `timeRange` plus optional `columns`, `downsample`, and `limit` settings.
+- `POST /datasets/:datasetSlug/query` returns time-series data by scanning ClickHouse partitions. Provide a required `timeRange` plus optional `columns`, `downsample`, and `limit` settings.
 - Downsampling is expressed via `downsample.intervalUnit`/`intervalSize` and aggregation list (e.g., `{ fn: "avg", column: "temperature_c", alias: "avg_temp" }`). Supported aggregations include `avg`, `min`, `max`, `sum`, `median`, `count`, `count_distinct`, and `percentile` (with `percentile` requiring a `percentile` value between 0 and 1).
-- Remote partitions referenced via `s3://`, `gs://`, or `azure://` manifests are streamed through DuckDB's HTTPFS/Azure extensions; enable caching via `TIMESTORE_QUERY_CACHE_*` to reduce repeated downloads.
+- Queries execute through the ClickHouse HTTP interface. Remote partition pointers remain in manifests for lineage, but data is served from ClickHouse storage.
 - In tests or inline mode the query executes synchronously; in production the route reads from local paths or remote object storage locations identified in the manifest.
 - Dataset-specific IAM rules can be stored under `datasets.metadata.iam` (e.g., `{ readScopes: ['observatory:read'], writeScopes: ['observatory:write'] }`). These override the global `TIMESTORE_REQUIRE_SCOPE`/`TIMESTORE_REQUIRE_WRITE_SCOPE` values.
 

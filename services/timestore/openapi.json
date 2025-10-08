@@ -2005,7 +2005,7 @@
           "writeFormat": {
             "type": "string",
             "enum": [
-              "duckdb",
+              "clickhouse",
               "parquet"
             ]
           },
@@ -2164,7 +2164,7 @@
                 "fileFormat": {
                   "type": "string",
                   "enum": [
-                    "duckdb",
+                    "clickhouse",
                     "parquet"
                   ]
                 },
@@ -2264,7 +2264,7 @@
           "fileFormat": {
             "type": "string",
             "enum": [
-              "duckdb",
+              "clickhouse",
               "parquet"
             ]
           },
@@ -2469,7 +2469,7 @@
                     "fileFormat": {
                       "type": "string",
                       "enum": [
-                        "duckdb",
+                        "clickhouse",
                         "parquet"
                       ]
                     },
@@ -2565,7 +2565,7 @@
               "writeFormat": {
                 "type": "string",
                 "enum": [
-                  "duckdb",
+                  "clickhouse",
                   "parquet"
                 ]
               },
@@ -6702,7 +6702,7 @@
           "writeFormat": {
             "type": "string",
             "enum": [
-              "duckdb",
+              "clickhouse",
               "parquet"
             ]
           },
@@ -6872,7 +6872,7 @@
                 "fileFormat": {
                   "type": "string",
                   "enum": [
-                    "duckdb",
+                    "clickhouse",
                     "parquet"
                   ]
                 },
@@ -6981,7 +6981,7 @@
           "fileFormat": {
             "type": "string",
             "enum": [
-              "duckdb",
+              "clickhouse",
               "parquet"
             ]
           },
@@ -7206,7 +7206,7 @@
                     "fileFormat": {
                       "type": "string",
                       "enum": [
-                        "duckdb",
+                        "clickhouse",
                         "parquet"
                       ]
                     },
@@ -7311,7 +7311,7 @@
               "writeFormat": {
                 "type": "string",
                 "enum": [
-                  "duckdb",
+                  "clickhouse",
                   "parquet"
                 ]
               },

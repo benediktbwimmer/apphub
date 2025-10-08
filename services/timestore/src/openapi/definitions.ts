@@ -426,7 +426,7 @@ const datasetRecordSchema: OpenAPIV3.SchemaObject = {
     },
     writeFormat: {
       type: 'string',
-      enum: ['duckdb', 'parquet']
+      enum: ['clickhouse']
     },
     defaultStorageTargetId: nullable(stringSchema()),
     metadata: jsonObjectSchema,
@@ -461,7 +461,7 @@ const datasetPartitionSchema: OpenAPIV3.SchemaObject = {
     storageTargetId: stringSchema(),
     fileFormat: {
       type: 'string',
-      enum: ['duckdb', 'parquet']
+      enum: ['clickhouse']
     },
     filePath: stringSchema(),
     fileSizeBytes: nullable(integerSchema()),

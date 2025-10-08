@@ -546,14 +546,13 @@ export const TimestoreStackDiagram = createDiagram({
   title: 'Timestore stack',
   nodes: [
     { id: 'ingest', label: 'Ingest\nJobs', x: 24, y: 124 },
-    { id: 'duckdb', label: 'DuckDB\nPlanner', x: 132, y: 44 },
+    { id: 'clickhouse', label: 'ClickHouse\nPlanner', x: 132, y: 44 },
     { id: 'parquet', label: 'Parquet\nShards', x: 240, y: 124 },
     { id: 'sql', label: 'ANSI SQL\nAPI', x: 132, y: 196 }
   ],
   connections: [
-    { from: 'ingest', to: 'duckdb' },
-    { from: 'duckdb', to: 'parquet' },
-    { from: 'duckdb', to: 'sql' },
+    { from: 'ingest', to: 'clickhouse' },
+    { from: 'clickhouse', to: 'sql' },
     { from: 'sql', to: 'parquet', dashed: true }
   ],
   annotations: [

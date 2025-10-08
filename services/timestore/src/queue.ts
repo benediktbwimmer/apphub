@@ -6,24 +6,14 @@ import {
   type IngestionJobPayload,
   type IngestionProcessingResult
 } from './ingestion/types';
-import {
-  processIngestionJob,
-  flushDatasetStaging,
-  type DatasetFlushResult
-} from './ingestion/processor';
+import { processIngestionJob } from './ingestion/processor';
 import { metricsEnabled, updateIngestionQueueDepth } from './observability/metrics';
 
 export const TIMESTORE_INGEST_QUEUE_NAME = process.env.TIMESTORE_INGEST_QUEUE_NAME ?? 'timestore_ingest_queue';
 
 type IngestionQueuePayload = IngestionJobPayload & { __operation?: 'ingest' };
 
-export interface FlushJobPayload {
-  __operation: 'flush';
-  datasetSlug: string;
-  storageTargetId?: string | null;
-}
-
-export type QueueJobPayload = IngestionQueuePayload | FlushJobPayload;
+export type QueueJobPayload = IngestionQueuePayload;
 
 let queueInstance: Queue<QueueJobPayload> | null = null;
 let connection: Redis | null = null;
@@ -88,66 +78,6 @@ export async function enqueueIngestionJob(
     jobId: String(job.id),
     mode: 'queued'
   };
-}
-
-export async function enqueueFlushJob(
-  datasetSlug: string,
-  options: { storageTargetId?: string }
-): Promise<{
-  jobId: string;
-  mode: 'inline' | 'queued';
-  result?: DatasetFlushResult;
-}> {
-  if (isInlineRedis()) {
-    const result = await flushDatasetStaging(datasetSlug, {
-      storageTargetId: options.storageTargetId
-    });
-    return {
-      jobId: `inline-flush:${Date.now()}`,
-      mode: 'inline',
-      result
-    };
-  }
-
-  const queue = ensureQueue();
-  const jobName = `flush:${datasetSlug}`;
-  const payload: FlushJobPayload = {
-    __operation: 'flush',
-    datasetSlug,
-    storageTargetId: options.storageTargetId ?? null
-  };
-  const jobOptions = {
-    jobId: jobName,
-    removeOnComplete: 100,
-    removeOnFail: 100
-  } as const;
-  try {
-    const job: Job<QueueJobPayload> = await addJobWithRetries(jobName, payload, jobOptions);
-    return {
-      jobId: String(job.id),
-      mode: 'queued'
-    };
-  } catch (error) {
-    if (isJobExistsError(error, jobName)) {
-      return {
-        jobId: jobName,
-        mode: 'queued'
-      };
-    }
-    if (isRedisConnectionError(error)) {
-      await resetQueueInstance();
-      const job: Job<QueueJobPayload> = await addJobWithRetries(jobName, payload, jobOptions);
-      return {
-        jobId: String(job.id),
-        mode: 'queued'
-      };
-    }
-    console.error('[timestore:queue] failed to enqueue flush job', {
-      datasetSlug,
-      error: error instanceof Error ? error.message : error
-    });
-    throw error;
-  }
 }
 
 export function getQueueConnection(): Redis {

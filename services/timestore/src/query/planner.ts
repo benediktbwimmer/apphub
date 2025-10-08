@@ -26,7 +26,6 @@ import {
   normalizeFieldDefinitions
 } from '../schema/compatibility';
 import type { FieldDefinition } from '../storage';
-import { readStagingSchemaFields } from '../sql/stagingSchema';
 import type { ColumnPredicate } from '../types/partitionFilters';
 
 export interface QueryPlanPartition {
@@ -219,24 +218,7 @@ async function resolveSchemaFieldsForPlan(
     }
   }
 
-  const stagingFields = await readStagingSchemaFields(dataset, config);
-  if (stagingFields.length === 0) {
-    return [];
-  }
-
-  const mapped: FieldDefinition[] = [];
-  for (const field of stagingFields) {
-    const name = field.name.trim();
-    if (!name) {
-      continue;
-    }
-    mapped.push({
-      name,
-      type: mapStagingTypeToFieldType(field.type)
-    });
-  }
-
-  return mapped;
+  return [];
 }
 
 function buildPlanPartition(
@@ -333,33 +315,4 @@ function createIntervalLiteral(size: number, unit: DownsampleInput['intervalUnit
 
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
-}
-
-function mapStagingTypeToFieldType(input: string): FieldDefinition['type'] {
-  const normalized = input.trim().toLowerCase();
-  if (normalized.includes('time')) {
-    return 'timestamp';
-  }
-  if (normalized === 'boolean' || normalized === 'bool') {
-    return 'boolean';
-  }
-  if (
-    normalized === 'double' ||
-    normalized === 'float' ||
-    normalized === 'real' ||
-    normalized === 'numeric' ||
-    normalized === 'decimal'
-  ) {
-    return 'double';
-  }
-  if (
-    normalized === 'integer' ||
-    normalized === 'int' ||
-    normalized === 'bigint' ||
-    normalized === 'smallint' ||
-    normalized === 'tinyint'
-  ) {
-    return 'integer';
-  }
-  return 'string';
 }

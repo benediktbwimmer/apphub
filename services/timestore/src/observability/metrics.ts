@@ -1,4 +1,6 @@
 import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';
+import { getClickHouseClient } from '../clickhouse/client';
+import type { ServiceConfig } from '../config/serviceConfig';
 
 export interface MetricsOptions {
   enabled: boolean;
@@ -142,6 +144,8 @@ interface MetricsState {
   stagingQueueDepth: Gauge<string> | null;
   stagingOldestAgeSeconds: Gauge<string> | null;
   stagingDiskUsageBytes: Gauge<string> | null;
+  clickhouseDiskBytes: Gauge<string> | null;
+  clickhouseS3Events: Gauge<string> | null;
   stagingFlushDurationSeconds: Histogram<string> | null;
   stagingFlushBatchesTotal: Counter<string> | null;
   stagingFlushRowsTotal: Counter<string> | null;
@@ -288,6 +292,24 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
         name: `${prefix}staging_disk_usage_bytes`,
         help: 'Bytes consumed by staging DuckDB files grouped by dataset and component',
         labelNames: ['dataset', 'component'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const clickhouseDiskBytes = enabled
+    ? new Gauge({
+        name: `${prefix}clickhouse_disk_bytes`,
+        help: 'ClickHouse disk usage grouped by disk and metric (total/free bytes)',
+        labelNames: ['disk', 'metric'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const clickhouseS3Events = enabled
+    ? new Gauge({
+        name: `${prefix}clickhouse_s3_events_total`,
+        help: 'ClickHouse system.events counters for S3/cache operations',
+        labelNames: ['event'],
         registers: registerMetrics
       })
     : null;
@@ -778,6 +800,8 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     stagingQueueDepth,
     stagingOldestAgeSeconds,
     stagingDiskUsageBytes,
+    clickhouseDiskBytes,
+    clickhouseS3Events,
     stagingFlushDurationSeconds,
     stagingFlushBatchesTotal,
     stagingFlushRowsTotal,
@@ -1408,6 +1432,54 @@ export function setStreamingHotBufferMetrics(snapshot: StreamingHotBufferMetrics
         state.streamingHotBufferState.labels(dataset, candidate).set(value);
       }
     }
+  }
+}
+
+const CLICKHOUSE_S3_EVENT_NAMES = ['S3ReadBytes', 'S3WriteBytes', 'S3QueueFileCacheBytes', 'S3QueueFileCacheHits'] as const;
+
+type ClickHouseS3EventName = (typeof CLICKHOUSE_S3_EVENT_NAMES)[number];
+
+export async function updateClickHouseMetrics(config: ServiceConfig): Promise<void> {
+  const state = metricsState;
+  if (!state?.enabled || !state.clickhouseDiskBytes || !state.clickhouseS3Events) {
+    return;
+  }
+
+  try {
+    const client = getClickHouseClient(config.clickhouse);
+
+    const diskResult = await client.query({
+      query: 'SELECT name, total_space, free_space FROM system.disks',
+      format: 'JSONEachRow'
+    });
+    const diskRows = await diskResult.json<{ name: string; total_space?: string | number; free_space?: string | number }>();
+    state.clickhouseDiskBytes.reset();
+    for (const row of diskRows) {
+      const disk = row.name || 'unknown';
+      const total = Number(row.total_space ?? 0);
+      const free = Number(row.free_space ?? 0);
+      if (Number.isFinite(total)) {
+        state.clickhouseDiskBytes.labels(disk, 'total').set(total);
+      }
+      if (Number.isFinite(free)) {
+        state.clickhouseDiskBytes.labels(disk, 'free').set(free);
+      }
+    }
+
+    const eventsResult = await client.query({
+      query: `SELECT event, value FROM system.events WHERE event IN (${CLICKHOUSE_S3_EVENT_NAMES.map((event) => `'${event}'`).join(', ')})`,
+      format: 'JSONEachRow'
+    });
+    const eventRows = await eventsResult.json<{ event: ClickHouseS3EventName; value: string | number }>();
+    state.clickhouseS3Events.reset();
+    for (const row of eventRows) {
+      const value = Number(row.value ?? 0);
+      if (Number.isFinite(value)) {
+        state.clickhouseS3Events.labels(row.event).set(value);
+      }
+    }
+  } catch (error) {
+    console.warn('[timestore] failed to update clickhouse metrics', error);
   }
 }
 

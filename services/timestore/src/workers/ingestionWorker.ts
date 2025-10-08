@@ -4,11 +4,10 @@ import {
   getQueueConnection,
   isInlineQueueMode,
   TIMESTORE_INGEST_QUEUE_NAME,
-  type QueueJobPayload,
-  type FlushJobPayload
+  type QueueJobPayload
 } from '../queue';
 import type { IngestionJobPayload } from '../ingestion/types';
-import { processIngestionJob, flushDatasetStaging } from '../ingestion/processor';
+import { processIngestionJob } from '../ingestion/processor';
 import { ensureSchemaExists } from '../db/schema';
 import { POSTGRES_SCHEMA } from '../db/client';
 import { runMigrations } from '../db/migrations';
@@ -26,42 +25,18 @@ async function main(): Promise<void> {
   await runMigrations();
   await ensureDefaultStorageTarget();
 
-  type WorkerResult =
-    | {
-        operation: 'ingest';
-        manifestId: string | null;
-        datasetId: string;
-        datasetSlug: string;
-        storageTargetId: string;
-        flushPending: boolean;
-      }
-    | {
-        operation: 'flush';
-        datasetSlug: string;
-        status: 'noop' | 'flushed';
-        batches: number;
-        rows: number;
-        manifestId: string | null;
-      };
+  type WorkerResult = {
+    operation: 'ingest';
+    manifestId: string | null;
+    datasetId: string;
+    datasetSlug: string;
+    storageTargetId: string;
+    flushPending: boolean;
+  };
 
   const worker = new Worker<QueueJobPayload, WorkerResult>(
     TIMESTORE_INGEST_QUEUE_NAME,
     async (job) => {
-      if ((job.data as FlushJobPayload).__operation === 'flush') {
-        const payload = job.data as FlushJobPayload;
-        const result = await flushDatasetStaging(payload.datasetSlug, {
-          storageTargetId: payload.storageTargetId ?? undefined
-        });
-        return {
-          operation: 'flush',
-          datasetSlug: payload.datasetSlug,
-          status: result.status,
-          batches: result.batches,
-          rows: result.rows,
-          manifestId: result.manifest?.id ?? null
-        } satisfies WorkerResult;
-      }
-
       const result = await processIngestionJob(job.data as IngestionJobPayload);
       return {
         operation: 'ingest',
@@ -83,18 +58,6 @@ async function main(): Promise<void> {
     if (!result) {
       console.log('[timestore:ingest] completed job without result', {
         jobId: job.id
-      });
-      return;
-    }
-
-    if (result.operation === 'flush') {
-      console.log('[timestore:ingest] flush job completed', {
-        jobId: job.id,
-        datasetSlug: result.datasetSlug,
-        status: result.status,
-        batches: result.batches,
-        rows: result.rows,
-        manifestId: result.manifestId ?? null
       });
       return;
     }
