@@ -101,3 +101,23 @@ Two scripts under `npm run` automate common deployment flows once Terraform has 
 | `npm run deploy:demo -- --branch main` | SSH-es into the demo VM, checks out the requested branch under `/opt/apphub/source`, runs `git clean`, and restarts the docker compose stack with `--build`. |
 
 Both commands accept `--host <hostname-or-ip>` to override the target derived from Terraform outputs. Use `--no-invalidate` with the website script if you want to skip the CloudFront cache purge.
+
+### Setting up a fresh workstation
+
+When cloning the repository onto a new machine, run through the following checklist before invoking the deploy scripts:
+
+1. **AWS credentials** – configure the AWS CLI (`aws configure`) or export `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` for the account that owns the demo stack.
+2. **Terraform state** – copy the current `terraform.tfstate`, `terraform.tfstate.backup`, and `terraform.tfvars` into `infra/aws-demo/`. If you do not have a `terraform.tfvars` yet, scaffold one from `terraform.tfvars.example`.
+3. **Terraform init** – run `terraform -chdir=infra/aws-demo init` to install providers in the new checkout and verify access.
+4. **SSH access** – place the private key that matches the demo instance’s authorized key in your `~/.ssh` folder (or agent) so `ssh ec2-user@<host>` works without extra prompts.
+5. **Node dependencies** – install workspace dependencies (`npm ci` or `npm install`) at the repo root so the deploy scripts can build the site.
+
+With those prerequisites in place you can deploy from the fresh clone, for example:
+
+```bash
+terraform -chdir=infra/aws-demo output   # sanity check
+npm run deploy:website -- --branch main
+npm run deploy:demo -- --branch main
+```
+
+Use `--host <elastic-ip>` on either command if Terraform outputs are not populated yet, and add `--no-invalidate` when you want to skip the CloudFront cache purge during website deployments.
