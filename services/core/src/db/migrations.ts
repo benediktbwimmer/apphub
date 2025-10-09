@@ -1463,6 +1463,17 @@ const migrations: Migration[] = [
            ('role-admin', 'workflows:read')
        ON CONFLICT DO NOTHING;`
     ]
+  },
+  {
+    id: '052_workflow_activity_indexes',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_workflow_runs_created_at
+         ON workflow_runs(created_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_occurred_at
+         ON workflow_trigger_deliveries((COALESCE(updated_at, created_at)) DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_run_id
+         ON workflow_trigger_deliveries(workflow_run_id);`
+    ]
   }
 ];
 
