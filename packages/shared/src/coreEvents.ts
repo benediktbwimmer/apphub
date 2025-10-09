@@ -13,8 +13,8 @@ type JsonObject = { [key: string]: JsonValue };
 export type WorkflowEventSeverity = 'critical' | 'error' | 'warning' | 'info' | 'debug';
 
 export type WorkflowEventCursorPayload = {
-  occurredAt: string;
-  id: string;
+  ingressSequence: string;
+  id?: string;
 };
 
 export type WorkflowEventLinkHints = {
@@ -153,6 +153,7 @@ export type WorkflowEventRecordView = {
   source: string;
   occurredAt: string;
   receivedAt: string;
+  ingressSequence: string;
   payload: unknown;
   correlationId: string | null;
   ttlMs: number | null;

@@ -13,6 +13,8 @@ export declare const eventEnvelopeSchema: z.ZodObject<{
     correlationId: z.ZodOptional<z.ZodString>;
     ttl: z.ZodOptional<z.ZodNumber>;
     metadata: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodType<JsonValue, z.ZodTypeDef, JsonValue>>>;
+    schemaVersion: z.ZodOptional<z.ZodNumber>;
+    schemaHash: z.ZodOptional<z.ZodString>;
 }, "strict", z.ZodTypeAny, {
     id: string;
     type: string;
@@ -22,6 +24,8 @@ export declare const eventEnvelopeSchema: z.ZodObject<{
     correlationId?: string | undefined;
     ttl?: number | undefined;
     metadata?: Record<string, JsonValue> | undefined;
+    schemaVersion?: number | undefined;
+    schemaHash?: string | undefined;
 }, {
     id: string;
     type: string;
@@ -31,12 +35,16 @@ export declare const eventEnvelopeSchema: z.ZodObject<{
     correlationId?: string | undefined;
     ttl?: number | undefined;
     metadata?: Record<string, JsonValue> | undefined;
+    schemaVersion?: number | undefined;
+    schemaHash?: string | undefined;
 }>;
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
 export type EventEnvelopeInput = Omit<EventEnvelope, 'id' | 'occurredAt'> & {
     id?: string;
     occurredAt?: string | Date;
     payload?: JsonValue;
+    schemaVersion?: number | null;
+    schemaHash?: string | null;
 };
 export type EventIngressJobData = {
     envelope?: EventEnvelope;

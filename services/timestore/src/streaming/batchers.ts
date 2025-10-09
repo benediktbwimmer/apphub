@@ -72,7 +72,7 @@ class StreamingMicroBatcher {
     this.metricsCallback();
 
     this.context.runPromise = consumer.run({
-      eachMessage: async ({ message }) => {
+      eachMessage: async ({ partition, message }) => {
         if (!message.value) {
           logger.warn({ topic: config.topic, connectorId: config.id }, 'streaming message missing value');
           return;
@@ -89,6 +89,12 @@ class StreamingMicroBatcher {
           return;
         }
         try {
+          const record = payload as Record<string, unknown>;
+          record.kafkaPartition = partition.toString();
+          const kafkaMessage = message as { offset?: string };
+          if (kafkaMessage.offset !== undefined) {
+            record.kafkaOffset = kafkaMessage.offset;
+          }
           await processor.processRecord(payload as Record<string, unknown>);
           this.context.lastMessageAtMs = Date.now();
           this.metricsCallback();

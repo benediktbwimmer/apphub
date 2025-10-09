@@ -61,6 +61,7 @@ function buildEventEnvelope(event: WorkflowEventRecord): Record<string, unknown>
     payload: event.payload ?? null,
     occurredAt: event.occurredAt,
     receivedAt: event.receivedAt,
+    ingressSequence: event.ingressSequence,
     correlationId: event.correlationId ?? null,
     ttlMs: event.ttlMs ?? null,
     metadata: event.metadata ?? null
