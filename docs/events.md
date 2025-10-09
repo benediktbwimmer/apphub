@@ -16,6 +16,7 @@ All events must conform to the shared envelope exported by `@apphub/event-bus`:
 | `correlationId` | `string` | No | Carries trace or workflow linkage. |
 | `ttl` | `number` | No | Optional milliseconds-to-live hint. Stored as `ttl_ms`. |
 | `metadata` | `Record<string, JsonValue>` | No | Non-indexed auxiliary attributes. |
+| `schemaVersion` | `number` | No | Populated automatically when a schema is registered for the event type. |
 
 `@apphub/event-bus` exposes:
 
@@ -35,6 +36,8 @@ await publisher.publish({
   correlationId: 'req-41ac2fd3'
 });
 ```
+
+If an event schema is registered, the publisher resolves the latest active version and validates the payload before enqueueing. Successful validation stamps the envelope with `schemaVersion` and adds `metadata.__apphubSchema = { version, hash }`, allowing downstream services to reason about schema evolution.
 
 ### Runtime Configuration
 
@@ -112,6 +115,7 @@ CREATE TABLE workflow_events (
   source TEXT NOT NULL,
   occurred_at TIMESTAMPTZ NOT NULL,
   received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ingress_sequence BIGINT NOT NULL,
   payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   correlation_id TEXT,
   ttl_ms INTEGER,
@@ -120,6 +124,8 @@ CREATE TABLE workflow_events (
 ```
 
 Every record is emitted to WebSocket subscribers via `workflow.event.received` events so operators can trace trigger activity in real time.
+
+Events are assigned a globally monotonically increasing `ingress_sequence` when they are written. Downstream services (Kafka mirrors, Timestore, ClickHouse) should sort by this column to recover deterministic ingestion order, using `occurred_at` only for domain semantics.
 
 The event trigger worker (`npm run event-triggers --workspace @apphub/core`) consumes a dedicated queue (`apphub_event_trigger_queue` by default), evaluates trigger predicates, records delivery history, and enqueues matching workflows. In local inline mode (`REDIS_URL=inline` with `APPHUB_ALLOW_INLINE_MODE=true`) both ingress and trigger processing happen in-process without Redis.
 
@@ -154,6 +160,7 @@ Responses now include derived insights alongside the raw row:
     "events": [
       {
         "id": "evt-001",
+        "ingressSequence": "42",
         "type": "asset.produced",
         "severity": "warning",
         "links": {
@@ -168,7 +175,7 @@ Responses now include derived insights alongside the raw row:
       }
     ],
     "page": {
-      "nextCursor": "eyJ2IjoidjEiLCJvY2N1cnJlZEF0IjoiMjAyNC0xMi0wMVQwMDowMDowMC4wMDBaIiwiaWQiOiJldnQtMDAxIn0",
+      "nextCursor": "eyJ2IjoidjIiLCJpbmdyZXNzU2VxdWVuY2UiOiI0MiIsImlkIjoiZXZ0LTAwMSJ9",
       "hasMore": true,
       "limit": 50
     }

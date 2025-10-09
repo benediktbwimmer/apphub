@@ -7,6 +7,7 @@ import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
 import { deriveWorkflowEventSubtype } from './workflowEventInsights';
 import { mirrorWorkflowEventRecord } from './streaming/workflowMirror';
+import { mirrorCustomWorkflowEvent } from './streaming/coreEventMirror';
 
 const WORKFLOW_METADATA_KEY = '__apphubWorkflow';
 const MAX_IDENTIFIER_LENGTH = 256;
@@ -193,7 +194,9 @@ export async function ingestWorkflowEvent(envelope: EventEnvelope): Promise<Work
     payload: envelope.payload,
     correlationId: envelope.correlationId ?? null,
     ttlMs: envelope.ttl ?? null,
-    metadata: envelope.metadata ?? null
+    metadata: envelope.metadata ?? null,
+    schemaVersion: envelope.schemaVersion ?? null,
+    schemaHash: envelope.schemaHash ?? null
   });
 
   await recordWorkflowEventSampling(record, envelope, workflowMetadataResult);
@@ -214,6 +217,9 @@ export async function ingestWorkflowEvent(envelope: EventEnvelope): Promise<Work
   }
   emitApphubEvent({ type: 'workflow.event.received', data: { event: record } });
   mirrorWorkflowEventRecord(record);
+  if (!derived) {
+    mirrorCustomWorkflowEvent(record);
+  }
   return record;
 }
 

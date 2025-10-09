@@ -1,7 +1,18 @@
 import type { FeatureFlags } from '../config/featureFlags';
 import { getServiceBySlug } from '../db';
 import { fetchFromService } from '../clients/serviceClient';
-import { getMirrorDiagnostics, isKafkaPublisherConfigured } from './kafkaPublisher';
+import {
+  getMirrorDiagnostics,
+  isKafkaPublisherConfigured
+} from './kafkaPublisher';
+import {
+  getEventSchedulerSourceMetrics,
+  type EventSchedulerSourceMetrics
+} from '../eventSchedulerMetrics';
+
+let readMirrorDiagnostics = getMirrorDiagnostics;
+let readKafkaConfigured = isKafkaPublisherConfigured;
+let readSourceMetrics = getEventSchedulerSourceMetrics;
 
 export type StreamingOverallState = 'disabled' | 'ready' | 'degraded' | 'unconfigured';
 
@@ -64,6 +75,36 @@ export interface StreamingMirrorPublisherStatus {
   broker: {
     url: string | null;
   };
+  topics: StreamingMirrorTopicDiagnostics[];
+  sources: StreamingMirrorSourceDiagnostics[];
+  summary: StreamingMirrorSummary;
+}
+
+export interface StreamingMirrorTopicDiagnostics {
+  topic: string;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  failureCount: number;
+  lastError: string | null;
+}
+
+export interface StreamingMirrorSourceDiagnostics {
+  source: string;
+  total: number;
+  throttled: number;
+  dropped: number;
+  failures: number;
+  averageLagMs: number | null;
+  lastLagMs: number;
+  maxLagMs: number;
+  lastEventAt: string | null;
+}
+
+export interface StreamingMirrorSummary {
+  totalEvents: number;
+  totalThrottled: number;
+  totalDropped: number;
+  totalFailures: number;
 }
 
 function createFallbackStatus(
@@ -123,6 +164,8 @@ function createFallbackStatus(
 }
 
 export async function evaluateStreamingStatus(flags: FeatureFlags): Promise<StreamingStatus> {
+  const publisherStatus = await buildPublisherStatus();
+
   if (!flags.streaming.enabled) {
     return createFallbackStatus({
       enabled: false,
@@ -130,7 +173,7 @@ export async function evaluateStreamingStatus(flags: FeatureFlags): Promise<Stre
       reason: null,
       brokerConfigured: false,
       mirrors: flags.streaming.mirrors,
-      publisher: buildPublisherStatus()
+      publisher: publisherStatus
     });
   }
 
@@ -144,7 +187,7 @@ export async function evaluateStreamingStatus(flags: FeatureFlags): Promise<Stre
       reason: 'APPHUB_STREAM_BROKER_URL is not set',
       brokerConfigured: false,
       mirrors: flags.streaming.mirrors,
-      publisher: buildPublisherStatus()
+      publisher: publisherStatus
     });
   }
 
@@ -168,7 +211,7 @@ export async function evaluateStreamingStatus(flags: FeatureFlags): Promise<Stre
     return {
       ...payload,
       mirrors: flags.streaming.mirrors,
-      publisher: buildPublisherStatus()
+      publisher: publisherStatus
     } satisfies StreamingStatus;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -178,25 +221,64 @@ export async function evaluateStreamingStatus(flags: FeatureFlags): Promise<Stre
       reason: `Failed to fetch streaming status: ${message}`,
       brokerConfigured: true,
       mirrors: flags.streaming.mirrors,
-      publisher: buildPublisherStatus()
+      publisher: publisherStatus
     });
   }
 }
 
-function buildPublisherStatus(): StreamingMirrorPublisherStatus {
-  const diagnostics = getMirrorDiagnostics();
+async function buildPublisherStatus(): Promise<StreamingMirrorPublisherStatus> {
+  const diagnostics = readMirrorDiagnostics();
   const brokerUrl = (process.env.APPHUB_STREAM_BROKER_URL ?? '').trim() || null;
   const merged = mergeDiagnostics(diagnostics);
+  const sources = await readSourceMetrics();
+
+  const topicDiagnostics = Object.values(diagnostics)
+    .map((entry) => ({
+      topic: entry.topic,
+      lastSuccessAt: entry.lastSuccessAt,
+      lastFailureAt: entry.lastFailureAt,
+      failureCount: entry.failureCount,
+      lastError: entry.lastError ?? null
+    }) satisfies StreamingMirrorTopicDiagnostics)
+    .sort((a, b) => a.topic.localeCompare(b.topic));
+
+  const sourceDiagnostics: StreamingMirrorSourceDiagnostics[] = sources.map(
+    (source) => ({
+      source: source.source,
+      total: source.total,
+      throttled: source.throttled,
+      dropped: source.dropped,
+      failures: source.failures,
+      averageLagMs: source.averageLagMs,
+      lastLagMs: source.lastLagMs,
+      maxLagMs: source.maxLagMs,
+      lastEventAt: source.lastEventAt
+    })
+  );
+
+  const summary = sourceDiagnostics.reduce<StreamingMirrorSummary>(
+    (acc, source) => {
+      acc.totalEvents += source.total;
+      acc.totalThrottled += source.throttled;
+      acc.totalDropped += source.dropped;
+      acc.totalFailures += source.failures;
+      return acc;
+    },
+    { totalEvents: 0, totalThrottled: 0, totalDropped: 0, totalFailures: 0 }
+  );
 
   return {
-    configured: isKafkaPublisherConfigured(),
+    configured: readKafkaConfigured(),
     lastSuccessAt: merged.lastSuccessAt,
     lastFailureAt: merged.lastFailureAt,
     failureCount: merged.failureCount,
     lastError: merged.lastError,
     broker: {
       url: brokerUrl
-    }
+    },
+    topics: topicDiagnostics,
+    sources: sourceDiagnostics,
+    summary
   } satisfies StreamingMirrorPublisherStatus;
 }
 
@@ -225,4 +307,14 @@ function mergeDiagnostics(entries: Record<string, MirrorDiagnosticsEntry>): {
   }
 
   return { lastSuccessAt, lastFailureAt, failureCount, lastError };
+}
+
+export function __setStreamingStatusTestOverrides(overrides?: {
+  getMirrorDiagnostics?: typeof getMirrorDiagnostics;
+  isKafkaPublisherConfigured?: typeof isKafkaPublisherConfigured;
+  getEventSchedulerSourceMetrics?: typeof getEventSchedulerSourceMetrics;
+}): void {
+  readMirrorDiagnostics = overrides?.getMirrorDiagnostics ?? getMirrorDiagnostics;
+  readKafkaConfigured = overrides?.isKafkaPublisherConfigured ?? isKafkaPublisherConfigured;
+  readSourceMetrics = overrides?.getEventSchedulerSourceMetrics ?? getEventSchedulerSourceMetrics;
 }

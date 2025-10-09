@@ -103,6 +103,7 @@ export function mirrorWorkflowEventRecord(record: WorkflowEventRecord): void {
     emittedAt,
     eventType: record.type,
     eventSource: record.source,
+    ingressSequence: record.ingressSequence,
     workflowEventId: record.id,
     occurredAt: record.occurredAt,
     receivedAt: record.receivedAt,
@@ -123,14 +124,16 @@ export function mirrorWorkflowEventRecord(record: WorkflowEventRecord): void {
 
   const headers: Record<string, string> = {
     'x-apphub-event-type': record.type,
-    'x-apphub-workflow-event-id': record.id
+    'x-apphub-workflow-event-id': record.id,
+    'x-apphub-ingress-sequence': record.ingressSequence
   };
 
   const published = publishKafkaMirrorMessage({
     topic: WORKFLOW_EVENT_TOPIC,
     key: record.id,
     value: row,
-    headers
+    headers,
+    timestamp: new Date(record.receivedAt)
   });
 
   void published.catch((err) => {

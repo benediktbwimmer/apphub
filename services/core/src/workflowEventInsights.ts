@@ -837,6 +837,7 @@ export function buildWorkflowEventView(event: WorkflowEventRecord): WorkflowEven
     source: event.source,
     occurredAt: event.occurredAt,
     receivedAt: event.receivedAt,
+    ingressSequence: event.ingressSequence,
     payload: event.payload,
     correlationId: event.correlationId ?? null,
     ttlMs: event.ttlMs ?? null,

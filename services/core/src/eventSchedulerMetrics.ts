@@ -101,6 +101,51 @@ export async function recordEventIngressFailure(source: string): Promise<void> {
   });
 }
 
+export type EventSchedulerSourceMetrics = {
+  source: string;
+  total: number;
+  throttled: number;
+  dropped: number;
+  failures: number;
+  averageLagMs: number | null;
+  lastLagMs: number;
+  maxLagMs: number;
+  lastEventAt: string | null;
+};
+
+export async function getEventSchedulerSourceMetrics(): Promise<EventSchedulerSourceMetrics[]> {
+  const rows = await withConnection(async (client) => {
+    const result = await client.query<{
+      source: string;
+      total: string;
+      throttled: string;
+      dropped: string;
+      failures: string;
+      total_lag_ms: string;
+      last_lag_ms: string;
+      max_lag_ms: string;
+      last_event_at: string | null;
+    }>('SELECT * FROM event_scheduler_source_metrics ORDER BY source');
+    return result.rows;
+  });
+
+  return rows.map((row) => {
+    const total = Number(row.total);
+    const totalLag = Number(row.total_lag_ms);
+    return {
+      source: row.source,
+      total,
+      throttled: Number(row.throttled),
+      dropped: Number(row.dropped),
+      failures: Number(row.failures),
+      averageLagMs: total > 0 ? Math.round(totalLag / total) : null,
+      lastLagMs: Number(row.last_lag_ms),
+      maxLagMs: Number(row.max_lag_ms),
+      lastEventAt: row.last_event_at
+    } satisfies EventSchedulerSourceMetrics;
+  });
+}
+
 export async function recordTriggerEvaluation(
   trigger: WorkflowEventTriggerRecord,
   status: TriggerMetricStatus,
@@ -207,35 +252,7 @@ export async function getEventSchedulerMetricsSnapshot(): Promise<{
 }> {
   const nowIso = new Date().toISOString();
 
-  const sources = await withConnection(async (client) => {
-    const { rows } = await client.query<{
-      source: string;
-      total: string;
-      throttled: string;
-      dropped: string;
-      failures: string;
-      total_lag_ms: string;
-      last_lag_ms: string;
-      max_lag_ms: string;
-      last_event_at: string | null;
-    }>('SELECT * FROM event_scheduler_source_metrics ORDER BY source');
-
-    return rows.map((row) => {
-      const total = Number(row.total);
-      const totalLag = Number(row.total_lag_ms);
-      return {
-        source: row.source,
-        total,
-        throttled: Number(row.throttled),
-        dropped: Number(row.dropped),
-        failures: Number(row.failures),
-        averageLagMs: total > 0 ? Math.round(totalLag / total) : null,
-        lastLagMs: Number(row.last_lag_ms),
-        maxLagMs: Number(row.max_lag_ms),
-        lastEventAt: row.last_event_at
-      };
-    });
-  });
+  const sources = await getEventSchedulerSourceMetrics();
 
   const triggers = await withConnection(async (client) => {
     const { rows } = await client.query<{

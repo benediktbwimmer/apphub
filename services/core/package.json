@@ -23,6 +23,7 @@
     "module:publish": "tsx src/scripts/publishModule.ts",
     "module:admin": "tsx src/scripts/moduleAdmin.ts",
     "module:services": "tsx src/moduleServices/runner.ts",
+    "register:event-schema": "tsx src/scripts/registerEventSchema.ts",
     "validate:streaming": "tsx src/scripts/validateStreamingReplay.ts",
     "test:e2e": "tsx tests/liquidTemplateValidation.test.ts && tsx tests/moduleConfigDescriptor.test.ts && APPHUB_EVENTS_MODE=inline tsx tests/ingestion.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobs.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobRegistry.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/workflows.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobSandbox.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/adminNuke.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/eventTriggers.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/dockerImageImport.test.ts",
     "publish:ai-bundle": "tsx src/scripts/publishAiBundle.ts",
@@ -37,6 +38,7 @@
   "type": "commonjs",
   "dependencies": {
     "@apphub/shared": "0.1.1",
+    "ajv": "^8.17.1",
     "@apphub/module-sdk": "0.1.0",
     "@aws-sdk/client-s3": "^3.896.0",
     "@aws-sdk/s3-request-presigner": "^3.896.0",

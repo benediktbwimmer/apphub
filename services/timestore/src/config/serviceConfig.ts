@@ -92,6 +92,7 @@ export interface StreamingBatcherConfig {
     fields: FieldDefinition[];
   };
   timeField: string;
+  orderingField: string;
   windowSeconds: number;
   maxRowsPerPartition: number;
   maxBatchLatencyMs: number;
@@ -246,6 +247,7 @@ const streamingBatcherSchema = z
       fields: z.array(fieldDefinitionSchema).min(1)
     }),
     timeField: z.string().min(1),
+    orderingField: z.string().min(1).optional(),
     windowSeconds: z.number().int().positive().default(60),
     maxRowsPerPartition: z.number().int().positive().default(10_000),
     maxBatchLatencyMs: z.number().int().positive().default(60_000),
@@ -267,6 +269,7 @@ const streamingBatcherSchema = z
       tableName,
       schema: value.schema,
       timeField: value.timeField,
+      orderingField: value.orderingField ?? value.timeField,
       windowSeconds: value.windowSeconds,
       maxRowsPerPartition: value.maxRowsPerPartition,
       maxBatchLatencyMs: value.maxBatchLatencyMs,
@@ -791,6 +794,9 @@ function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcher
         fields: [
           field('source', 'string'),
           field('emittedAt', 'timestamp'),
+          field('ingressSequence', 'string'),
+          field('kafkaPartition', 'string'),
+          field('kafkaOffset', 'string'),
           field('eventType', 'string'),
           field('workflowDefinitionId', 'string'),
           field('workflowRunId', 'string'),
@@ -805,6 +811,7 @@ function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcher
         ]
       },
       timeField: 'emittedAt',
+      orderingField: 'ingressSequence',
       windowSeconds: 60,
       maxRowsPerPartition: 1_000,
       maxBatchLatencyMs: 30_000,
@@ -823,6 +830,9 @@ function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcher
         fields: [
           field('source', 'string'),
           field('emittedAt', 'timestamp'),
+          field('ingressSequence', 'string'),
+          field('kafkaPartition', 'string'),
+          field('kafkaOffset', 'string'),
           field('eventType', 'string'),
           field('eventSource', 'string'),
           field('workflowEventId', 'string'),
@@ -844,6 +854,7 @@ function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcher
         ]
       },
       timeField: 'emittedAt',
+      orderingField: 'ingressSequence',
       windowSeconds: 60,
       maxRowsPerPartition: 1_000,
       maxBatchLatencyMs: 30_000,
@@ -862,6 +873,9 @@ function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcher
         fields: [
           field('source', 'string'),
           field('emittedAt', 'timestamp'),
+          field('ingressSequence', 'string'),
+          field('kafkaPartition', 'string'),
+          field('kafkaOffset', 'string'),
           field('eventType', 'string'),
           field('jobDefinitionId', 'string'),
           field('jobRunId', 'string'),
@@ -878,6 +892,7 @@ function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcher
         ]
       },
       timeField: 'emittedAt',
+      orderingField: 'ingressSequence',
       windowSeconds: 60,
       maxRowsPerPartition: 1_000,
       maxBatchLatencyMs: 30_000,
@@ -896,6 +911,9 @@ function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcher
         fields: [
           field('source', 'string'),
           field('emittedAt', 'timestamp'),
+          field('ingressSequence', 'string'),
+          field('kafkaPartition', 'string'),
+          field('kafkaOffset', 'string'),
           field('eventType', 'string'),
           field('ingestionId', 'integer'),
           field('repositoryId', 'string'),
@@ -909,6 +927,7 @@ function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcher
         ]
       },
       timeField: 'emittedAt',
+      orderingField: 'ingressSequence',
       windowSeconds: 60,
       maxRowsPerPartition: 1_000,
       maxBatchLatencyMs: 30_000,
@@ -927,11 +946,15 @@ function buildDefaultStreamingBatchers(env: NodeJS.ProcessEnv): StreamingBatcher
         fields: [
           field('source', 'string'),
           field('emittedAt', 'timestamp'),
+          field('ingressSequence', 'string'),
+          field('kafkaPartition', 'string'),
+          field('kafkaOffset', 'string'),
           field('eventType', 'string'),
           field('payloadJson', 'string')
         ]
       },
       timeField: 'emittedAt',
+      orderingField: 'ingressSequence',
       windowSeconds: 60,
       maxRowsPerPartition: 1_000,
       maxBatchLatencyMs: 30_000,

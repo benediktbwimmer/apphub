@@ -93,11 +93,13 @@ The `infra/minikube` overlay now includes a three-node `StatefulSet`:
 - Kubernetes services ship with `prometheus.io/scrape` annotations targeting port 9644 so the platform Prometheus stack automatically ingests broker metrics.
 - Core streaming alerts rely on `vectorized_kafka_broker_partition_under_replicated`, `vectorized_kafka_recovery_partition_movement_recency`, and `timestore_streaming_backlog_seconds` to detect lag and durability regressions.
 - Local compose environments expose the admin API via `${APPHUB_REDPANDA_ADMIN_PORT:-19644}` for ad-hoc inspection or temporary Prometheus scrapes.
+- Use `GET /health` (or `/readyz`) on the core service to inspect `features.streaming.publisher`. The payload now includes per-topic mirror diagnostics, current feature-flag state, and event source drop counters so operators can confirm that custom HTTP publishers are being mirrored into Redpanda.
 
 ## Integration Summary
 
 - Core and Timestore read `APPHUB_STREAM_BROKER_URL` when `APPHUB_STREAMING_ENABLED=1`; health endpoints return `503` if the broker is misconfigured.
 - Redis remains mandatory. Redpanda is additive for streaming workloads and can be toggled off without impacting existing batch functionality.
 - The CLI (`apphub status`) now surfaces streaming readiness to simplify operator checks.
+- Every mirrored payload now includes `ingressSequence`, `kafkaPartition`, and `kafkaOffset` so downstream consumers can sort deterministically. The demo stack provisions a dedicated `sequencer-db` Postgres instance that the core service uses via `APPHUB_EVENT_SEQUENCE_DATABASE_URL` to mint these IDs.
 
 Refer to `docs/streaming.md` (future streaming service spec) for pipeline-level wiring and schema contracts once the streaming workspace lands.

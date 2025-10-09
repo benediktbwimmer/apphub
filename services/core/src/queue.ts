@@ -11,6 +11,7 @@ import { getJobRunById } from './db/jobs';
 import { getWorkflowRunById } from './db/workflows';
 import { type JobRunRecord, type JsonValue } from './db/types';
 import { ingestWorkflowEvent } from './workflowEvents';
+import { annotateEventEnvelopeSchema } from './eventSchemas';
 import {
   recordEventIngress,
   recordEventIngressFailure
@@ -64,6 +65,17 @@ export type WorkflowRetryJobData = {
 
 const EVENT_TRIGGER_ATTEMPTS = Number(process.env.EVENT_TRIGGER_ATTEMPTS ?? 3);
 const EVENT_TRIGGER_BACKOFF_MS = Number(process.env.EVENT_TRIGGER_BACKOFF_MS ?? 5_000);
+
+function envFlag(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+const ENFORCE_EVENT_SCHEMAS = envFlag(process.env.APPHUB_EVENT_SCHEMA_ENFORCE);
+const missingSchemaWarnings = new Set<string>();
 
 queueManager.registerQueue({
   key: QUEUE_KEYS.ingest,
@@ -194,7 +206,65 @@ export async function enqueueWorkflowEvent(
   input: EventEnvelopeInput
 ): Promise<EventEnvelope> {
   const inlineMode = queueManager.isInlineMode();
-  const envelope = normalizeEventEnvelope(input);
+  const normalized = normalizeEventEnvelope(input);
+
+  let envelope = normalized;
+  try {
+    const schemaResult = await annotateEventEnvelopeSchema({
+      eventType: normalized.type,
+      payload: normalized.payload,
+      schemaVersion: normalized.schemaVersion ?? null,
+      metadata: normalized.metadata ?? null,
+      enforce: ENFORCE_EVENT_SCHEMAS
+    });
+
+    if (schemaResult.schemaVersion !== null && normalized.schemaVersion !== undefined && normalized.schemaVersion !== null && normalized.schemaVersion !== schemaResult.schemaVersion) {
+      throw new Error(
+        `Schema version mismatch for event ${normalized.type}: requested ${normalized.schemaVersion} but registry returned ${schemaResult.schemaVersion}`
+      );
+    }
+
+    if (schemaResult.schemaHash !== null && normalized.schemaHash !== undefined && normalized.schemaHash !== null && normalized.schemaHash !== schemaResult.schemaHash) {
+      throw new Error(
+        `Schema hash mismatch for event ${normalized.type}: payload hash ${schemaResult.schemaHash} does not match provided ${normalized.schemaHash}`
+      );
+    }
+
+    const nextMetadata = (() => {
+      if (schemaResult.metadata === undefined) {
+        return normalized.metadata;
+      }
+      if (schemaResult.metadata === null) {
+        return undefined;
+      }
+      if (typeof schemaResult.metadata === 'object' && !Array.isArray(schemaResult.metadata)) {
+        return schemaResult.metadata as Record<string, JsonValue>;
+      }
+      return normalized.metadata;
+    })();
+
+    envelope = {
+      ...normalized,
+      schemaVersion: schemaResult.schemaVersion ?? undefined,
+      schemaHash: schemaResult.schemaHash ?? undefined,
+      metadata: nextMetadata
+    } satisfies EventEnvelope;
+
+    if (schemaResult.schemaVersion === null && !ENFORCE_EVENT_SCHEMAS) {
+      if (!missingSchemaWarnings.has(normalized.type)) {
+        missingSchemaWarnings.add(normalized.type);
+        logger.warn('No schema registered for event', {
+          eventType: normalized.type
+        });
+      }
+    }
+  } catch (err) {
+    logger.error('Event schema validation failed', {
+      eventType: normalized.type,
+      error: err instanceof Error ? err.message : String(err)
+    });
+    throw err;
+  }
 
   if (inlineMode) {
     try {
