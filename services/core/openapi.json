@@ -39897,6 +39897,25 @@
         }
       }
     },
+    "/workflow-runs/{runId}/cancel": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "runId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/workflow-runs/{runId}/replay": {
       "post": {
         "parameters": [

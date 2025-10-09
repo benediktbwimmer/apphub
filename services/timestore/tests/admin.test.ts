@@ -86,11 +86,9 @@ before(async () => {
   storageTargetAlt = await metadataModule.upsertStorageTarget({
     id: `st-${randomUUID()}`,
     name: `alt-target-${randomUUID().slice(0, 6)}`,
-    kind: 'local',
+    kind: 'clickhouse',
     description: 'Alternate storage',
-    config: {
-      root: storageRoot
-    }
+    config: {}
   });
 
   datasetA = await seedDataset('observatory-admin-a');
@@ -156,8 +154,8 @@ async function seedDataset(slug: string) {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: defaultStorageTargetId,
-        fileFormat: 'parquet',
-        filePath: `${slug}/2024-01-01.parquet`,
+        fileFormat: 'clickhouse',
+        filePath: `clickhouse://${slug}/records#seed`,
         partitionKey: { window: '2024-01-01' },
         startTime: new Date(now.getTime() - 3_600_000),
         endTime: now,

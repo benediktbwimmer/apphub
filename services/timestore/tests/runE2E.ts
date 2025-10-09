@@ -1,15 +1,13 @@
 import 'ts-node/register/transpile-only';
 
+import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { run } from 'node:test';
-import type { EventData } from 'node:test';
 import { runE2E } from '@apphub/test-helpers';
-import { resetStagingWriteManager } from '../src/ingestion/stagingManager';
 import { inspect } from 'node:util';
 import { stopAllEmbeddedPostgres } from './utils/embeddedPostgres';
 
@@ -48,116 +46,37 @@ runE2E(async () => {
     return;
   }
 
-  const stream = run({ files: testFiles, concurrency: 1 });
-
   const failures: TestEvent[] = [];
   let hasFailures = false;
-  let plannedTests: number | null = null;
-  let finishedTests = 0;
-  let completionResolve: (() => void) | null = null;
-  const completion = new Promise<void>((resolve) => {
-    completionResolve = resolve;
-  });
-  let idleTimer: NodeJS.Timeout | null = null;
-  const scheduleCompletionCheck = () => {
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-    }
-    idleTimer = setTimeout(() => {
-      completionResolve?.();
-    }, 100);
-    idleTimer.unref?.();
-  };
+  for (const testFile of testFiles) {
+    const relativePath = path.relative(process.cwd(), testFile);
+    console.info(`[timestore:test-runner] running ${relativePath}`);
 
-  const handleWatcher = setInterval(() => {
-    const handles = (process as unknown as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.();
-    const requests = (process as unknown as { _getActiveRequests?: () => unknown[] })._getActiveRequests?.();
-    const totalHandles = handles?.length ?? 0;
-    const totalRequests = requests?.length ?? 0;
-    console.warn('[timestore:test-runner] periodic handle snapshot', {
-      handles: totalHandles,
-      requests: totalRequests,
-      detail: handles && handles.length > 0
-        ? handles.map((handle) => {
-            const constructorName = (handle as { constructor?: { name?: string } }).constructor?.name ?? typeof handle;
-            const summary: Record<string, unknown> = { constructorName };
-            if (typeof (handle as { hasRef?: () => boolean }).hasRef === 'function') {
-              summary.hasRef = (handle as { hasRef?: () => boolean }).hasRef!();
-            }
-            if (constructorName === 'Timeout' && typeof (handle as { _idleTimeout?: number })._idleTimeout === 'number') {
-              summary.idleTimeout = (handle as { _idleTimeout?: number })._idleTimeout;
-              summary.callback = inspect((handle as { _onTimeout?: unknown })._onTimeout, { depth: 1 });
-            }
-            if (constructorName === 'Immediate') {
-              summary.callback = inspect((handle as { _onImmediate?: unknown })._onImmediate, { depth: 1 });
-            }
-            return summary;
-          })
-        : []
-    });
-  }, 5_000);
-  if (typeof handleWatcher.unref === 'function') {
-    handleWatcher.unref();
+    const child = spawn(
+      process.execPath,
+      ['--import', 'tsx', '--test', testFile],
+      {
+        stdio: 'inherit',
+        env: {
+          ...process.env
+        }
+      }
+    );
+
+    const [exitCode, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+    if (exitCode !== 0) {
+      hasFailures = true;
+      process.exitCode = Math.max(typeof process.exitCode === 'number' ? process.exitCode : 0, exitCode ?? 1);
+      failures.push({
+        name: relativePath,
+        durationMs: undefined,
+        location: { file: testFile }
+      });
+      console.error('[timestore:test-runner] test failed', { file: relativePath, exitCode, signal });
+    } else {
+      console.info(`[timestore:test-runner] completed ${relativePath}`);
+    }
   }
-
-  stream.on('test:pass', (event: EventData.TestPass) => {
-    const location = formatLocation({ name: event.name, location: event });
-    const duration = event.details?.duration_ms;
-    const suffix = duration ? ` (${duration.toFixed(0)}ms)` : '';
-    const locationLabel = location ? ` [${location}]` : '';
-    console.info(`✓ ${event.name}${locationLabel}${suffix}`);
-    scheduleCompletionCheck();
-  });
-
-  stream.on('test:fail', (event: EventData.TestFail) => {
-    const location = formatLocation({ name: event.name, location: event });
-    const duration = event.details?.duration_ms;
-    const suffix = duration ? ` (${duration.toFixed(0)}ms)` : '';
-    const locationLabel = location ? ` [${location}]` : '';
-    console.error(`✖ ${event.name}${locationLabel}${suffix}`);
-    if (event.details?.error) {
-      console.error(event.details.error);
-    }
-    hasFailures = true;
-    process.exitCode = Math.max(typeof process.exitCode === 'number' ? process.exitCode : 0, 1);
-    failures.push({
-      name: event.name,
-      durationMs: duration,
-      location: event
-    });
-    const signal = (event.details as { signal?: NodeJS.Signals } | undefined)?.signal;
-    const failureType = (event as { failureType?: string }).failureType;
-    if (signal || failureType === 'hookFailed') {
-      completionResolve?.();
-    }
-    scheduleCompletionCheck();
-  });
-
-  stream.on('test:diagnostic', (event: EventData.TestDiagnostic) => {
-    const location = formatLocation({ name: event.message, location: event });
-    const locationLabel = location ? ` [${location}]` : '';
-    console.info(`ℹ ${event.message}${locationLabel}`);
-    scheduleCompletionCheck();
-  });
-
-  stream.on('test:plan', (event: EventData.TestPlan) => {
-    plannedTests = typeof event.details?.count === 'number' ? event.details.count : plannedTests;
-    if (plannedTests !== null && finishedTests >= plannedTests) {
-      completionResolve?.();
-    }
-    scheduleCompletionCheck();
-  });
-
-  stream.on('test:finish', () => {
-    finishedTests += 1;
-    if (plannedTests !== null && finishedTests >= plannedTests) {
-      completionResolve?.();
-    }
-    scheduleCompletionCheck();
-  });
-
-  scheduleCompletionCheck();
-  await completion;
 
   const handles = (process as unknown as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.();
   if (handles && handles.length > 0) {
@@ -176,11 +95,6 @@ runE2E(async () => {
       return info;
     }));
   }
-
-  await resetStagingWriteManager().catch((error) => {
-    console.warn('[timestore] failed to reset staging manager during test shutdown', error);
-  });
-  clearInterval(handleWatcher);
 
   await forceCloseLingeringHandles();
 

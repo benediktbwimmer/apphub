@@ -107,10 +107,8 @@ const SAMPLE_LIFECYCLE: LifecycleStatusResponse = {
     lastErrorAt: null,
     operationTotals: {
       compaction: { count: 1, bytes: 1024, partitions: 1 },
-      retention: { count: 0, bytes: 0, partitions: 0 },
-      parquetExport: { count: 0, bytes: 0, partitions: 0 }
+      retention: { count: 0, bytes: 0, partitions: 0 }
     },
-    exportLatencyMs: [],
     compactionChunks: []
   }
 };

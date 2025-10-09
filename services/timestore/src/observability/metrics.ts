@@ -141,20 +141,8 @@ interface MetricsState {
   ingestQueueJobs: Gauge<string> | null;
   ingestJobsTotal: Counter<string> | null;
   ingestJobDurationSeconds: Histogram<string> | null;
-  stagingQueueDepth: Gauge<string> | null;
-  stagingOldestAgeSeconds: Gauge<string> | null;
-  stagingDiskUsageBytes: Gauge<string> | null;
   clickhouseDiskBytes: Gauge<string> | null;
   clickhouseS3Events: Gauge<string> | null;
-  stagingFlushDurationSeconds: Histogram<string> | null;
-  stagingFlushBatchesTotal: Counter<string> | null;
-  stagingFlushRowsTotal: Counter<string> | null;
-  stagingDroppedBatchesTotal: Counter<string> | null;
-  stagingRetriedBatchesTotal: Counter<string> | null;
-  stagingSchemaReadRetriesTotal: Counter<string> | null;
-  stagingSchemaCacheFallbackTotal: Counter<string> | null;
-  stagingSchemaRegistryUpdatesTotal: Counter<string> | null;
-  stagingSchemaRegistryLoadsTotal: Counter<string> | null;
   partitionBuildQueueJobs: Gauge<string> | null;
   partitionBuildJobsTotal: Counter<string> | null;
   partitionBuildJobDurationSeconds: Histogram<string> | null;
@@ -200,7 +188,6 @@ interface MetricsState {
 }
 
 const INGESTION_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10];
-const STAGING_FLUSH_BUCKETS = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60];
 const QUERY_BUCKETS = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5];
 const QUERY_ROWS_BUCKETS = [1, 10, 100, 1_000, 10_000, 100_000];
 const LIFECYCLE_BUCKETS = [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
@@ -269,33 +256,6 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
       })
     : null;
 
-  const stagingQueueDepth = enabled
-    ? new Gauge({
-        name: `${prefix}staging_queue_depth`,
-        help: 'Pending staging backlog grouped by dataset and metric',
-        labelNames: ['dataset', 'metric'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingOldestAgeSeconds = enabled
-    ? new Gauge({
-        name: `${prefix}staging_oldest_age_seconds`,
-        help: 'Age in seconds of the oldest staged batch per dataset',
-        labelNames: ['dataset'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingDiskUsageBytes = enabled
-    ? new Gauge({
-        name: `${prefix}staging_disk_usage_bytes`,
-        help: 'Bytes consumed by staging DuckDB files grouped by dataset and component',
-        labelNames: ['dataset', 'component'],
-        registers: registerMetrics
-      })
-    : null;
-
   const clickhouseDiskBytes = enabled
     ? new Gauge({
         name: `${prefix}clickhouse_disk_bytes`,
@@ -310,88 +270,6 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
         name: `${prefix}clickhouse_s3_events_total`,
         help: 'ClickHouse system.events counters for S3/cache operations',
         labelNames: ['event'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingFlushDurationSeconds = enabled
-    ? new Histogram({
-        name: `${prefix}staging_flush_duration_seconds`,
-        help: 'Duration of staging flushes grouped by dataset and result',
-        labelNames: ['dataset', 'result'],
-        buckets: STAGING_FLUSH_BUCKETS,
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingFlushBatchesTotal = enabled
-    ? new Counter({
-        name: `${prefix}staging_flush_batches_total`,
-        help: 'Batches drained from staging flushes grouped by dataset and result',
-        labelNames: ['dataset', 'result'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingFlushRowsTotal = enabled
-    ? new Counter({
-        name: `${prefix}staging_flush_rows_total`,
-        help: 'Rows drained from staging flushes grouped by dataset and result',
-        labelNames: ['dataset', 'result'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingDroppedBatchesTotal = enabled
-    ? new Counter({
-        name: `${prefix}staging_dropped_batches_total`,
-        help: 'Batches dropped from staging grouped by dataset and reason',
-        labelNames: ['dataset', 'reason'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingRetriedBatchesTotal = enabled
-    ? new Counter({
-        name: `${prefix}staging_retried_batches_total`,
-        help: 'Batches returned to staging for retry grouped by dataset and reason',
-        labelNames: ['dataset', 'reason'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingSchemaReadRetriesTotal = enabled
-    ? new Counter({
-        name: `${prefix}staging_schema_read_retries_total`,
-        help: 'Retry attempts issued while reading the staging schema',
-        labelNames: ['dataset'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingSchemaCacheFallbackTotal = enabled
-    ? new Counter({
-        name: `${prefix}staging_schema_cache_fallback_total`,
-        help: 'Fallbacks to cached staging schema grouped by dataset and reason',
-        labelNames: ['dataset', 'reason'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingSchemaRegistryUpdatesTotal = enabled
-    ? new Counter({
-        name: `${prefix}staging_schema_registry_updates_total`,
-        help: 'Registry upserts grouped by dataset and result',
-        labelNames: ['dataset', 'status'],
-        registers: registerMetrics
-      })
-    : null;
-
-  const stagingSchemaRegistryLoadsTotal = enabled
-    ? new Counter({
-        name: `${prefix}staging_schema_registry_loads_total`,
-        help: 'Registry lookup outcomes grouped by dataset and result',
-        labelNames: ['dataset', 'result'],
         registers: registerMetrics
       })
     : null;
@@ -797,20 +675,8 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     ingestQueueJobs,
     ingestJobsTotal,
     ingestJobDurationSeconds,
-    stagingQueueDepth,
-    stagingOldestAgeSeconds,
-    stagingDiskUsageBytes,
     clickhouseDiskBytes,
     clickhouseS3Events,
-    stagingFlushDurationSeconds,
-    stagingFlushBatchesTotal,
-    stagingFlushRowsTotal,
-    stagingDroppedBatchesTotal,
-    stagingRetriedBatchesTotal,
-    stagingSchemaReadRetriesTotal,
-    stagingSchemaCacheFallbackTotal,
-    stagingSchemaRegistryUpdatesTotal,
-    stagingSchemaRegistryLoadsTotal,
     partitionBuildQueueJobs,
     partitionBuildJobsTotal,
     partitionBuildJobDurationSeconds,
@@ -885,172 +751,6 @@ export function updateIngestionQueueDepth(counts: IngestionQueueCounts): void {
   setGaugeValues(state.ingestQueueJobs, counts);
 }
 
-export interface StagingSummaryMetricsInput {
-  datasetSlug: string;
-  pendingBatchCount: number;
-  pendingRowCount: number;
-  oldestStagedAt?: string | null;
-  databaseSizeBytes: number;
-  walSizeBytes: number;
-  onDiskBytes: number;
-}
-
-export function setStagingSummaryMetrics(input: StagingSummaryMetricsInput): void {
-  const state = metricsState;
-  if (!state?.enabled) {
-    return;
-  }
-
-  const dataset = input.datasetSlug;
-  const batches = Math.max(0, input.pendingBatchCount);
-  const rows = Math.max(0, input.pendingRowCount);
-
-  if (state.stagingQueueDepth) {
-    state.stagingQueueDepth.labels(dataset, 'batches').set(batches);
-    state.stagingQueueDepth.labels(dataset, 'rows').set(rows);
-  }
-
-  if (state.stagingOldestAgeSeconds) {
-    let ageSeconds = 0;
-    if (input.oldestStagedAt) {
-      const oldestTimestamp = new Date(input.oldestStagedAt).getTime();
-      if (Number.isFinite(oldestTimestamp)) {
-        ageSeconds = (Date.now() - oldestTimestamp) / 1_000;
-        if (!Number.isFinite(ageSeconds) || ageSeconds < 0) {
-          ageSeconds = 0;
-        }
-      }
-    }
-    state.stagingOldestAgeSeconds.labels(dataset).set(ageSeconds);
-  }
-
-  if (state.stagingDiskUsageBytes) {
-    state.stagingDiskUsageBytes.labels(dataset, 'database').set(sanitizeMetricValue(input.databaseSizeBytes));
-    state.stagingDiskUsageBytes.labels(dataset, 'wal').set(sanitizeMetricValue(input.walSizeBytes));
-    state.stagingDiskUsageBytes.labels(dataset, 'total').set(sanitizeMetricValue(input.onDiskBytes));
-  }
-}
-
-export type StagingFlushResult = 'success' | 'failure';
-
-export interface StagingFlushMetricsInput {
-  datasetSlug: string;
-  result: StagingFlushResult;
-  durationSeconds: number;
-  batches: number;
-  rows: number;
-}
-
-export function observeStagingFlush(input: StagingFlushMetricsInput): void {
-  const state = metricsState;
-  if (!state?.enabled) {
-    return;
-  }
-
-  const dataset = input.datasetSlug;
-  const result: StagingFlushResult = input.result === 'failure' ? 'failure' : 'success';
-  const duration = sanitizeMetricValue(input.durationSeconds);
-  const batches = Math.max(0, Math.floor(Number.isFinite(input.batches) ? input.batches : 0));
-  const rows = Math.max(0, Math.floor(Number.isFinite(input.rows) ? input.rows : 0));
-
-  if (state.stagingFlushDurationSeconds) {
-    state.stagingFlushDurationSeconds.labels(dataset, result).observe(duration);
-  }
-  if (state.stagingFlushBatchesTotal) {
-    state.stagingFlushBatchesTotal.labels(dataset, result).inc(batches);
-  }
-  if (state.stagingFlushRowsTotal) {
-    state.stagingFlushRowsTotal.labels(dataset, result).inc(rows);
-  }
-}
-
-export type StagingDropReason = 'queue_full' | 'size_limit' | 'flush_abort' | 'unknown';
-
-export interface StagingDropMetricInput {
-  datasetSlug: string;
-  reason: StagingDropReason;
-}
-
-export function recordStagingDrop(input: StagingDropMetricInput): void {
-  const state = metricsState;
-  if (!state?.enabled || !state.stagingDroppedBatchesTotal) {
-    return;
-  }
-  const reason = normalizeReason(input.reason);
-  state.stagingDroppedBatchesTotal.labels(input.datasetSlug, reason).inc();
-}
-
-export interface StagingRetryMetricInput {
-  datasetSlug: string;
-  reason?: 'flush_abort' | 'manual';
-  batches?: number;
-}
-
-export function recordStagingRetry(input: StagingRetryMetricInput): void {
-  const state = metricsState;
-  if (!state?.enabled || !state.stagingRetriedBatchesTotal) {
-    return;
-  }
-  const reason = normalizeReason(input.reason ?? 'flush_abort');
-  const batches = Math.max(1, Math.floor(Number.isFinite(input.batches ?? NaN) ? (input.batches ?? 1) : 1));
-  state.stagingRetriedBatchesTotal.labels(input.datasetSlug, reason).inc(batches);
-}
-
-export function recordStagingSchemaReadRetry(datasetSlug: string): void {
-  const state = metricsState;
-  if (!state?.enabled || !state.stagingSchemaReadRetriesTotal) {
-    return;
-  }
-  state.stagingSchemaReadRetriesTotal.labels(datasetSlug).inc();
-}
-
-export type StagingSchemaCacheFallbackReason = 'lock' | 'error' | 'empty' | 'missing';
-
-export interface StagingSchemaCacheFallbackInput {
-  datasetSlug: string;
-  reason: StagingSchemaCacheFallbackReason;
-}
-
-export function recordStagingSchemaCacheFallback(input: StagingSchemaCacheFallbackInput): void {
-  const state = metricsState;
-  if (!state?.enabled || !state.stagingSchemaCacheFallbackTotal) {
-    return;
-  }
-  const reason = normalizeReason(input.reason);
-  state.stagingSchemaCacheFallbackTotal.labels(input.datasetSlug, reason).inc();
-}
-
-export type StagingSchemaRegistryUpdateStatus = 'created' | 'updated' | 'unchanged' | 'failed';
-
-export interface StagingSchemaRegistryUpdateInput {
-  datasetSlug: string;
-  status: StagingSchemaRegistryUpdateStatus;
-}
-
-export function recordStagingSchemaRegistryUpdate(input: StagingSchemaRegistryUpdateInput): void {
-  const state = metricsState;
-  if (!state?.enabled || !state.stagingSchemaRegistryUpdatesTotal) {
-    return;
-  }
-  const status = normalizeReason(input.status);
-  state.stagingSchemaRegistryUpdatesTotal.labels(input.datasetSlug, status).inc();
-}
-
-export type StagingSchemaRegistryLoadResult = 'hit' | 'miss' | 'error';
-
-export interface StagingSchemaRegistryLoadInput {
-  datasetSlug: string;
-  result: StagingSchemaRegistryLoadResult;
-}
-
-export function recordStagingSchemaRegistryLoad(input: StagingSchemaRegistryLoadInput): void {
-  const state = metricsState;
-  if (!state?.enabled || !state.stagingSchemaRegistryLoadsTotal) {
-    return;
-  }
-  const result = normalizeReason(input.result);
-  state.stagingSchemaRegistryLoadsTotal.labels(input.datasetSlug, result).inc();
-}
 
 export function observeIngestionJob(input: IngestionJobMetricsInput): void {
   const state = metricsState;

@@ -10,6 +10,7 @@
 - Replacing the PostgreSQL catalog or queue infrastructure.
 - Building a general-purpose lakehouse query engine over arbitrary Parquet.
 - Supporting multi-region replication in the first iteration.
+- Re-implementing dataset lifecycle maintenance (compaction, exports) outside ClickHouse-managed TTL.
 
 ## High-Level Architecture
 1. **Hot buffer** (existing Redis-based component) continues to collect streaming rows, dedupe idempotency keys, and assemble micro-batches per dataset/table/window.
@@ -146,4 +147,3 @@
 3. Extend timestore query service to talk to ClickHouse and merge hot-buffer tails.
 4. Build validation tooling that compares DuckDB vs ClickHouse results for a sample dataset.
 5. Present results + finalize migration timeline (target: Q1 rollout for top-tier datasets).
-

@@ -31,7 +31,6 @@ export interface LifecycleMetricsSnapshot {
   lastRunAt: string | null;
   lastErrorAt: string | null;
   operationTotals: Record<LifecycleOperation, OperationTotals>;
-  exportLatencyMs: number[];
   compactionChunks: CompactionChunkSample[];
 }
 
@@ -46,10 +45,8 @@ const metricsState = {
   lastErrorAt: null as string | null,
   operationTotals: {
     compaction: defaultOperationTotals(),
-    retention: defaultOperationTotals(),
-    parquetExport: defaultOperationTotals()
+    retention: defaultOperationTotals()
   } satisfies Record<LifecycleOperation, OperationTotals>,
-  exportLatencyMs: [] as number[],
   compactionChunks: [] as CompactionChunkSample[]
 };
 
@@ -81,13 +78,6 @@ export function recordOperationTotals(
   totals.bytes += bytes;
 }
 
-export function recordExportLatency(durationMs: number): void {
-  metricsState.exportLatencyMs.push(durationMs);
-  if (metricsState.exportLatencyMs.length > 200) {
-    metricsState.exportLatencyMs.splice(0, metricsState.exportLatencyMs.length - 200);
-  }
-}
-
 export function recordCompactionChunk(metric: CompactionChunkMetricInput): void {
   metricsState.compactionChunks.push({
     chunkId: metric.chunkId,
@@ -112,10 +102,8 @@ export function captureLifecycleMetrics(): LifecycleMetricsSnapshot {
     lastErrorAt: metricsState.lastErrorAt,
     operationTotals: {
       compaction: { ...metricsState.operationTotals.compaction },
-      retention: { ...metricsState.operationTotals.retention },
-      parquetExport: { ...metricsState.operationTotals.parquetExport }
+      retention: { ...metricsState.operationTotals.retention }
     },
-    exportLatencyMs: [...metricsState.exportLatencyMs],
     compactionChunks: [...metricsState.compactionChunks]
   };
 }
@@ -129,7 +117,5 @@ export function resetLifecycleMetrics(): void {
   metricsState.lastErrorAt = null;
   metricsState.operationTotals.compaction = defaultOperationTotals();
   metricsState.operationTotals.retention = defaultOperationTotals();
-  metricsState.operationTotals.parquetExport = defaultOperationTotals();
-  metricsState.exportLatencyMs = [];
   metricsState.compactionChunks = [];
 }

@@ -18,5 +18,12 @@ export function escapeStringLiteral(value: string): string {
 }
 
 export function toDateTime64Literal(value: string): string {
-  return `toDateTime64('${escapeStringLiteral(value)}', 3, 'UTC')`;
+  const parsed = Date.parse(value);
+  if (!Number.isNaN(parsed)) {
+    const iso = new Date(parsed).toISOString();
+    const formatted = iso.replace('T', ' ').replace('Z', '');
+    return `toDateTime64('${escapeStringLiteral(formatted)}', 3, 'UTC')`;
+  }
+  const fallback = value.replace('T', ' ').replace(/Z$/i, '');
+  return `toDateTime64('${escapeStringLiteral(fallback)}', 3, 'UTC')`;
 }

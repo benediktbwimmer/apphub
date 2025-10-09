@@ -59,11 +59,6 @@ x-shared-env: &shared-env
   TIMESTORE_STREAMING_BUFFER_ENABLED: ${TIMESTORE_STREAMING_BUFFER_ENABLED:-true}
   TIMESTORE_STREAMING_BUFFER_RETENTION_SECONDS: ${TIMESTORE_STREAMING_BUFFER_RETENTION_SECONDS:-300}
   TIMESTORE_STREAMING_BATCHERS: ${TIMESTORE_STREAMING_BATCHERS:-""}
-  TIMESTORE_STAGING_DIRECTORY: /var/lib/apphub/scratch/timestore/staging
-  TIMESTORE_STAGING_FLUSH_MAX_ROWS: ${TIMESTORE_STAGING_FLUSH_MAX_ROWS:-1000000000}
-  TIMESTORE_STAGING_FLUSH_MAX_BYTES: ${TIMESTORE_STAGING_FLUSH_MAX_BYTES:-1099511627776}
-  TIMESTORE_STAGING_FLUSH_MAX_AGE_MS: ${TIMESTORE_STAGING_FLUSH_MAX_AGE_MS:-0}
-  TIMESTORE_STAGING_EAGER_BYTES_ONLY: ${TIMESTORE_STAGING_EAGER_BYTES_ONLY:-false}
   TIMESTORE_CLICKHOUSE_HOST: ${TIMESTORE_CLICKHOUSE_HOST:-clickhouse}
   TIMESTORE_CLICKHOUSE_HTTP_PORT: ${TIMESTORE_CLICKHOUSE_HTTP_PORT:-8123}
   TIMESTORE_CLICKHOUSE_NATIVE_PORT: ${TIMESTORE_CLICKHOUSE_NATIVE_PORT:-9000}
@@ -166,8 +161,8 @@ services:
       sleep 2
       rpk cluster info --brokers redpanda:9092 >/dev/null 2>&1
       for topic in apphub.core.events apphub.ingestion.telemetry apphub.workflows.events apphub.workflows.runs apphub.jobs.runs apphub.streaming.input apphub.streaming.aggregates; do
-        rpk topic create "$topic" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
-        rpk topic describe "$topic" --brokers redpanda:9092 >/dev/null 2>&1
+        rpk topic create "$$topic" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
+        rpk topic describe "$$topic" --brokers redpanda:9092 >/dev/null 2>&1
       done
     restart: "no"
 
@@ -317,7 +312,7 @@ services:
         - CMD-SHELL
         - |
           clickhouse-client --host localhost --port ${TIMESTORE_CLICKHOUSE_NATIVE_PORT:-9000} \
-            --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --query 'SELECT 1'
+            --user "$$CLICKHOUSE_USER" --password "$$CLICKHOUSE_PASSWORD" --query 'SELECT 1'
       interval: 10s
       timeout: 5s
       retries: 12
@@ -356,6 +351,21 @@ services:
         source: ${APPHUB_DATA_ROOT:-./demo-data}/minio
         target: /data
 
+  apphub-bootstrap:
+    build:
+      <<: *build-config
+      target: apphub-bootstrap-runtime
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    restart: "no"
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
   core-api:
     build:
       <<: *build-config
@@ -369,6 +379,8 @@ services:
       minio:
         condition: service_healthy
       redpanda-init:
+        condition: service_completed_successfully
+      apphub-bootstrap:
         condition: service_completed_successfully
     environment:
       <<: *shared-env
@@ -522,6 +534,8 @@ services:
         condition: service_healthy
       redpanda-init:
         condition: service_completed_successfully
+      apphub-bootstrap:
+        condition: service_completed_successfully
     environment:
       <<: *shared-env
       PORT: 4300
@@ -551,6 +565,8 @@ services:
         condition: service_completed_successfully
       clickhouse:
         condition: service_healthy
+      apphub-bootstrap:
+        condition: service_completed_successfully
     environment:
       <<: *shared-env
       PORT: 4200

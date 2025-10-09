@@ -13,11 +13,8 @@ import {
   type LifecycleAuditLogRecord,
   type PartitionWithTarget
 } from '../db/metadata';
-import { deletePartitionFile } from '../storage';
-import { enforceRetention } from './retention';
 import {
   captureLifecycleMetrics,
-  recordExportLatency,
   recordJobCompleted,
   recordJobFailed,
   recordJobSkipped,
@@ -222,23 +219,6 @@ export async function runLifecycleJob(
               bytes: result.totals.bytes
             });
           }
-          if (operation === 'parquetExport') {
-            recordExportLatency(durationMs);
-          }
-        }
-
-        if (result.partitionsToDelete) {
-          for (const partition of result.partitionsToDelete) {
-            try {
-              await deletePartitionFile(partition, partition.storageTarget, context.config);
-            } catch (err) {
-              console.warn('[timestore:lifecycle] failed to delete partition file', {
-                partitionId: partition.id,
-                shard: shardKey,
-                error: err instanceof Error ? err.message : err
-              });
-            }
-          }
         }
 
         if (result.manifest) {
@@ -328,12 +308,10 @@ async function executeOperation(
         message: 'compaction is unavailable for ClickHouse-backed datasets'
       } satisfies LifecycleOperationExecutionResult;
     case 'retention':
-      return enforceRetention(context, partitions);
-    case 'parquetExport':
       return {
         operation,
         status: 'skipped',
-        message: 'parquet exports are disabled for ClickHouse-backed datasets'
+        message: 'retention is managed directly by ClickHouse TTL policies'
       } satisfies LifecycleOperationExecutionResult;
     default:
       return {

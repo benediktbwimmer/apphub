@@ -71,14 +71,14 @@ after(async () => {
 test('timestore metadata lifecycle', async () => {
   const storageTarget = await metadata.upsertStorageTarget({
     id: `st-${randomUUID()}`,
-    name: 'local-default',
-    kind: 'local',
-    description: 'Local filesystem root',
-    config: { root: '/tmp/timestore' }
+    name: 'clickhouse-default',
+    kind: 'clickhouse',
+    description: 'Inline ClickHouse target',
+    config: {}
   });
 
-  assert.equal(storageTarget.kind, 'local');
-  assert.equal(storageTarget.name, 'local-default');
+  assert.equal(storageTarget.kind, 'clickhouse');
+  assert.equal(storageTarget.name, 'clickhouse-default');
 
   const datasetId = `ds-${randomUUID()}`;
   const dataset = await metadata.createDataset({
@@ -125,8 +125,8 @@ test('timestore metadata lifecycle', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'parquet',
-        filePath: 'datasets/observatory/2024-01-01.parquet',
+        fileFormat: 'clickhouse',
+        filePath: 'clickhouse://observatory-timeseries/records#part-1',
         partitionKey: { dataset: 'observatory', window: '2024-01-01' },
         startTime: new Date(now.getTime() - 3_600_000),
         endTime: now,
@@ -138,8 +138,8 @@ test('timestore metadata lifecycle', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'parquet',
-        filePath: 'datasets/observatory/2024-01-02.parquet',
+        fileFormat: 'clickhouse',
+        filePath: 'clickhouse://observatory-timeseries/records#part-2',
         partitionKey: { dataset: 'observatory', window: '2024-01-02' },
         startTime: now,
         endTime: new Date(now.getTime() + 3_600_000),
@@ -193,10 +193,10 @@ test('timestore metadata lifecycle', async () => {
 test('listPartitionsForQuery applies typed partition filters', async () => {
   const storageTarget = await metadata.upsertStorageTarget({
     id: `st-${randomUUID()}`,
-    name: `local-${randomUUID().slice(0, 8)}`,
-    kind: 'local',
-    description: 'Local target for filter testing',
-    config: { root: '/tmp/timestore-filters' }
+    name: `clickhouse-${randomUUID().slice(0, 8)}`,
+    kind: 'clickhouse',
+    description: 'ClickHouse target for filter testing',
+    config: {}
   });
 
   const datasetId = `ds-${randomUUID()}`;
@@ -223,8 +223,8 @@ test('listPartitionsForQuery applies typed partition filters', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'parquet',
-        filePath: `datasets/${datasetSlug}/a.parquet`,
+        fileFormat: 'clickhouse',
+        filePath: `clickhouse://${datasetSlug}/records#a`,
         partitionKey: {
           region: 'east',
           shard: 1,
@@ -239,8 +239,8 @@ test('listPartitionsForQuery applies typed partition filters', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'parquet',
-        filePath: `datasets/${datasetSlug}/b.parquet`,
+        fileFormat: 'clickhouse',
+        filePath: `clickhouse://${datasetSlug}/records#b`,
         partitionKey: {
           region: 'east',
           shard: 3,
@@ -255,8 +255,8 @@ test('listPartitionsForQuery applies typed partition filters', async () => {
       {
         id: `part-${randomUUID()}`,
         storageTargetId: storageTarget.id,
-        fileFormat: 'parquet',
-        filePath: `datasets/${datasetSlug}/c.parquet`,
+        fileFormat: 'clickhouse',
+        filePath: `clickhouse://${datasetSlug}/records#c`,
         partitionKey: {
           region: 'west',
           shard: 2,

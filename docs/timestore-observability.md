@@ -8,52 +8,53 @@ Metrics are exposed via the Fastify `/metrics` endpoint and follow the `timestor
 
 | Metric | Type | Labels | Description |
 | --- | --- | --- | --- |
-| `timestore_ingest_requests_total` | Counter | `dataset`, `mode`, `result` | API ingestion request throughput, separated by inline vs queued and success vs failure. |
+| `timestore_ingest_requests_total` | Counter | `dataset`, `mode`, `result` | API ingestion throughput split by inline vs queued and success vs failure. |
 | `timestore_ingest_duration_seconds` | Histogram | `dataset`, `mode` | Wall-clock latency for ingestion HTTP requests. |
-| `timestore_ingest_queue_jobs` | Gauge | `state` | Bull queue depth across `waiting`, `active`, `completed`, `failed`, `delayed`, `paused`. |
-| `timestore_ingest_jobs_total` | Counter | `dataset`, `result` | Actual ingestion job execution results (inline + worker). |
-| `timestore_ingest_job_duration_seconds` | Histogram | `dataset` | Ingestion processing duration (driver write + metadata). |
-| `timestore_staging_queue_depth` | Gauge | `dataset`, `metric` | Pending staging backlog counts (`metric` is `batches` or `rows`). |
-| `timestore_staging_oldest_age_seconds` | Gauge | `dataset` | Flush lag represented as the age of the oldest staged batch. |
-| `timestore_staging_disk_usage_bytes` | Gauge | `dataset`, `component` | DuckDB staging footprint split by `database`, `wal`, and `total`. |
-| `timestore_staging_flush_duration_seconds` | Histogram | `dataset`, `result` | End-to-end duration for staging flushes (success vs failure). |
-| `timestore_staging_flush_batches_total` | Counter | `dataset`, `result` | Number of batches drained per flush attempt. |
-| `timestore_staging_flush_rows_total` | Counter | `dataset`, `result` | Row volume drained per flush attempt. |
-| `timestore_staging_dropped_batches_total` | Counter | `dataset`, `reason` | Batches rejected before staging (queue full, size guardrails, etc.). |
-| `timestore_staging_retried_batches_total` | Counter | `dataset`, `reason` | Batches returned to staging after a failed flush. |
-| `timestore_query_requests_total` | Counter | `dataset`, `mode`, `result` | Query throughput and failure counts. |
-| `timestore_query_duration_seconds` | Histogram | `dataset`, `mode` | End-to-end query execution time. |
-| `timestore_query_row_count` | Histogram | `dataset`, `mode` | Result row volume for sizing dashboards. |
-| `timestore_query_remote_partitions_total` | Counter | `dataset`, `cache_enabled` | Remote partition fetches, useful for cache hit/miss ratios (compare with total queries). |
-| `timestore_streaming_records_total` | Counter | `dataset`, `connector` | Streaming records processed by the micro-batcher/hot buffer loop. |
+| `timestore_ingest_queue_jobs` | Gauge | `state` | Ingestion queue depth across Bull states (`waiting`, `active`, etc.). |
+| `timestore_ingest_jobs_total` | Counter | `dataset`, `result` | Ingestion job execution outcomes across API + worker pipelines. |
+| `timestore_ingest_job_duration_seconds` | Histogram | `dataset` | Ingestion processing time (ClickHouse write + metadata updates). |
+| `timestore_clickhouse_disk_bytes` | Gauge | `disk`, `metric` | Disk usage reported by ClickHouse (total/free bytes per volume). |
+| `timestore_clickhouse_s3_events_total` | Gauge | `event` | ClickHouse `system.events` counters for S3/cache operations. |
+| `timestore_query_requests_total` | Counter | `dataset`, `backend`, `mode`, `result` | Query throughput and backend error rates. |
+| `timestore_query_duration_seconds` | Histogram | `dataset`, `backend`, `mode` | End-to-end query execution time. |
+| `timestore_query_row_count` | Histogram | `dataset`, `backend`, `mode` | Result row volume for dashboard sizing. |
+| `timestore_query_partitions_total` | Counter | `dataset`, `decision` | Partition pruning and selection decisions made by the planner. |
+| `timestore_query_remote_partitions_total` | Counter | `dataset`, `backend`, `cache_enabled` | Remote partition fetches vs cache hits. |
+| `timestore_unified_row_source_rows_total` | Counter | `dataset`, `source`, `reason` | Published vs hot-buffer row contributions. |
+| `timestore_unified_row_source_warnings_total` | Counter | `dataset`, `source` | Warnings emitted while merging row sources. |
+| `timestore_manifest_cache_hits_total` | Counter | `source` | Manifest cache hit counts by backend (`memory`, `redis`). |
+| `timestore_manifest_cache_misses_total` | Counter | `reason` | Manifest cache miss reasons (`disabled`, `index`, `entry`, `stale`, `error`). |
+| `timestore_manifest_cache_evictions_total` | Counter | `reason` | Manifest cache invalidations grouped by trigger. |
+| `timestore_streaming_records_total` | Counter | `dataset`, `connector` | Streaming records processed by micro-batchers and hot buffers. |
 | `timestore_streaming_flush_duration_seconds` | Histogram | `dataset`, `connector`, `reason` | Latency for streaming window flushes (max-rows, timer, shutdown). |
 | `timestore_streaming_flush_rows` | Histogram | `dataset`, `connector` | Row volume emitted per streaming flush. |
-| `timestore_streaming_backlog_seconds` | Gauge | `dataset`, `connector` | Lag between the sealed partition watermark and the newest buffered streaming event. |
-| `timestore_streaming_open_windows` | Gauge | `dataset`, `connector` | Number of streaming windows still held in the in-memory hot buffer. |
-| `timestore_streaming_batcher_buffers` | Gauge | `dataset`, `connector` | Active window buffers managed by each streaming micro-batcher. |
+| `timestore_streaming_backlog_seconds` | Gauge | `dataset`, `connector` | Lag between the sealed watermark and newest buffered streaming event. |
+| `timestore_streaming_open_windows` | Gauge | `dataset`, `connector` | In-memory streaming windows pending flush. |
+| `timestore_streaming_batcher_buffers` | Gauge | `dataset`, `connector` | Active buffers managed by each streaming micro-batcher. |
 | `timestore_streaming_batcher_state` | Gauge | `dataset`, `connector`, `state` | Connector state matrix (1 when a connector is in the labelled state). |
 | `timestore_streaming_hot_buffer_rows` | Gauge | `dataset` | Rows currently retained in the streaming hot buffer. |
-| `timestore_streaming_hot_buffer_watermark` | Gauge | `dataset` | Latest sealed watermark propagated into the hot buffer (epoch seconds). |
+| `timestore_streaming_hot_buffer_watermark` | Gauge | `dataset` | Latest sealed watermark inside the hot buffer (epoch seconds). |
 | `timestore_streaming_hot_buffer_latest_timestamp` | Gauge | `dataset` | Newest streaming event timestamp seen by the hot buffer (epoch seconds). |
 | `timestore_streaming_hot_buffer_staleness_seconds` | Gauge | `dataset` | Age of the freshest streaming event, used to detect stale buffers. |
+| `timestore_streaming_hot_buffer_state` | Gauge | `dataset`, `state` | Hot buffer readiness indicators (`ready`, `disabled`, `unavailable`). |
+| `timestore_sql_runtime_cache_events_total` | Counter | `resource`, `event` | SQL runtime cache activity (hit/miss/refresh/invalidate). |
+| `timestore_sql_runtime_dataset_refresh_total` | Counter | `dataset`, `reason`, `result` | SQL runtime dataset refresh outcomes. |
+| `timestore_sql_runtime_cache_staleness_seconds` | Gauge | `resource` | Cache staleness for SQL runtime metadata. |
+| `timestore_schema_migration_runs_total` | Counter | `dataset`, `result` | Schema migration execution outcomes. |
+| `timestore_schema_migration_duration_seconds` | Histogram | `dataset` | Schema migration wall-clock time. |
+| `timestore_schema_migration_partitions` | Histogram | `dataset` | Partition counts evaluated during migrations. |
 | `timestore_lifecycle_jobs_total` | Counter | `dataset`, `status` | Lifecycle job execution outcomes. |
 | `timestore_lifecycle_job_duration_seconds` | Histogram | `status` | Lifecycle execution latency. |
-| `timestore_lifecycle_operations_total` | Counter | `operation`, `status` | Compaction, retention, and parquet export summaries. |
+| `timestore_lifecycle_operations_total` | Counter | `operation`, `status` | Compaction and retention summaries (exports now delegated to ClickHouse). |
 | `timestore_lifecycle_queue_jobs` | Gauge | `state` | Lifecycle queue depth by status. |
 | `timestore_http_requests_total` | Counter | `method`, `route`, `status` | HTTP observability for dashboards. |
 | `timestore_http_request_duration_seconds` | Histogram | `method`, `route` | HTTP latency SLI. |
-
-The staging pipeline metrics make backlog and flush health visible: use `timestore_staging_queue_depth` to watch pending batches/rows, `timestore_staging_oldest_age_seconds` for flush lag, `timestore_staging_disk_usage_bytes` for DuckDB footprint, and the flush/dropped/retried counters to pinpoint loss or retries. Add these widgets to the existing ingestion dashboard so operators see saturation before it impacts writers.
 
 ### Suggested Alerts
 
 - **Ingestion availability**: alert when `rate(timestore_ingest_requests_total{result="failure"}[5m]) / rate(timestore_ingest_requests_total[5m]) > 0.05` for 10 minutes.
 - **Ingestion latency**: track `histogram_quantile(0.95, rate(timestore_ingest_duration_seconds_bucket{mode="inline"}[5m]))` and page when above 5 seconds.
 - **Queue backlog**: warn if `timestore_ingest_queue_jobs{state="waiting"}` or `timestore_lifecycle_queue_jobs{state="waiting"}` exceeds 100 for more than 5 minutes.
-- **Staging backlog**: warn if `timestore_staging_queue_depth{metric="batches"}` exceeds 20 for 5 minutes (page above 50) — indicates the DuckDB spool is falling behind.
-- **Staging flush lag**: alert when `max_over_time(timestore_staging_oldest_age_seconds[10m]) > 120` while batches remain queued.
-- **Staging disk usage**: track `timestore_staging_disk_usage_bytes{component="total"} / TIMESTORE_STAGING_MAX_DATASET_BYTES` and warn when the ratio crosses 0.75; page at 0.9.
-- **Staging drop spikes**: investigate when `increase(timestore_staging_dropped_batches_total[15m]) > 0` (queue capacity pressure) or `timestore_staging_retried_batches_total` grows in the same window (flush retries).
 - **Query latency**: alert on `histogram_quantile(0.95, rate(timestore_query_duration_seconds_bucket[5m])) > 2` seconds.
 - **Lifecycle failures**: page when `increase(timestore_lifecycle_jobs_total{status="failed"}[30m]) >= 1`.
 - **Remote partition spikes**: track ratio `rate(timestore_query_remote_partitions_total[5m]) / rate(timestore_query_requests_total[5m])` to catch cache regressions.

@@ -27,7 +27,7 @@ type CreateFormFields = {
   slug: string;
   name: string;
   description: string;
-  writeFormat: 'parquet';
+  writeFormat: 'clickhouse';
   status: DatasetStatus;
   defaultStorageTargetId: string;
   readScopes: string;
@@ -42,7 +42,7 @@ const DEFAULT_FIELDS: CreateFormFields = {
   slug: '',
   name: '',
   description: '',
-  writeFormat: 'parquet',
+  writeFormat: 'clickhouse',
   status: 'active',
   defaultStorageTargetId: '',
   readScopes: '',
@@ -238,10 +238,10 @@ export function DatasetCreateDialog({ open, onClose, onCreate, busy = false }: D
             <select
               value={fields.writeFormat}
               onChange={handleChange('writeFormat')}
-              disabled={isBusy}
+              disabled
               className={INPUT}
             >
-              <option value="parquet">Parquet</option>
+              <option value="clickhouse">ClickHouse</option>
             </select>
           </label>
 

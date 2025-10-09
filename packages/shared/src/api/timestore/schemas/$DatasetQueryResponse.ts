@@ -83,16 +83,6 @@ export const $DatasetQueryResponse = {
           },
           isRequired: true,
         },
-        staging: {
-          properties: {
-            rows: {
-              type: 'number',
-              description: `Number of rows returned from staging batches pending flush.`,
-              isRequired: true,
-            },
-          },
-          isRequired: true,
-        },
         hotBuffer: {
           properties: {
             rows: {

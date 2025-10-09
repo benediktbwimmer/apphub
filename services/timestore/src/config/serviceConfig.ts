@@ -6,6 +6,8 @@ type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
 export type QueryExecutionBackendKind = 'clickhouse';
 
+type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob';
+
 export interface QueryExecutionBackendConfig {
   name: string;
   kind: QueryExecutionBackendKind;
@@ -386,21 +388,6 @@ const auditLogSchema = z.object({
   deleteBatchSize: z.number().int().positive()
 });
 
-const stagingFlushSchema = z.object({
-  maxRows: z.number().int().nonnegative(),
-  maxBytes: z.number().int().nonnegative(),
-  maxAgeMs: z.number().int().nonnegative(),
-  eagerWhenBytesOnly: z.boolean().default(false)
-});
-
-const stagingSchema = z.object({
-  directory: z.string().min(1),
-  maxDatasetBytes: z.number().int().nonnegative(),
-  maxTotalBytes: z.number().int().nonnegative(),
-  maxPendingPerDataset: z.number().int().positive(),
-  flush: stagingFlushSchema
-});
-
 const gcsSchema = z.object({
   bucket: z.string().min(1),
   projectId: z.string().min(1).optional(),
@@ -427,8 +414,7 @@ const clickhouseSchema = z.object({
   username: z.string().min(1),
   password: z.string(),
   database: z.string().min(1),
-  secure: z.boolean(),
-  ttlDays: z.number().int().positive()
+  secure: z.boolean()
 });
 
 const configSchema = z.object({
@@ -496,7 +482,6 @@ const configSchema = z.object({
     tracing: tracingSchema
   }),
   filestore: filestoreSchema,
-  staging: stagingSchema,
   auditLog: auditLogSchema,
   features: z.object({
     streaming: z.object({
@@ -554,39 +539,6 @@ function resolveCacheDirectory(envValue: string | undefined): string {
     return envValue;
   }
   return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'cache');
-}
-
-function resolveStagingDirectory(envValue: string | undefined): string {
-  const trimmed = typeof envValue === 'string' ? envValue.trim() : '';
-  const scratchRoot = (process.env.APPHUB_SCRATCH_ROOT ?? '').trim();
-
-  if (trimmed) {
-    if (scratchRoot && pointsToLegacyStagingPath(trimmed)) {
-      const rewritten = path.join(scratchRoot, 'timestore', 'staging');
-      console.warn(
-        '[timestore] overriding legacy staging directory with APPHUB_SCRATCH_ROOT path',
-        { from: trimmed, to: rewritten }
-      );
-      return rewritten;
-    }
-    return trimmed;
-  }
-
-  if (scratchRoot) {
-    return path.join(scratchRoot, 'timestore', 'staging');
-  }
-
-  return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'staging');
-}
-
-function pointsToLegacyStagingPath(candidate: string): boolean {
-  const normalizedCandidate = path.resolve(candidate).replace(/\\/g, '/');
-  const legacyFallback = path
-    .resolve(process.cwd(), 'services', 'data', 'timestore', 'staging')
-    .replace(/\\/g, '/');
-  return (
-    normalizedCandidate === legacyFallback || normalizedCandidate === '/app/services/data/timestore/staging'
-  );
 }
 
 function parseList(value: string | undefined): string[] {
@@ -1031,26 +983,6 @@ export function loadServiceConfig(): ServiceConfig {
   );
   const storageDriver = (env.TIMESTORE_STORAGE_DRIVER || 'local') as StorageDriver;
   const storageRoot = resolveStorageRoot(env.TIMESTORE_STORAGE_ROOT);
-  const stagingDirectory = resolveStagingDirectory(env.TIMESTORE_STAGING_DIRECTORY);
-  const stagingMaxDatasetBytesRaw = parseNumber(env.TIMESTORE_STAGING_MAX_DATASET_BYTES, 512 * 1024 * 1024);
-  const stagingMaxTotalBytesRaw = parseNumber(env.TIMESTORE_STAGING_MAX_TOTAL_BYTES, 0);
-  const stagingMaxDatasetBytes = stagingMaxDatasetBytesRaw > 0 ? stagingMaxDatasetBytesRaw : 0;
-  const stagingMaxTotalBytes = stagingMaxTotalBytesRaw > 0 ? stagingMaxTotalBytesRaw : 0;
-  const stagingMaxPendingRaw = parseNumber(env.TIMESTORE_STAGING_MAX_PENDING, 64);
-  const stagingMaxPendingPerDataset = stagingMaxPendingRaw > 0 ? stagingMaxPendingRaw : 64;
-  const stagingFlushMaxRowsRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_ROWS, 0);
-  const stagingFlushMaxRows = stagingFlushMaxRowsRaw >= 0 ? stagingFlushMaxRowsRaw : 0;
-  const stagingFlushMaxBytesRaw = parseNumber(
-    env.TIMESTORE_STAGING_FLUSH_MAX_BYTES,
-    1_073_741_824
-  );
-  const stagingFlushMaxBytes = stagingFlushMaxBytesRaw >= 0 ? stagingFlushMaxBytesRaw : 0;
-  const stagingFlushMaxAgeRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS, 0);
-  const stagingFlushMaxAgeMs = stagingFlushMaxAgeRaw >= 0 ? stagingFlushMaxAgeRaw : 0;
-  const stagingFlushEagerWhenBytesOnly = parseBoolean(
-    env.TIMESTORE_STAGING_EAGER_BYTES_ONLY,
-    false
-  );
   const s3Bucket = env.TIMESTORE_S3_BUCKET;
   const s3Endpoint = env.TIMESTORE_S3_ENDPOINT;
   const s3Region = env.TIMESTORE_S3_REGION;
@@ -1078,8 +1010,6 @@ export function loadServiceConfig(): ServiceConfig {
   const clickhousePassword = env.TIMESTORE_CLICKHOUSE_PASSWORD || 'apphub';
   const clickhouseDatabase = env.TIMESTORE_CLICKHOUSE_DATABASE || 'apphub';
   const clickhouseSecure = parseBoolean(env.TIMESTORE_CLICKHOUSE_SECURE, false);
-  const clickhouseTtlDaysRaw = parseNumber(env.TIMESTORE_CLICKHOUSE_TTL_DAYS, 7);
-  const clickhouseTtlDays = clickhouseTtlDaysRaw > 0 ? clickhouseTtlDaysRaw : 7;
   const queryCacheEnabled = parseBoolean(env.TIMESTORE_QUERY_CACHE_ENABLED, true);
   const queryCacheDirectory = resolveCacheDirectory(env.TIMESTORE_QUERY_CACHE_DIR);
   const queryCacheMaxBytes = parseNumber(env.TIMESTORE_QUERY_CACHE_MAX_BYTES, 5 * 1024 * 1024 * 1024);
@@ -1374,18 +1304,6 @@ export function loadServiceConfig(): ServiceConfig {
       retryDelayMs: filestoreRetryMs > 0 ? filestoreRetryMs : 3_000,
       inline: filestoreInline
     },
-    staging: {
-      directory: stagingDirectory,
-      maxDatasetBytes: stagingMaxDatasetBytes,
-      maxTotalBytes: stagingMaxTotalBytes,
-      maxPendingPerDataset: stagingMaxPendingPerDataset,
-      flush: {
-        maxRows: stagingFlushMaxRows,
-        maxBytes: stagingFlushMaxBytes,
-        maxAgeMs: stagingFlushMaxAgeMs,
-        eagerWhenBytesOnly: stagingFlushEagerWhenBytesOnly
-      }
-    },
     features: {
       streaming: {
         enabled: streamingFeatureEnabled
@@ -1398,8 +1316,7 @@ export function loadServiceConfig(): ServiceConfig {
       username: clickhouseUsername,
       password: clickhousePassword,
       database: clickhouseDatabase,
-      secure: clickhouseSecure,
-      ttlDays: clickhouseTtlDays
+      secure: clickhouseSecure
     }
   } satisfies ServiceConfig;
 

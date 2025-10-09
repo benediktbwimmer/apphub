@@ -61,9 +61,6 @@ import {
   getSqlRuntimeCacheSnapshot,
   type SqlRuntimeInvalidationOptions
 } from '../sql/runtime';
-import { getStagingWriteManager } from '../ingestion/stagingManager';
-import { deriveManifestShardKey } from '../service/manifestShard';
-import type { PendingStagingBatch } from '../storage/spoolManager';
 
 const runRequestSchema = z.object({
   datasetId: z.string().optional(),
@@ -132,7 +129,7 @@ const datasetAuditQuerySchema = z.object({
 const retentionUpdateSchema = retentionPolicySchema;
 
 const storageTargetQuerySchema = z.object({
-  kind: z.enum(['local', 's3', 'gcs', 'azure_blob']).optional()
+  kind: z.literal('clickhouse').optional()
 });
 
 const storageTargetUpdateSchema = z.object({
@@ -782,19 +779,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
     if (shard) {
       const manifest = await getLatestPublishedManifest(dataset.id, { shard });
-      const staging = await describePendingStaging(dataset, config, { shard });
 
       if (!manifest) {
-        if (staging.batches.length === 0) {
-          reply.status(404);
-          return {
-            error: `no published manifest for shard ${shard}`
-          };
-        }
+        reply.status(404);
         return {
-          datasetId: dataset.id,
-          manifest: null,
-          staging
+          error: `manifest shard '${shard}' not found`
         };
       }
 
@@ -815,13 +804,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
       return {
         datasetId: dataset.id,
-        manifest: manifestWithSchema,
-        staging
+        manifest: manifestWithSchema
       };
     }
 
     const manifests = await listPublishedManifestsWithPartitions(dataset.id);
-    const staging = await describePendingStaging(dataset, config);
 
     const manifestsWithSchema = await Promise.all(
       manifests.map(async (entry) => {
@@ -841,7 +828,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       })
     );
 
-    if (manifestsWithSchema.length === 0 && staging.batches.length === 0) {
+    if (manifestsWithSchema.length === 0) {
       reply.status(404);
       return {
         error: 'no published manifests'
@@ -850,8 +837,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       datasetId: dataset.id,
-      manifests: manifestsWithSchema,
-      staging
+      manifests: manifestsWithSchema
     };
   });
 
@@ -1099,23 +1085,6 @@ interface SchemaField {
   type: string;
 }
 
-interface StagingBatchSummary {
-  batchId: string;
-  tableName: string;
-  rowCount: number;
-  timeRange: {
-    start: string;
-    end: string;
-  };
-  stagedAt: string;
-  schema: Array<{ name: string; type: string }>;
-}
-
-interface StagingSummary {
-  totalRows: number;
-  batches: StagingBatchSummary[];
-}
-
 function extractSchemaFields(schema: unknown): SchemaField[] {
   if (!schema || typeof schema !== 'object') {
     return [];
@@ -1139,34 +1108,6 @@ function extractSchemaFields(schema: unknown): SchemaField[] {
     fields.push({ name: name.trim(), type: type.trim() });
   }
   return fields;
-}
-
-async function describePendingStaging(
-  dataset: DatasetRecord,
-  config: ReturnType<typeof loadServiceConfig>,
-  options: { shard?: string } = {}
-): Promise<StagingSummary> {
-  try {
-    const manager = getStagingWriteManager(config);
-    const batches = await manager.getSpoolManager().listPendingBatches(dataset.slug);
-    const filtered = options.shard
-      ? batches.filter((batch) => deriveManifestShardKey(new Date(batch.timeRange.start)) === options.shard)
-      : batches;
-
-    const mapped: StagingBatchSummary[] = filtered.map((batch) => ({
-      batchId: batch.batchId,
-      tableName: batch.tableName,
-      rowCount: batch.rowCount,
-      timeRange: batch.timeRange,
-      stagedAt: batch.stagedAt,
-      schema: batch.schema.map((field) => ({ name: field.name, type: field.type }))
-    }));
-
-    const totalRows = mapped.reduce((sum, entry) => sum + entry.rowCount, 0);
-    return { totalRows, batches: mapped } satisfies StagingSummary;
-  } catch (error) {
-    return { totalRows: 0, batches: [] } satisfies StagingSummary;
-  }
 }
 
 function isLifecycleOperation(value: string): value is LifecycleOperation {

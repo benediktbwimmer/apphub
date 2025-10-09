@@ -2,7 +2,7 @@
   <storage_configuration>
     <disks>
       <local_nvme>
-        <path>/var/lib/clickhouse/</path>
+        <path>/var/lib/clickhouse/disks/local_nvme/</path>
       </local_nvme>
       <s3_demo>
         <type>s3</type>

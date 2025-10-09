@@ -18,7 +18,7 @@ import {
   upsertSavedSqlQuery,
   type SqlQueryRequest
 } from '../api';
-import type { SqlQueryResult, SqlSchemaResponse, SqlSchemaTable, TimestoreAiSqlSuggestion } from '../types';
+import type { SqlEditorMode, SqlQueryResult, SqlSchemaResponse, SqlSchemaTable, TimestoreAiSqlSuggestion } from '../types';
 import {
   addHistoryEntry,
   clearUnpinnedHistory,
@@ -31,6 +31,7 @@ import {
 } from './sqlHistory';
 import type { SqlHistoryEntry } from './sqlHistory';
 import { SQL_KEYWORDS } from './sqlKeywords';
+import { getSqlFunctionCatalog } from './sqlFunctionCatalog';
 import { TimestoreAiQueryDialog } from './TimestoreAiQueryDialog';
 import { ROUTE_PATHS } from '../../routes/paths';
 import {
@@ -61,7 +62,12 @@ import {
 
 const DEFAULT_QUERY = 'SELECT\n  dataset_slug,\n  count(*) AS record_count\nFROM\n  timestore_runtime.datasets\nGROUP BY\n  1\nORDER BY\n  record_count DESC\nLIMIT 100;';
 
-const COMPLETION_TRIGGER_CHARACTERS = [' ', '.', '\n'];
+const COMPLETION_TRIGGER_CHARACTERS = [' ', '.', '\n', '('];
+
+const SQL_EDITOR_MODE_SEGMENTS: Array<{ value: SqlEditorMode; label: string; description: string }> = [
+  { value: 'timestore', label: 'Timestore', description: 'Manifest-aware planner with downsampling support.' },
+  { value: 'clickhouse', label: 'ClickHouse', description: 'Execute statements directly against the ClickHouse backend.' }
+];
 
 const PANEL_ELEVATED = `${PANEL_SURFACE_LARGE} ${PANEL_SHADOW_ELEVATED}`;
 const SEGMENTED_BUTTON = (active: boolean) =>
@@ -92,7 +98,11 @@ function quoteQualifiedName(name: string): string {
     .join('.');
 }
 
-function buildCompletionItems(monaco: Monaco, tables: SqlSchemaTable[]): CompletionSuggestion[] {
+function buildCompletionItems(
+  monaco: Monaco,
+  tables: SqlSchemaTable[],
+  functions: ReturnType<typeof getSqlFunctionCatalog>
+): CompletionSuggestion[] {
   const keywordItems: CompletionSuggestion[] = SQL_KEYWORDS.map((keyword, index) => ({
     label: keyword,
     kind: monaco.languages.CompletionItemKind.Keyword,
@@ -129,7 +139,44 @@ function buildCompletionItems(monaco: Monaco, tables: SqlSchemaTable[]): Complet
     });
   });
 
-  return [...keywordItems, ...tableItems, ...columnItems];
+  const functionItems: CompletionSuggestion[] = functions.map((fn, fnIndex) => ({
+    label: fn.name,
+    kind: monaco.languages.CompletionItemKind.Function,
+    insertText: fn.snippet ?? `${fn.name}($0)`,
+    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+    sortText: `3_${fnIndex.toString().padStart(3, '0')}`,
+    detail: fn.signature,
+    documentation: fn.description
+  }));
+
+  return [...keywordItems, ...tableItems, ...columnItems, ...functionItems];
+}
+
+function computeFuzzyScore(query: string, candidate: string): number | null {
+  if (!query) {
+    return 0;
+  }
+  let score = 0;
+  let cursor = 0;
+  for (let index = 0; index < query.length; index += 1) {
+    const char = query[index];
+    const position = candidate.indexOf(char, cursor);
+    if (position === -1) {
+      return null;
+    }
+    if (position === cursor) {
+      score += 8;
+    }
+    score += Math.max(0, 6 - (position - cursor));
+    cursor = position + 1;
+  }
+  if (candidate.startsWith(query)) {
+    score += 40;
+  }
+  if (candidate === query) {
+    score += 60;
+  }
+  return score;
 }
 
 function formatCellValue(value: unknown): string {
@@ -155,6 +202,22 @@ function formatCellValue(value: unknown): string {
   }
 }
 
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value)) {
+    return `${value}`;
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const sign = value < 0 ? -1 : 1;
+  let magnitude = Math.abs(value);
+  let index = 0;
+  while (magnitude >= 1024 && index < units.length - 1) {
+    magnitude /= 1024;
+    index += 1;
+  }
+  const formatted = magnitude >= 10 ? magnitude.toFixed(0) : magnitude.toFixed(1);
+  return `${sign < 0 ? '-' : ''}${formatted} ${units[index]}`;
+}
+
 function useBrowserStorage(): Storage | null {
   if (typeof window === 'undefined') {
     return null;
@@ -169,9 +232,12 @@ function useBrowserStorage(): Storage | null {
 export default function TimestoreSqlEditorPage() {
   const authorizedFetch = useAuthorizedFetch();
   const { showError, showSuccess, showWarning, showInfo } = useToastHelpers();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const storage = useBrowserStorage();
 
+  const [editorMode, setEditorMode] = useState<SqlEditorMode>(() =>
+    searchParams.get('mode') === 'clickhouse' ? 'clickhouse' : 'timestore'
+  );
   const [statement, setStatement] = useState<string>(DEFAULT_QUERY);
   const [maxRowsInput, setMaxRowsInput] = useState<string>('500');
   const [result, setResult] = useState<SqlQueryResult | null>(null);
@@ -322,6 +388,7 @@ export default function TimestoreSqlEditorPage() {
   }, [authorizedFetch, history, searchParams, showError, showInfo, setHistory]);
 
   const schemaTables = useMemo(() => schemaData?.tables ?? [], [schemaData]);
+  const functionCatalog = useMemo(() => getSqlFunctionCatalog(editorMode), [editorMode]);
   const canUseAi = schemaTables.length > 0 && !schemaLoading;
 
   useEffect(() => {
@@ -353,13 +420,15 @@ export default function TimestoreSqlEditorPage() {
       return schemaTables;
     }
     return schemaTables.filter((table) => {
-      const haystack = `${table.name} ${table.columns.map((column) => column.name).join(' ')}`.toLowerCase();
-      return haystack.includes(query);
+      if (computeFuzzyScore(query, table.name.toLowerCase()) !== null) {
+        return true;
+      }
+      return table.columns.some((column) => computeFuzzyScore(query, column.name.toLowerCase()) !== null);
     });
   }, [schemaFilter, schemaTables]);
 
   const hasResults = useMemo(() => (result ? result.rows.length > 0 : false), [result]);
-  const canExport = hasResults && !isExecuting && !isExporting;
+  const canExport = hasResults && !isExecuting && !isExporting && (result?.engine ?? editorMode) !== 'clickhouse';
 
   const updateCompletionProvider = useCallback(() => {
     if (!monacoRef.current) {
@@ -367,7 +436,7 @@ export default function TimestoreSqlEditorPage() {
     }
     completionProviderRef.current?.dispose();
     const monaco = monacoRef.current;
-    const suggestions = buildCompletionItems(monaco, schemaTables);
+    const suggestions = buildCompletionItems(monaco, schemaTables, functionCatalog);
 
     completionProviderRef.current = monaco.languages.registerCompletionItemProvider('sql', {
       triggerCharacters: COMPLETION_TRIGGER_CHARACTERS,
@@ -379,14 +448,31 @@ export default function TimestoreSqlEditorPage() {
           position.lineNumber,
           word.endColumn
         );
-        const prefix = word.word?.toLowerCase() ?? '';
-        const matching = suggestions.filter((item) => {
-          if (!prefix) {
-            return true;
+        const prefix = word.word?.trim().toLowerCase() ?? '';
+        let activeSuggestions = suggestions;
+        if (prefix) {
+          const matches = suggestions
+            .map((item) => {
+              const label = getSuggestionLabel(item).toLowerCase();
+              const score = computeFuzzyScore(prefix, label);
+              if (score === null) {
+                return null;
+              }
+              return { item, score };
+            })
+            .filter((entry): entry is { item: CompletionSuggestion; score: number } => entry !== null)
+            .sort((a, b) => {
+              if (b.score !== a.score) {
+                return b.score - a.score;
+              }
+              const aLabel = getSuggestionLabel(a.item).toLowerCase();
+              const bLabel = getSuggestionLabel(b.item).toLowerCase();
+              return aLabel.localeCompare(bLabel);
+            });
+          if (matches.length > 0) {
+            activeSuggestions = matches.map((entry) => entry.item);
           }
-          return getSuggestionLabel(item).toLowerCase().startsWith(prefix);
-        });
-        const activeSuggestions = matching.length > 0 ? matching : suggestions;
+        }
         return {
           suggestions: activeSuggestions.map((item) => ({
             ...item,
@@ -395,7 +481,7 @@ export default function TimestoreSqlEditorPage() {
         } satisfies languages.CompletionList;
       }
     });
-  }, [schemaTables]);
+  }, [functionCatalog, schemaTables]);
 
   useEffect(() => {
     updateCompletionProvider();
@@ -433,7 +519,8 @@ export default function TimestoreSqlEditorPage() {
 
     const request: SqlQueryRequest = {
       statement: trimmed,
-      maxRows
+      maxRows,
+      mode: editorMode
     };
 
     setIsExecuting(true);
@@ -445,7 +532,20 @@ export default function TimestoreSqlEditorPage() {
       setResultMode((current) => (current === 'chart' ? current : 'table'));
       const rowCount = response.statistics?.rowCount ?? response.rows.length;
       const elapsedMs = response.statistics?.elapsedMs;
-      showSuccess('SQL query executed', `${rowCount} rows returned${elapsedMs ? ` in ${elapsedMs}ms` : ''}.`);
+      const engineLabel = response.engine === 'clickhouse' ? 'ClickHouse' : 'Timestore';
+      const executionMode = response.mode ?? 'query';
+      if (executionMode === 'command') {
+        const commandLabel = response.command ?? 'Statement';
+        showSuccess(
+          `${engineLabel} command executed`,
+          `${commandLabel}${elapsedMs ? ` completed in ${elapsedMs}ms.` : ' completed.'}`
+        );
+      } else {
+        showSuccess(
+          `${engineLabel} query executed`,
+          `${rowCount} rows returned${elapsedMs ? ` in ${elapsedMs}ms` : ''}.`
+        );
+      }
       setHistory((prev) =>
         addHistoryEntry(
           prev,
@@ -465,7 +565,7 @@ export default function TimestoreSqlEditorPage() {
     } finally {
       setIsExecuting(false);
     }
-  }, [authorizedFetch, maxRowsInput, showError, showSuccess, statement]);
+  }, [authorizedFetch, editorMode, maxRowsInput, showError, showSuccess, statement]);
 
   runQueryRef.current = runQuery;
 
@@ -596,13 +696,18 @@ export default function TimestoreSqlEditorPage() {
 
   const handleExportResults = useCallback(
     async (format: 'csv' | 'table', action: 'download' | 'open' = 'download') => {
-      if (!lastRequestRef.current) {
+      const lastRequest = lastRequestRef.current;
+      if (!lastRequest) {
         showWarning('No query to export', 'Run a query before exporting results.');
+        return;
+      }
+      if ((lastRequest.mode ?? editorMode) === 'clickhouse') {
+        showWarning('Export unavailable', 'Download is not supported when running against ClickHouse directly.');
         return;
       }
       setIsExporting(true);
       try {
-        const exported = await exportSqlQuery(authorizedFetch, lastRequestRef.current, format);
+        const exported = await exportSqlQuery(authorizedFetch, lastRequest, format);
         const extension = format === 'csv' ? 'csv' : 'txt';
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const filename = `timestore-query-${timestamp}.${extension}`;
@@ -639,7 +744,24 @@ export default function TimestoreSqlEditorPage() {
         setIsExporting(false);
       }
     },
-    [authorizedFetch, copyToClipboard, showError, showSuccess, showWarning]
+    [authorizedFetch, copyToClipboard, editorMode, showError, showSuccess, showWarning]
+  );
+
+  const handleModeChange = useCallback(
+    (nextMode: SqlEditorMode) => {
+      if (nextMode === editorMode) {
+        return;
+      }
+      setEditorMode(nextMode);
+      const nextParams = new URLSearchParams(searchParams);
+      if (nextMode === 'timestore') {
+        nextParams.delete('mode');
+      } else {
+        nextParams.set('mode', nextMode);
+      }
+      setSearchParams(nextParams, { replace: true });
+    },
+    [editorMode, searchParams, setSearchParams]
   );
 
   const handleShareHistoryEntry = useCallback(
@@ -651,6 +773,9 @@ export default function TimestoreSqlEditorPage() {
       const origin = typeof window !== 'undefined' ? window.location.origin : 'https://apphub.local';
       const shareUrl = new URL(ROUTE_PATHS.servicesTimestoreSql, origin);
       shareUrl.searchParams.set('queryId', entry.id);
+      if (editorMode === 'clickhouse') {
+        shareUrl.searchParams.set('mode', 'clickhouse');
+      }
       try {
         await copyToClipboard(shareUrl.toString());
         showSuccess('Share link copied', entry.label ?? 'Send this link to load the query.');
@@ -658,7 +783,7 @@ export default function TimestoreSqlEditorPage() {
         showError('Unable to copy share link', error);
       }
     },
-    [copyToClipboard, showError, showSuccess, showWarning]
+    [copyToClipboard, editorMode, showError, showSuccess, showWarning]
   );
 
   const handleDeleteHistoryEntry = useCallback(
@@ -823,6 +948,44 @@ export default function TimestoreSqlEditorPage() {
 
   const effectiveResultMode = canChart ? resultMode : resultMode === 'chart' ? 'table' : resultMode;
 
+  const resultMetaParts = useMemo(() => {
+    if (!result) {
+      return [] as string[];
+    }
+    const parts: string[] = [];
+    const rowCount = result.statistics?.rowCount ?? result.rows.length;
+    parts.push(`${rowCount} rows`);
+
+    const elapsed = result.statistics?.elapsedMs;
+    if (elapsed !== undefined) {
+      parts.push(`${elapsed} ms`);
+    } else {
+      parts.push('runtime unknown');
+    }
+
+    if (result.engine) {
+      parts.push(result.engine === 'clickhouse' ? 'ClickHouse' : 'Timestore');
+    }
+    if (result.command) {
+      parts.push(result.command);
+    }
+
+    const rawStats = result.statistics?.raw;
+    if (rawStats?.rowsRead !== undefined && rawStats.rowsRead !== null) {
+      parts.push(`rows read ${rawStats.rowsRead}`);
+    }
+    if (rawStats?.bytesRead !== undefined && rawStats.bytesRead !== null) {
+      parts.push(`bytes read ${formatBytes(rawStats.bytesRead)}`);
+    }
+    if (rawStats?.appliedLimit !== undefined && rawStats.appliedLimit !== null) {
+      parts.push(`limit ${rawStats.appliedLimit}`);
+    }
+
+    return parts;
+  }, [result]);
+
+  const isClickHouseMode = editorMode === 'clickhouse';
+
   return (
     <>
       <section className="flex flex-col gap-6">
@@ -831,7 +994,11 @@ export default function TimestoreSqlEditorPage() {
             <h2 className="text-scale-lg font-weight-semibold text-primary">SQL Editor</h2>
             <p className={STATUS_MESSAGE}>
               Explore Timestore datasets with ad-hoc SQL. Use{' '}
-              <kbd className={KBD_BADGE}>⌘/Ctrl + Enter</kbd> to run the current statement.
+              <kbd className={KBD_BADGE}>⌘/Ctrl + Enter</kbd> to run the current statement. Currently in{' '}
+              <span className="font-weight-semibold text-primary">
+                {isClickHouseMode ? 'ClickHouse' : 'Timestore'} mode
+              </span>
+              .
             </p>
           </div>
         </header>
@@ -839,57 +1006,77 @@ export default function TimestoreSqlEditorPage() {
         <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr),minmax(0,1fr)]">
           <div className="flex flex-col gap-6">
             <div className={PANEL_ELEVATED}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => runQueryRef.current()}
-                  disabled={isExecuting}
-                  className={PRIMARY_BUTTON}
-                >
-                  {isExecuting ? 'Running…' : 'Run query'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAiDialogOpen(true)}
-                  disabled={!canUseAi || aiBusy}
-                  className={PRIMARY_BUTTON_COMPACT}
-                >
-                  {aiBusy ? 'Preparing…' : 'Ask AI'}
-                </button>
-                <label className="flex items-center gap-2 text-scale-sm text-secondary">
-                  <span className={FIELD_LABEL}>Max rows</span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={maxRowsInput}
-                    onChange={(event) => setMaxRowsInput(event.target.value)}
-                    className={`${INPUT} w-24`}
-                  />
-                </label>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => runQueryRef.current()}
+                    disabled={isExecuting}
+                    className={PRIMARY_BUTTON}
+                  >
+                    {isExecuting ? 'Running…' : 'Run query'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiDialogOpen(true)}
+                    disabled={!canUseAi || aiBusy}
+                    className={PRIMARY_BUTTON_COMPACT}
+                  >
+                    {aiBusy ? 'Preparing…' : 'Ask AI'}
+                  </button>
+                  <label className="flex items-center gap-2 text-scale-sm text-secondary">
+                    <span className={FIELD_LABEL}>Max rows</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={maxRowsInput}
+                      onChange={(event) => setMaxRowsInput(event.target.value)}
+                      className={`${INPUT} w-24`}
+                    />
+                  </label>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className={SEGMENTED_GROUP} role="group" aria-label="SQL engine mode">
+                    {SQL_EDITOR_MODE_SEGMENTS.map((segment) => (
+                      <button
+                        key={segment.value}
+                        type="button"
+                        onClick={() => handleModeChange(segment.value)}
+                        className={SEGMENTED_BUTTON(editorMode === segment.value)}
+                        title={segment.description}
+                      >
+                        {segment.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 text-scale-xs text-muted">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatement(DEFAULT_QUERY);
+                        editorRef.current?.focus();
+                      }}
+                      className={SECONDARY_BUTTON_COMPACT}
+                    >
+                      Reset example
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleCopyQuery();
+                      }}
+                      className={SECONDARY_BUTTON_COMPACT}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-scale-xs text-muted">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStatement(DEFAULT_QUERY);
-                    editorRef.current?.focus();
-                  }}
-                  className={SECONDARY_BUTTON_COMPACT}
-                >
-                  Reset example
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleCopyQuery();
-                  }}
-                  className={SECONDARY_BUTTON_COMPACT}
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
+              {isClickHouseMode && (
+                <p className={`mt-3 ${STATUS_META}`}>
+                  ClickHouse mode bypasses the timestore planner and runs statements directly against the warehouse. Max rows are enforced server-side.
+                </p>
+              )}
             <div className="mt-4">
               <Editor
                 value={statement}
@@ -910,10 +1097,9 @@ export default function TimestoreSqlEditorPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-scale-base font-weight-semibold text-primary">Results</h3>
-                {result?.statistics && (
+                {result && (
                   <p className={STATUS_META}>
-                    {result.statistics.rowCount ?? result.rows.length} rows ·{' '}
-                    {result.statistics.elapsedMs ? `${result.statistics.elapsedMs} ms` : 'runtime unknown'}
+                    {resultMetaParts.length > 0 ? resultMetaParts.join(' · ') : 'runtime unknown'}
                   </p>
                 )}
               </div>

@@ -2,6 +2,10 @@ import type { FieldDefinition } from '../ingestion/types';
 import type { ServiceConfig } from '../config/serviceConfig';
 import { getClickHouseClient } from './client';
 import { deriveTableName, quoteIdentifier } from './util';
+import {
+  isClickHouseMockEnabled,
+  recordMockInsert
+} from './mockStore';
 
 interface InsertBatchParams {
   config: ServiceConfig;
@@ -43,17 +47,33 @@ function mapFieldTypeToClickHouse(field: FieldDefinition): string {
   }
 }
 
+function formatClickHouseDateTime(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const date =
+    value instanceof Date
+      ? value
+      : typeof value === 'number'
+        ? new Date(value)
+        : new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const iso = date.toISOString();
+  return iso.replace('T', ' ').replace('Z', '');
+}
+
 function convertValue(type: FieldDefinition['type'], value: unknown): unknown {
   if (value === null || value === undefined) {
     return null;
   }
   switch (type) {
     case 'timestamp': {
-      const date = new Date(value as string | number | Date);
-      if (Number.isNaN(date.getTime())) {
-        return null;
-      }
-      return date.toISOString();
+      return formatClickHouseDateTime(value);
     }
     case 'double': {
       const numeric = typeof value === 'string' ? Number.parseFloat(value) : Number(value);
@@ -95,7 +115,15 @@ function serializeObject(value: Record<string, unknown> | null): string | null {
   return JSON.stringify(Object.fromEntries(entries));
 }
 
-async function ensureDatabaseAndTable(config: ServiceConfig, datasetSlug: string, tableName: string, schema: FieldDefinition[]): Promise<void> {
+async function ensureDatabaseAndTable(
+  config: ServiceConfig,
+  datasetSlug: string,
+  tableName: string,
+  schema: FieldDefinition[]
+): Promise<void> {
+  if (isClickHouseMockEnabled(config.clickhouse)) {
+    return;
+  }
   const client = getClickHouseClient(config.clickhouse);
   const databaseIdent = quoteIdentifier(config.clickhouse.database);
   await client.command({
@@ -103,7 +131,6 @@ async function ensureDatabaseAndTable(config: ServiceConfig, datasetSlug: string
   });
 
   const tableIdent = quoteIdentifier(deriveTableName(datasetSlug, tableName));
-  const ttlDays = Math.max(1, config.clickhouse.ttlDays);
   const createColumns = [
     ...METADATA_COLUMNS.map((column) => `${quoteIdentifier(column.name)} ${column.type}`),
     ...schema.map((field) => `${quoteIdentifier(field.name)} Nullable(${mapFieldTypeToClickHouse(field)})`)
@@ -115,7 +142,6 @@ async function ensureDatabaseAndTable(config: ServiceConfig, datasetSlug: string
     ENGINE = MergeTree
     PARTITION BY ${quoteIdentifier('__dataset_slug')}
     ORDER BY (${quoteIdentifier('__dataset_slug')}, ${quoteIdentifier('__partition_key')}, ${quoteIdentifier('__ingestion_signature')})
-    TTL ${quoteIdentifier('__partition_end')} + INTERVAL ${ttlDays} DAY TO VOLUME 'cold'
     SETTINGS storage_policy = 'timestore_demo', index_granularity = 8192
   `;
 
@@ -126,7 +152,7 @@ async function ensureDatabaseAndTable(config: ServiceConfig, datasetSlug: string
     format: 'JSONEachRow'
   });
   const describedColumns = await describeResult.json<{ name: string }>();
-  const existingColumns = new Set(describedColumns.map((column) => column.name));
+  const existingColumns = new Set(describedColumns.map((column: { name: string }) => column.name));
 
   const alterStatements: string[] = [];
   for (const field of schema) {
@@ -148,8 +174,7 @@ async function ensureDatabaseAndTable(config: ServiceConfig, datasetSlug: string
     await client.command({ query: statement });
   }
 
-  const ttlClause = `${quoteIdentifier('__partition_end')} + INTERVAL ${ttlDays} DAY TO VOLUME 'cold'`;
-  await client.command({ query: `ALTER TABLE ${databaseIdent}.${tableIdent} MODIFY TTL ${ttlClause}` }).catch(() => undefined);
+  await client.command({ query: `ALTER TABLE ${databaseIdent}.${tableIdent} REMOVE TTL` }).catch(() => undefined);
   await client
     .command({ query: `ALTER TABLE ${databaseIdent}.${tableIdent} MODIFY SETTING storage_policy = 'timestore_demo', index_granularity = 8192` })
     .catch(() => undefined);
@@ -162,7 +187,6 @@ export async function writeBatchToClickHouse(params: InsertBatchParams): Promise
   }
 
   await ensureDatabaseAndTable(config, datasetSlug, tableName, schema);
-  const client = getClickHouseClient(config.clickhouse);
   const serializedPartitionKey = serializeObject(partitionKey) ?? '{}';
   const serializedPartitionAttributes = serializeObject(partitionAttributes);
 
@@ -175,13 +199,28 @@ export async function writeBatchToClickHouse(params: InsertBatchParams): Promise
     projected['__table_name'] = tableName;
     projected['__partition_key'] = serializedPartitionKey;
     projected['__partition_attributes'] = serializedPartitionAttributes;
-    projected['__partition_start'] = timeRange.start;
-    projected['__partition_end'] = timeRange.end;
+    const partitionStart = formatClickHouseDateTime(timeRange.start);
+    const partitionEnd = formatClickHouseDateTime(timeRange.end);
+    if (!partitionStart || !partitionEnd) {
+      throw new Error('Invalid partition time range; expected RFC 3339 timestamps');
+    }
+    projected['__partition_start'] = partitionStart;
+    projected['__partition_end'] = partitionEnd;
     projected['__ingestion_signature'] = ingestionSignature;
-    projected['__received_at'] = receivedAt;
+    const receivedAtFormatted = formatClickHouseDateTime(receivedAt);
+    if (!receivedAtFormatted) {
+      throw new Error('Invalid receivedAt timestamp; expected RFC 3339 timestamp');
+    }
+    projected['__received_at'] = receivedAtFormatted;
     return projected;
   });
 
+  if (isClickHouseMockEnabled(config.clickhouse)) {
+    recordMockInsert({ datasetSlug, tableName }, preparedRows);
+    return;
+  }
+
+  const client = getClickHouseClient(config.clickhouse);
   await client.insert({
     table: deriveTableName(datasetSlug, tableName),
     values: preparedRows,

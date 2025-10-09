@@ -35,13 +35,12 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_PG_SCHEMA` | Dedicated schema within the shared Postgres instance. | `timestore` |
 | `TIMESTORE_STORAGE_DRIVER` | `local`, `s3`, `gcs`, or `azure_blob`, toggles storage adapter. | `local` |
 | `TIMESTORE_STORAGE_ROOT` | Local filesystem root for DuckDB partitions. | `<repo>/services/data/timestore` |
-| `TIMESTORE_STAGING_DIRECTORY` | Filesystem root for DuckDB staging spools. | `${APPHUB_SCRATCH_ROOT}/timestore/staging` (falls back to `<repo>/services/data/timestore/staging`) |
-| `TIMESTORE_STAGING_MAX_DATASET_BYTES` | Soft byte ceiling per dataset spool before warnings emit. | `536870912` (512 MiB) |
-| `TIMESTORE_STAGING_MAX_TOTAL_BYTES` | Aggregate staging footprint threshold; `0` disables warnings. | `0` |
-| `TIMESTORE_STAGING_MAX_PENDING` | Max in-flight staging batches per dataset before applying back-pressure. | `64` |
-| `TIMESTORE_STAGING_FLUSH_MAX_ROWS` | Row-based trigger disabled by default; set a positive value to enable. | `0` |
-| `TIMESTORE_STAGING_FLUSH_MAX_BYTES` | Flush staged data once a dataset’s DuckDB spool reaches this many bytes; `0` disables the byte threshold. | `1073741824` (≈1 GiB) |
-| `TIMESTORE_STAGING_FLUSH_MAX_AGE_MS` | Age-based trigger disabled by default; set a positive value to enable. | `0` |
+| `TIMESTORE_CLICKHOUSE_HOST` | ClickHouse HTTP hostname. | Defaults to `clickhouse`; override when querying a remote cluster. |
+| `TIMESTORE_CLICKHOUSE_HTTP_PORT` | ClickHouse HTTP port. | Defaults to `8123`. |
+| `TIMESTORE_CLICKHOUSE_MOCK` | Mock ClickHouse client toggle. | When `true`, timestore runs against an in-memory stub (used in tests). |
+| `TIMESTORE_QUERY_CACHE_DIR` | Query cache filesystem path. | Defaults to `<repo>/services/data/timestore/cache`. |
+| `TIMESTORE_MANIFEST_CACHE_REDIS_URL` | Redis connection for manifest cache. | Falls back to `REDIS_URL`; set to `inline` only in local/test scenarios with inline mode enabled. |
+| `TIMESTORE_STREAMING_BUFFER_ENABLED` | Enables hot buffer fan-in during queries. | Defaults to `true`; set to `false` to skip hot buffer merges. |
 | `TIMESTORE_S3_BUCKET` | Bucket for remote partition storage when `storageDriver` is `s3`. | `timestore-data` |
 | `TIMESTORE_S3_ENDPOINT` | Optional S3-compatible endpoint (e.g., MinIO). | _(unset)_ |
 | `TIMESTORE_S3_REGION` | Region used for S3 operations. | _(unset)_ |

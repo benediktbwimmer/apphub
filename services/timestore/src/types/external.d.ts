@@ -39,3 +39,33 @@ declare module 's3rver' {
     close(): Promise<void>;
   }
 }
+
+declare module '@clickhouse/client' {
+  export interface ClickHouseCommandOptions {
+    query: string;
+  }
+
+  export interface ClickHouseQueryOptions {
+    query: string;
+    format?: string;
+  }
+
+  export interface ClickHouseInsertOptions {
+    table: string;
+    values: unknown[] | Record<string, unknown>[];
+    format?: string;
+  }
+
+  export interface ClickHouseQueryResult {
+    json<T>(): Promise<T[]>;
+  }
+
+  export interface ClickHouseClient {
+    command(options: ClickHouseCommandOptions): Promise<void>;
+    query(options: ClickHouseQueryOptions): Promise<ClickHouseQueryResult>;
+    insert(options: ClickHouseInsertOptions): Promise<void>;
+    close(): Promise<void>;
+  }
+
+  export function createClient(options: Record<string, unknown>): ClickHouseClient;
+}

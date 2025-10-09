@@ -42,6 +42,9 @@ export interface QueryPlanPartition {
 export interface DownsampleAggregationPlan {
   alias: string;
   expression: string;
+  fn: DownsampleAggregationInput['fn'];
+  column?: string;
+  percentile?: number;
 }
 
 export interface DownsamplePlan {
@@ -262,7 +265,10 @@ function createDownsampleAggregationPlan(aggregation: DownsampleAggregationInput
   const expression = resolveAggregationExpression(aggregation);
   return {
     alias,
-    expression
+    expression,
+    fn: aggregation.fn,
+    column: aggregation.column ?? undefined,
+    percentile: aggregation.fn === 'percentile' ? aggregation.percentile : undefined
   } satisfies DownsampleAggregationPlan;
 }
 

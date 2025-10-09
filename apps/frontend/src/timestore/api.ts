@@ -22,6 +22,7 @@ import type {
   SqlQueryResult,
   SqlSchemaResponse,
   SqlSchemaTable,
+  SqlEditorMode,
   TimestoreAiSqlSuggestion
 } from './types';
 import {
@@ -72,6 +73,7 @@ export type SqlQueryRequest = {
   statement: string;
   maxRows?: number;
   defaultSchema?: string;
+  mode?: SqlEditorMode;
 };
 
 export type SqlResponseFormat = 'json' | 'csv' | 'table';
@@ -255,7 +257,46 @@ async function callSqlRead(
     }
   }
 
-  return sqlQueryResultSchema.parse(payload);
+  const parsed = sqlQueryResultSchema.parse(payload);
+  return {
+    ...parsed,
+    engine: parsed.engine ?? 'timestore'
+  };
+}
+
+async function callClickHouseProxy(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  sql: string,
+  maxRows: number | undefined,
+  options: { signal?: AbortSignal } = {}
+): Promise<SqlQueryResult> {
+  const url = createTimestoreUrl('sql/admin/clickhouse');
+  const payload: Record<string, unknown> = {
+    sql,
+    mode: 'auto'
+  };
+  if (typeof maxRows === 'number' && Number.isFinite(maxRows) && maxRows > 0) {
+    payload.maxRows = Math.floor(maxRows);
+  }
+
+  const response = await authorizedFetch(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: options.signal
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(extractSqlErrorMessage(errorText, response.status));
+  }
+
+  const raw = await response.json();
+  const parsed = sqlQueryResultSchema.parse(raw);
+  return {
+    ...parsed,
+    engine: 'clickhouse'
+  };
 }
 
 export async function fetchDatasets(
@@ -627,8 +668,22 @@ export async function executeSqlQuery(
   request: SqlQueryRequest,
   options: { signal?: AbortSignal } = {}
 ): Promise<SqlQueryResult> {
-  const limitedStatement = wrapWithLimit(request.statement, request.maxRows);
-  return callSqlRead(authorizedFetch, limitedStatement, options);
+  const mode: SqlEditorMode = request.mode ?? 'timestore';
+  const trimmedStatement = request.statement.trim();
+  if (!trimmedStatement) {
+    throw new Error('SQL statement is required.');
+  }
+
+  if (mode === 'clickhouse') {
+    return callClickHouseProxy(authorizedFetch, trimmedStatement, request.maxRows, options);
+  }
+
+  const limitedStatement = wrapWithLimit(trimmedStatement, request.maxRows);
+  const result = await callSqlRead(authorizedFetch, limitedStatement, options);
+  return {
+    ...result,
+    engine: 'timestore'
+  };
 }
 
 export async function exportSqlQuery(
@@ -637,6 +692,9 @@ export async function exportSqlQuery(
   format: Exclude<SqlResponseFormat, 'json'>,
   options: { signal?: AbortSignal } = {}
 ): Promise<SqlQueryExport> {
+  if ((request.mode ?? 'timestore') === 'clickhouse') {
+    throw new Error('Export is not available when running in ClickHouse mode.');
+  }
   const limitedStatement = wrapWithLimit(request.statement, request.maxRows);
   const response = await requestSqlRead(authorizedFetch, limitedStatement, format, options);
   const blob = await response.blob();

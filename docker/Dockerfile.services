@@ -159,6 +159,11 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 
+# AppHub bootstrap runtime
+FROM runtime-base AS apphub-bootstrap-runtime
+COPY --from=builder /app/scripts/apphub-bootstrap.js ./scripts/apphub-bootstrap.js
+ENTRYPOINT ["node", "scripts/apphub-bootstrap.js"]
+
 # Streaming helper runtime
 FROM runtime-base AS streaming-runtime
 COPY --from=builder /app/services/streaming ./services/streaming

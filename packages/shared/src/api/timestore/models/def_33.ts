@@ -22,12 +22,6 @@ export type def_33 = {
        */
       partitions: number;
     };
-    staging: {
-      /**
-       * Number of rows returned from staging batches pending flush.
-       */
-      rows: number;
-    };
     hotBuffer: {
       /**
        * Number of rows returned from the streaming hot buffer.

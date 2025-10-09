@@ -10,6 +10,7 @@ import { loadServiceConfig } from '../config/serviceConfig';
 import { schemaRef } from '../openapi/definitions';
 import { errorResponse, jsonResponse } from '../openapi/utils';
 import {
+  authorizeAdminAccess,
   authorizeSqlExecAccess,
   authorizeSqlReadAccess,
   resolveRequestActor,
@@ -26,8 +27,10 @@ import {
   listDatasets,
   getLatestPublishedManifest,
   getSchemaVersionById,
+  getDatasetBySlug,
   type DatasetRecord
 } from '../db/metadata';
+import { deriveTableName, quoteIdentifier as quoteClickHouseIdentifier } from '../clickhouse/util';
 import { extractFieldDefinitions, normalizeFieldDefinitions } from '../schema/compatibility';
 import { getClickHouseClient } from '../clickhouse/client';
 
@@ -37,6 +40,20 @@ type ResponseFormat = (typeof SUPPORTED_FORMATS)[number];
 const requestBodySchema = z.object({
   sql: z.string().min(1),
   params: z.array(z.any()).optional()
+});
+
+const CLICKHOUSE_PROXY_DEFAULT_MAX_ROWS = 10_000;
+const CLICKHOUSE_PROXY_MAX_ROWS_LIMIT = 100_000;
+
+const clickHouseProxyRequestSchema = z.object({
+  sql: z.string().min(1),
+  mode: z.enum(['auto', 'query', 'command']).default('auto'),
+  maxRows: z
+    .number()
+    .int()
+    .positive()
+    .max(CLICKHOUSE_PROXY_MAX_ROWS_LIMIT)
+    .default(CLICKHOUSE_PROXY_DEFAULT_MAX_ROWS)
 });
 
 const formatQuerySchema = z.object({
@@ -190,11 +207,12 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
       const actor = resolveRequestActor(request as FastifyRequest);
       const scopes = getRequestScopes(request as FastifyRequest);
       const requestId = `sql-${randomUUID()}`;
-      const fingerprint = fingerprintSql(sql);
+      const rewrittenSql = await rewriteDatasetTableReferences(sql);
+      const fingerprint = fingerprintSql(rewrittenSql);
       const start = process.hrtime.bigint();
 
       try {
-        const execution = await executeClickHouseSelect(sql);
+        const execution = await executeClickHouseSelect(rewrittenSql);
         const durationMs = elapsedMs(start);
         const executionId = `ch-${randomUUID()}`;
         const fields = createFieldDefs(execution.columns);
@@ -229,7 +247,7 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
             warnings: [] as string[],
             statistics: {
               rowCount: execution.rows.length,
-              elapsedMs: durationMs
+              elapsedMs: execution.statistics.elapsedMs ?? durationMs
             }
           };
           baseReply.type('application/json').send(payload);
@@ -247,6 +265,150 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
       } catch (error) {
         logFailure(request as FastifyRequest, {
           event: 'timestore.sql.read_failed',
+          actorId: actor?.id ?? null,
+          scopes,
+          requestId,
+          fingerprint,
+          format,
+          error
+        });
+        throw error;
+      }
+    }
+  );
+
+  app.post(
+    '/sql/admin/clickhouse',
+    {
+      schema: {
+        tags: ['SQL'],
+        summary: 'Execute raw ClickHouse statement',
+        description:
+          'Runs an arbitrary ClickHouse statement against the configured ClickHouse backend without dataset rewrites.',
+        body: schemaRef('ClickHouseProxyRequest'),
+        response: {
+          200: jsonResponse('ClickHouseProxyResponse', 'Statement executed successfully.'),
+          400: errorResponse('Invalid ClickHouse proxy request.'),
+          401: errorResponse('Authentication is required.'),
+          403: errorResponse('Caller lacks permission to execute ClickHouse statements.'),
+          500: errorResponse('ClickHouse proxy execution failed.')
+        }
+      }
+    },
+    async (request, reply) => {
+      await authorizeAdminAccess(request as FastifyRequest);
+      authorizeSqlExecAccess(request as FastifyRequest);
+      const body = clickHouseProxyRequestSchema.parse(request.body ?? {});
+      const sql = body.sql.trim();
+      if (sql.length === 0) {
+        const error = new Error('SQL statement is required.');
+        (error as Error & { statusCode?: number }).statusCode = 400;
+        throw error;
+      }
+
+      const config = loadServiceConfig();
+      enforceQueryLength(sql, config.sql.maxQueryLength);
+
+      const actor = resolveRequestActor(request as FastifyRequest);
+      const scopes = getRequestScopes(request as FastifyRequest);
+      const requestId = `sql-proxy-${randomUUID()}`;
+      const executionId = `ch-proxy-${randomUUID()}`;
+      const fingerprint = fingerprintSql(sql);
+      const format: ResponseFormat = 'json';
+      const command = extractStatementCommand(sql);
+      const mode = resolveProxyMode(body.mode, sql);
+      const start = process.hrtime.bigint();
+
+      const baseReply = reply
+        .header('x-sql-request-id', requestId)
+        .header('x-sql-execution-id', executionId)
+        .type('application/json');
+
+      try {
+        if (mode === 'command') {
+          const client = getClickHouseClient(config.clickhouse);
+          await client.command({ query: sql });
+          const durationMs = elapsedMs(start);
+          const summary: QueryResultSummary = {
+            command,
+            rowCount: 0,
+            fields: []
+          };
+
+          logSuccess(request as FastifyRequest, {
+            event: 'timestore.sql.clickhouse',
+            actorId: actor?.id ?? null,
+            scopes,
+            requestId,
+            fingerprint,
+            format,
+            summary,
+            durationMs,
+            streamed: false
+          });
+
+          baseReply.send({
+            executionId,
+            mode,
+            command,
+            columns: [] as SqlSchemaColumnInfo[],
+            rows: [] as Array<Record<string, unknown>>,
+            truncated: false,
+            statistics: {
+              elapsedMs: durationMs,
+              rowCount: 0,
+              raw: null
+            },
+            warnings: [] as string[]
+          });
+          return;
+        }
+
+        const execution = await executeClickHouseSelect(sql);
+        const durationMs = elapsedMs(start);
+        const totalRows = execution.rows.length;
+        const truncated = totalRows > body.maxRows;
+        const limitedRows = truncated ? execution.rows.slice(0, body.maxRows) : execution.rows;
+        const summary: QueryResultSummary = {
+          command,
+          rowCount: limitedRows.length,
+          fields: createFieldDefs(execution.columns)
+        };
+
+        logSuccess(request as FastifyRequest, {
+          event: 'timestore.sql.clickhouse',
+          actorId: actor?.id ?? null,
+          scopes,
+          requestId,
+          fingerprint,
+          format,
+          summary,
+          durationMs,
+          streamed: false
+        });
+
+        const warnings: string[] = [];
+        if (truncated) {
+          warnings.push(`Result set truncated to ${body.maxRows} rows.`);
+        }
+
+        baseReply.send({
+          executionId,
+          mode,
+          command,
+          columns: execution.columns,
+          rows: limitedRows,
+          truncated,
+          statistics: {
+            elapsedMs: execution.statistics.elapsedMs ?? durationMs,
+            rowCount: totalRows,
+            raw: execution.statistics.raw
+          },
+          warnings
+        });
+      } catch (error) {
+        logFailure(request as FastifyRequest, {
+          event: 'timestore.sql.clickhouse_failed',
           actorId: actor?.id ?? null,
           scopes,
           requestId,
@@ -668,6 +830,62 @@ function enforceQueryLength(sql: string, maxLength: number): void {
   }
 }
 
+type ClickHouseProxyMode = 'query' | 'command';
+
+const CLICKHOUSE_QUERY_KEYWORDS = new Set([
+  'select',
+  'with',
+  'show',
+  'describe',
+  'desc',
+  'exists',
+  'explain',
+  'system',
+  'values'
+]);
+
+function resolveProxyMode(mode: 'auto' | 'query' | 'command', sql: string): ClickHouseProxyMode {
+  if (mode === 'query' || mode === 'command') {
+    return mode;
+  }
+  return classifyProxyMode(sql);
+}
+
+function classifyProxyMode(sql: string): ClickHouseProxyMode {
+  const normalized = stripLeadingComments(sql).trim();
+  if (normalized.length === 0) {
+    return 'command';
+  }
+  const match = normalized.match(/^([A-Za-z]+)/);
+  if (!match) {
+    return 'command';
+  }
+  if (CLICKHOUSE_QUERY_KEYWORDS.has(match[1].toLowerCase())) {
+    return 'query';
+  }
+  return 'command';
+}
+
+function extractStatementCommand(sql: string): string {
+  const normalized = stripLeadingComments(sql).trim();
+  if (normalized.length === 0) {
+    return 'UNKNOWN';
+  }
+  const tokens = normalized.split(/\s+/);
+  if (tokens.length === 0) {
+    return 'UNKNOWN';
+  }
+  const first = tokens[0].toUpperCase();
+  const second = tokens.length > 1 ? tokens[1].toUpperCase() : null;
+  if (['CREATE', 'DROP', 'ALTER', 'INSERT', 'OPTIMIZE', 'TRUNCATE'].includes(first) && second) {
+    return `${first} ${second}`;
+  }
+  if (first === 'SYSTEM' && second) {
+    return `${first} ${second}`;
+  }
+  return first;
+}
+
 async function setStatementTimeout(client: PoolClient, timeoutMs: number): Promise<void> {
   const value = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
   await client.query(`SET statement_timeout = ${value}`);
@@ -894,14 +1112,200 @@ async function runStreamingQuery(options: RunStreamingQueryOptions): Promise<{
 
 async function executeClickHouseSelect(
   sql: string
-): Promise<{ rows: Array<Record<string, unknown>>; columns: SqlSchemaColumnInfo[] }> {
+): Promise<{
+  rows: Array<Record<string, unknown>>;
+  columns: SqlSchemaColumnInfo[];
+  statistics: {
+    elapsedMs: number | null;
+    raw: {
+      rowsRead: number | null;
+      bytesRead: number | null;
+      appliedLimit: number | null;
+    } | null;
+  };
+}> {
   const config = loadServiceConfig();
   const client = getClickHouseClient(config.clickhouse);
-  const result = await client.query({ query: sql, format: 'JSONEachRow' });
-  const rawRows = await result.json<Record<string, unknown>>();
+  const result = await client.query({ query: sql, format: 'JSON' });
+  const payload = (await result.json()) as {
+    data?: Array<Record<string, unknown>>;
+    meta?: Array<{ name: string; type: string }>;
+    statistics?: { elapsed?: number; rows_read?: number; bytes_read?: number; applied_limit?: number };
+  };
+
+  const rawRows = payload?.data ?? [];
   const rows = rawRows.map(normalizeSqlRow);
-  const columns = deriveResultColumns(rows);
-  return { rows, columns };
+  const columns = payload?.meta
+    ? payload.meta
+        .filter((entry) => !isInternalColumn(entry.name))
+        .map((entry) => ({
+          name: entry.name,
+          type: mapClickHouseTypeToSqlType(entry.type),
+          nullable: entry.type.includes('Nullable'),
+          description: null
+        }))
+    : deriveResultColumns(rows);
+
+  return {
+    rows,
+    columns,
+    statistics: {
+      elapsedMs: payload?.statistics?.elapsed !== undefined ? payload.statistics.elapsed * 1_000 : null,
+      raw:
+        payload?.statistics &&
+        (Number.isFinite(payload.statistics.rows_read ?? NaN) ||
+          Number.isFinite(payload.statistics.bytes_read ?? NaN) ||
+          Number.isFinite(payload.statistics.applied_limit ?? NaN))
+          ? {
+              rowsRead: Number.isFinite(payload.statistics.rows_read ?? NaN)
+                ? Number(payload.statistics.rows_read)
+                : null,
+              bytesRead: Number.isFinite(payload.statistics.bytes_read ?? NaN)
+                ? Number(payload.statistics.bytes_read)
+                : null,
+              appliedLimit: Number.isFinite(payload.statistics.applied_limit ?? NaN)
+                ? Number(payload.statistics.applied_limit)
+                : null
+            }
+          : null
+    }
+  };
+}
+
+const DATASET_REFERENCE_REGEX =
+  /\b(FROM|JOIN)\s+(?:timestore\.)?["`]([A-Za-z0-9_.:\-]+)["`](\s+(?:AS\s+)?(?!ON\b|USING\b)[A-Za-z0-9_"`]+)?/gi;
+const DATASET_REFERENCE_UNQUOTED_REGEX =
+  /\b(FROM|JOIN)\s+(?:timestore\.)?([A-Za-z0-9_]+)(\s+(?:AS\s+)?(?!ON\b|USING\b)[A-Za-z0-9_"`]+)?/gi;
+const DATASET_TABLE_CACHE = new Map<string, string | null>();
+const DATASET_ALIAS_REGEX =
+  /\b(FROM|JOIN)\s+(?:timestore\.)?["`]?(?<slug>[A-Za-z0-9_.:\-]+)["`]?(?:\s+(?:AS\s+)?(?<alias>[A-Za-z0-9_"`]+))?/gi;
+
+async function rewriteDatasetTableReferences(sql: string): Promise<string> {
+  let rewritten = sql;
+
+  const quotedMatches = Array.from(sql.matchAll(DATASET_REFERENCE_REGEX));
+  const unquotedMatches = Array.from(sql.matchAll(DATASET_REFERENCE_UNQUOTED_REGEX)).filter((match) => {
+    const quoted = quotedMatches.some((existing) => existing.index === match.index);
+    return !quoted && match[2] && /^[A-Za-z0-9_]+$/.test(match[2]);
+  });
+
+  const matches = [...quotedMatches, ...unquotedMatches];
+  if (matches.length === 0) {
+    return sql;
+  }
+
+  const resolvedIdentifiers = new Map<string, string | null>();
+  for (const match of matches) {
+    const slug = match[2];
+    if (!resolvedIdentifiers.has(slug)) {
+      const identifier = await resolveDatasetTableIdentifier(slug);
+      resolvedIdentifiers.set(slug, identifier);
+    }
+  }
+
+  if (Array.from(resolvedIdentifiers.values()).every((value) => value === null)) {
+    return sql;
+  }
+
+  const aliasMap = buildDatasetAliasMap(sql, resolvedIdentifiers);
+
+  const applyReplacement = (inputSql: string, regex: RegExp) =>
+    inputSql.replace(regex, (full, keyword, slug, alias = '') => {
+      const identifier = resolvedIdentifiers.get(slug);
+      if (!identifier) {
+        return full;
+      }
+      return `${keyword} ${identifier}${alias ?? ''}`;
+    });
+
+  rewritten = applyReplacement(rewritten, DATASET_REFERENCE_REGEX);
+  rewritten = applyReplacement(rewritten, DATASET_REFERENCE_UNQUOTED_REGEX);
+
+  if (aliasMap.size > 0) {
+    aliasMap.forEach((aliasSet, slug) => {
+      const identifier = resolvedIdentifiers.get(slug);
+      if (!identifier) {
+        return;
+      }
+      aliasSet.forEach((alias) => {
+        const bareAlias = alias.replace(/["`]/g, '');
+        const regex = new RegExp(`\\b${bareAlias.replace(/[-\\/^$*+?.()|[\\]{}]/g, '\\\\$&')}\\.`, 'g');
+        rewritten = rewritten.replace(regex, `${identifier}.`);
+      });
+    });
+  }
+
+  return rewritten;
+}
+
+function buildDatasetAliasMap(
+  sql: string,
+  identifiers: Map<string, string | null>
+): Map<string, Set<string>> {
+  const aliasMap = new Map<string, Set<string>>();
+  const matches = sql.matchAll(DATASET_ALIAS_REGEX);
+  for (const match of matches) {
+    const slug = match.groups?.slug;
+    let alias = match.groups?.alias;
+    if (!slug || !alias) {
+      continue;
+    }
+    if (!identifiers.has(slug) || identifiers.get(slug) === null) {
+      continue;
+    }
+    if (/^["`]/.test(alias)) {
+      alias = alias.replace(/["`]/g, '');
+    }
+    const set = aliasMap.get(slug) ?? new Set<string>();
+    set.add(alias);
+    aliasMap.set(slug, set);
+  }
+  // ensure the slug itself is treated as an alias so references like slug.column resolve
+  for (const [slug, identifier] of aliasMap.entries()) {
+    if (identifier && !aliasMap.get(slug)?.has(slug)) {
+      aliasMap.get(slug)?.add(slug);
+    }
+  }
+  identifiers.forEach((identifier, slug) => {
+    if (!identifier) {
+      return;
+    }
+    const set = aliasMap.get(slug) ?? new Set<string>();
+    set.add(slug);
+    aliasMap.set(slug, set);
+  });
+  return aliasMap;
+}
+
+async function resolveDatasetTableIdentifier(slug: string): Promise<string | null> {
+  if (DATASET_TABLE_CACHE.has(slug)) {
+    return DATASET_TABLE_CACHE.get(slug) ?? null;
+  }
+
+  const dataset = await getDatasetBySlug(slug);
+  if (!dataset) {
+    DATASET_TABLE_CACHE.set(slug, null);
+    return null;
+  }
+
+  const manifest = await getLatestPublishedManifest(dataset.id);
+  let tableName: string | null = null;
+  if (manifest && manifest.summary && typeof manifest.summary === 'object') {
+    const summary = manifest.summary as Record<string, unknown>;
+    if (typeof summary.tableName === 'string' && summary.tableName.trim().length > 0) {
+      tableName = summary.tableName.trim();
+    }
+  }
+  if (!tableName) {
+    tableName = 'records';
+  }
+
+  const config = loadServiceConfig();
+  const identifier = `${quoteClickHouseIdentifier(config.clickhouse.database)}.${quoteClickHouseIdentifier(
+    deriveTableName(slug, tableName)
+  )}`;
+  DATASET_TABLE_CACHE.set(slug, identifier);
+  return identifier;
 }
 
 function deriveResultColumns(rows: Array<Record<string, unknown>>): SqlSchemaColumnInfo[] {
@@ -1004,9 +1408,16 @@ function renderTable(columns: SqlSchemaColumnInfo[], rows: Array<Record<string, 
 function normalizeSqlRow(row: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {
+    if (isInternalColumn(key)) {
+      continue;
+    }
     result[key] = normalizeSqlValue(value);
   }
   return result;
+}
+
+function isInternalColumn(name: string): boolean {
+  return name.startsWith('__');
 }
 
 function normalizeSqlValue(value: unknown): unknown {
@@ -1084,6 +1495,29 @@ function mapFieldTypeToSqlType(type: string): string {
     default:
       return 'VARCHAR';
   }
+}
+
+function mapClickHouseTypeToSqlType(type: string): string {
+  const normalized = type.replace(/Nullable\((.+)\)/i, '$1').trim().toLowerCase();
+  if (normalized.startsWith('date')) {
+    return 'TIMESTAMP';
+  }
+  if (normalized.startsWith('decimal') || normalized.startsWith('float')) {
+    return 'DOUBLE';
+  }
+  if (normalized.startsWith('int') || normalized.startsWith('uint')) {
+    return 'BIGINT';
+  }
+  if (normalized === 'bool' || normalized === 'boolean') {
+    return 'BOOLEAN';
+  }
+  if (normalized.startsWith('array(') || normalized.startsWith('map(')) {
+    return 'JSON';
+  }
+  if (normalized.startsWith('tuple(')) {
+    return 'JSON';
+  }
+  return 'VARCHAR';
 }
 
 function extractTimestampValue(value: unknown): string | null {

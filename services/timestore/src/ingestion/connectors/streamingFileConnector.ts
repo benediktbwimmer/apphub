@@ -9,7 +9,6 @@ import {
   type IngestionRequest
 } from '../types';
 import { enqueueIngestionJob, getIngestionQueueDepth } from '../../queue';
-import { StagingQueueFullError } from '../stagingManager';
 import type {
   ConnectorBackpressureConfig,
   StreamingConnectorConfig
@@ -333,18 +332,15 @@ export class FileStreamingConnector {
         await this.enqueue(payload);
         return;
       } catch (error) {
-        if (error instanceof StagingQueueFullError) {
-          this.logger.warn(
-            {
-              connectorId: this.config.id,
-              datasetSlug: payload.datasetSlug
-            },
-            'staging queue full; backing off before retry'
-          );
-          await delay(Math.max(50, this.config.pollIntervalMs));
-          continue;
-        }
-        throw error;
+        this.logger.warn(
+          {
+            connectorId: this.config.id,
+            datasetSlug: payload.datasetSlug,
+            error: error instanceof Error ? error.message : error
+          },
+          'ingestion queue unavailable; backing off before retry'
+        );
+        await delay(Math.max(50, this.config.pollIntervalMs));
       }
     }
     throw new Error('streaming connector stopped while waiting to enqueue payload');

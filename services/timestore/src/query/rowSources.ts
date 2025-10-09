@@ -68,6 +68,9 @@ export class HotBufferRowSource implements RowSource {
       return projected;
     });
   }
+
+}
+
 function toTimestampMs(value: unknown): number | null {
   if (value instanceof Date) {
     const time = value.getTime();

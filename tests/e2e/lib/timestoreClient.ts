@@ -38,9 +38,6 @@ export interface DatasetQueryResponse {
       rows: number;
       partitions: number;
     };
-    staging: {
-      rows: number;
-    };
     hotBuffer: {
       rows: number;
     };
@@ -114,23 +111,6 @@ export interface DatasetManifestPayload {
     totalRows?: number;
     partitions: DatasetManifestPartition[];
   }>;
-  staging?: {
-    totalRows: number;
-    batches: Array<{
-      batchId: string;
-      tableName: string;
-      rowCount: number;
-      timeRange: {
-        start: string;
-        end: string;
-      };
-      stagedAt: string;
-      schema: Array<{
-        name: string;
-        type: string;
-      }>;
-    }>;
-  };
 }
 
 export type DatasetFlushResponse =

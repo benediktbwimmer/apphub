@@ -132,7 +132,7 @@ export function MetricsSummary({
             title="Lifecycle operations"
             primary={`Compactions: ${lifecycleMetrics?.operationTotals.compaction.count ?? 0}`}
             secondary={`Retention: ${lifecycleMetrics?.operationTotals.retention.count ?? 0}`}
-            tertiary={`Exports: ${lifecycleMetrics?.operationTotals.parquetExport.count ?? 0}`}
+            tertiary="Exports: managed by ClickHouse"
           />
         </div>
       )}
