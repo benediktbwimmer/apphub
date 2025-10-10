@@ -35,7 +35,6 @@ describe('DatasetCreateDialog', () => {
     await user.type(screen.getByLabelText(/name/i), 'Observatory Events');
     await user.type(screen.getByLabelText(/description/i), 'Event archive dataset');
     await user.type(screen.getByLabelText(/default storage target/i), 'st-42');
-    await user.selectOptions(screen.getByLabelText(/write format/i), 'parquet');
     await user.selectOptions(screen.getByLabelText(/status/i), 'inactive');
     await user.type(screen.getByLabelText(/^read scopes/i), 'timestore:read\nobservatory:read');
     await user.type(screen.getByLabelText(/^write scopes/i), 'timestore:write');
@@ -51,7 +50,7 @@ describe('DatasetCreateDialog', () => {
       name: 'Observatory Events',
       description: 'Event archive dataset',
       status: 'inactive',
-      writeFormat: 'parquet',
+      writeFormat: 'clickhouse',
       defaultStorageTargetId: 'st-42',
       metadata: {
         iam: {

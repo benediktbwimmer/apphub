@@ -53,15 +53,12 @@ Metastore-specific tests (`services/metastore/tests/unit/serviceConfig.test.ts`)
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `TIMESTORE_STAGING_DIRECTORY` | `${APPHUB_SCRATCH_ROOT}/timestore/staging` (falls back to `<repo>/services/data/timestore/staging`) | Root path for DuckDB staging files; created on boot if missing. |
-| `TIMESTORE_STAGING_MAX_DATASET_BYTES` | `536_870_912` (512 MiB) | Per-dataset guardrail; `0` disables the warning. Pair with `timestore_staging_disk_usage_bytes`. |
-| `TIMESTORE_STAGING_MAX_TOTAL_BYTES` | `0` | Global staging footprint ceiling. `0` leaves the global check disabled. |
-| `TIMESTORE_STAGING_MAX_PENDING` | `64` | In-memory queue depth per dataset before new batches are rejected. |
-| `TIMESTORE_STAGING_FLUSH_MAX_ROWS` | `0` | Row-based trigger disabled by default; set a positive value to enable. |
-| `TIMESTORE_STAGING_FLUSH_MAX_BYTES` | `1_073_741_824` (≈1 GiB) | Flush staged data once a dataset’s DuckDB spool reaches this size. `0` disables the byte trigger. |
-| `TIMESTORE_STAGING_FLUSH_MAX_AGE_MS` | `0` | Age-based trigger disabled by default; set a positive value to enable. |
-
-Datasets can override the flush thresholds via metadata (`dataset.metadata.staging.flush`). Operators should document the overrides alongside alert thresholds so dashboards reflect the effective limits.
+| `TIMESTORE_CLICKHOUSE_HOST` | `clickhouse` | Hostname for the ClickHouse HTTP endpoint. Override when running against an external cluster. |
+| `TIMESTORE_CLICKHOUSE_HTTP_PORT` | `8123` | HTTP port exposed by ClickHouse. |
+| `TIMESTORE_CLICKHOUSE_MOCK` | `false` (prod), `true` in tests | When set to `true`, timestore serves requests from an in-memory store instead of ClickHouse. Useful for integration tests. |
+| `TIMESTORE_QUERY_CACHE_DIR` | `<repo>/services/data/timestore/cache` | Filesystem path for the optional query result cache. |
+| `TIMESTORE_MANIFEST_CACHE_REDIS_URL` | `REDIS_URL` | Redis connection string for caching manifest lookups. Set to `inline` only during tests with `APPHUB_ALLOW_INLINE_MODE=true`. |
+| `TIMESTORE_STREAMING_BUFFER_ENABLED` | `true` | Controls whether the hot buffer merges streaming rows into query responses. |
 
 ## Adding New Configuration
 

@@ -79,7 +79,8 @@ RUN npm run build --workspace @apphub/core \
  && npm run build --workspace @apphub/filestore-client \
  && npm run build --workspace @apphub/streaming \
  && npm run build --workspace @apphub/module-toolkit \
- && npm run build --workspace @apphub/observatory-module
+ && npm run build --workspace @apphub/observatory-module \
+ && npm run build --workspace @apphub/cli
 
 RUN npm prune --omit=dev
 
@@ -157,6 +158,11 @@ RUN set -eux; \
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
+
+# AppHub bootstrap runtime
+FROM runtime-base AS apphub-bootstrap-runtime
+COPY --from=builder /app/scripts/apphub-bootstrap.js ./scripts/apphub-bootstrap.js
+ENTRYPOINT ["node", "scripts/apphub-bootstrap.js"]
 
 # Streaming helper runtime
 FROM runtime-base AS streaming-runtime

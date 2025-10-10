@@ -18,7 +18,7 @@ const migrations: Migration[] = [
          config JSONB NOT NULL DEFAULT '{}'::jsonb,
          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-         CHECK (kind IN ('local', 's3', 'gcs', 'azure_blob'))
+         CHECK (kind IN ('clickhouse', 'local', 's3', 'gcs', 'azure_blob'))
        );`,
       `CREATE INDEX IF NOT EXISTS idx_storage_targets_kind
          ON storage_targets(kind);`,
@@ -28,13 +28,13 @@ const migrations: Migration[] = [
          name TEXT NOT NULL,
          description TEXT,
          status TEXT NOT NULL DEFAULT 'active',
-        write_format TEXT NOT NULL DEFAULT 'parquet',
+        write_format TEXT NOT NULL DEFAULT 'clickhouse',
          default_storage_target_id TEXT REFERENCES storage_targets(id),
          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
          CHECK (status IN ('active', 'inactive')),
-        CHECK (write_format IN ('parquet'))
+        CHECK (write_format IN ('clickhouse'))
        );`,
       `CREATE INDEX IF NOT EXISTS idx_datasets_status ON datasets(status);`,
       `CREATE INDEX IF NOT EXISTS idx_datasets_storage_target
@@ -99,7 +99,7 @@ const migrations: Migration[] = [
          column_bloom_filters JSONB NOT NULL DEFAULT '{}'::jsonb,
          ingestion_signature TEXT,
          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-         CHECK (file_format IN ('parquet')),
+         CHECK (file_format IN ('clickhouse')),
          CHECK (end_time >= start_time)
        );`,
       `CREATE INDEX IF NOT EXISTS idx_dataset_partitions_time

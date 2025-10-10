@@ -17,6 +17,7 @@ import {
   listWorkflowAutoRunsForDefinition,
   updateWorkflowDefinition,
   updateWorkflowRun,
+  updateWorkflowRunStep,
   listWorkflowAssetDeclarationsBySlug,
   updateWorkflowAssetAutoMaterialize,
   listLatestWorkflowAssetSnapshots,
@@ -40,14 +41,17 @@ import {
   listTriggerPauseEvents,
   listSourcePauseEvents,
   listWorkflowRunExecutionHistory,
-  listWorkflowRunProducedAssets
+  listWorkflowRunProducedAssets,
+  appendWorkflowExecutionHistory
 } from '../db/index';
 import type {
   JsonValue,
   WorkflowAssetDeclaration,
   WorkflowAssetDeclarationRecord,
   WorkflowAssetSnapshotRecord,
-  WorkflowStepDefinition
+  WorkflowStepDefinition,
+  WorkflowRunRecord,
+  WorkflowRunStepRecord
 } from '../db/types';
 import {
   applyDagMetadataToSteps,
@@ -111,6 +115,7 @@ import { registerWorkflowTriggerRoutes } from './workflows/triggers';
 import { registerWorkflowGraphRoute } from './workflows/graph';
 import { getWorkflowDefaultParameters } from '../bootstrap';
 import { schemaRef } from '../openapi/definitions';
+import { handleModuleScopeError, resolveModuleScope } from './shared/moduleScope';
 import {
   diffJson,
   diffStatusTransitions,
@@ -301,7 +306,8 @@ const workflowRunListQuerySchema = z
     partition: z.string().max(200).optional(),
     search: z.string().max(200).optional(),
     from: z.string().datetime({ offset: true }).optional(),
-    to: z.string().datetime({ offset: true }).optional()
+    to: z.string().datetime({ offset: true }).optional(),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -326,7 +332,11 @@ const workflowRunListQueryOpenApiSchema = {
     partition: { type: 'string', maxLength: 200 },
     search: { type: 'string', maxLength: 200 },
     from: { type: 'string', format: 'date-time' },
-    to: { type: 'string', format: 'date-time' }
+    to: { type: 'string', format: 'date-time' },
+    moduleId: {
+      anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+      description: 'Optional module identifier to scope workflow runs.'
+    }
   }
 } as const;
 
@@ -343,7 +353,8 @@ const workflowActivityListQuerySchema = z
     kind: stringArrayQuerySchema,
     search: z.string().max(200).optional(),
     from: z.string().datetime({ offset: true }).optional(),
-    to: z.string().datetime({ offset: true }).optional()
+    to: z.string().datetime({ offset: true }).optional(),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -363,7 +374,8 @@ const workflowTimelineQuerySchema = z
           return val.split(',');
         }
         return undefined;
-      }, z.array(z.string()).optional())
+      }, z.array(z.string()).optional()),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -391,6 +403,12 @@ const workflowRunReplayBodySchema = z
   })
   .partial();
 
+const workflowRunCancelBodySchema = z
+  .object({
+    reason: z.string().trim().min(1).max(200).optional()
+  })
+  .strict();
+
 const ASSET_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 
 const workflowAssetParamSchema = workflowSlugParamSchema.extend({
@@ -405,14 +423,16 @@ const workflowAssetHistoryQuerySchema = z
   .object({
     limit: z
       .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(100).optional()),
-    partitionKey: z.string().min(1).max(200).optional()
+    partitionKey: z.string().min(1).max(200).optional(),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
 const workflowAssetPartitionsQuerySchema = z
   .object({
     lookback: z
-      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(10_000).optional())
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(10_000).optional()),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -437,7 +457,8 @@ const workflowAssetAutoMaterializeUpdateSchema = z
 
 const workflowAssetPartitionParamsQuerySchema = z
   .object({
-    partitionKey: z.string().min(1).max(200).optional()
+    partitionKey: z.string().min(1).max(200).optional(),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -457,17 +478,43 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       schema: {
         tags: ['Workflows'],
         summary: 'List workflow definitions',
+        querystring: {
+          type: 'object',
+          additionalProperties: true,
+          properties: {
+            moduleId: {
+              anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+              description: 'Optional module identifier to scope workflow definitions.'
+            }
+          }
+        },
         response: {
           200: workflowDefinitionListResponse('Workflow definitions currently available.'),
           500: errorResponse('The server failed to fetch workflow definitions.')
         }
       }
     },
-    async (_request, reply) => {
+    async (request, reply) => {
+      let moduleScope;
       try {
-        const workflows = await listWorkflowDefinitions();
+        moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+          'workflow-definition'
+        ]);
+      } catch (error) {
+        return handleModuleScopeError(reply, error);
+      }
+      try {
+        const workflows = await listWorkflowDefinitions({
+          moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
+        });
+        const filtered = moduleScope?.hasFilters
+          ? moduleScope.filter(workflows, 'workflow-definition', (workflow) => ({
+              id: workflow.id,
+              slug: workflow.slug
+            }))
+          : workflows;
         reply.status(200);
-        return { data: workflows.map((workflow) => serializeWorkflowDefinition(workflow)) };
+        return { data: filtered.map((workflow) => serializeWorkflowDefinition(workflow)) };
       } catch (err) {
         reply.status(500);
         return { error: 'Failed to list workflows' };
@@ -476,11 +523,29 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
   );
 
   app.get('/workflow-schedules', async (request, reply) => {
+    let moduleScope;
     try {
-      const schedules = await listWorkflowSchedulesWithWorkflow();
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+    try {
+      const schedules = await listWorkflowSchedulesWithWorkflow({
+        moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
+      });
+      const filteredSchedules = moduleScope?.hasFilters
+        ? schedules.filter((entry) =>
+            moduleScope.matches('workflow-definition', {
+              id: entry.workflow.id,
+              slug: entry.workflow.slug
+            })
+          )
+        : schedules;
       reply.status(200);
       return {
-        data: schedules.map((entry) => ({
+        data: filteredSchedules.map((entry) => ({
           schedule: serializeWorkflowSchedule(entry.schedule),
           workflow: {
             id: entry.workflow.id,
@@ -517,33 +582,60 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const limit = Math.min(Math.max(parseQuery.data.limit ?? 20, 1), 50);
     const offset = Math.max(parseQuery.data.offset ?? 0, 0);
+    const slugSet = new Set<string>(parseQuery.data.workflow ?? []);
+    if (moduleScope?.hasFilters) {
+      for (const slug of moduleScope.getSlugs('workflow-definition')) {
+        slugSet.add(slug);
+      }
+    }
     const filters = {
       statuses: parseQuery.data.status,
-      workflowSlugs: parseQuery.data.workflow,
+      workflowSlugs: slugSet.size > 0 ? Array.from(slugSet) : undefined,
       triggerTypes: parseQuery.data.trigger,
       partition: parseQuery.data.partition,
       search: parseQuery.data.search,
       from: parseQuery.data.from,
-      to: parseQuery.data.to
-    };
+      to: parseQuery.data.to,
+      moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
+    } satisfies NonNullable<Parameters<typeof listWorkflowRuns>[0]>['filters'];
+
     const { items, hasMore } = await listWorkflowRuns({ limit, offset, filters });
+    const scopedItems = moduleScope?.hasFilters
+      ? items.filter((entry) =>
+          moduleScope.matches('workflow-run', { id: entry.run.id }) ||
+          moduleScope.matches('workflow-definition', {
+            id: entry.workflow.id,
+            slug: entry.workflow.slug
+          })
+        )
+      : items;
 
     reply.status(200);
     await authResult.auth.log('succeeded', {
       action: 'workflow-runs.list',
-      count: items.length,
+      count: scopedItems.length,
       limit,
       offset,
-      hasMore
+      hasMore: hasMore && scopedItems.length > 0
     });
     return {
-      data: items.map((entry) => serializeWorkflowRunWithDefinition(entry)),
+      data: scopedItems.map((entry) => serializeWorkflowRunWithDefinition(entry)),
       meta: {
         limit,
         offset,
-        hasMore,
+        hasMore: hasMore && scopedItems.length > 0,
         nextOffset: hasMore ? offset + limit : null
       }
     };
@@ -570,6 +662,16 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const limit = Math.min(Math.max(parseQuery.data.limit ?? 20, 1), 100);
     const offset = Math.max(parseQuery.data.offset ?? 0, 0);
     const kinds = parseQuery.data.kind?.filter((value): value is 'run' | 'delivery' =>
@@ -584,7 +686,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       kinds,
       search: parseQuery.data.search,
       from: parseQuery.data.from,
-      to: parseQuery.data.to
+      to: parseQuery.data.to,
+      moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
     } satisfies NonNullable<Parameters<typeof listWorkflowActivity>[0]>['filters'];
 
     const { items, hasMore } = await listWorkflowActivity({ limit, offset, filters });
@@ -930,8 +1033,18 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
-    if (!workflow) {
+    if (!workflow || (moduleScope?.hasFilters && !moduleScope.matches('workflow-definition', { id: workflow.id, slug: workflow.slug }))) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
@@ -966,8 +1079,18 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
-    if (!workflow) {
+    if (!workflow || (moduleScope?.hasFilters && !moduleScope.matches('workflow-definition', { id: workflow.id, slug: workflow.slug }))) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
@@ -1006,6 +1129,16 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const now = new Date();
     const toDate = parseQuery.data.to ? new Date(parseQuery.data.to) : now;
     if (Number.isNaN(toDate.getTime())) {
@@ -1040,7 +1173,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     const statusesFilter = statuses.length > 0 ? statuses : undefined;
 
     const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
-    if (!workflow) {
+    if (!workflow || (moduleScope?.hasFilters && !moduleScope.matches('workflow-definition', { id: workflow.id, slug: workflow.slug }))) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
@@ -1240,7 +1373,19 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         return { error: parseQuery.error.flatten() };
       }
 
-      const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+      let moduleScope;
+      try {
+        moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+          'workflow-definition',
+          'workflow-run'
+        ]);
+      } catch (error) {
+        return handleModuleScopeError(reply, error);
+      }
+
+      const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+      const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
       if (!workflow) {
         reply.status(404);
         return { error: 'workflow not found' };
@@ -1250,9 +1395,9 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       const offset = Math.max(0, parseQuery.data.offset ?? 0);
 
       const [runs, claim, failureState] = await Promise.all([
-        listWorkflowAutoRunsForDefinition(workflow.id, { limit, offset }),
-        getWorkflowAutoRunClaim(workflow.id),
-        getAutoMaterializeFailureState(workflow.id)
+        listWorkflowAutoRunsForDefinition(workflow.id, { limit, offset, moduleIds }),
+        getWorkflowAutoRunClaim(workflow.id, { moduleIds }),
+        getAutoMaterializeFailureState(workflow.id, { moduleIds })
       ]);
 
       reply.status(200);
@@ -1422,6 +1567,24 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
     const normalized = normalizeAnalyticsQuery(parseQuery.data ?? {});
     if (!normalized.ok) {
       reply.status(400);
@@ -1429,10 +1592,10 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
-      const stats = await getWorkflowRunStatsBySlug(
-        parseParams.data.slug,
-        normalized.value.options
-      );
+      const stats = await getWorkflowRunStatsBySlug(parseParams.data.slug, {
+        ...normalized.value.options,
+        moduleIds
+      });
       const serialized = serializeWorkflowRunStats(stats);
       reply.status(200);
       return {
@@ -1466,6 +1629,24 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
     const normalized = normalizeAnalyticsQuery(parseQuery.data ?? {});
     if (!normalized.ok) {
       reply.status(400);
@@ -1473,10 +1654,10 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
-      const metrics = await getWorkflowRunMetricsBySlug(
-        parseParams.data.slug,
-        normalized.value.options
-      );
+      const metrics = await getWorkflowRunMetricsBySlug(parseParams.data.slug, {
+        ...normalized.value.options,
+        moduleIds
+      });
       const serialized = serializeWorkflowRunMetrics(metrics);
       const bucketKey =
         normalized.value.bucketKey ?? mapIntervalToBucketKey(serialized.bucketInterval);
@@ -1514,14 +1695,27 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseParams.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
 
     const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
 
     type StepDescriptor = {
       stepId: string;
@@ -1589,7 +1783,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       }
     }
 
-    const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id);
+    const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id, { moduleIds });
     const latestByAsset = new Map<string, WorkflowAssetSnapshotRecord>();
     for (const snapshot of latestSnapshots) {
       const assetId = snapshot.asset.assetId;
@@ -1696,7 +1890,20 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseBody.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       await authResult.auth.log('failed', {
@@ -1771,13 +1978,26 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
 
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
     const assetExists = assetDeclarations.some(
       (declaration) =>
         declaration.workflowDefinitionId === workflow.id &&
@@ -1811,7 +2031,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
 
     const history = await listWorkflowAssetHistory(workflow.id, parseParams.data.assetId, {
       limit,
-      partitionKey: partitionKeyFilter ?? null
+      partitionKey: partitionKeyFilter ?? null,
+      moduleIds
     });
     const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
 
@@ -1884,13 +2105,26 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
 
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
     const assetMatches = assetDeclarations.filter(
       (declaration) =>
         declaration.workflowDefinitionId === workflow.id &&
@@ -1903,7 +2137,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     const partitioningSpec = assetMatches.find((declaration) => declaration.partitioning)?.partitioning ?? null;
-    const partitions = await listWorkflowAssetPartitions(workflow.id, parseParams.data.assetId);
+    const partitions = await listWorkflowAssetPartitions(workflow.id, parseParams.data.assetId, { moduleIds });
     const partitionMap = new Map<string, typeof partitions[number]>();
 
     for (const entry of partitions) {
@@ -2041,7 +2275,20 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseBody.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       await authResult.auth.log('failed', {
@@ -2051,7 +2298,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: 'workflow not found' };
     }
 
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
     const assetMatches = assetDeclarations.filter(
       (declaration) =>
         declaration.workflowDefinitionId === workflow.id &&
@@ -2156,7 +2403,20 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       await authResult.auth.log('failed', {
@@ -2166,7 +2426,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: 'workflow not found' };
     }
 
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
     const assetMatches = assetDeclarations.filter(
       (declaration) =>
         declaration.workflowDefinitionId === workflow.id &&
@@ -2499,6 +2759,241 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
           assets: diff.assets.map((entry) => serializeAssetDiffEntry(entry))
         },
         staleAssets: staleAssets.map((entry) => serializeStaleAssetWarning(entry))
+      }
+    };
+  });
+
+  app.post('/workflow-runs/:runId/cancel', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateRunId = typeof rawParams?.runId === 'string' ? rawParams.runId : 'unknown';
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflow-runs.cancel',
+      resource: `workflow-run:${candidateRunId}`,
+      requiredScopes: WORKFLOW_RUN_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = workflowRunIdParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = workflowRunCancelBodySchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const run = await getWorkflowRunById(parseParams.data.runId);
+    if (!run) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'run_not_found',
+        runId: parseParams.data.runId
+      });
+      return { error: 'workflow run not found' };
+    }
+
+    if (run.status === 'succeeded' || run.status === 'failed') {
+      reply.status(409);
+      await authResult.auth.log('failed', {
+        reason: 'run_not_cancellable',
+        runId: run.id,
+        status: run.status
+      });
+      return { error: `workflow run is already ${run.status}` };
+    }
+
+    if (run.status === 'canceled') {
+      reply.status(200);
+      await authResult.auth.log('succeeded', {
+        reason: 'run_cancel_noop',
+        runId: run.id
+      });
+      return {
+        data: {
+          run: serializeWorkflowRun(run)
+        }
+      };
+    }
+
+    let steps: WorkflowRunStepRecord[];
+    try {
+      steps = await listWorkflowRunSteps(run.id);
+    } catch (err) {
+      request.log.error(
+        { err, runId: run.id },
+        'Failed to list workflow run steps for cancellation'
+      );
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'step_list_failed',
+        runId: run.id,
+        message: (err as Error).message ?? 'unknown'
+      });
+      return { error: 'failed to load workflow run steps' };
+    }
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const reason = parseBody.data.reason ?? 'Canceled by operator request';
+    const contextPatchSteps: Record<string, Record<string, JsonValue | null>> = {};
+    const cancelledStepIds: string[] = [];
+    const updatedSteps: WorkflowRunStepRecord[] = [];
+
+    for (const step of steps) {
+      const shouldCancel = step.status === 'running' || step.status === 'pending';
+      let nextStep: WorkflowRunStepRecord = step;
+      if (shouldCancel) {
+        const stepErrorMessage = step.errorMessage ?? reason;
+        cancelledStepIds.push(step.id);
+        try {
+          const updated = await updateWorkflowRunStep(step.id, {
+            status: 'skipped',
+            completedAt: nowIso,
+            nextAttemptAt: null,
+            retryState: 'completed',
+            retryMetadata: null,
+            retryAttempts: step.retryAttempts,
+            errorMessage: stepErrorMessage
+          });
+          if (updated) {
+            nextStep = updated;
+          }
+        } catch (err) {
+          request.log.error(
+            { err, runId: run.id, stepId: step.id },
+            'Failed to cancel workflow run step'
+          );
+          reply.status(500);
+          await authResult.auth.log('failed', {
+            reason: 'step_cancel_failed',
+            runId: run.id,
+            stepId: step.id,
+            message: (err as Error).message ?? 'unknown'
+          });
+          return { error: 'failed to cancel workflow run step' };
+        }
+
+        contextPatchSteps[nextStep.stepId] = {
+          status: 'skipped',
+          completedAt: nowIso,
+          errorMessage: stepErrorMessage ?? null,
+          resolutionError: false
+        };
+      }
+      updatedSteps.push(nextStep);
+    }
+
+    const totalSteps = updatedSteps.length;
+    const completedSteps = updatedSteps.reduce((count, step) => {
+      if (step.status === 'succeeded' || step.status === 'skipped') {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+
+    const metricsBase =
+      run.metrics && typeof run.metrics === 'object' && !Array.isArray(run.metrics)
+        ? (run.metrics as Record<string, JsonValue>)
+        : {};
+    const metrics: Record<string, JsonValue> = {
+      ...metricsBase,
+      totalSteps,
+      completedSteps,
+      cancelledSteps: cancelledStepIds.length
+    };
+
+    let durationMs = run.durationMs ?? 0;
+    if (typeof run.startedAt === 'string') {
+      const startedAtMs = Date.parse(run.startedAt);
+      if (Number.isFinite(startedAtMs)) {
+        const elapsed = Math.max(0, Math.round(now.getTime() - startedAtMs));
+        if (elapsed > durationMs) {
+          durationMs = elapsed;
+        }
+      }
+    }
+
+    const contextPatch =
+      Object.keys(contextPatchSteps).length > 0
+        ? { steps: contextPatchSteps, lastUpdatedAt: nowIso }
+        : undefined;
+
+    let updatedRun: WorkflowRunRecord | null = null;
+    try {
+      updatedRun = await updateWorkflowRun(run.id, {
+        status: 'canceled',
+        errorMessage: reason,
+        currentStepId: null,
+        currentStepIndex: null,
+        completedAt: nowIso,
+        durationMs,
+        metrics: metrics as JsonValue,
+        contextPatch
+      });
+    } catch (err) {
+      request.log.error(
+        { err, runId: run.id },
+        'Failed to update workflow run during cancellation'
+      );
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'run_cancel_failed',
+        runId: run.id,
+        message: (err as Error).message ?? 'unknown'
+      });
+      return { error: 'failed to cancel workflow run' };
+    }
+
+    if (!updatedRun) {
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'run_cancel_missing',
+        runId: run.id
+      });
+      return { error: 'failed to cancel workflow run' };
+    }
+
+    try {
+      const historyPayload = {
+        reason,
+        cancelledAt: nowIso,
+        cancelledBy: authResult.auth.identity.subject ?? null,
+        cancelledStepIds
+      } as Record<string, JsonValue>;
+      await appendWorkflowExecutionHistory({
+        workflowRunId: updatedRun.id,
+        eventType: 'run.canceled',
+        eventPayload: historyPayload
+      });
+    } catch (err) {
+      request.log.error(
+        { err, runId: updatedRun.id },
+        'Failed to append workflow run cancellation history'
+      );
+    }
+
+    reply.status(200);
+    await authResult.auth.log('succeeded', {
+      reason: 'run_cancelled',
+      runId: updatedRun.id,
+      cancelledStepCount: cancelledStepIds.length
+    });
+    return {
+      data: {
+        run: serializeWorkflowRun(updatedRun)
       }
     };
   });

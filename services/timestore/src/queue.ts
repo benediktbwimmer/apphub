@@ -6,24 +6,14 @@ import {
   type IngestionJobPayload,
   type IngestionProcessingResult
 } from './ingestion/types';
-import {
-  processIngestionJob,
-  flushDatasetStaging,
-  type DatasetFlushResult
-} from './ingestion/processor';
+import { processIngestionJob } from './ingestion/processor';
 import { metricsEnabled, updateIngestionQueueDepth } from './observability/metrics';
 
 export const TIMESTORE_INGEST_QUEUE_NAME = process.env.TIMESTORE_INGEST_QUEUE_NAME ?? 'timestore_ingest_queue';
 
 type IngestionQueuePayload = IngestionJobPayload & { __operation?: 'ingest' };
 
-export interface FlushJobPayload {
-  __operation: 'flush';
-  datasetSlug: string;
-  storageTargetId?: string | null;
-}
-
-export type QueueJobPayload = IngestionQueuePayload | FlushJobPayload;
+export type QueueJobPayload = IngestionQueuePayload;
 
 let queueInstance: Queue<QueueJobPayload> | null = null;
 let connection: Redis | null = null;
@@ -58,21 +48,17 @@ export async function enqueueIngestionJob(
     };
   }
 
-  const queue = ensureQueue();
   const jobOptions = jobPayload.idempotencyKey
     ? {
         jobId: `${jobPayload.datasetSlug}-${jobPayload.idempotencyKey.replace(/[:]/g, '-')}`
       }
     : undefined;
-  const job: Job<QueueJobPayload> = await queue.add(
-    jobPayload.datasetSlug,
-    { ...jobPayload, __operation: 'ingest' },
-    jobOptions
-  );
+  const ingestPayload: QueueJobPayload = { ...jobPayload, __operation: 'ingest' };
+  const job: Job<QueueJobPayload> = await addJobWithRetries(jobPayload.datasetSlug, ingestPayload, jobOptions);
 
   if (metricsEnabled()) {
     try {
-      const counts = await queue.getJobCounts();
+      const counts = await ensureQueue().getJobCounts();
       updateIngestionQueueDepth({
         waiting: counts.waiting,
         active: counts.active,
@@ -88,37 +74,6 @@ export async function enqueueIngestionJob(
     }
   }
 
-  return {
-    jobId: String(job.id),
-    mode: 'queued'
-  };
-}
-
-export async function enqueueFlushJob(
-  datasetSlug: string,
-  options: { storageTargetId?: string }
-): Promise<{
-  jobId: string;
-  mode: 'inline' | 'queued';
-  result?: DatasetFlushResult;
-}> {
-  if (isInlineRedis()) {
-    const result = await flushDatasetStaging(datasetSlug, {
-      storageTargetId: options.storageTargetId
-    });
-    return {
-      jobId: `inline-flush:${Date.now()}`,
-      mode: 'inline',
-      result
-    };
-  }
-
-  const queue = ensureQueue();
-  const job: Job<QueueJobPayload> = await queue.add(`flush:${datasetSlug}`, {
-    __operation: 'flush',
-    datasetSlug,
-    storageTargetId: options.storageTargetId ?? null
-  });
   return {
     jobId: String(job.id),
     mode: 'queued'
@@ -186,4 +141,70 @@ function ensureQueue(): Queue<QueueJobPayload> {
   });
 
   return queueInstance;
+}
+
+function isJobExistsError(error: unknown, jobId: string): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message ?? '';
+  return message.includes('already exists') && message.includes(jobId);
+}
+
+function isRedisConnectionError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message ?? '';
+  return message.includes('Connection is closed') || message.includes('Connection was never established');
+}
+
+async function resetQueueInstance(): Promise<void> {
+  if (queueInstance) {
+    try {
+      await queueInstance.close();
+    } catch {
+      // ignore close errors
+    }
+    queueInstance = null;
+  }
+  if (connection) {
+    try {
+      await connection.quit();
+    } catch {
+      connection.disconnect();
+    }
+    connection = null;
+  }
+}
+
+async function addJobWithRetries(
+  jobName: string,
+  payload: QueueJobPayload,
+  options: Parameters<Queue<QueueJobPayload>['add']>[2],
+  attempts = 3,
+  baseDelayMs = 200
+): Promise<Job<QueueJobPayload>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const queue = ensureQueue();
+      await queue.waitUntilReady();
+      return await queue.add(jobName, payload, options);
+    } catch (error) {
+      if (!isRedisConnectionError(error)) {
+        throw error;
+      }
+      lastError = error;
+      await resetQueueInstance();
+      if (attempt < attempts - 1) {
+        await delay(baseDelayMs * Math.pow(2, attempt));
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'Failed to enqueue job'));
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

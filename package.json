@@ -68,7 +68,6 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "duckdb": "^1.4.0",
     "parquetjs-lite": "^0.8.7"
   },
   "optionalDependencies": {

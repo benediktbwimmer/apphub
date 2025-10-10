@@ -1,0 +1,33 @@
+<clickhouse>
+  <storage_configuration>
+    <disks>
+      <local_nvme>
+        <path>/var/lib/clickhouse/disks/local_nvme/</path>
+      </local_nvme>
+      <s3_demo>
+        <type>s3</type>
+        <endpoint>http://minio:9000</endpoint>
+        <bucket>apphub-timestore</bucket>
+        <access_key_id>apphub</access_key_id>
+        <secret_access_key>apphub123</secret_access_key>
+        <region>us-east-1</region>
+        <metadata_path>/var/lib/clickhouse/disks/s3_demo/</metadata_path>
+        <cache_enabled>true</cache_enabled>
+        <cache_path>/var/lib/clickhouse/s3_cache/</cache_path>
+      </s3_demo>
+    </disks>
+    <policies>
+      <timestore_demo>
+        <volumes>
+          <hot>
+            <disk>local_nvme</disk>
+          </hot>
+          <cold>
+            <disk>s3_demo</disk>
+          </cold>
+        </volumes>
+        <move_factor>0.2</move_factor>
+      </timestore_demo>
+    </policies>
+  </storage_configuration>
+</clickhouse>

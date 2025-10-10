@@ -127,7 +127,7 @@ async function scheduleDatasets(
     const payload: LifecycleJobPayload = {
       datasetId: dataset.id,
       datasetSlug: dataset.slug,
-      operations: ['compaction', 'retention', 'parquetExport'],
+      operations: ['compaction', 'retention'],
       trigger: 'schedule',
       requestId: randomUUID(),
       requestedAt: new Date().toISOString()
@@ -161,7 +161,7 @@ async function runSingleExecution(
   const payload: LifecycleJobPayload = {
     datasetId: cli.datasetId ?? '',
     datasetSlug: cli.datasetSlug ?? '',
-    operations: cli.operations ?? ['compaction', 'retention', 'parquetExport'],
+    operations: cli.operations ?? ['compaction', 'retention'],
     trigger: 'manual',
     requestId: randomUUID(),
     requestedAt: new Date().toISOString()
@@ -228,7 +228,7 @@ function parseOperations(input?: string): LifecycleOperation[] | undefined {
     .split(',')
     .map((value) => value.trim())
     .filter((value): value is LifecycleOperation =>
-      value === 'compaction' || value === 'retention' || value === 'parquetExport'
+      value === 'compaction' || value === 'retention'
     );
 }
 

@@ -12,10 +12,10 @@ import type {
 } from '../types/partitionIndex';
 import { withConnection, withTransaction } from './client';
 
-export type StorageTargetKind = 'local' | 's3' | 'gcs' | 'azure_blob';
-export type FileFormat = 'parquet';
+export type StorageTargetKind = 'clickhouse';
+export type FileFormat = 'clickhouse';
 export type DatasetStatus = 'active' | 'inactive';
-export type WriteFormat = 'parquet';
+export type WriteFormat = 'clickhouse';
 export type ManifestStatus = 'draft' | 'published' | 'superseded';
 
 export type JsonObject = Record<string, unknown>;
@@ -390,7 +390,7 @@ export async function createDataset(input: CreateDatasetInput): Promise<DatasetR
         input.name,
         input.description ?? null,
         input.status ?? 'active',
-        input.writeFormat ?? 'parquet',
+        input.writeFormat ?? 'clickhouse',
         input.defaultStorageTargetId ?? null,
         JSON.stringify(input.metadata ?? {})
       ]

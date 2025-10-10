@@ -100,8 +100,8 @@ const triggers = [
     ],
     parameterTemplate: {
       partitionKey: '{{ event.payload.partitionKey | default: "" }}',
-      partitionWindow: '{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey | default: "" }}',
-      instrumentId: '{{ event.payload.partitionKeyFields.instrument | default: "" }}',
+      partitionWindow: '{{ event.payload.payload.partitionKeyFields.window | default: event.payload.partitionKey | default: "" }}',
+      instrumentId: '{{ event.payload.payload.partitionKeyFields.instrument | default: "" }}',
       lookbackMinutes: 720
     },
     metadata: {

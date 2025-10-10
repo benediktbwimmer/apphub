@@ -1,17 +1,21 @@
 process.env.APPHUB_ALLOW_INLINE_MODE = process.env.APPHUB_ALLOW_INLINE_MODE ?? 'true';
 process.env.REDIS_URL = process.env.REDIS_URL ?? 'inline';
-process.env.TIMESTORE_STAGING_FLUSH_MAX_ROWS = process.env.TIMESTORE_STAGING_FLUSH_MAX_ROWS ?? '1';
-process.env.TIMESTORE_STAGING_FLUSH_MAX_BYTES = process.env.TIMESTORE_STAGING_FLUSH_MAX_BYTES ?? '0';
-process.env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS = process.env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS ?? '0';
+process.env.TIMESTORE_CLICKHOUSE_HOST = process.env.TIMESTORE_CLICKHOUSE_HOST ?? 'inline';
+process.env.TIMESTORE_CLICKHOUSE_HTTP_PORT = process.env.TIMESTORE_CLICKHOUSE_HTTP_PORT ?? '8123';
+process.env.TIMESTORE_CLICKHOUSE_NATIVE_PORT = process.env.TIMESTORE_CLICKHOUSE_NATIVE_PORT ?? '9000';
+process.env.TIMESTORE_CLICKHOUSE_USER = process.env.TIMESTORE_CLICKHOUSE_USER ?? 'apphub';
+process.env.TIMESTORE_CLICKHOUSE_PASSWORD = process.env.TIMESTORE_CLICKHOUSE_PASSWORD ?? 'apphub';
+process.env.TIMESTORE_CLICKHOUSE_DATABASE = process.env.TIMESTORE_CLICKHOUSE_DATABASE ?? 'apphub';
+process.env.TIMESTORE_CLICKHOUSE_MOCK = process.env.TIMESTORE_CLICKHOUSE_MOCK ?? 'true';
 
 import { after, afterEach } from 'node:test';
-import { resetStagingWriteManager } from '../src/ingestion/stagingManager';
 import { killPort, listActiveChildProcesses } from './utils/processProbes';
 import { stopAllEmbeddedPostgres } from './utils/embeddedPostgres';
+import { resetClickHouseMockStore } from '../src/clickhouse/mockStore';
 
 afterEach(async () => {
-  await resetStagingWriteManager();
   await killPort(5432);
+  resetClickHouseMockStore();
 });
 
 after(async () => {
@@ -33,6 +37,5 @@ after(async () => {
       }
     }
   }
-  await resetStagingWriteManager();
   await stopAllEmbeddedPostgres();
 });

@@ -142,8 +142,7 @@ async function start(): Promise<void> {
       {
         host: config.host,
         port: config.port,
-        schema: POSTGRES_SCHEMA,
-        storage: config.storage
+        schema: POSTGRES_SCHEMA
       },
       'timestore service listening'
     );

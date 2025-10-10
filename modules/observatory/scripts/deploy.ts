@@ -130,7 +130,6 @@ async function prepareFilesystem(env: NodeJS.ProcessEnv): Promise<void> {
   addDir(env.OBSERVATORY_DATA_ROOT);
   addDir(env.TIMESTORE_STORAGE_ROOT);
   addDir(env.TIMESTORE_QUERY_CACHE_DIR);
-  addDir(env.TIMESTORE_STAGING_DIRECTORY);
   addDir(env.OBSERVATORY_CONFIG_OUTPUT, { treatAsFile: true });
 
   for (const dir of directories) {

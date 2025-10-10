@@ -33,6 +33,15 @@ export interface DatasetQueryResponse {
   mode: string;
   warnings?: string[];
   streaming?: Record<string, unknown> | null;
+  sources?: {
+    published: {
+      rows: number;
+      partitions: number;
+    };
+    hotBuffer: {
+      rows: number;
+    };
+  };
 }
 
 type DatasetQueryPayload =
@@ -102,23 +111,6 @@ export interface DatasetManifestPayload {
     totalRows?: number;
     partitions: DatasetManifestPartition[];
   }>;
-  staging?: {
-    totalRows: number;
-    batches: Array<{
-      batchId: string;
-      tableName: string;
-      rowCount: number;
-      timeRange: {
-        start: string;
-        end: string;
-      };
-      stagedAt: string;
-      schema: Array<{
-        name: string;
-        type: string;
-      }>;
-    }>;
-  };
 }
 
 export type DatasetFlushResponse =

@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto';
-import { EventEmitter } from 'node:events';
 import { URL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import IORedis, { type Redis } from 'ioredis';
 import {
   addRepository,
   deleteServiceNetwork,
@@ -23,6 +21,7 @@ import {
   upsertService,
   upsertServiceNetwork,
   updateRepositoryLaunchEnvTemplates,
+  upsertModuleResourceContext,
   type JsonValue,
   type LaunchEnvVar,
   type RepositoryRecord,
@@ -49,18 +48,17 @@ import {
   serviceManifestMetadataSchema,
   type ServiceMetadata
 } from './serviceMetadata';
+import {
+  publishServiceRegistryInvalidation,
+  subscribeToServiceRegistryInvalidations,
+  type ServiceRegistryInvalidationMessage
+} from './serviceRegistry/invalidationBus';
 
 const HEALTH_INTERVAL_MS = Number(process.env.SERVICE_HEALTH_INTERVAL_MS ?? 30_000);
 const HEALTH_TIMEOUT_MS = Number(process.env.SERVICE_HEALTH_TIMEOUT_MS ?? 5_000);
 const OPENAPI_REFRESH_INTERVAL_MS = Number(process.env.SERVICE_OPENAPI_REFRESH_INTERVAL_MS ?? 15 * 60_000);
 const MANIFEST_CACHE_TTL_MS = Number(process.env.SERVICE_REGISTRY_CACHE_TTL_MS ?? 5_000);
 const HEALTH_CACHE_TTL_MS = Number(process.env.SERVICE_HEALTH_CACHE_TTL_MS ?? 10_000);
-const INVALIDATION_CHANNEL = 'service-registry:invalidate';
-
-type InvalidationMessage =
-  | { kind: 'manifest'; reason: string; moduleId?: string | null }
-  | { kind: 'health'; reason: string; slug?: string | null };
-
 type ManifestEntry = LoadedManifestEntry;
 
 type ManifestMap = Map<string, ManifestEntry>;
@@ -106,34 +104,14 @@ let manifestNetworks: LoadedServiceNetwork[] = [];
 let poller: PollerController | null = null;
 let isPolling = false;
 const repositoryToServiceSlug = new Map<string, string>();
-const invalidationEmitter = new EventEmitter();
-let redisPublisher: Redis | null = null;
-let redisSubscriber: Redis | null = null;
-let redisSubscriptionActive = false;
-let redisConnectionPromise: Promise<void> | null = null;
+let unsubscribeInvalidation: (() => void) | null = null;
+
+type ModuleContext = {
+  moduleId: string;
+  moduleVersion: string | null;
+};
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1', '0.0.0.0']);
-
-function normalize(value: string | undefined): string | undefined {
-  return value ? value.trim() : undefined;
-}
-
-function isInlineRedisMode(): boolean {
-  const redisUrl = normalize(process.env.REDIS_URL);
-  if (redisUrl && redisUrl.toLowerCase() === 'inline') {
-    return true;
-  }
-  const eventsMode = normalize(process.env.APPHUB_EVENTS_MODE);
-  return Boolean(eventsMode && eventsMode.toLowerCase() === 'inline');
-}
-
-function resolveRedisUrl(): string {
-  const redisUrl = normalize(process.env.REDIS_URL);
-  if (!redisUrl || redisUrl.toLowerCase() === 'inline') {
-    return 'redis://127.0.0.1:6379';
-  }
-  return redisUrl;
-}
 
 function deepCloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -155,7 +133,21 @@ function toManifestStoreInput(entry: LoadedManifestEntry): ServiceManifestStoreI
 
 function parseStoredManifest(record: ServiceManifestStoreRecord): LoadedManifestEntry {
   const definition = deepCloneJson(record.definition) as LoadedManifestEntry;
-  return cloneLoadedManifestEntry(definition);
+  const cloned = cloneLoadedManifestEntry(definition);
+  const moduleVersion = record.moduleVersion === null || record.moduleVersion === undefined
+    ? null
+    : String(record.moduleVersion);
+  cloned.module = {
+    id: record.moduleId,
+    version: moduleVersion
+  };
+  const moduleSource = `module:${record.moduleId}`;
+  if (!Array.isArray(cloned.sources) || cloned.sources.length === 0) {
+    cloned.sources = [moduleSource];
+  } else if (!cloned.sources.some((source) => source.startsWith('module:'))) {
+    cloned.sources = [moduleSource, ...cloned.sources];
+  }
+  return cloned;
 }
 
 function buildNetworkStoreDefinition(network: LoadedServiceNetwork): {
@@ -186,104 +178,29 @@ function parseStoredNetwork(record: ServiceNetworkRecord): LoadedServiceNetwork 
   }
 }
 
-async function ensureInvalidationChannel(): Promise<void> {
-  if (redisSubscriptionActive) {
+function ensureInvalidationSubscription(): void {
+  if (unsubscribeInvalidation) {
     return;
   }
-  if (isInlineRedisMode()) {
-    if (!redisSubscriptionActive) {
-      invalidationEmitter.on('invalidate', (message: InvalidationMessage) => {
-        handleInvalidation(message, 'remote');
-      });
-      redisSubscriptionActive = true;
-    }
-    return;
-  }
-  await ensureRedisConnections();
-}
-
-async function ensureRedisConnections(): Promise<void> {
-  if (isInlineRedisMode()) {
-    redisPublisher = null;
-    redisSubscriber = null;
-    redisConnectionPromise = null;
-    return;
-  }
-  if (redisSubscriptionActive && redisPublisher && redisSubscriber) {
-    return;
-  }
-  if (redisConnectionPromise) {
-    await redisConnectionPromise;
-    return;
-  }
-  const url = resolveRedisUrl();
-  redisConnectionPromise = (async () => {
-    if (!redisPublisher) {
-      const publisher = new IORedis(url, { maxRetriesPerRequest: null });
-      publisher.on('error', (err) => {
-        console.error('[service-registry] redis publish error', err);
-      });
-      redisPublisher = publisher;
-    }
-    if (!redisSubscriber) {
-      const subscriber = new IORedis(url, { maxRetriesPerRequest: null });
-      subscriber.on('message', (_channel, payload) => {
-        try {
-          const message = JSON.parse(payload) as InvalidationMessage;
-          handleInvalidation(message, 'remote');
-        } catch (err) {
-          console.error('[service-registry] failed to parse invalidation message', err);
-        }
-      });
-      subscriber.on('error', (err) => {
-        console.error('[service-registry] redis subscribe error', err);
-      });
-      await subscriber.subscribe(INVALIDATION_CHANNEL);
-      redisSubscriber = subscriber;
-    }
-    redisSubscriptionActive = true;
-  })()
-    .catch((err) => {
-      console.error('[service-registry] failed to establish redis connections', err);
-      redisPublisher?.disconnect();
-      redisSubscriber?.disconnect();
-      redisPublisher = null;
-      redisSubscriber = null;
-      redisSubscriptionActive = false;
-    })
-    .finally(() => {
-      redisConnectionPromise = null;
-    });
-  await redisConnectionPromise;
+  unsubscribeInvalidation = subscribeToServiceRegistryInvalidations((message, source) => {
+    handleInvalidation(message, source);
+  });
 }
 
 async function broadcastInvalidation(
-  message: InvalidationMessage,
+  message: ServiceRegistryInvalidationMessage,
   options: { skipLocal?: boolean } = {}
 ): Promise<void> {
   if (!options.skipLocal) {
     handleInvalidation(message, 'local');
   }
-  if (isInlineRedisMode()) {
-    if (options.skipLocal) {
-      return;
-    }
-    setImmediate(() => {
-      invalidationEmitter.emit('invalidate', message);
-    });
-    return;
-  }
-  try {
-    await ensureRedisConnections();
-    if (redisPublisher) {
-      await redisPublisher.publish(INVALIDATION_CHANNEL, JSON.stringify(message));
-    }
-  } catch (err) {
-    console.error('[service-registry] failed to publish invalidation event', err);
-  }
+  await publishServiceRegistryInvalidation(message, { skipLocal: true });
 }
 
-function handleInvalidation(message: InvalidationMessage, source: 'local' | 'remote'): void {
+function handleInvalidation(
+  message: ServiceRegistryInvalidationMessage,
+  source: 'local' | 'remote'
+): void {
   if (message.kind === 'manifest') {
     manifestStateCache = null;
     manifestEntries = new Map();
@@ -295,12 +212,28 @@ function handleInvalidation(message: InvalidationMessage, source: 'local' | 'rem
     } else {
       healthSnapshotCache = null;
     }
+  } else if (message.kind === 'module-context') {
+    // module context invalidations are consumed by subscribers; no cache to clear yet.
   }
 
   if (source === 'remote') {
-    log('info', 'cache invalidation received', message.kind === 'manifest'
-      ? { scope: 'manifest', reason: message.reason }
-      : { scope: 'health', reason: message.reason, slug: message.slug ?? null });
+    if (message.kind === 'manifest') {
+      log('info', 'cache invalidation received', { scope: 'manifest', reason: message.reason });
+    } else if (message.kind === 'health') {
+      log('info', 'cache invalidation received', {
+        scope: 'health',
+        reason: message.reason,
+        slug: message.slug ?? null
+      });
+    } else {
+      log('info', 'cache invalidation received', {
+        scope: 'module-context',
+        moduleId: message.moduleId,
+        resourceType: message.resourceType,
+        resourceId: message.resourceId,
+        action: message.action
+      });
+    }
   }
 }
 
@@ -789,13 +722,71 @@ function cloneResolvedEnvVars(env?: ResolvedManifestEnvVar[] | null): ResolvedMa
 }
 
 function cloneLoadedManifestEntry(entry: LoadedManifestEntry): LoadedManifestEntry {
+  const moduleContext = entry.module
+    ? { id: entry.module.id, version: entry.module.version ?? null }
+    : undefined;
   return {
     ...entry,
     env: cloneResolvedEnvVars(entry.env),
     sources: Array.isArray(entry.sources) ? [...entry.sources] : [],
     tags: cloneTags(entry.tags),
-    metadata: entry.metadata ? { ...(entry.metadata as Record<string, JsonValue>) } : entry.metadata
+    metadata: entry.metadata ? { ...(entry.metadata as Record<string, JsonValue>) } : entry.metadata,
+    module: moduleContext
   };
+}
+
+function resolveModuleContextFromEntry(entry: LoadedManifestEntry): ModuleContext | null {
+  const explicitModuleId = entry.module?.id?.trim();
+  if (explicitModuleId) {
+    const explicitVersion = entry.module?.version && entry.module.version.trim()
+      ? entry.module.version.trim()
+      : null;
+    return {
+      moduleId: explicitModuleId,
+      moduleVersion: explicitVersion
+    } satisfies ModuleContext;
+  }
+  if (Array.isArray(entry.sources)) {
+    const moduleSource = entry.sources.find((source) => source.startsWith('module:'));
+    if (moduleSource) {
+      const inferredModuleId = moduleSource.slice('module:'.length).trim();
+      if (inferredModuleId) {
+        return {
+          moduleId: inferredModuleId,
+          moduleVersion: null
+        } satisfies ModuleContext;
+      }
+    }
+  }
+  return null;
+}
+
+function buildServiceModuleContextMetadata(
+  entry: LoadedManifestEntry,
+  record: ServiceRecord
+): JsonValue {
+  const metadata: Record<string, JsonValue> = {
+    sources: Array.isArray(entry.sources) ? entry.sources : [],
+    kind: entry.kind,
+    baseUrl: record.baseUrl,
+    status: record.status,
+    source: record.source,
+    baseUrlSource: entry.baseUrlSource
+  } satisfies Record<string, JsonValue>;
+
+  if (entry.tags && entry.tags.length > 0) {
+    metadata.tags = entry.tags as unknown as JsonValue;
+  }
+
+  if (entry.metadata !== undefined) {
+    metadata.manifest = entry.metadata as JsonValue;
+  }
+
+  if (entry.capabilities !== undefined) {
+    metadata.capabilities = entry.capabilities as JsonValue;
+  }
+
+  return metadata;
 }
 
 function cloneLoadedServiceNetwork(network: LoadedServiceNetwork): LoadedServiceNetwork {
@@ -820,6 +811,7 @@ function cloneLoadedServiceNetwork(network: LoadedServiceNetwork): LoadedService
 export type ManifestImportResult = {
   servicesApplied: number;
   networksApplied: number;
+  moduleVersion: string;
 };
 
 export async function importServiceManifestModule(options: {
@@ -847,7 +839,8 @@ export async function importServiceManifestModule(options: {
 
   return {
     servicesApplied: entries.size,
-    networksApplied: networks.length
+    networksApplied: networks.length,
+    moduleVersion: String(moduleVersion)
   };
 }
 
@@ -1103,6 +1096,30 @@ async function applyManifestToDatabase(entries: ManifestMap) {
       baseUrl: record.baseUrl,
       source: manifestUpdate.source ?? null
     });
+
+    const moduleContext = resolveModuleContextFromEntry(entry);
+    if (moduleContext) {
+      try {
+        await upsertModuleResourceContext({
+          moduleId: moduleContext.moduleId,
+          moduleVersion: moduleContext.moduleVersion,
+          resourceType: 'service',
+          resourceId: record.id,
+          resourceSlug: record.slug,
+          resourceName: record.displayName,
+          resourceVersion: moduleContext.moduleVersion,
+          metadata: buildServiceModuleContextMetadata(entry, record)
+        });
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        log('warn', 'failed to upsert module resource context for service', {
+          slug: record.slug,
+          moduleId: moduleContext.moduleId,
+          moduleVersion: moduleContext.moduleVersion,
+          error: errorMessage
+        });
+      }
+    }
   }
 }
 
@@ -2022,7 +2039,7 @@ export async function initializeServiceRegistry(options?: { enablePolling?: bool
   const disablePollingEnv = envFlagEnabled(process.env.APPHUB_DISABLE_SERVICE_POLLING);
   const enablePolling = options?.enablePolling ?? !disablePollingEnv;
 
-  await ensureInvalidationChannel();
+  ensureInvalidationSubscription();
   try {
     await loadManifestState({ force: true });
   } catch (err) {

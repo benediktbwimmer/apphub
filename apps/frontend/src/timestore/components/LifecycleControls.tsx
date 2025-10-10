@@ -15,11 +15,7 @@ import {
   STATUS_META
 } from '../timestoreTokens';
 
-const DEFAULT_OPERATIONS: readonly LifecycleJobSummary['operations'][number][] = [
-  'compaction',
-  'retention',
-  'parquetExport'
-];
+const DEFAULT_OPERATIONS: readonly LifecycleJobSummary['operations'][number][] = ['compaction', 'retention'];
 
 type LifecycleOperation = (typeof DEFAULT_OPERATIONS)[number];
 

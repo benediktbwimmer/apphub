@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from '../../../tests/helpers';
 import type { FastifyBaseLogger } from 'fastify';
 import { runE2E } from '../../../tests/helpers';
 
@@ -16,7 +16,7 @@ runE2E(async ({ registerCleanup }) => {
   });
 
   const port = 59000 + Math.floor(Math.random() * 1000);
-  const postgres = new EmbeddedPostgres({
+  const postgres = createEmbeddedPostgres({
     databaseDir: dataDir,
     port,
     user: 'postgres',
@@ -28,7 +28,7 @@ runE2E(async ({ registerCleanup }) => {
   await postgres.start();
   await postgres.createDatabase('apphub');
   registerCleanup(async () => {
-    await postgres.stop();
+    await stopEmbeddedPostgres(postgres);
   });
 
   const schemaSuffix = randomUUID().slice(0, 8);

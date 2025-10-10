@@ -5,9 +5,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
-import EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres, runE2E } from '@apphub/test-helpers';
+import type EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
-import { runE2E } from '@apphub/test-helpers';
 
 type CoreDbModule = typeof import('../src/db');
 
@@ -56,7 +56,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'apphub-workflow-graph-pg-'));
   const port = await findAvailablePort();
 
-  const postgres = new EmbeddedPostgres({
+  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -73,7 +73,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
 
   embeddedCleanup = async () => {
     try {
-      await postgres.stop();
+    await stopEmbeddedPostgres(postgres);
     } finally {
       await rm(dataRoot, { recursive: true, force: true });
     }

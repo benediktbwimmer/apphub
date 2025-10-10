@@ -66,5 +66,34 @@ export const $DatasetQueryResponse = {
       },
       isNullable: true,
     },
+    sources: {
+      properties: {
+        published: {
+          properties: {
+            rows: {
+              type: 'number',
+              description: `Number of rows returned from published partitions.`,
+              isRequired: true,
+            },
+            partitions: {
+              type: 'number',
+              description: `Total published partitions inspected for this query.`,
+              isRequired: true,
+            },
+          },
+          isRequired: true,
+        },
+        hotBuffer: {
+          properties: {
+            rows: {
+              type: 'number',
+              description: `Number of rows returned from the streaming hot buffer.`,
+              isRequired: true,
+            },
+          },
+          isRequired: true,
+        },
+      },
+    },
   },
 } as const;

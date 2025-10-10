@@ -1,26 +1,19 @@
-import { loadDuckDb, isCloseable } from '@apphub/shared';
-import { randomUUID } from 'node:crypto';
-import { mkdir, access } from 'node:fs/promises';
-import path from 'node:path';
+import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
+import { getClickHouseClient } from '../clickhouse/client';
 import {
-  loadServiceConfig,
-  type QueryExecutionBackendConfig,
-  type ServiceConfig
-} from '../config/serviceConfig';
-import { getStagingWriteManager } from '../ingestion/stagingManager';
-import { isDuckDbCorruptionError } from '../storage/spoolManager';
-import type { QueryPlan, QueryPlanPartition } from './planner';
-import type { StorageTargetRecord } from '../db/metadata';
+  deriveTableName as deriveClickHouseTableName,
+  quoteIdentifier as quoteClickHouseIdent,
+  escapeStringLiteral as escapeClickHouseString,
+  toDateTime64Literal
+} from '../clickhouse/util';
 import {
-  resolveGcsDriverOptions,
-  resolveAzureDriverOptions,
-  resolveAzureBlobHost,
-  TIMESTORE_DEBUG_ENABLED,
-  type ResolvedGcsOptions,
-  type ResolvedAzureOptions,
-  type FieldDefinition,
-  type FieldType
-} from '../storage';
+  getMockTableRows,
+  isClickHouseMockEnabled
+} from '../clickhouse/mockStore';
+import { getStreamingHotBufferStatus } from '../streaming/hotBuffer';
+import { HotBufferRowSource, type RowSourceResult } from './rowSources';
+import { recordUnifiedRowSourceRows, recordUnifiedRowSourceWarning } from '../observability/metrics';
+import type { QueryPlan, DownsampleAggregationPlan, DownsamplePlan } from './planner';
 import type {
   ColumnPredicate,
   BooleanColumnPredicate,
@@ -28,42 +21,9 @@ import type {
   StringPartitionKeyPredicate,
   TimestampPartitionKeyPredicate
 } from '../types/partitionFilters';
-import { assessPartitionAccessError } from './partitionDiagnostics';
-import { queryStreamingHotBuffer, getStreamingHotBufferStatus } from '../streaming/hotBuffer';
 
 interface QueryResultRow {
   [key: string]: unknown;
-}
-
-const DEFAULT_MAX_EXPRESSION_DEPTH = 10_000;
-const STAGING_SCHEMA = 'staging';
-const STAGING_METADATA_TABLE = '__ingestion_batches';
-const STAGING_BATCH_ID_COLUMN = '__batch_id';
-
-export async function applyDefaultDuckDbSettings(
-  connection: any,
-  config: ServiceConfig
-): Promise<void> {
-  const configuredDepth = config.sql?.maxExpressionDepth ?? DEFAULT_MAX_EXPRESSION_DEPTH;
-  const normalizedDepth = Number.isFinite(configuredDepth) && configuredDepth > 0
-    ? Math.floor(configuredDepth)
-    : DEFAULT_MAX_EXPRESSION_DEPTH;
-
-  if (normalizedDepth <= 0) {
-    return;
-  }
-
-  await run(connection, `SET max_expression_depth=${normalizedDepth}`);
-}
-
-interface S3RuntimeOptions {
-  bucket?: string;
-  endpoint?: string;
-  region?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  sessionToken?: string;
-  forcePathStyle?: boolean;
 }
 
 export interface QueryExecutionResult {
@@ -72,6 +32,7 @@ export interface QueryExecutionResult {
   mode: 'raw' | 'downsampled';
   warnings: string[];
   streaming?: QueryStreamingMetadata;
+  sources?: QueryRowSourceBreakdown;
 }
 
 export interface QueryStreamingMetadata {
@@ -83,108 +44,845 @@ export interface QueryStreamingMetadata {
   fresh: boolean;
 }
 
+export interface QueryRowSourceBreakdown {
+  published: {
+    rows: number;
+    partitions: number;
+  };
+  hotBuffer: {
+    rows: number;
+  };
+}
+
+interface HotBufferMetadata {
+  bufferState: 'disabled' | 'ready' | 'unavailable';
+  watermark: string | null;
+  latestTimestamp: string | null;
+}
+
 export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
-  const { backend } = plan.execution;
-  let baseResult: QueryExecutionResult;
-  switch (backend.kind) {
-    case 'duckdb_local':
-      baseResult = await executeDuckDbPlan(plan);
-      break;
-    case 'duckdb_cluster':
-      baseResult = await executeClusteredDuckDbPlan(plan, backend);
-      break;
-    default:
-      throw new Error(`Unsupported query execution backend: ${backend.kind}`);
+  const config = loadServiceConfig();
+  if (plan.execution.backend.kind !== 'clickhouse') {
+    throw new Error(`Unsupported query execution backend: ${plan.execution.backend.kind}`);
   }
-  return applyStreamingOverlay(plan, baseResult);
+
+  const baseResult = await executeClickHousePlan(plan, config);
+
+  if (plan.mode !== 'raw') {
+    return baseResult;
+  }
+
+  return mergeHotBufferRows(plan, baseResult, config);
 }
 
-async function executeClusteredDuckDbPlan(
+async function executeClickHousePlan(
   plan: QueryPlan,
-  backend: QueryExecutionBackendConfig
+  config: ServiceConfig
 ): Promise<QueryExecutionResult> {
-  const fanout = Math.max(backend.maxPartitionFanout ?? 32, 1);
-  if (plan.partitions.length <= fanout || plan.mode === 'downsampled') {
-    return executeDuckDbPlan(plan);
+  if (isClickHouseMockEnabled(config.clickhouse)) {
+    return plan.mode === 'downsampled'
+      ? executeMockClickHouseDownsamplePlan(plan)
+      : executeMockClickHouseRawPlan(plan);
   }
-
-  const partitionGroups = chunkPartitions(plan.partitions, fanout);
-  const results: QueryExecutionResult[] = new Array(partitionGroups.length);
-  const concurrency = Math.max(backend.maxWorkerConcurrency ?? 2, 1);
-
-  let cursor = 0;
-  async function processNext(): Promise<void> {
-    const groupIndex = cursor++;
-    if (groupIndex >= partitionGroups.length) {
-      return;
-    }
-    const group = partitionGroups[groupIndex]!;
-    const partialPlan: QueryPlan = {
-      ...plan,
-      partitions: group
-    };
-    results[groupIndex] = await executeDuckDbPlan(partialPlan);
-    await processNext();
-  }
-
-  const workers = Array.from({ length: Math.min(concurrency, partitionGroups.length) }, () => processNext());
-  await Promise.all(workers);
-
-  return mergeClusterResults(results, plan);
+  const result = plan.mode === 'downsampled'
+    ? await executeClickHouseDownsamplePlan(plan, config)
+    : await executeClickHouseRawPlan(plan, config);
+  return {
+    ...result,
+    warnings: dedupeWarnings(result.warnings ?? [])
+  };
 }
 
-function chunkPartitions(partitions: QueryPlanPartition[], size: number): QueryPlanPartition[][] {
-  const groups: QueryPlanPartition[][] = [];
-  for (let index = 0; index < partitions.length; index += size) {
-    groups.push(partitions.slice(index, index + size));
-  }
-  return groups;
-}
+async function executeClickHouseRawPlan(
+  plan: QueryPlan,
+  config: ServiceConfig
+): Promise<QueryExecutionResult> {
+  const client = getClickHouseClient(config.clickhouse);
+  const warnings: string[] = [];
 
-function mergeClusterResults(results: QueryExecutionResult[], plan: QueryPlan): QueryExecutionResult {
-  if (results.length === 0) {
-    return {
-      rows: [],
-      columns: deriveColumns(plan, plan.mode),
-      mode: plan.mode,
-      warnings: []
-    };
-  }
+  const queryColumns = resolveClickHouseQueryColumns(plan);
+  const selectClause = queryColumns.map((column) => quoteClickHouseIdent(column)).join(', ');
+  const timestampIdentifier = quoteClickHouseIdent(plan.timestampColumn);
 
-  if (plan.mode === 'downsampled') {
-    return {
-      ...results[0],
-      warnings: dedupeWarnings(results.flatMap((result) => result.warnings ?? []))
-    };
-  }
+  const conditions: string[] = [
+    `${quoteClickHouseIdent('__dataset_slug')} = '${escapeClickHouseString(plan.datasetSlug)}'`,
+    `${timestampIdentifier} >= ${toDateTime64Literal(plan.rangeStart.toISOString())}`,
+    `${timestampIdentifier} <= ${toDateTime64Literal(plan.rangeEnd.toISOString())}`
+  ];
 
-  const timestampColumn = plan.timestampColumn;
-  const aggregatedRows = results.flatMap((result) => result.rows);
-  aggregatedRows.sort((a, b) => {
-    const left = a[timestampColumn];
-    const right = b[timestampColumn];
-    if (typeof left === 'string' && typeof right === 'string') {
-      return left.localeCompare(right);
+  if (plan.columnFilters && Object.keys(plan.columnFilters).length > 0) {
+    const filterClause = buildClickHouseColumnFilterClause(plan.columnFilters);
+    if (filterClause) {
+      conditions.push(filterClause);
     }
-    return 0;
+  }
+
+  const whereClause = conditions.join(' AND ');
+  const tables = resolveClickHouseTables(plan);
+  const rows: Record<string, unknown>[] = [];
+
+  for (const tableName of tables) {
+    const tableIdentifier = `${quoteClickHouseIdent(config.clickhouse.database)}.${quoteClickHouseIdent(
+      deriveClickHouseTableName(plan.datasetSlug, tableName)
+    )}`;
+    const query = `SELECT ${selectClause}
+      FROM ${tableIdentifier}
+      WHERE ${whereClause}
+      ORDER BY ${timestampIdentifier} ASC`;
+    try {
+      const result = await client.query({
+        query,
+        format: 'JSONEachRow'
+      });
+      const tableRows = await result.json<Record<string, unknown>>();
+      if (tableRows.length > 0) {
+        rows.push(...tableRows);
+      }
+    } catch (error) {
+      console.warn('[timestore] clickhouse query failed', {
+        datasetSlug: plan.datasetSlug,
+        tableName,
+        error: error instanceof Error ? error.message : error
+      });
+      warnings.push(`Failed to read ClickHouse table '${tableName}'.`);
+    }
+  }
+
+  const normalizedRows = normalizeRows(rows).map((row) => {
+    const projected: Record<string, unknown> = {};
+    for (const column of queryColumns) {
+      if (Object.prototype.hasOwnProperty.call(row, column)) {
+        projected[column] = row[column];
+      }
+    }
+    return projected;
   });
 
-  const limitedRows = plan.limit ? aggregatedRows.slice(0, plan.limit) : aggregatedRows;
-  const columns = results[0]?.columns ?? deriveColumns(plan, 'raw');
+  const finalizedRows = finalizeRows(plan, normalizedRows);
+  const columns = deriveColumns(plan);
+
   return {
-    rows: limitedRows,
+    rows: finalizedRows,
     columns,
     mode: 'raw',
-    warnings: dedupeWarnings(results.flatMap((result) => result.warnings ?? []))
-  } satisfies QueryExecutionResult;
+    warnings: dedupeWarnings(warnings)
+  };
 }
 
-function applyStreamingOverlay(plan: QueryPlan, baseResult: QueryExecutionResult): QueryExecutionResult {
-  const config = loadServiceConfig();
+async function executeClickHouseDownsamplePlan(
+  plan: QueryPlan,
+  config: ServiceConfig
+): Promise<QueryExecutionResult> {
+  const downsample = plan.downsample;
+  if (!downsample) {
+    throw new Error('Downsample plan missing for downsampled query.');
+  }
+  const client = getClickHouseClient(config.clickhouse);
+  const warnings: string[] = [];
+  const timestampIdentifier = quoteClickHouseIdent(plan.timestampColumn);
+  const dimensionColumns = resolveDownsampleDimensionColumns(plan);
+  const bucketExpression = buildDownsampleBucketExpression(plan);
+
+  const conditions: string[] = [
+    `${quoteClickHouseIdent('__dataset_slug')} = '${escapeClickHouseString(plan.datasetSlug)}'`,
+    `${timestampIdentifier} >= ${toDateTime64Literal(plan.rangeStart.toISOString())}`,
+    `${timestampIdentifier} <= ${toDateTime64Literal(plan.rangeEnd.toISOString())}`
+  ];
+
+  if (plan.columnFilters && Object.keys(plan.columnFilters).length > 0) {
+    const filterClause = buildClickHouseColumnFilterClause(plan.columnFilters);
+    if (filterClause) {
+      conditions.push(filterClause);
+    }
+  }
+
+  const whereClause = conditions.join(' AND ');
+  const tables = resolveClickHouseTables(plan);
+  const sourceColumns = buildDownsampleSourceColumns(plan, dimensionColumns);
+  const sourceSelectClause = sourceColumns.map((column) => quoteClickHouseIdent(column)).join(', ');
+
+  const sourceQueries = tables.map((tableName) => {
+    const tableIdentifier = `${quoteClickHouseIdent(config.clickhouse.database)}.${quoteClickHouseIdent(
+      deriveClickHouseTableName(plan.datasetSlug, tableName)
+    )}`;
+    return `SELECT ${sourceSelectClause}
+      FROM ${tableIdentifier}
+      WHERE ${whereClause}`;
+  });
+
+  const unionSource = sourceQueries
+    .map((query) => `(${query})`)
+    .join('\n      UNION ALL\n      ');
+
+  const aggregationSelects = downsample.aggregations.map(
+    (aggregation) => `${aggregation.expression} AS ${quoteClickHouseIdent(aggregation.alias)}`
+  );
+
+  const selectClauseParts = [
+    `${bucketExpression} AS ${timestampIdentifier}`,
+    ...dimensionColumns.map((column) => quoteClickHouseIdent(column)),
+    ...aggregationSelects
+  ];
+
+  const selectClause = selectClauseParts.join(', ');
+  const groupByParts = [
+    timestampIdentifier,
+    ...dimensionColumns.map((column) => quoteClickHouseIdent(column))
+  ];
+  const groupByClause = groupByParts.join(', ');
+
+  const orderByClause = [
+    `${timestampIdentifier} ASC`,
+    ...dimensionColumns.map((column) => `${quoteClickHouseIdent(column)} ASC`)
+  ].join(', ');
+
+  let query = `SELECT ${selectClause}
+    FROM (
+      ${unionSource}
+    ) AS source
+    GROUP BY ${groupByClause}
+    ORDER BY ${orderByClause}`;
+
+  if (plan.limit && plan.limit > 0) {
+    query += `\n    LIMIT ${plan.limit}`;
+  }
+
+  let rows: Record<string, unknown>[] = [];
+  try {
+    const result = await client.query({
+      query,
+      format: 'JSONEachRow'
+    });
+    rows = await result.json<Record<string, unknown>>();
+  } catch (error) {
+    console.warn('[timestore] clickhouse downsample query failed', {
+      datasetSlug: plan.datasetSlug,
+      tables,
+      error: error instanceof Error ? error.message : error
+    });
+    throw error;
+  }
+
+  const normalizedRows = finalizeRows(plan, normalizeRows(rows));
+  const columns = deriveColumns(plan);
+
+  return {
+    rows: normalizedRows,
+    columns,
+    mode: 'downsampled',
+    warnings
+  };
+}
+
+function executeMockClickHouseRawPlan(plan: QueryPlan): QueryExecutionResult {
+  const queryColumns = resolveClickHouseQueryColumns(plan);
+  const rows = collectMockTableRows(plan);
+
+  const normalizedRows = rows
+    .sort((left, right) => compareRowsByTimestamp(left, right, plan.timestampColumn))
+    .map((row) => {
+      const projected: Record<string, unknown> = {};
+      for (const column of queryColumns) {
+        if (Object.prototype.hasOwnProperty.call(row, column)) {
+          projected[column] = row[column];
+        }
+      }
+      return projected;
+    });
+
+  const finalizedRows = finalizeRows(plan, normalizedRows);
+  const columns = deriveColumns(plan);
+
+  return {
+    rows: finalizedRows,
+    columns,
+    mode: 'raw',
+    warnings: []
+  };
+}
+
+function executeMockClickHouseDownsamplePlan(plan: QueryPlan): QueryExecutionResult {
+  const downsample = plan.downsample;
+  if (!downsample) {
+    throw new Error('Downsample plan missing for downsampled query.');
+  }
+  const rows = collectMockTableRows(plan);
+  const dimensionColumns = resolveDownsampleDimensionColumns(plan);
+  const bucketStates = aggregateMockRows(plan, rows, dimensionColumns);
+  const finalizedRows = finalizeMockDownsampleRows(plan, bucketStates, dimensionColumns);
+  const columns = deriveColumns(plan);
+
+  return {
+    rows: finalizedRows,
+    columns,
+    mode: 'downsampled',
+    warnings: []
+  };
+}
+
+function collectMockTableRows(plan: QueryPlan): Record<string, unknown>[] {
+  const tables = resolveClickHouseTables(plan);
+  const rows: Record<string, unknown>[] = [];
+
+  for (const tableName of tables) {
+    const tableRows = getMockTableRows({
+      datasetSlug: plan.datasetSlug,
+      tableName
+    });
+    if (tableRows.length === 0) {
+      continue;
+    }
+    for (const row of tableRows) {
+      if (!isTimestampWithinRange(row, plan.timestampColumn, plan.rangeStart, plan.rangeEnd)) {
+        continue;
+      }
+      if (!matchesColumnFilters(row, plan.columnFilters ?? {})) {
+        continue;
+      }
+      rows.push(row);
+    }
+  }
+
+  return rows;
+}
+
+interface DownsampleBucketState {
+  bucketMs: number;
+  dimensions: Record<string, unknown>;
+  aggregations: Record<string, AggregationAccumulator>;
+}
+
+interface AggregationAccumulator {
+  fn: DownsampleAggregationPlan['fn'];
+  column?: string;
+  percentile?: number;
+  numericSum?: number;
+  numericCount?: number;
+  min?: number;
+  max?: number;
+  values?: number[];
+  distinct?: Set<string>;
+  totalCount?: number;
+  nonNullCount?: number;
+}
+
+function aggregateMockRows(
+  plan: QueryPlan,
+  rows: Record<string, unknown>[],
+  dimensionColumns: string[]
+): DownsampleBucketState[] {
+  const downsample = plan.downsample;
+  if (!downsample) {
+    return [];
+  }
+  const buckets = new Map<string, DownsampleBucketState>();
+
+  for (const row of rows) {
+    const timestamp = toTimestampMs(row[plan.timestampColumn]);
+    if (timestamp === null) {
+      continue;
+    }
+    const bucketMs = floorTimestampToInterval(timestamp, downsample.intervalSize, downsample.intervalUnit);
+    const dimensionKeyValues = dimensionColumns.map((column) => serializeDistinctValue(row[column]));
+    const bucketKey = JSON.stringify([bucketMs, ...dimensionKeyValues]);
+
+    let state = buckets.get(bucketKey);
+    if (!state) {
+      const dimensions: Record<string, unknown> = {};
+      for (const column of dimensionColumns) {
+        dimensions[column] = Object.prototype.hasOwnProperty.call(row, column) ? row[column] : null;
+      }
+      state = {
+        bucketMs,
+        dimensions,
+        aggregations: initializeAggregationAccumulators(downsample.aggregations)
+      };
+      buckets.set(bucketKey, state);
+    }
+
+    updateAggregationAccumulators(state.aggregations, downsample.aggregations, row);
+  }
+
+  return Array.from(buckets.values());
+}
+
+function initializeAggregationAccumulators(
+  aggregations: DownsampleAggregationPlan[]
+): Record<string, AggregationAccumulator> {
+  const result: Record<string, AggregationAccumulator> = {};
+  for (const aggregation of aggregations) {
+    result[aggregation.alias] = {
+      fn: aggregation.fn,
+      column: aggregation.column ?? undefined,
+      percentile: aggregation.percentile,
+      distinct: aggregation.fn === 'count_distinct' ? new Set<string>() : undefined,
+      values: aggregation.fn === 'median' || aggregation.fn === 'percentile' ? [] : undefined,
+      numericSum: 0,
+      numericCount: 0,
+      totalCount: 0,
+      nonNullCount: 0
+    };
+  }
+  return result;
+}
+
+function updateAggregationAccumulators(
+  accumulators: Record<string, AggregationAccumulator>,
+  aggregations: DownsampleAggregationPlan[],
+  row: Record<string, unknown>
+): void {
+  for (const aggregation of aggregations) {
+    const accumulator = accumulators[aggregation.alias];
+    if (!accumulator) {
+      continue;
+    }
+    const value = aggregation.column ? row[aggregation.column] : undefined;
+    switch (aggregation.fn) {
+      case 'avg':
+      case 'sum': {
+        const numeric = coerceNumber(value);
+        if (numeric !== null) {
+          accumulator.numericSum = (accumulator.numericSum ?? 0) + numeric;
+          accumulator.numericCount = (accumulator.numericCount ?? 0) + 1;
+        }
+        break;
+      }
+      case 'min': {
+        const numeric = coerceNumber(value);
+        if (numeric !== null) {
+          accumulator.min = accumulator.min === undefined ? numeric : Math.min(accumulator.min, numeric);
+        }
+        break;
+      }
+      case 'max': {
+        const numeric = coerceNumber(value);
+        if (numeric !== null) {
+          accumulator.max = accumulator.max === undefined ? numeric : Math.max(accumulator.max, numeric);
+        }
+        break;
+      }
+      case 'median':
+      case 'percentile': {
+        const numeric = coerceNumber(value);
+        if (numeric !== null) {
+          accumulator.values = accumulator.values ?? [];
+          accumulator.values.push(numeric);
+        }
+        break;
+      }
+      case 'count': {
+        accumulator.totalCount = (accumulator.totalCount ?? 0) + 1;
+        if (aggregation.column) {
+          if (value !== null && value !== undefined) {
+            accumulator.nonNullCount = (accumulator.nonNullCount ?? 0) + 1;
+          }
+        }
+        break;
+      }
+      case 'count_distinct': {
+        if (value !== null && value !== undefined) {
+          const distinctValue = serializeDistinctValue(value);
+          accumulator.distinct?.add(distinctValue);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+}
+
+function finalizeMockDownsampleRows(
+  plan: QueryPlan,
+  bucketStates: DownsampleBucketState[],
+  dimensionColumns: string[]
+): Record<string, unknown>[] {
+  const downsample = plan.downsample;
+  if (!downsample) {
+    return [];
+  }
+  const rows: Record<string, unknown>[] = [];
+
+  for (const state of bucketStates) {
+    const row: Record<string, unknown> = {};
+    row[plan.timestampColumn] = formatClickHouseTimestamp(state.bucketMs);
+    for (const column of dimensionColumns) {
+      row[column] = state.dimensions[column] ?? null;
+    }
+    for (const aggregation of downsample.aggregations) {
+      const accumulator = state.aggregations[aggregation.alias];
+      row[aggregation.alias] = computeAggregationValue(accumulator, aggregation);
+    }
+    rows.push(row);
+  }
+
+  rows.sort((left, right) => compareRowsByTimestamp(left, right, plan.timestampColumn));
+  if (plan.limit && plan.limit > 0 && rows.length > plan.limit) {
+    return rows.slice(0, plan.limit);
+  }
+  return rows;
+}
+
+function computeAggregationValue(
+  accumulator: AggregationAccumulator | undefined,
+  aggregation: DownsampleAggregationPlan
+): unknown {
+  if (!accumulator) {
+    return null;
+  }
+  switch (aggregation.fn) {
+    case 'avg': {
+      const sum = accumulator.numericSum ?? 0;
+      const count = accumulator.numericCount ?? 0;
+      if (count === 0) {
+        return null;
+      }
+      return sum / count;
+    }
+    case 'sum':
+      return accumulator.numericSum ?? 0;
+    case 'min':
+      return accumulator.min ?? null;
+    case 'max':
+      return accumulator.max ?? null;
+    case 'median': {
+      const values = accumulator.values ?? [];
+      if (values.length === 0) {
+        return null;
+      }
+      values.sort((a, b) => a - b);
+      const mid = Math.floor(values.length / 2);
+      if (values.length % 2 === 0) {
+        return (values[mid - 1] + values[mid]) / 2;
+      }
+      return values[mid];
+    }
+    case 'percentile': {
+      const values = accumulator.values ?? [];
+      if (values.length === 0) {
+        return null;
+      }
+      values.sort((a, b) => a - b);
+      const p = typeof aggregation.percentile === 'number' ? aggregation.percentile : 0;
+      const index = Math.min(values.length - 1, Math.max(0, Math.floor(p * (values.length - 1))));
+      return values[index];
+    }
+    case 'count':
+      return aggregation.column ? accumulator.nonNullCount ?? 0 : accumulator.totalCount ?? 0;
+    case 'count_distinct':
+      return accumulator.distinct ? accumulator.distinct.size : 0;
+    default:
+      return null;
+  }
+}
+
+function serializeDistinctValue(value: unknown): string {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return JSON.stringify(value);
+  }
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+  return JSON.stringify(value);
+}
+
+function floorTimestampToInterval(
+  timestampMs: number,
+  size: number,
+  unit: DownsamplePlan['intervalUnit']
+): number {
+  const SECOND_MS = 1_000;
+  const MINUTE_MS = 60 * SECOND_MS;
+  const HOUR_MS = 60 * MINUTE_MS;
+  const DAY_MS = 24 * HOUR_MS;
+
+  switch (unit) {
+    case 'second': {
+      const interval = size * SECOND_MS;
+      return Math.floor(timestampMs / interval) * interval;
+    }
+    case 'minute': {
+      const interval = size * MINUTE_MS;
+      return Math.floor(timestampMs / interval) * interval;
+    }
+    case 'hour': {
+      const interval = size * HOUR_MS;
+      return Math.floor(timestampMs / interval) * interval;
+    }
+    case 'day': {
+      const interval = size * DAY_MS;
+      return Math.floor(timestampMs / interval) * interval;
+    }
+    case 'week': {
+      const interval = size * 7 * DAY_MS;
+      const base = Date.UTC(1970, 0, 5); // Monday, aligns with ClickHouse
+      const offset = timestampMs - base;
+      const bucketIndex = Math.floor(offset / interval);
+      return base + bucketIndex * interval;
+    }
+    case 'month': {
+      const date = new Date(timestampMs);
+      const totalMonths = date.getUTCFullYear() * 12 + date.getUTCMonth();
+      const bucketMonths = Math.floor(totalMonths / size) * size;
+      const year = Math.floor(bucketMonths / 12);
+      const month = bucketMonths % 12;
+      return Date.UTC(year, month, 1, 0, 0, 0, 0);
+    }
+    default:
+      return timestampMs;
+  }
+}
+
+function formatClickHouseTimestamp(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  const pad = (value: number, length: number) => value.toString().padStart(length, '0');
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1, 2)}-${pad(date.getUTCDate(), 2)} ${pad(
+    date.getUTCHours(),
+    2
+  )}:${pad(date.getUTCMinutes(), 2)}:${pad(date.getUTCSeconds(), 2)}.${pad(date.getUTCMilliseconds(), 3)}`;
+}
+
+function isTimestampWithinRange(
+  row: Record<string, unknown>,
+  column: string,
+  start: Date,
+  end: Date
+): boolean {
+  const value = toTimestampMs(row[column]);
+  if (value === null) {
+    return false;
+  }
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  return value >= startMs && value <= endMs;
+}
+
+function matchesColumnFilters(
+  row: Record<string, unknown>,
+  filters: Record<string, ColumnPredicate>
+): boolean {
+  const entries = Object.entries(filters);
+  if (entries.length === 0) {
+    return true;
+  }
+  for (const [column, predicate] of entries) {
+    if (!matchesColumnPredicate(row[column], predicate)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function matchesColumnPredicate(
+  value: unknown,
+  predicate: ColumnPredicate
+): boolean {
+  switch (predicate.type) {
+    case 'string':
+      return matchesStringPredicate(value, predicate);
+    case 'number':
+      return matchesNumberPredicate(value, predicate);
+    case 'timestamp':
+      return matchesTimestampPredicate(value, predicate);
+    case 'boolean':
+      return matchesBooleanPredicate(value, predicate);
+    default:
+      return false;
+  }
+}
+
+function matchesStringPredicate(
+  value: unknown,
+  predicate: StringPartitionKeyPredicate
+): boolean {
+  const text = coerceString(value);
+  if (text === null) {
+    return false;
+  }
+  if (predicate.eq !== undefined && text !== predicate.eq) {
+    return false;
+  }
+  if (predicate.in && !predicate.in.includes(text)) {
+    return false;
+  }
+  if (predicate.gt !== undefined && text <= predicate.gt) {
+    return false;
+  }
+  if (predicate.gte !== undefined && text < predicate.gte) {
+    return false;
+  }
+  if (predicate.lt !== undefined && text >= predicate.lt) {
+    return false;
+  }
+  if (predicate.lte !== undefined && text > predicate.lte) {
+    return false;
+  }
+  return true;
+}
+
+function matchesNumberPredicate(
+  value: unknown,
+  predicate: NumberPartitionKeyPredicate
+): boolean {
+  const numeric = coerceNumber(value);
+  if (numeric === null) {
+    return false;
+  }
+  if (predicate.eq !== undefined && numeric !== predicate.eq) {
+    return false;
+  }
+  if (predicate.in && !predicate.in.includes(numeric)) {
+    return false;
+  }
+  if (predicate.gt !== undefined && numeric <= predicate.gt) {
+    return false;
+  }
+  if (predicate.gte !== undefined && numeric < predicate.gte) {
+    return false;
+  }
+  if (predicate.lt !== undefined && numeric >= predicate.lt) {
+    return false;
+  }
+  if (predicate.lte !== undefined && numeric > predicate.lte) {
+    return false;
+  }
+  return true;
+}
+
+function matchesTimestampPredicate(
+  value: unknown,
+  predicate: TimestampPartitionKeyPredicate
+): boolean {
+  const millis = toTimestampMs(value);
+  if (millis === null) {
+    return false;
+  }
+
+  const compare = (input: string | undefined, comparator: (left: number, right: number) => boolean) => {
+    if (!input) {
+      return true;
+    }
+    const parsed = Date.parse(input);
+    if (Number.isNaN(parsed)) {
+      return false;
+    }
+    return comparator(millis, parsed);
+  };
+
+  if (predicate.eq !== undefined && !compare(predicate.eq, (left, right) => left === right)) {
+    return false;
+  }
+  if (predicate.in && !predicate.in.some((candidate) => compare(candidate, (left, right) => left === right))) {
+    return false;
+  }
+  if (!compare(predicate.gt, (left, right) => left > right)) {
+    return false;
+  }
+  if (!compare(predicate.gte, (left, right) => left >= right)) {
+    return false;
+  }
+  if (!compare(predicate.lt, (left, right) => left < right)) {
+    return false;
+  }
+  if (!compare(predicate.lte, (left, right) => left <= right)) {
+    return false;
+  }
+  return true;
+}
+
+function matchesBooleanPredicate(
+  value: unknown,
+  predicate: BooleanColumnPredicate
+): boolean {
+  const bool = coerceBoolean(value);
+  if (bool === null) {
+    return false;
+  }
+  if (predicate.eq !== undefined && bool !== predicate.eq) {
+    return false;
+  }
+  if (predicate.in && !predicate.in.includes(bool)) {
+    return false;
+  }
+  return true;
+}
+
+function coerceString(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value.toString();
+  }
+  return null;
+}
+
+function coerceNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function coerceBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) {
+      return null;
+    }
+    return value !== 0;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y'].includes(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'no', 'n'].includes(normalized)) {
+      return false;
+    }
+  }
+  return null;
+}
+
+async function mergeHotBufferRows(
+  plan: QueryPlan,
+  baseResult: QueryExecutionResult,
+  config: ServiceConfig
+): Promise<QueryExecutionResult> {
+  const warnings = [...(baseResult.warnings ?? [])];
+  const publishedRows = baseResult.rows.length;
+  const publishedRowSet = new Set(baseResult.rows);
+  if (publishedRows > 0) {
+    recordUnifiedRowSourceRows(plan.datasetSlug, 'published', 'query', publishedRows);
+  }
+
+  const rowSourceOptions = {
+    dataset: plan.dataset,
+    timestampColumn: plan.timestampColumn,
+    rangeStart: plan.rangeStart,
+    rangeEnd: plan.rangeEnd,
+    limit: plan.limit,
+    columns: plan.columns,
+    config
+  };
+
+  const combinedRows: Record<string, unknown>[] = [...baseResult.rows];
+  let streamingRows: Record<string, unknown>[] = [];
+
   const streamingEnabled = config.features.streaming.enabled && config.streaming.hotBuffer.enabled;
   const status = getStreamingHotBufferStatus();
-  const warnings = [...baseResult.warnings];
-
   const streamingMetadata: QueryStreamingMetadata = {
     enabled: streamingEnabled,
     bufferState: streamingEnabled ? status.state : 'disabled',
@@ -192,84 +890,121 @@ function applyStreamingOverlay(plan: QueryPlan, baseResult: QueryExecutionResult
     watermark: null,
     latestTimestamp: null,
     fresh: streamingEnabled ? status.state === 'ready' : true
-  } satisfies QueryStreamingMetadata;
+  };
 
-  if (!streamingEnabled || status.state === 'disabled' || plan.mode !== 'raw') {
+  if (!streamingEnabled || status.state === 'disabled') {
+    const finalRows = finalizeRows(plan, combinedRows);
+    const finalColumns = mergeColumns(baseResult.columns, finalRows);
+    const sources = summarizeRowSources(finalRows, publishedRowSet, streamingRows, plan.partitions.length);
     return {
       ...baseResult,
+      rows: finalRows,
+      columns: finalColumns,
       warnings: dedupeWarnings(warnings),
-      streaming: streamingMetadata
-    } satisfies QueryExecutionResult;
+      streaming: streamingMetadata,
+      sources
+    };
   }
 
-  const hotBufferResult = queryStreamingHotBuffer(plan.datasetSlug, {
-    rangeStart: plan.rangeStart,
-    rangeEnd: plan.rangeEnd,
-    limit: plan.limit,
-    timestampColumn: plan.timestampColumn
-  });
+  let hotBufferResult: RowSourceResult | null = null;
+  let hotBufferError: unknown = null;
+  try {
+    const hotBufferSource = new HotBufferRowSource();
+    hotBufferResult = await hotBufferSource.fetchRows(rowSourceOptions);
+  } catch (error) {
+    hotBufferError = error;
+    console.warn('[timestore] failed to read streaming hot buffer', {
+      datasetSlug: plan.dataset.slug,
+      error: error instanceof Error ? error.message : error
+    });
+  }
 
-  if (hotBufferResult.bufferState === 'unavailable') {
+  const hotBufferMetadata = normalizeHotBufferMetadata(hotBufferResult?.metadata);
+  const bufferState = hotBufferMetadata.bufferState;
+
+  if (bufferState === 'unavailable' || hotBufferError) {
     if (config.streaming.hotBuffer.fallbackMode === 'error') {
       throw new Error('Streaming hot buffer is unavailable and fallback mode is set to error.');
     }
-    warnings.push('Streaming hot buffer unavailable; served Parquet partitions only.');
+    warnings.push('Streaming hot buffer unavailable; served ClickHouse partitions only.');
+    const warningReason = hotBufferError
+      ? hotBufferError instanceof Error
+        ? hotBufferError.message
+        : String(hotBufferError)
+      : bufferState;
+    recordUnifiedRowSourceWarning(plan.datasetSlug, 'hot_buffer', 'query', warningReason);
+    const finalRows = finalizeRows(plan, combinedRows);
+    const finalColumns = mergeColumns(baseResult.columns, finalRows);
+    const sources = summarizeRowSources(finalRows, publishedRowSet, streamingRows, plan.partitions.length);
     return {
       ...baseResult,
+      rows: finalRows,
+      columns: finalColumns,
       warnings: dedupeWarnings(warnings),
       streaming: {
         ...streamingMetadata,
         bufferState: 'unavailable',
         fresh: false
-      }
-    } satisfies QueryExecutionResult;
+      },
+      sources
+    };
   }
 
-  const streamingRows = hotBufferResult.rows ?? [];
-  if (streamingRows.length === 0) {
-    return {
-      ...baseResult,
-      warnings: dedupeWarnings(warnings),
-      streaming: {
-        ...streamingMetadata,
-        bufferState: hotBufferResult.bufferState,
-        watermark: hotBufferResult.watermark,
-        latestTimestamp: hotBufferResult.latestTimestamp,
-        fresh: determineFreshness(hotBufferResult.latestTimestamp, plan.rangeEnd)
-      }
-    } satisfies QueryExecutionResult;
+  streamingRows = hotBufferResult?.rows ?? [];
+  if (streamingRows.length > 0) {
+    combinedRows.push(...streamingRows);
+    recordUnifiedRowSourceRows(plan.datasetSlug, 'hot_buffer', 'query', streamingRows.length);
   }
 
-  const baseRows = [...baseResult.rows];
-  const combinedRows = [...baseRows, ...streamingRows];
-  const streamingRowSet = new Set(streamingRows);
-  combinedRows.sort((a, b) => compareRowsByTimestamp(a, b, plan.timestampColumn));
-
-  let limitedRows = combinedRows;
-  if (plan.limit && plan.limit > 0 && combinedRows.length > plan.limit) {
-    limitedRows = combinedRows.slice(0, plan.limit);
-  }
-
-  const streamingIncluded = limitedRows.reduce(
-    (count, row) => (streamingRowSet.has(row) ? count + 1 : count),
-    0
-  );
-  const unifiedColumns = mergeColumns(baseResult.columns, limitedRows);
+  const finalRows = finalizeRows(plan, combinedRows);
+  const finalColumns = mergeColumns(baseResult.columns, finalRows);
+  const sources = summarizeRowSources(finalRows, publishedRowSet, streamingRows, plan.partitions.length);
 
   return {
     ...baseResult,
-    rows: limitedRows,
-    columns: unifiedColumns,
+    rows: finalRows,
+    columns: finalColumns,
     warnings: dedupeWarnings(warnings),
     streaming: {
       enabled: true,
-      bufferState: hotBufferResult.bufferState,
-      rows: streamingIncluded,
-      watermark: hotBufferResult.watermark,
-      latestTimestamp: hotBufferResult.latestTimestamp,
-      fresh: determineFreshness(hotBufferResult.latestTimestamp, plan.rangeEnd)
+      bufferState,
+      rows: sources.hotBuffer.rows,
+      watermark: hotBufferMetadata.watermark,
+      latestTimestamp: hotBufferMetadata.latestTimestamp,
+      fresh: determineFreshness(hotBufferMetadata.latestTimestamp, plan.rangeEnd)
+    },
+    sources
+  };
+}
+
+function finalizeRows(
+  plan: QueryPlan,
+  rows: Record<string, unknown>[]
+): Record<string, unknown>[] {
+  if (rows.length === 0) {
+    return [];
+  }
+  const sorted = [...rows];
+  sorted.sort((a, b) => compareRowsByTimestamp(a, b, plan.timestampColumn));
+  const deduped: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  for (const row of sorted) {
+    const key = buildRowDedupKey(row);
+    if (seen.has(key)) {
+      continue;
     }
-  } satisfies QueryExecutionResult;
+    seen.add(key);
+    deduped.push(row);
+  }
+  if (plan.limit && plan.limit > 0 && deduped.length > plan.limit) {
+    return deduped.slice(0, plan.limit);
+  }
+  return deduped;
+}
+
+function buildRowDedupKey(row: Record<string, unknown>): string {
+  const entries = Object.entries(row).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return JSON.stringify(entries);
 }
 
 function determineFreshness(latestTimestamp: string | null, rangeEnd: Date): boolean {
@@ -310,7 +1045,10 @@ function toTimestampMs(value: unknown): number | null {
     return Number.isFinite(value) ? value : null;
   }
   if (typeof value === 'string') {
-    const parsed = Date.parse(value);
+    const trimmed = value.trim();
+    const clickHousePattern = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+    const candidate = clickHousePattern.test(trimmed) ? `${trimmed.replace(' ', 'T')}Z` : trimmed;
+    const parsed = Date.parse(candidate);
     return Number.isNaN(parsed) ? null : parsed;
   }
   return null;
@@ -330,789 +1068,53 @@ function mergeColumns(baseColumns: string[], rows: QueryResultRow[]): string[] {
   return merged;
 }
 
-async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
-  const duckdb = loadDuckDb();
-  const db = new duckdb.Database(':memory:');
-  const connection = db.connect();
-  const config = loadServiceConfig();
-  const warnings: string[] = [];
-
-  try {
-    await applyDefaultDuckDbSettings(connection, config);
-    await prepareConnectionForPlan(connection, plan, config);
-    const canonicalFields = resolveCanonicalFields(plan);
-    const viewWarnings = await createDatasetView(connection, plan, canonicalFields);
-    warnings.push(...viewWarnings);
-    let baseViewSource = 'dataset_view';
-    const stagingIntegration = await integratePendingStaging(connection, plan, canonicalFields, config);
-    if (stagingIntegration) {
-      if (stagingIntegration.replacedEmptyView) {
-        const warningToRemove = `No readable partitions found for dataset ${plan.datasetSlug}; returning empty result.`;
-        const index = warnings.indexOf(warningToRemove);
-        if (index >= 0) {
-          warnings.splice(index, 1);
-        }
-      }
-      warnings.push(...stagingIntegration.warnings);
-      baseViewSource = stagingIntegration.baseViewName;
-    }
-
-    const baseViewName = await applyColumnFilters(connection, plan, baseViewSource);
-
-    const { preparatoryQueries, selectSql, mode } = buildFinalQuery(plan, baseViewName);
-    for (const query of preparatoryQueries) {
-      await run(connection, query);
-    }
-
-    const rows = normalizeRows(await all(connection, selectSql));
-    const columns = rows.length > 0 ? Object.keys(rows[0] ?? {}) : deriveColumns(plan, mode);
-
-    return {
-      rows,
-      columns,
-      mode,
-      warnings: dedupeWarnings(warnings)
-    };
-  } finally {
-    await closeConnection(connection);
-    if (isCloseable(db)) {
-      db.close();
-    }
-  }
-}
-
-async function prepareConnectionForPlan(
-  connection: any,
-  plan: QueryPlan,
-  config: ServiceConfig
-): Promise<void> {
-  let hasS3 = false;
-  const s3Targets = new Map<string, StorageTargetRecord>();
-  const gcsTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedGcsOptions }>();
-  const azureTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedAzureOptions }>();
-
-  for (const partition of plan.partitions) {
-    const target = partition.storageTarget;
-    switch (target.kind) {
-      case 's3':
-        hasS3 = true;
-        if (!s3Targets.has(target.id)) {
-          s3Targets.set(target.id, target);
-        }
-        break;
-      case 'gcs':
-        if (!gcsTargets.has(target.id)) {
-          gcsTargets.set(target.id, {
-            target,
-            options: resolveGcsDriverOptions(config, target)
-          });
-        }
-        break;
-      case 'azure_blob':
-        if (!azureTargets.has(target.id)) {
-          azureTargets.set(target.id, {
-            target,
-            options: resolveAzureDriverOptions(config, target)
-          });
-        }
-        break;
-      default:
-        break;
-    }
-  }
-
-  if (hasS3) {
-    await configureS3Support(connection, config, Array.from(s3Targets.values()));
-  }
-  if (gcsTargets.size > 0) {
-    await configureGcsSupport(connection, Array.from(gcsTargets.values()));
-  }
-  if (azureTargets.size > 0) {
-    await configureAzureSupport(connection, Array.from(azureTargets.values()));
-  }
-}
-
-async function createDatasetView(
-  connection: any,
-  plan: QueryPlan,
-  canonicalFields: FieldDefinition[]
-): Promise<string[]> {
-  const warnings: string[] = [];
-  const selects: string[] = [];
-
-  for (const partition of plan.partitions) {
-    try {
-      const availableColumns = await fetchPartitionColumns(connection, partition);
-      const escapedPath = partition.location.replace(/'/g, "''");
-      try {
-        await all(connection, `SELECT 1 FROM read_parquet('${escapedPath}') LIMIT 1`);
-      } catch (error) {
-        const assessment = assessPartitionAccessError(
-          {
-            datasetSlug: plan.datasetSlug,
-            partitionId: partition.id,
-            storageTarget: partition.storageTarget,
-            location: partition.location,
-            startTime: partition.startTime,
-            endTime: partition.endTime
-          },
-          error
-        );
-        if (assessment.recoverable) {
-          if (assessment.warning) {
-            warnings.push(assessment.warning);
-          }
-          continue;
-        }
-        throw assessment.error;
-      }
-      selects.push(buildPartitionSelect(partition, plan, canonicalFields, availableColumns));
-    } catch (error) {
-      const assessment = assessPartitionAccessError(
-        {
-          datasetSlug: plan.datasetSlug,
-          partitionId: partition.id,
-          storageTarget: partition.storageTarget,
-          location: partition.location,
-          startTime: partition.startTime,
-          endTime: partition.endTime
-        },
-        error
-      );
-      if (assessment.recoverable) {
-        if (assessment.warning) {
-          warnings.push(assessment.warning);
-        }
-        continue;
-      }
-      throw assessment.error;
-    }
-  }
-
-  if (selects.length === 0) {
-    await createEmptyDatasetView(connection, plan, canonicalFields);
-    warnings.push(`No readable partitions found for dataset ${plan.datasetSlug}; returning empty result.`);
-    return warnings;
-  }
-
-  const unionSql = selects.join('\nUNION ALL\n');
-  await run(connection, `CREATE TEMP VIEW dataset_view AS ${unionSql}`);
-  return warnings;
-}
-
-async function createEmptyDatasetView(
-  connection: any,
-  plan: QueryPlan,
-  canonicalFields: FieldDefinition[]
-): Promise<void> {
-  const fallbackField: FieldDefinition = { name: plan.timestampColumn, type: 'timestamp' };
-  const effectiveFields = canonicalFields.length > 0 ? canonicalFields : [fallbackField];
-  const projections = effectiveFields
-    .map((field) => `CAST(NULL AS ${mapFieldTypeToDuckDb(field.type)}) AS ${quoteIdentifier(field.name)}`)
-    .join(', ');
-  await run(connection, `CREATE TEMP VIEW dataset_view AS SELECT ${projections} WHERE 1=0`);
-}
-
-async function fetchPartitionColumns(
-  connection: any,
-  partition: QueryPlanPartition
-): Promise<Set<string>> {
-  const escapedPath = partition.location.replace(/'/g, "''");
-  const rows = await all(
-    connection,
-    `DESCRIBE SELECT * FROM read_parquet('${escapedPath}')`
-  );
-  return extractColumnNames(rows as QueryResultRow[]);
-}
-
-function resolveCanonicalFields(plan: QueryPlan): FieldDefinition[] {
-  if (plan.schemaFields.length > 0) {
-    return plan.schemaFields;
-  }
-  return [];
-}
-
-function buildPartitionSelect(
-  partition: QueryPlanPartition,
-  plan: QueryPlan,
-  canonicalFields: FieldDefinition[],
-  availableColumns: Set<string>
-): string {
-  const escapedPath = partition.location.replace(/'/g, "''");
-  const source = `read_parquet('${escapedPath}')`;
-  const timestampColumn = quoteIdentifier(plan.timestampColumn);
-  const startLiteral = plan.rangeStart.toISOString().replace(/'/g, "''");
-  const endLiteral = plan.rangeEnd.toISOString().replace(/'/g, "''");
-
-  const projections = buildCanonicalProjections(canonicalFields, availableColumns);
-
-  const whereClause = `${timestampColumn} BETWEEN TIMESTAMP '${startLiteral}' AND TIMESTAMP '${endLiteral}'`;
-
-  return `SELECT ${projections} FROM ${source} WHERE ${whereClause}`;
-}
-
-function mapFieldTypeToDuckDb(type: FieldType): string {
-  switch (type) {
-    case 'timestamp':
-      return 'TIMESTAMP';
-    case 'double':
-      return 'DOUBLE';
-    case 'integer':
-      return 'BIGINT';
-    case 'boolean':
-      return 'BOOLEAN';
-    case 'string':
-    default:
-      return 'VARCHAR';
-  }
-}
-
-async function applyColumnFilters(connection: any, plan: QueryPlan, baseView: string): Promise<string> {
-  if (!plan.columnFilters || Object.keys(plan.columnFilters).length === 0) {
-    return baseView;
-  }
-  const clause = buildColumnFilterClause(plan.columnFilters);
-  if (!clause) {
-    return baseView;
-  }
-  await run(
-    connection,
-    `CREATE TEMP VIEW dataset_filtered AS
-       SELECT *
-         FROM ${baseView}
-        WHERE ${clause}`
-  );
-  return 'dataset_filtered';
-}
-
-function buildColumnFilterClause(columnFilters: Record<string, ColumnPredicate>): string {
-  const expressions: string[] = [];
-  for (const [column, predicate] of Object.entries(columnFilters)) {
-    const expression = columnPredicateToSql(column, predicate);
-    if (expression) {
-      expressions.push(expression);
-    }
-  }
-  return expressions.length > 0 ? expressions.join(' AND ') : '1 = 1';
-}
-
-function columnPredicateToSql(column: string, predicate: ColumnPredicate): string | null {
-  const identifier = quoteIdentifier(column);
-  switch (predicate.type) {
-    case 'string':
-      return buildStringPredicateSql(identifier, predicate);
-    case 'number':
-      return buildNumberPredicateSql(identifier, predicate);
-    case 'timestamp':
-      return buildTimestampPredicateSql(identifier, predicate);
-    case 'boolean':
-      return buildBooleanPredicateSql(identifier, predicate);
-    default:
-      return null;
-  }
-}
-
-function buildStringPredicateSql(identifier: string, predicate: StringPartitionKeyPredicate): string | null {
-  const clauses: string[] = [];
-  if (typeof predicate.eq === 'string') {
-    clauses.push(`${identifier} = ${toSqlLiteral('string', predicate.eq)}`);
-  }
-  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
-    const values = predicate.in.map((value) => toSqlLiteral('string', value));
-    clauses.push(`${identifier} IN (${values.join(', ')})`);
-  }
-  if (typeof predicate.gt === 'string') {
-    clauses.push(`${identifier} > ${toSqlLiteral('string', predicate.gt)}`);
-  }
-  if (typeof predicate.gte === 'string') {
-    clauses.push(`${identifier} >= ${toSqlLiteral('string', predicate.gte)}`);
-  }
-  if (typeof predicate.lt === 'string') {
-    clauses.push(`${identifier} < ${toSqlLiteral('string', predicate.lt)}`);
-  }
-  if (typeof predicate.lte === 'string') {
-    clauses.push(`${identifier} <= ${toSqlLiteral('string', predicate.lte)}`);
-  }
-  return clauses.length > 0 ? clauses.join(' AND ') : null;
-}
-
-function buildNumberPredicateSql(identifier: string, predicate: NumberPartitionKeyPredicate): string | null {
-  const clauses: string[] = [];
-  if (predicate.eq !== undefined) {
-    clauses.push(`${identifier} = ${toSqlLiteral('number', predicate.eq)}`);
-  }
-  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
-    const values = predicate.in.map((value) => toSqlLiteral('number', value));
-    clauses.push(`${identifier} IN (${values.join(', ')})`);
-  }
-  if (predicate.gt !== undefined) {
-    clauses.push(`${identifier} > ${toSqlLiteral('number', predicate.gt)}`);
-  }
-  if (predicate.gte !== undefined) {
-    clauses.push(`${identifier} >= ${toSqlLiteral('number', predicate.gte)}`);
-  }
-  if (predicate.lt !== undefined) {
-    clauses.push(`${identifier} < ${toSqlLiteral('number', predicate.lt)}`);
-  }
-  if (predicate.lte !== undefined) {
-    clauses.push(`${identifier} <= ${toSqlLiteral('number', predicate.lte)}`);
-  }
-  return clauses.length > 0 ? clauses.join(' AND ') : null;
-}
-
-function buildTimestampPredicateSql(identifier: string, predicate: TimestampPartitionKeyPredicate): string | null {
-  const clauses: string[] = [];
-  if (typeof predicate.eq === 'string') {
-    clauses.push(`${identifier} = ${toSqlLiteral('timestamp', predicate.eq)}`);
-  }
-  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
-    const values = predicate.in.map((value) => toSqlLiteral('timestamp', value));
-    clauses.push(`${identifier} IN (${values.join(', ')})`);
-  }
-  if (typeof predicate.gt === 'string') {
-    clauses.push(`${identifier} > ${toSqlLiteral('timestamp', predicate.gt)}`);
-  }
-  if (typeof predicate.gte === 'string') {
-    clauses.push(`${identifier} >= ${toSqlLiteral('timestamp', predicate.gte)}`);
-  }
-  if (typeof predicate.lt === 'string') {
-    clauses.push(`${identifier} < ${toSqlLiteral('timestamp', predicate.lt)}`);
-  }
-  if (typeof predicate.lte === 'string') {
-    clauses.push(`${identifier} <= ${toSqlLiteral('timestamp', predicate.lte)}`);
-  }
-  return clauses.length > 0 ? clauses.join(' AND ') : null;
-}
-
-function buildBooleanPredicateSql(identifier: string, predicate: BooleanColumnPredicate): string | null {
-  const clauses: string[] = [];
-  if (predicate.eq !== undefined) {
-    clauses.push(`${identifier} = ${toSqlLiteral('boolean', predicate.eq)}`);
-  }
-  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
-    const values = predicate.in.map((value) => toSqlLiteral('boolean', value));
-    clauses.push(`${identifier} IN (${values.join(', ')})`);
-  }
-  return clauses.length > 0 ? clauses.join(' AND ') : null;
-}
-
-function toSqlLiteral(type: ColumnPredicate['type'], value: unknown): string {
-  switch (type) {
-    case 'string':
-      return `'${escapeSqlString(String(value))}'`;
-    case 'number':
-      return String(value);
-    case 'timestamp': {
-      const parsed = Date.parse(String(value));
-      const normalized = Number.isNaN(parsed) ? String(value) : new Date(parsed).toISOString();
-      return `TIMESTAMP '${escapeSqlString(normalized)}'`;
-    }
-    case 'boolean':
-      return value ? 'TRUE' : 'FALSE';
-    default:
-      return `'${escapeSqlString(String(value))}'`;
-  }
-}
-
-function escapeSqlString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function buildFinalQuery(
-  plan: QueryPlan,
-  baseView: string
-): {
-  preparatoryQueries: string[];
-  selectSql: string;
-  mode: 'raw' | 'downsampled';
-} {
-  if (plan.downsample) {
-    const timestampColumn = quoteIdentifier(plan.timestampColumn);
-    const windowExpression = buildWindowExpression(plan.downsample.intervalLiteral, timestampColumn);
-    const aggregations = plan.downsample.aggregations
-      .map((aggregation) => `${aggregation.expression} AS ${quoteIdentifier(aggregation.alias)}`)
-      .join(', ');
-
-    const limitClause = plan.limit ? ` LIMIT ${plan.limit}` : '';
-
-    return {
-      mode: 'downsampled',
-      preparatoryQueries: [
-        `CREATE TEMP VIEW dataset_windowed AS
-           SELECT *, ${windowExpression} AS window_start
-             FROM ${baseView}`
-      ],
-      selectSql: `SELECT window_start AS ${timestampColumn}${aggregations ? `, ${aggregations}` : ''}
-                  FROM dataset_windowed
-                  GROUP BY window_start
-                  ORDER BY window_start${limitClause}`
-    };
-  }
-
-  const selectColumns = buildSelectList(plan);
-  const timestampColumn = quoteIdentifier(plan.timestampColumn);
-  const limitClause = plan.limit ? ` LIMIT ${plan.limit}` : '';
-
+function normalizeHotBufferMetadata(metadata: Record<string, unknown> | undefined): HotBufferMetadata {
+  const state = metadata?.bufferState;
+  const bufferState: HotBufferMetadata['bufferState'] =
+    state === 'ready' || state === 'disabled' ? state : 'unavailable';
+  const watermarkValue = metadata?.watermark;
+  const latestTimestampValue = metadata?.latestTimestamp;
   return {
-    mode: 'raw',
-    preparatoryQueries: [],
-    selectSql: `SELECT ${selectColumns}
-                FROM ${baseView}
-                ORDER BY ${timestampColumn} ASC${limitClause}`
+    bufferState,
+    watermark: typeof watermarkValue === 'string' ? watermarkValue : null,
+    latestTimestamp: typeof latestTimestampValue === 'string' ? latestTimestampValue : null
   };
 }
 
-function buildWindowExpression(intervalLiteral: string, timestampColumn: string): string {
-  const lower = intervalLiteral.toLowerCase();
-  if (lower.startsWith('1 ')) {
-    const unit = lower.split(' ')[1] ?? 'minute';
-    return `DATE_TRUNC('${unit}', ${timestampColumn})`;
-  }
-  return `DATE_BIN(INTERVAL '${intervalLiteral}', ${timestampColumn}, TIMESTAMP '1970-01-01 00:00:00')`;
-}
+function summarizeRowSources(
+  finalRows: Record<string, unknown>[],
+  publishedRowSet: Set<Record<string, unknown>>,
+  streamingRows: Record<string, unknown>[],
+  partitions: number
+): QueryRowSourceBreakdown {
+  const streamingRowSet = new Set(streamingRows);
+  let publishedIncluded = 0;
+  let streamingIncluded = 0;
 
-function deriveColumns(plan: QueryPlan, mode: 'raw' | 'downsampled'): string[] {
-  if (mode === 'downsampled' && plan.downsample) {
-    const timestampColumn = plan.timestampColumn;
-    const aggregations = plan.downsample.aggregations.map((aggregation) => aggregation.alias);
-    return [timestampColumn, ...aggregations];
-  }
-  if (plan.columns && plan.columns.length > 0) {
-    return [...plan.columns];
-  }
-  if (plan.schemaFields.length > 0) {
-    return plan.schemaFields.map((field) => field.name);
-  }
-  return [plan.timestampColumn];
-}
-
-function buildSelectList(plan: QueryPlan): string {
-  if (plan.columns && plan.columns.length > 0) {
-    return plan.columns.map(quoteIdentifier).join(', ');
-  }
-  if (plan.schemaFields.length > 0) {
-    return plan.schemaFields.map((field) => quoteIdentifier(field.name)).join(', ');
-  }
-  return '*';
-}
-
-async function integratePendingStaging(
-  connection: any,
-  plan: QueryPlan,
-  canonicalFields: FieldDefinition[],
-  config: ServiceConfig
-): Promise<{ baseViewName: string; warnings: string[]; replacedEmptyView: boolean } | null> {
-  const stagingDirectory = config.staging?.directory;
-  if (!stagingDirectory) {
-    return null;
-  }
-
-  await run(connection, 'DROP VIEW IF EXISTS dataset_with_staging').catch(() => undefined);
-  await run(connection, 'DROP VIEW IF EXISTS staging_dataset_view').catch(() => undefined);
-  await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows').catch(() => undefined);
-
-  const databasePath = path.join(stagingDirectory, sanitizeDatasetSlug(plan.datasetSlug), 'staging.duckdb');
-  try {
-    await access(databasePath);
-  } catch {
-    return null;
-  }
-
-  const alias = `staging_${randomUUID().replace(/-/g, '_')}`;
-  const escapedPath = databasePath.replace(/'/g, "''");
-  let stagingTableCreated = false;
-  let pendingRowCount = 0;
-
-  try {
-    await run(connection, `ATTACH '${escapedPath}' AS ${quoteIdentifier(alias)} (READ_ONLY)`);
-  } catch (error) {
-    console.warn(`[timestore] failed to attach staging database for dataset ${plan.datasetSlug}`, error);
-    if (isDuckDbCorruptionError(error)) {
-      try {
-        const stagingManager = getStagingWriteManager(config);
-        await stagingManager.getSpoolManager().markDatasetCorrupted(plan.datasetSlug, error);
-      } catch (recoveryError) {
-        console.warn(
-          `[timestore] failed to recover corrupted staging database for dataset ${plan.datasetSlug}`,
-          recoveryError
-        );
-      }
+  for (const row of finalRows) {
+    if (streamingRowSet.has(row)) {
+      streamingIncluded += 1;
+      continue;
     }
-    return null;
-  }
-
-  const metadataTableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(STAGING_METADATA_TABLE)}`;
-  try {
-    const pendingTables = await all(
-      connection,
-      `SELECT DISTINCT table_name FROM ${metadataTableRef} WHERE flush_token IS NULL`
-    );
-
-    if (pendingTables.length === 0) {
-      return null;
+    if (publishedRowSet.has(row)) {
+      publishedIncluded += 1;
     }
-
-    const stagingSelects: string[] = [];
-    for (let index = 0; index < pendingTables.length; index += 1) {
-      const tableNameValue = pendingTables[index]?.table_name;
-      if (typeof tableNameValue !== 'string' || tableNameValue.trim().length === 0) {
-        continue;
-      }
-      const tableName = tableNameValue.trim();
-      const tableRef = `${quoteIdentifier(alias)}.${quoteIdentifier(STAGING_SCHEMA)}.${quoteIdentifier(tableName)}`;
-
-      const overlapRows = await all(
-        connection,
-        `SELECT 1
-           FROM ${metadataTableRef}
-          WHERE flush_token IS NULL
-            AND table_name = ?
-            AND time_range_start <= ?
-            AND time_range_end >= ?
-          LIMIT 1`,
-        tableName,
-        plan.rangeEnd,
-        plan.rangeStart
-      );
-
-      if (overlapRows.length === 0) {
-        continue;
-      }
-
-      const availableColumns = await fetchTableColumns(connection, tableRef);
-      const tableAlias = `stg${index}`;
-      const selectSql = buildStagingSelect({
-        tableRef,
-        tableAlias,
-        metadataTableRef,
-        tableName,
-        plan,
-        canonicalFields,
-        availableColumns
-      });
-      stagingSelects.push(selectSql);
-    }
-
-    if (stagingSelects.length === 0) {
-      return null;
-    }
-
-    const unionSql = stagingSelects.join('\nUNION ALL\n');
-    await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows');
-    await run(connection, `CREATE TEMP TABLE staging_dataset_rows AS ${unionSql}`);
-    stagingTableCreated = true;
-
-    const rowCountRows = await all(
-      connection,
-      `SELECT COALESCE(SUM(row_count), 0)::BIGINT AS row_count
-         FROM ${metadataTableRef}
-        WHERE flush_token IS NULL
-          AND time_range_start <= ?
-          AND time_range_end >= ?`,
-      plan.rangeEnd,
-      plan.rangeStart
-    );
-    pendingRowCount = Number(rowCountRows[0]?.row_count ?? 0n);
-  } finally {
-    await run(connection, `DETACH ${quoteIdentifier(alias)}`).catch(() => undefined);
   }
-
-  if (!stagingTableCreated) {
-    await run(connection, 'DROP TABLE IF EXISTS staging_dataset_rows').catch(() => undefined);
-    return null;
-  }
-
-  let baseViewName = 'dataset_with_staging';
-  const replacedEmptyView = plan.partitions.length === 0;
-
-  if (replacedEmptyView) {
-    await run(connection, 'DROP VIEW IF EXISTS dataset_view');
-    await run(connection, 'CREATE TEMP VIEW dataset_view AS SELECT * FROM staging_dataset_rows');
-    baseViewName = 'dataset_view';
-  } else {
-    await run(
-      connection,
-      'CREATE TEMP VIEW dataset_with_staging AS SELECT * FROM dataset_view UNION ALL SELECT * FROM staging_dataset_rows'
-    );
-  }
-
-  const warnings: string[] = pendingRowCount > 0
-    ? [`Included ${pendingRowCount} staged row(s) pending flush for dataset ${plan.datasetSlug}.`]
-    : [];
 
   return {
-    baseViewName,
-    warnings,
-    replacedEmptyView
+    published: {
+      rows: publishedIncluded,
+      partitions
+    },
+    hotBuffer: {
+      rows: streamingIncluded
+    }
   };
 }
 
-interface BuildStagingSelectInput {
-  tableRef: string;
-  tableAlias: string;
-  metadataTableRef: string;
-  tableName: string;
-  plan: QueryPlan;
-  canonicalFields: FieldDefinition[];
-  availableColumns: Set<string>;
-}
-
-function buildStagingSelect(input: BuildStagingSelectInput): string {
-  const { tableRef, tableAlias, metadataTableRef, tableName, plan, canonicalFields, availableColumns } = input;
-  const projections = buildCanonicalProjections(canonicalFields, availableColumns, tableAlias);
-  const startLiteral = escapeSqlLiteral(plan.rangeStart.toISOString());
-  const endLiteral = escapeSqlLiteral(plan.rangeEnd.toISOString());
-  const timestampColumn = `${tableAlias}.${quoteIdentifier(plan.timestampColumn)}`;
-  const escapedTableName = escapeSqlLiteral(tableName);
-
-  if (TIMESTORE_DEBUG_ENABLED) {
-    console.info('[timestore:staging] select planning', {
-      datasetSlug: plan.datasetSlug,
-      tableName,
-      availableColumns: Array.from(availableColumns),
-      projectedColumns: canonicalFields.map((field) => field.name)
-    });
-  }
-
-  const whereParts = [
-    'b.flush_token IS NULL',
-    `b.table_name = '${escapedTableName}'`,
-    `b.time_range_start <= TIMESTAMP '${endLiteral}'`,
-    `b.time_range_end >= TIMESTAMP '${startLiteral}'`,
-    `${timestampColumn} BETWEEN TIMESTAMP '${startLiteral}' AND TIMESTAMP '${endLiteral}'`
-  ];
-
-  return `SELECT ${projections}
-          FROM ${tableRef} AS ${tableAlias}
-          JOIN ${metadataTableRef} AS b
-            ON ${tableAlias}.${quoteIdentifier(STAGING_BATCH_ID_COLUMN)} = b.batch_id
-         WHERE ${whereParts.join(' AND ')}`;
-}
-
-async function fetchTableColumns(connection: any, tableRef: string): Promise<Set<string>> {
-  const columns = new Set<string>();
-  const normalizedParts = tableRef
-    .split('.')
-    .map((part) => part.replace(/^"|"$/g, ''))
-    .filter((part) => part.length > 0);
-
-  if (normalizedParts.length === 3) {
-    const pragmaTarget = normalizedParts.join('.').replace(/'/g, "''");
-    try {
-      const pragmaRows = await all(connection, `PRAGMA table_info('${pragmaTarget}')`);
-      for (const row of pragmaRows as Array<{ name?: unknown }>) {
-        if (typeof row?.name === 'string' && row.name.trim().length > 0) {
-          columns.add(row.name.trim());
-        }
-      }
-    } catch {
-      // fall back to DESCRIBE below
-    }
-    if (columns.size > 0) {
-      return columns;
-    }
-  }
-
-  try {
-    const rows = await all(connection, `DESCRIBE SELECT * FROM ${tableRef}`);
-    extractColumnNames(rows as QueryResultRow[]).forEach((name) => columns.add(name));
-  } catch {
-    // ignore; return whatever we collected so far (possibly empty)
-  }
-
-  return columns;
-}
-
-function buildCanonicalProjections(
-  canonicalFields: FieldDefinition[],
-  availableColumns: Set<string>,
-  tableAlias?: string
-): string {
-  if (canonicalFields.length === 0) {
-    return tableAlias ? `${tableAlias}.*` : '*';
-  }
-  return canonicalFields
-    .map((field) => {
-      const identifier = quoteIdentifier(field.name);
-      if (availableColumns.has(field.name)) {
-        return tableAlias ? `${tableAlias}.${identifier}` : identifier;
-      }
-      const duckType = mapFieldTypeToDuckDb(field.type);
-      return `NULL::${duckType} AS ${identifier}`;
-    })
-    .join(', ');
-}
-
-function extractColumnNames(rows: QueryResultRow[]): Set<string> {
-  return new Set(
-    rows
-      .map((row) => {
-        const value =
-          typeof row.column_name === 'string'
-            ? row.column_name
-            : typeof row.column === 'string'
-              ? row.column
-              : typeof row.name === 'string'
-                ? row.name
-                : null;
-        return value as string | null;
-      })
-      .filter((value): value is string => Boolean(value))
-  );
-}
-
-function sanitizeDatasetSlug(datasetSlug: string): string {
-  const trimmed = datasetSlug.trim();
-  if (trimmed.length === 0) {
-    throw new Error('datasetSlug must not be empty');
-  }
-  const normalized = trimmed.replace(/[^a-zA-Z0-9_.-]/g, '_');
-  return normalized.length > 0 ? normalized : 'dataset';
-}
-
-function run(connection: any, sql: string, ...params: unknown[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    connection.run(sql, ...params, (err: Error | null) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
-function all(connection: any, sql: string, ...params: unknown[]): Promise<QueryResultRow[]> {
-  return new Promise((resolve, reject) => {
-    connection.all(sql, ...params, (err: Error | null, rows?: QueryResultRow[]) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve(rows ?? []);
-    });
-  });
-}
-
-function closeConnection(connection: any): Promise<void> {
-  return new Promise((resolve, reject) => {
-    connection.close((err: Error | null) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
-function quoteIdentifier(identifier: string): string {
-  return `"${identifier.replace(/"/g, '""')}"`;
-}
-
-function normalizeRows(rows: QueryResultRow[]): QueryResultRow[] {
+function normalizeRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
   return rows.map((row) => {
-    const normalized: QueryResultRow = {};
+    const normalized: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(row)) {
       normalized[key] = normalizeValue(value);
     }
@@ -1144,7 +1146,7 @@ function normalizeValue(value: unknown): unknown {
     return null;
   }
   if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) {
-    return (value as Buffer).toString('base64');
+    return value.toString('base64');
   }
   if (Array.isArray(value)) {
     return value.map((entry) => normalizeValue(entry));
@@ -1167,9 +1169,9 @@ function extractTimestampValue(value: unknown): string | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
-  if ('toISOString' in value && typeof (value as { toISOString?: unknown }).toISOString === 'function') {
+  if ('toISOString' in value && typeof (value as { toISOString?: () => string }).toISOString === 'function') {
     try {
-      const iso = (value as { toISOString: () => unknown }).toISOString();
+      const iso = (value as { toISOString: () => string }).toISOString();
       if (typeof iso === 'string' && !Number.isNaN(Date.parse(iso))) {
         return iso;
       }
@@ -1177,7 +1179,7 @@ function extractTimestampValue(value: unknown): string | null {
       return null;
     }
   }
-  if ('toJSON' in value && typeof (value as { toJSON?: unknown }).toJSON === 'function') {
+  if ('toJSON' in value && typeof (value as { toJSON?: () => unknown }).toJSON === 'function') {
     try {
       const json = (value as { toJSON: () => unknown }).toJSON();
       if (typeof json === 'string' && !Number.isNaN(Date.parse(json))) {
@@ -1195,10 +1197,7 @@ function dedupeWarnings(warnings: string[]): string[] {
   const result: string[] = [];
   for (const warning of warnings) {
     const normalized = warning.trim();
-    if (!normalized) {
-      continue;
-    }
-    if (seen.has(normalized)) {
+    if (!normalized || seen.has(normalized)) {
       continue;
     }
     seen.add(normalized);
@@ -1207,260 +1206,250 @@ function dedupeWarnings(warnings: string[]): string[] {
   return result;
 }
 
-export async function configureS3Support(
-  connection: any,
-  config: ServiceConfig,
-  targets: StorageTargetRecord[] = []
-): Promise<void> {
-  const options = resolveS3RuntimeOptions(config, targets);
-  if (!options.bucket) {
-    throw new Error('Remote partitions require S3 configuration but none was provided');
+function resolveDownsampleDimensionColumns(plan: QueryPlan): string[] {
+  if (!plan.columns || plan.columns.length === 0) {
+    return [];
   }
-
-  await ensureHttpfsLoaded(connection);
-
-  if (options.region) {
-    await run(connection, `SET s3_region='${escapeSqlLiteral(options.region)}'`);
-  }
-
-  const { host, scheme } = resolveS3Endpoint(options.endpoint);
-
-  await run(connection, `SET s3_endpoint='${escapeSqlLiteral(host)}'`);
-  if (scheme === 'https') {
-    await run(connection, 'SET s3_use_ssl=true');
-  } else {
-    await run(connection, 'SET s3_use_ssl=false');
-  }
-
-  const forcePath = options.forcePathStyle ?? (host.includes(':') || host.includes('127.0.0.1'));
-  if (forcePath) {
-    await run(connection, `SET s3_url_style='path'`);
-  }
-  if (options.accessKeyId && options.secretAccessKey) {
-    await run(connection, `SET s3_access_key_id='${escapeSqlLiteral(options.accessKeyId)}'`);
-    await run(connection, `SET s3_secret_access_key='${escapeSqlLiteral(options.secretAccessKey)}'`);
-  }
-  if (options.sessionToken) {
-    await run(connection, `SET s3_session_token='${escapeSqlLiteral(options.sessionToken)}'`);
-  }
-
-  const cacheConfig = config.query.cache;
-  if (cacheConfig.enabled) {
-    await mkdir(cacheConfig.directory, { recursive: true });
-    try {
-      await run(connection, `SET s3_cache_directory='${escapeSqlLiteral(cacheConfig.directory)}'`);
-      await run(connection, `SET s3_cache_size='${String(cacheConfig.maxBytes)}'`);
-    } catch (error) {
-      if (isUnrecognizedConfigParameterError(error, 's3_cache_directory')) {
-        cacheConfig.enabled = false;
-        console.warn(
-          '[timestore] DuckDB does not recognize s3_cache_directory; skipping query cache setup',
-          error
-        );
-      } else {
-        throw error;
-      }
-    }
-  }
-}
-
-function resolveS3RuntimeOptions(
-  config: ServiceConfig,
-  targets: StorageTargetRecord[]
-): S3RuntimeOptions {
-  const base = config.storage.s3;
-
-  let bucket = base?.bucket;
-  let endpoint = base?.endpoint;
-  let region = base?.region;
-  let accessKeyId = base?.accessKeyId;
-  let secretAccessKey = base?.secretAccessKey;
-  let sessionToken = base?.sessionToken;
-  let forcePathStyle = base?.forcePathStyle;
-
-  for (const target of targets) {
-    if (target.kind !== 's3') {
+  const unique: string[] = [];
+  for (const column of plan.columns) {
+    if (column === plan.timestampColumn) {
       continue;
     }
-    const targetConfig = target.config as Record<string, unknown>;
+    if (!unique.includes(column)) {
+      unique.push(column);
+    }
+  }
+  return unique;
+}
 
-    if (!bucket) {
-      const candidate = pickString(targetConfig, 'bucket');
-      if (candidate) {
-        bucket = candidate;
+function buildDownsampleSourceColumns(plan: QueryPlan, dimensionColumns: string[]): string[] {
+  const columns = new Set<string>();
+  columns.add(plan.timestampColumn);
+  for (const column of dimensionColumns) {
+    columns.add(column);
+  }
+  for (const aggregation of plan.downsample?.aggregations ?? []) {
+    if (aggregation.column) {
+      columns.add(aggregation.column);
+    }
+  }
+  return Array.from(columns);
+}
+
+function buildDownsampleBucketExpression(plan: QueryPlan): string {
+  const downsample = plan.downsample;
+  if (!downsample) {
+    throw new Error('Downsample plan missing for downsampled query.');
+  }
+  const timestampIdentifier = quoteClickHouseIdent(plan.timestampColumn);
+  return `toStartOfInterval(${timestampIdentifier}, INTERVAL ${downsample.intervalLiteral})`;
+}
+
+function deriveColumns(plan: QueryPlan): string[] {
+  if (plan.mode === 'downsampled' && plan.downsample) {
+    const columns: string[] = [];
+    const pushUnique = (value: string) => {
+      if (!columns.includes(value)) {
+        columns.push(value);
       }
+    };
+    pushUnique(plan.timestampColumn);
+    for (const column of resolveDownsampleDimensionColumns(plan)) {
+      pushUnique(column);
     }
-    if (!endpoint) {
-      const candidate = pickString(targetConfig, 'endpoint');
-      if (candidate) {
-        endpoint = candidate;
-      }
+    for (const aggregation of plan.downsample.aggregations) {
+      pushUnique(aggregation.alias);
     }
-    if (!region) {
-      const candidate = pickString(targetConfig, 'region');
-      if (candidate) {
-        region = candidate;
-      }
-    }
-    if (!accessKeyId) {
-      const candidate = pickString(targetConfig, 'accessKeyId');
-      if (candidate) {
-        accessKeyId = candidate;
-      }
-    }
-    if (!secretAccessKey) {
-      const candidate = pickString(targetConfig, 'secretAccessKey');
-      if (candidate) {
-        secretAccessKey = candidate;
-      }
-    }
-    if (!sessionToken) {
-      const candidate = pickString(targetConfig, 'sessionToken');
-      if (candidate) {
-        sessionToken = candidate;
-      }
-    }
-    if (forcePathStyle === undefined) {
-      const candidate = pickBoolean(targetConfig, 'forcePathStyle');
-      if (candidate !== undefined) {
-        forcePathStyle = candidate;
-      }
-    }
+    return columns;
   }
-
-  return {
-    bucket,
-    endpoint,
-    region,
-    accessKeyId,
-    secretAccessKey,
-    sessionToken,
-    forcePathStyle
-  } satisfies S3RuntimeOptions;
+  if (plan.columns && plan.columns.length > 0) {
+    return [...plan.columns];
+  }
+  if (plan.schemaFields.length > 0) {
+    return plan.schemaFields.map((field) => field.name);
+  }
+  return [plan.timestampColumn];
 }
 
-function pickString(source: Record<string, unknown>, key: string): string | undefined {
-  const value = source[key];
-  if (typeof value === 'string' && value.trim().length > 0) {
-    return value;
+function resolveClickHouseQueryColumns(plan: QueryPlan): string[] {
+  const baseColumns = plan.columns && plan.columns.length > 0
+    ? [...plan.columns]
+    : plan.schemaFields.map((field) => field.name);
+  if (!baseColumns.includes(plan.timestampColumn)) {
+    baseColumns.unshift(plan.timestampColumn);
   }
-  return undefined;
-}
-
-function pickBoolean(source: Record<string, unknown>, key: string): boolean | undefined {
-  const value = source[key];
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-      return true;
-    }
-    if (['0', 'false', 'no', 'off'].includes(normalized)) {
-      return false;
+  const unique: string[] = [];
+  for (const column of baseColumns) {
+    if (!unique.includes(column)) {
+      unique.push(column);
     }
   }
-  return undefined;
+  if (unique.length === 0) {
+    unique.push(plan.timestampColumn);
+  }
+  return unique;
 }
 
-function resolveS3Endpoint(rawEndpoint: string | undefined): { host: string; scheme: 'http' | 'https' } {
-  const fallback = 'http://127.0.0.1:9000'; // TODO(apphub-2367): remove hard-coded MinIO fallback when runtime cache propagation is fixed.
-  const endpoint = rawEndpoint && rawEndpoint.trim().length > 0 ? rawEndpoint.trim() : fallback;
+function resolveClickHouseTables(plan: QueryPlan): string[] {
+  const tables = new Set<string>();
+  for (const partition of plan.partitions) {
+    const tableName = partition.tableName?.trim();
+    if (tableName) {
+      tables.add(tableName);
+    }
+  }
+  if (tables.size === 0) {
+    const metadata = plan.dataset.metadata as { tableName?: unknown } | null;
+    const tableName = metadata && typeof metadata.tableName === 'string' ? metadata.tableName.trim() : null;
+    if (tableName) {
+      tables.add(tableName);
+    }
+  }
+  if (tables.size === 0) {
+    tables.add('records');
+  }
+  return Array.from(tables);
+}
 
-  try {
-    const parsed = new URL(endpoint.includes('://') ? endpoint : `${fallback.substring(0, fallback.indexOf('://'))}://${endpoint}`);
-    const scheme = parsed.protocol === 'https:' ? 'https' : 'http';
-    const host = parsed.host || parsed.hostname;
-    return { host, scheme };
-  } catch {
-    const sanitized = endpoint.replace(/\/+$/u, '');
-    return { host: sanitized, scheme: endpoint.startsWith('https://') ? 'https' : 'http' };
+function buildClickHouseColumnFilterClause(columnFilters: Record<string, ColumnPredicate>): string {
+  const expressions: string[] = [];
+  for (const [column, predicate] of Object.entries(columnFilters)) {
+    const expression = clickHousePredicateToSql(column, predicate);
+    if (expression) {
+      expressions.push(expression);
+    }
+  }
+  return expressions.join(' AND ');
+}
+
+function clickHousePredicateToSql(column: string, predicate: ColumnPredicate): string | null {
+  const identifier = quoteClickHouseIdent(column);
+  switch (predicate.type) {
+    case 'string':
+      return buildClickHouseStringPredicate(identifier, predicate);
+    case 'number':
+      return buildClickHouseNumberPredicate(identifier, predicate);
+    case 'timestamp':
+      return buildClickHouseTimestampPredicate(identifier, predicate);
+    case 'boolean':
+      return buildClickHouseBooleanPredicate(identifier, predicate);
+    default:
+      return null;
   }
 }
 
-async function ensureHttpfsLoaded(connection: any): Promise<void> {
-  await run(connection, 'INSTALL httpfs');
-  await run(connection, 'LOAD httpfs');
+function buildClickHouseStringPredicate(
+  identifier: string,
+  predicate: StringPartitionKeyPredicate
+): string | null {
+  const clauses: string[] = [];
+  if (typeof predicate.eq === 'string') {
+    clauses.push(`${identifier} = ${toClickHouseLiteral('string', predicate.eq)}`);
+  }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    const values = predicate.in.map((value) => toClickHouseLiteral('string', value));
+    clauses.push(`${identifier} IN (${values.join(', ')})`);
+  }
+  if (typeof predicate.gt === 'string') {
+    clauses.push(`${identifier} > ${toClickHouseLiteral('string', predicate.gt)}`);
+  }
+  if (typeof predicate.gte === 'string') {
+    clauses.push(`${identifier} >= ${toClickHouseLiteral('string', predicate.gte)}`);
+  }
+  if (typeof predicate.lt === 'string') {
+    clauses.push(`${identifier} < ${toClickHouseLiteral('string', predicate.lt)}`);
+  }
+  if (typeof predicate.lte === 'string') {
+    clauses.push(`${identifier} <= ${toClickHouseLiteral('string', predicate.lte)}`);
+  }
+  return clauses.length > 0 ? clauses.join(' AND ') : null;
 }
 
-function isUnrecognizedConfigParameterError(error: unknown, parameter: string): boolean {
-  if (!error) {
-    return false;
+function buildClickHouseNumberPredicate(
+  identifier: string,
+  predicate: NumberPartitionKeyPredicate
+): string | null {
+  const clauses: string[] = [];
+  if (predicate.eq !== undefined) {
+    clauses.push(`${identifier} = ${toClickHouseLiteral('number', predicate.eq)}`);
   }
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes(`unrecognized configuration parameter "${parameter.toLowerCase()}"`) ||
-    normalized.includes(`unrecognized configuration parameter '${parameter.toLowerCase()}'`)
-  );
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    const values = predicate.in.map((value) => toClickHouseLiteral('number', value));
+    clauses.push(`${identifier} IN (${values.join(', ')})`);
+  }
+  if (predicate.gt !== undefined) {
+    clauses.push(`${identifier} > ${toClickHouseLiteral('number', predicate.gt)}`);
+  }
+  if (predicate.gte !== undefined) {
+    clauses.push(`${identifier} >= ${toClickHouseLiteral('number', predicate.gte)}`);
+  }
+  if (predicate.lt !== undefined) {
+    clauses.push(`${identifier} < ${toClickHouseLiteral('number', predicate.lt)}`);
+  }
+  if (predicate.lte !== undefined) {
+    clauses.push(`${identifier} <= ${toClickHouseLiteral('number', predicate.lte)}`);
+  }
+  return clauses.length > 0 ? clauses.join(' AND ') : null;
 }
 
-export async function configureGcsSupport(
-  connection: any,
-  targets: Array<{ target: StorageTargetRecord; options: ResolvedGcsOptions }>
-): Promise<void> {
-  if (targets.length === 0) {
-    return;
+function buildClickHouseTimestampPredicate(
+  identifier: string,
+  predicate: TimestampPartitionKeyPredicate
+): string | null {
+  const clauses: string[] = [];
+  if (typeof predicate.eq === 'string') {
+    clauses.push(`${identifier} = ${toClickHouseLiteral('timestamp', predicate.eq)}`);
   }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    const values = predicate.in.map((value) => toClickHouseLiteral('timestamp', value));
+    clauses.push(`${identifier} IN (${values.join(', ')})`);
+  }
+  if (typeof predicate.gt === 'string') {
+    clauses.push(`${identifier} > ${toClickHouseLiteral('timestamp', predicate.gt)}`);
+  }
+  if (typeof predicate.gte === 'string') {
+    clauses.push(`${identifier} >= ${toClickHouseLiteral('timestamp', predicate.gte)}`);
+  }
+  if (typeof predicate.lt === 'string') {
+    clauses.push(`${identifier} < ${toClickHouseLiteral('timestamp', predicate.lt)}`);
+  }
+  if (typeof predicate.lte === 'string') {
+    clauses.push(`${identifier} <= ${toClickHouseLiteral('timestamp', predicate.lte)}`);
+  }
+  return clauses.length > 0 ? clauses.join(' AND ') : null;
+}
 
-  await ensureHttpfsLoaded(connection);
+function buildClickHouseBooleanPredicate(
+  identifier: string,
+  predicate: BooleanColumnPredicate
+): string | null {
+  const clauses: string[] = [];
+  if (predicate.eq !== undefined) {
+    clauses.push(`${identifier} = ${toClickHouseLiteral('boolean', predicate.eq)}`);
+  }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    const values = predicate.in.map((value) => toClickHouseLiteral('boolean', value));
+    clauses.push(`${identifier} IN (${values.join(', ')})`);
+  }
+  return clauses.length > 0 ? clauses.join(' AND ') : null;
+}
 
-  for (const { target, options } of targets) {
-    if (!options.hmacKeyId || !options.hmacSecret) {
-      throw new Error(`GCS storage target ${target.name} missing hmac credentials for DuckDB access`);
+type ClickHouseLiteralType = 'string' | 'number' | 'timestamp' | 'boolean';
+
+function toClickHouseLiteral(type: ClickHouseLiteralType, value: unknown): string {
+  switch (type) {
+    case 'string':
+      return `'${escapeClickHouseString(String(value))}'`;
+    case 'number':
+      return String(value);
+    case 'timestamp': {
+      const parsed = Date.parse(String(value));
+      const normalized = Number.isNaN(parsed) ? String(value) : new Date(parsed).toISOString();
+      return `parseDateTimeBestEffort('${escapeClickHouseString(normalized)}')`;
     }
-
-    const secretName = buildSecretName('gcs', target.id);
-    await run(connection, `DROP SECRET IF EXISTS ${quoteIdentifier(secretName)}`);
-    const scope = `gs://${options.bucket}/`;
-    const createSecretSql = `CREATE SECRET ${quoteIdentifier(secretName)} (
-      TYPE gcs,
-      KEY_ID '${escapeSqlLiteral(options.hmacKeyId)}',
-      SECRET '${escapeSqlLiteral(options.hmacSecret)}',
-      SCOPE '${escapeSqlLiteral(scope)}'
-    )`;
-    await run(connection, createSecretSql);
+    case 'boolean':
+      return value ? '1' : '0';
+    default:
+      return `'${escapeClickHouseString(String(value))}'`;
   }
-}
-
-export async function configureAzureSupport(
-  connection: any,
-  targets: Array<{ target: StorageTargetRecord; options: ResolvedAzureOptions }>
-): Promise<void> {
-  if (targets.length === 0) {
-    return;
-  }
-
-  await run(connection, 'INSTALL azure');
-  await run(connection, 'LOAD azure');
-
-  for (const { target, options } of targets) {
-    const secretName = buildSecretName('azure', target.id);
-    await run(connection, `DROP SECRET IF EXISTS ${quoteIdentifier(secretName)}`);
-
-    const host = resolveAzureBlobHost(options);
-    const scopePath = `azure://${host}/${options.container}/`;
-
-    if (options.connectionString) {
-      const createSecretSql = `CREATE SECRET ${quoteIdentifier(secretName)} (
-        TYPE azure,
-        CONNECTION_STRING '${escapeSqlLiteral(options.connectionString)}',
-        SCOPE '${escapeSqlLiteral(scopePath)}'
-      )`;
-      await run(connection, createSecretSql);
-      continue;
-    }
-
-    throw new Error(`Azure storage target ${target.name} requires a connection string for DuckDB access`);
-  }
-}
-
-function buildSecretName(prefix: string, targetId: string): string {
-  const normalized = targetId.replace(/[^a-zA-Z0-9]+/g, '_');
-  return `timestore_${prefix}_${normalized}`;
-}
-
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
 }

@@ -36,11 +36,30 @@ type Token = string | null | undefined;
 
 type CoreClientInstance = ReturnType<typeof createCoreClient>;
 
+function getActiveModuleId(): string | null {
+  if (typeof globalThis === 'undefined') {
+    return null;
+  }
+  const raw = (globalThis as unknown as Record<string, unknown>).__APPHUB_ACTIVE_MODULE_ID;
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function createClient(token: Token): CoreClientInstance {
   return createCoreClient({
     baseUrl: API_BASE_URL,
     token: token ?? undefined,
-    withCredentials: true
+    withCredentials: true,
+    headers: () => {
+      const moduleId = getActiveModuleId();
+      if (!moduleId) {
+        return undefined;
+      }
+      return { 'X-AppHub-Module-Id': moduleId };
+    }
   });
 }
 

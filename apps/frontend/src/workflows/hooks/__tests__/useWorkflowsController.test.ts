@@ -183,7 +183,12 @@ const {
     updateWorkflowDefinitionMock: vi.fn(async () => definition),
     fetchWorkflowAssetsMock: vi.fn(async () => [] as WorkflowAssetInventoryEntry[]),
     fetchWorkflowAssetHistoryMock: vi.fn<
-      (fetch: AuthorizedFetch, workflowId: string, assetId: string, options?: { limit?: number }) => Promise<WorkflowAssetDetail | null>
+      (
+        fetch: AuthorizedFetch,
+        workflowId: string,
+        assetId: string,
+        options?: { limit?: number; partitionKey?: string | null; moduleId?: string | null }
+      ) => Promise<WorkflowAssetDetail | null>
     >(async () => ({
       assetId: 'inventory.dataset',
       producers: [],
@@ -192,7 +197,12 @@ const {
       limit: 10
     }) as WorkflowAssetDetail),
     fetchWorkflowAssetPartitionsMock: vi.fn<
-      (fetch: AuthorizedFetch, workflowId: string, assetId: string, options?: { lookback?: number }) => Promise<WorkflowAssetPartitions | null>
+      (
+        fetch: AuthorizedFetch,
+        workflowId: string,
+        assetId: string,
+        options?: { lookback?: number; moduleId?: string | null }
+      ) => Promise<WorkflowAssetPartitions | null>
     >(async () => ({
       assetId: 'inventory.dataset',
       partitioning: null,
@@ -403,7 +413,11 @@ describe('useWorkflowsController', () => {
     await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
     expect(result.current.runs).toHaveLength(1);
     expect(listWorkflowDefinitionsMock).toHaveBeenCalled();
-    expect(getWorkflowDetailMock).toHaveBeenCalledWith(expect.any(Function), 'demo-workflow');
+    expect(getWorkflowDetailMock).toHaveBeenCalledWith(
+      expect.any(Function),
+      'demo-workflow',
+      { moduleId: 'test-module' }
+    );
 
     await act(async () => {
       await result.current.handleManualRun({ parameters: {} });
@@ -485,7 +499,11 @@ describe('useWorkflowsController', () => {
     await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
     await waitFor(() => expect(result.current.assetInventoryLoading).toBe(false));
 
-    expect(fetchWorkflowAssetsMock).toHaveBeenCalledWith(expect.any(Function), 'demo-workflow');
+    expect(fetchWorkflowAssetsMock).toHaveBeenCalledWith(
+      expect.any(Function),
+      'demo-workflow',
+      { moduleId: 'test-module' }
+    );
     expect(result.current.assetInventory).toEqual(assetInventory);
     expect(result.current.assetInventoryError).toBeNull();
   });

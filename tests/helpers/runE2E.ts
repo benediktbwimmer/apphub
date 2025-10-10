@@ -1,6 +1,7 @@
 import process from 'node:process';
 
 import { scheduleForcedExit, logActiveHandles } from './forceExit';
+import { stopAllEmbeddedPostgres } from './embeddedPostgres';
 
 const DEFAULT_CLEANUP_TIMEOUT_MS = 60_000;
 
@@ -38,7 +39,11 @@ export async function runE2E(
   } else {
     console.info('[runE2E] Starting scenario');
   }
-  const cleanupHandlers: CleanupHandler[] = [];
+  const cleanupHandlers: CleanupHandler[] = [
+    async () => {
+      await stopAllEmbeddedPostgres();
+    }
+  ];
   let exitCode = 0;
   let shutdownPromise: Promise<void> | null = null;
   let receivedSignal = false;
@@ -145,6 +150,9 @@ export async function runE2E(
 
   try {
     await main(context);
+    if (typeof process.exitCode === 'number') {
+      exitCode = Math.max(exitCode, process.exitCode);
+    }
   } catch (error) {
     exitCode = 1;
     if (error instanceof Error) {
@@ -152,6 +160,11 @@ export async function runE2E(
     } else {
       console.error(error);
     }
+  } finally {
+    if (typeof process.exitCode === 'number') {
+      exitCode = Math.max(exitCode, process.exitCode);
+    }
+    console.info('[runE2E] main completed with exitCode', exitCode, 'process.exitCode', process.exitCode);
   }
 
   await shutdown(exitCode, 'main completed');

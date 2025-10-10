@@ -426,7 +426,7 @@ const datasetRecordSchema: OpenAPIV3.SchemaObject = {
     },
     writeFormat: {
       type: 'string',
-      enum: ['duckdb', 'parquet']
+      enum: ['clickhouse']
     },
     defaultStorageTargetId: nullable(stringSchema()),
     metadata: jsonObjectSchema,
@@ -461,7 +461,7 @@ const datasetPartitionSchema: OpenAPIV3.SchemaObject = {
     storageTargetId: stringSchema(),
     fileFormat: {
       type: 'string',
-      enum: ['duckdb', 'parquet']
+      enum: ['clickhouse']
     },
     filePath: stringSchema(),
     fileSizeBytes: nullable(integerSchema()),
@@ -843,7 +843,40 @@ const datasetQueryResponseSchema: OpenAPIV3.SchemaObject = {
       description: 'Non-fatal issues encountered while executing the query.',
       items: stringSchema()
     },
-    streaming: nullable(datasetQueryStreamingSchema)
+    streaming: nullable(datasetQueryStreamingSchema),
+    sources: {
+      type: 'object',
+      required: ['published', 'hotBuffer'],
+      properties: {
+        published: {
+          type: 'object',
+          required: ['rows', 'partitions'],
+          properties: {
+            rows: {
+              ...integerSchema(),
+              description: 'Number of rows returned from published partitions.'
+            },
+            partitions: {
+              ...integerSchema(),
+              description: 'Total published partitions inspected for this query.'
+            }
+          },
+          additionalProperties: false
+        },
+        hotBuffer: {
+          type: 'object',
+          required: ['rows'],
+          properties: {
+            rows: {
+              ...integerSchema(),
+              description: 'Number of rows returned from the streaming hot buffer.'
+            }
+          },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
+    }
   }
 };
 
@@ -942,6 +975,82 @@ const sqlReadResponseSchema: OpenAPIV3.SchemaObject = {
       items: stringSchema()
     },
     statistics: sqlReadStatisticsSchema
+  }
+};
+
+const clickHouseProxyRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['sql'],
+  additionalProperties: false,
+  properties: {
+    sql: {
+      type: 'string',
+      description: 'ClickHouse statement to execute.'
+    },
+    mode: {
+      type: 'string',
+      description:
+        'Execution mode override. When omitted, the server infers whether the statement returns a result set.',
+      enum: ['auto', 'query', 'command'],
+      default: 'auto'
+    },
+    maxRows: {
+      ...integerSchema(),
+      description: 'Maximum number of rows to include in the response payload.',
+      default: 10000,
+      minimum: 1,
+      maximum: 100000
+    }
+  }
+};
+
+const clickHouseProxyRawStatisticsSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    rowsRead: nullable(numberSchema()),
+    bytesRead: nullable(numberSchema()),
+    appliedLimit: nullable(numberSchema())
+  }
+};
+
+const clickHouseProxyStatisticsSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['elapsedMs', 'rowCount'],
+  properties: {
+    elapsedMs: numberSchema(),
+    rowCount: integerSchema(),
+    raw: nullable(clickHouseProxyRawStatisticsSchema)
+  }
+};
+
+const clickHouseProxyResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['executionId', 'mode', 'command', 'columns', 'rows', 'truncated', 'statistics', 'warnings'],
+  properties: {
+    executionId: stringSchema(),
+    mode: {
+      type: 'string',
+      enum: ['query', 'command']
+    },
+    command: stringSchema(),
+    columns: {
+      type: 'array',
+      items: sqlSchemaColumnSchema
+    },
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: jsonValueSchema
+      }
+    },
+    truncated: { type: 'boolean' },
+    statistics: clickHouseProxyStatisticsSchema,
+    warnings: {
+      type: 'array',
+      items: stringSchema()
+    }
   }
 };
 
@@ -1063,6 +1172,8 @@ const components: OpenAPIV3.ComponentsObject = {
     SqlSchemaResponse: sqlSchemaResponseSchema,
     SqlReadStatistics: sqlReadStatisticsSchema,
     SqlReadResponse: sqlReadResponseSchema,
+    ClickHouseProxyRequest: clickHouseProxyRequestSchema,
+    ClickHouseProxyResponse: clickHouseProxyResponseSchema,
     SqlSavedQueryStats: sqlSavedQueryStatsSchema,
     SqlSavedQuery: sqlSavedQuerySchema,
     SqlSavedQueryListResponse: sqlSavedQueryListResponseSchema,
