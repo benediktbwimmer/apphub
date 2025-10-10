@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useEffect, useContext, type ReactNode } from 'react';
 import { ThemeProvider, useTheme, type ThemePreference } from '../../theme';
 import { generateThemeCss } from '../../theme/generateThemeCss';
@@ -11,6 +11,7 @@ import FormButton from '../form/FormButton';
 import { Modal } from '../Modal';
 import { ToastProvider } from '../toast/ToastProvider';
 import { ToastContext, type ToastTone } from '../toast/ToastContext';
+import { ModuleScopeContextProvider, type ModuleScopeContextValue } from '../../modules/ModuleScopeContext';
 
 const themeCss = generateThemeCss({
   foundation,
@@ -85,12 +86,37 @@ const highContrastTheme = createTheme({
   }
 });
 
-function renderWithTheme(children: ReactNode) {
-  return render(
-    <ThemeProvider themes={{ ...defaultThemeRegistry, [highContrastTheme.id]: highContrastTheme }}>
-      {children}
-    </ThemeProvider>
+const moduleScopeStub: ModuleScopeContextValue = {
+  kind: 'module',
+  moduleId: 'test-module',
+  moduleVersion: '1.0.0',
+  modules: [],
+  loadingModules: false,
+  modulesError: null,
+  resources: [],
+  loadingResources: false,
+  resourcesError: null,
+  setModuleId: vi.fn(),
+  buildModulePath: (path: string) => path,
+  stripModulePrefix: (pathname: string) => pathname,
+  getResourceContexts: () => [],
+  getResourceIds: () => [],
+  getResourceSlugs: () => [],
+  isResourceInScope: () => true
+};
+
+const providerThemes = { ...defaultThemeRegistry, [highContrastTheme.id]: highContrastTheme };
+
+function Providers({ children }: { children: ReactNode }) {
+  return (
+    <ModuleScopeContextProvider value={moduleScopeStub}>
+      <ThemeProvider themes={providerThemes}>{children}</ThemeProvider>
+    </ModuleScopeContextProvider>
   );
+}
+
+function renderWithTheme(children: ReactNode) {
+  return render(children, { wrapper: Providers });
 }
 
 function TriggerToast({ tone }: { tone: ToastTone }) {

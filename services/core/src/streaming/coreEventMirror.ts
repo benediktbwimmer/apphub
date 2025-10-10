@@ -1,10 +1,11 @@
 import { getFeatureFlags } from '../config/featureFlags';
 import type { ApphubEvent } from '../events';
-import type { JobRunRecord, IngestionEvent } from '../db/types';
+import type { JobRunRecord, IngestionEvent, WorkflowEventRecord } from '../db/types';
 import { logger } from '../observability/logger';
 import {
   isKafkaPublisherConfigured,
-  publishKafkaMirrorMessage
+  publishKafkaMirrorMessage,
+  type KafkaMirrorMessage
 } from './kafkaPublisher';
 import { safeStringify } from './utils';
 
@@ -19,6 +20,9 @@ const CORE_EVENT_TOPIC = resolveTopic(
   process.env.APPHUB_STREAM_TOPIC_CORE_EVENTS,
   'apphub.core.events'
 );
+
+let publishMirrorMessage: (message: KafkaMirrorMessage) => Promise<boolean> = publishKafkaMirrorMessage;
+let isKafkaConfigured: () => boolean = isKafkaPublisherConfigured;
 
 const JOB_RUN_TOPIC = resolveTopic(
   process.env.APPHUB_STREAM_TOPIC_JOB_RUNS,
@@ -55,13 +59,26 @@ function publishWithLogging(
   topic: string,
   key: string | undefined,
   payload: Record<string, unknown>,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  options: { timestamp?: string | Date } = {}
 ): void {
-  const send = publishKafkaMirrorMessage({
+  const timestampOption = (() => {
+    if (!options.timestamp) {
+      return undefined;
+    }
+    if (options.timestamp instanceof Date) {
+      return options.timestamp;
+    }
+    const parsed = new Date(options.timestamp);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  })();
+
+  const send = publishMirrorMessage({
     topic,
     key,
     value: payload,
-    headers
+    headers,
+    ...(timestampOption ? { timestamp: timestampOption } : {})
   });
 
   void send.catch((err) => {
@@ -79,7 +96,7 @@ export function mirrorApphubEvent(event: ApphubEvent): void {
   if (!flags.streaming.enabled) {
     return;
   }
-  if (!isKafkaPublisherConfigured()) {
+  if (!isKafkaConfigured()) {
     return;
   }
 
@@ -114,7 +131,8 @@ export function mirrorApphubEvent(event: ApphubEvent): void {
         'x-apphub-event-type': event.type,
         'x-apphub-job-definition': run.jobDefinitionId,
         'x-apphub-job-run': run.id
-      }
+      },
+      { timestamp: emittedAt }
     );
     return;
   }
@@ -145,7 +163,8 @@ export function mirrorApphubEvent(event: ApphubEvent): void {
         'x-apphub-event-type': event.type,
         'x-apphub-repository-id': ingestion.repositoryId,
         'x-apphub-ingestion-id': ingestion.id.toString()
-      }
+      },
+      { timestamp: emittedAt }
     );
     return;
   }
@@ -169,6 +188,69 @@ export function mirrorApphubEvent(event: ApphubEvent): void {
     },
     {
       'x-apphub-event-type': event.type
-    }
+    },
+    { timestamp: emittedAt }
   );
+}
+
+function shouldMirrorCustomWorkflowEvent(record: WorkflowEventRecord): boolean {
+  if (!record.type || typeof record.type !== 'string') {
+    return false;
+  }
+  if (!record.source || typeof record.source !== 'string') {
+    return false;
+  }
+
+  const flags = getFeatureFlags();
+  if (!flags.streaming.enabled) {
+    return false;
+  }
+  if (!flags.streaming.mirrors.coreEvents) {
+    return false;
+  }
+  if (!isKafkaConfigured()) {
+    return false;
+  }
+
+  return true;
+}
+
+export function mirrorCustomWorkflowEvent(record: WorkflowEventRecord): void {
+  if (!shouldMirrorCustomWorkflowEvent(record)) {
+    return;
+  }
+
+  const emittedAt = record.receivedAt ?? new Date().toISOString();
+  const headers: Record<string, string> = {
+    'x-apphub-event-type': record.type,
+    'x-apphub-workflow-event-id': record.id,
+    'x-apphub-ingress-sequence': record.ingressSequence
+  };
+
+  publishWithLogging(
+    CORE_EVENT_TOPIC,
+    record.id,
+    {
+      source: STREAM_SOURCE,
+      emittedAt,
+      eventType: record.type,
+      ingressSequence: record.ingressSequence,
+      occurredAt: record.occurredAt,
+      receivedAt: record.receivedAt,
+      correlationId: record.correlationId,
+      payloadJson: safeStringify(record.payload ?? null),
+      metadataJson: safeStringify(record.metadata ?? null)
+    },
+    headers
+    ,
+    { timestamp: emittedAt }
+  );
+}
+
+export function __setCoreMirrorTestOverrides(overrides?: {
+  publishKafkaMirrorMessage?: (message: KafkaMirrorMessage) => Promise<boolean>;
+  isKafkaPublisherConfigured?: () => boolean;
+}): void {
+  publishMirrorMessage = overrides?.publishKafkaMirrorMessage ?? publishKafkaMirrorMessage;
+  isKafkaConfigured = overrides?.isKafkaPublisherConfigured ?? isKafkaPublisherConfigured;
 }

@@ -4,7 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
-import EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from '@apphub/test-helpers';
+import type EmbeddedPostgres from 'embedded-postgres';
 import { randomUUID } from 'node:crypto';
 import type { WorkflowEventCursor, WorkflowEventInsert } from '../src/db/types';
 
@@ -28,7 +29,7 @@ async function allocatePort(): Promise<number> {
 async function startDatabase(): Promise<() => Promise<void>> {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'apphub-workflow-events-db-'));
   const port = await allocatePort();
-  const postgres = new EmbeddedPostgres({
+  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
     databaseDir: dataDir,
     port,
     user: 'postgres',
@@ -45,7 +46,7 @@ async function startDatabase(): Promise<() => Promise<void>> {
 
   return async () => {
     try {
-      await postgres.stop();
+    await stopEmbeddedPostgres(postgres);
     } finally {
       await rm(dataDir, { recursive: true, force: true });
     }
@@ -141,21 +142,29 @@ async function run(): Promise<void> {
     await seedEvents(db.insertWorkflowEvent);
 
     const firstPage = await db.listWorkflowEvents({ limit: 2 });
-    assert.equal(firstPage.events.length, 2, 'returns first page of events');
+    assert.equal(firstPage.events.length, 2, 'returns first page of events ordered by ingress sequence');
     assert.equal(firstPage.hasMore, true, 'paginates when more records exist');
     assert.ok(firstPage.nextCursor, 'next cursor emitted');
+    assert.deepEqual(
+      firstPage.events.map((event) => event.id),
+      ['evt-005', 'evt-004'],
+      'first page contains newest ingress sequences'
+    );
 
     const nextCursor = firstPage.nextCursor as WorkflowEventCursor;
     const secondPage = await db.listWorkflowEvents({ cursor: nextCursor, limit: 2 });
     assert.equal(secondPage.events.length, 2, 'second page returns next items');
-    assert.equal(secondPage.events[0].id, 'evt-003');
-    assert.equal(secondPage.events[1].id, 'evt-004');
+    assert.deepEqual(
+      secondPage.events.map((event) => event.id),
+      ['evt-003', 'evt-002'],
+      'second page continues descending ingress sequence order'
+    );
 
     const correlationFiltered = await db.listWorkflowEvents({ correlationId: 'corr-1', limit: 10 });
     assert.deepEqual(
       correlationFiltered.events.map((event) => event.id),
-      ['evt-001', 'evt-005'],
-      'filters by correlation id'
+      ['evt-005', 'evt-001'],
+      'filters by correlation id while preserving ingress sequence ordering'
     );
 
     const jsonFiltered = await db.listWorkflowEvents({

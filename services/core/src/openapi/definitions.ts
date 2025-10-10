@@ -2549,6 +2549,93 @@ const streamingBatcherStatusSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const streamingMirrorTopicDiagnosticsSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['topic', 'lastSuccessAt', 'lastFailureAt', 'failureCount', 'lastError'],
+  properties: {
+    topic: stringSchema(),
+    lastSuccessAt: nullable(stringSchema('date-time')),
+    lastFailureAt: nullable(stringSchema('date-time')),
+    failureCount: integerSchema(),
+    lastError: nullable(stringSchema())
+  }
+};
+
+const streamingMirrorSourceDiagnosticsSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'source',
+    'total',
+    'throttled',
+    'dropped',
+    'failures',
+    'averageLagMs',
+    'lastLagMs',
+    'maxLagMs',
+    'lastEventAt'
+  ],
+  properties: {
+    source: stringSchema(),
+    total: integerSchema(),
+    throttled: integerSchema(),
+    dropped: integerSchema(),
+    failures: integerSchema(),
+    averageLagMs: nullable(integerSchema()),
+    lastLagMs: integerSchema(),
+    maxLagMs: integerSchema(),
+    lastEventAt: nullable(stringSchema('date-time'))
+  }
+};
+
+const streamingMirrorSummarySchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['totalEvents', 'totalThrottled', 'totalDropped', 'totalFailures'],
+  properties: {
+    totalEvents: integerSchema(),
+    totalThrottled: integerSchema(),
+    totalDropped: integerSchema(),
+    totalFailures: integerSchema()
+  }
+};
+
+const streamingMirrorPublisherStatusSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'configured',
+    'lastSuccessAt',
+    'lastFailureAt',
+    'failureCount',
+    'lastError',
+    'broker',
+    'topics',
+    'sources',
+    'summary'
+  ],
+  properties: {
+    configured: { type: 'boolean' },
+    lastSuccessAt: nullable(stringSchema('date-time')),
+    lastFailureAt: nullable(stringSchema('date-time')),
+    failureCount: integerSchema(),
+    lastError: nullable(stringSchema()),
+    broker: {
+      type: 'object',
+      required: ['url'],
+      properties: {
+        url: nullable(stringSchema())
+      }
+    },
+    topics: {
+      type: 'array',
+      items: streamingMirrorTopicDiagnosticsSchema
+    },
+    sources: {
+      type: 'array',
+      items: streamingMirrorSourceDiagnosticsSchema
+    },
+    summary: streamingMirrorSummarySchema
+  }
+};
+
 const streamingStatusSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['enabled', 'state', 'reason', 'broker', 'batchers', 'hotBuffer'],
@@ -2580,7 +2667,62 @@ const streamingStatusSchema: OpenAPIV3.SchemaObject = {
         ingestion: { type: 'boolean' },
         coreEvents: { type: 'boolean' }
       }
+    },
+    publisher: streamingMirrorPublisherStatusSchema
+  }
+};
+
+const eventSchemaStatusSchema: OpenAPIV3.SchemaObject = {
+  type: 'string',
+  enum: ['draft', 'active', 'deprecated']
+};
+
+const eventSchemaDefinitionSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['eventType', 'version', 'status', 'schemaHash', 'schema', 'createdAt', 'updatedAt'],
+  properties: {
+    eventType: stringSchema(),
+    version: integerSchema(),
+    status: eventSchemaStatusSchema,
+    schemaHash: stringSchema(),
+    schema: jsonLooseObjectSchema,
+    metadata: nullable(jsonLooseObjectSchema),
+    createdAt: stringSchema('date-time'),
+    createdBy: nullable(stringSchema()),
+    updatedAt: stringSchema('date-time'),
+    updatedBy: nullable(stringSchema())
+  }
+};
+
+const eventSchemaListResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['schemas'],
+  properties: {
+    schemas: {
+      type: 'array',
+      items: eventSchemaDefinitionSchema
     }
+  }
+};
+
+const eventSchemaRegisterRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['eventType', 'schema'],
+  properties: {
+    eventType: stringSchema(),
+    version: nullable(integerSchema()),
+    status: eventSchemaStatusSchema,
+    schema: jsonLooseObjectSchema,
+    metadata: nullable(jsonLooseObjectSchema),
+    author: nullable(stringSchema())
+  }
+};
+
+const eventSchemaRegisterResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['schema'],
+  properties: {
+    schema: eventSchemaDefinitionSchema
   }
 };
 
@@ -2767,7 +2909,16 @@ const components: OpenAPIV3.ComponentsObject = {
     StreamingBrokerStatus: streamingBrokerStatusSchema,
     StreamingBatcherConnectorStatus: streamingBatcherConnectorStatusSchema,
     StreamingBatcherStatus: streamingBatcherStatusSchema,
+    StreamingMirrorTopicDiagnostics: streamingMirrorTopicDiagnosticsSchema,
+    StreamingMirrorSourceDiagnostics: streamingMirrorSourceDiagnosticsSchema,
+    StreamingMirrorSummary: streamingMirrorSummarySchema,
+    StreamingMirrorPublisherStatus: streamingMirrorPublisherStatusSchema,
     StreamingStatus: streamingStatusSchema,
+    EventSchemaStatus: eventSchemaStatusSchema,
+    EventSchema: eventSchemaDefinitionSchema,
+    EventSchemaListResponse: eventSchemaListResponseSchema,
+    EventSchemaRegisterRequest: eventSchemaRegisterRequestSchema,
+    EventSchemaRegisterResponse: eventSchemaRegisterResponseSchema,
     HealthResponse: healthResponseSchema,
     HealthUnavailableResponse: healthUnavailableResponseSchema,
     ReadyResponse: readyResponseSchema,

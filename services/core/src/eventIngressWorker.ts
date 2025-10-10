@@ -57,7 +57,9 @@ function toEventEnvelope(record: WorkflowEventRecord): EventEnvelope {
     payload: record.payload ?? {},
     correlationId: record.correlationId ?? undefined,
     ttl: record.ttlMs ?? undefined,
-    metadata: metadataValue
+    metadata: metadataValue,
+    schemaVersion: record.schemaVersion ?? undefined,
+    schemaHash: record.schemaHash ?? undefined
   } satisfies EventEnvelope;
 }
 

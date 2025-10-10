@@ -58,6 +58,8 @@ import {
   type WorkflowAssetPartitionParametersRecord,
   type WorkflowEventRecord,
   type WorkflowEventProducerSampleRecord,
+  type EventSchemaRecord,
+  type EventSchemaStatus,
   type WorkflowEventTriggerRecord,
   type WorkflowEventTriggerPredicate,
   type WorkflowEventTriggerStatus,
@@ -77,7 +79,9 @@ import {
   type ModuleArtifactRecord,
   type ModuleRecord,
   type ModuleTargetRecord,
-  type ModuleTargetRuntimeConfigRecord
+  type ModuleTargetRuntimeConfigRecord,
+  type ModuleResourceContextRecord,
+  type ModuleResourceType
 } from './types';
 import type {
   BuildRow,
@@ -108,6 +112,7 @@ import type {
   WorkflowAssetPartitionParametersRow,
   WorkflowEventRow,
   WorkflowEventProducerSampleRow,
+  EventSchemaRow,
   WorkflowEventTriggerRow,
   WorkflowTriggerDeliveryRow,
   SavedCoreSearchRow,
@@ -118,7 +123,8 @@ import type {
   ModuleArtifactRow,
   ModuleRow,
   ModuleTargetRow,
-  ModuleTargetConfigRow
+  ModuleTargetConfigRow,
+  ModuleResourceContextRow
 } from './rowTypes';
 import type {
   ServiceRecord,
@@ -1681,6 +1687,22 @@ export function mapModuleTargetConfigRow(row: ModuleTargetConfigRow): ModuleTarg
   } satisfies ModuleTargetRuntimeConfigRecord;
 }
 
+export function mapModuleResourceContextRow(row: ModuleResourceContextRow): ModuleResourceContextRecord {
+  return {
+    moduleId: row.module_id,
+    moduleVersion: row.module_version ?? null,
+    resourceType: row.resource_type as ModuleResourceType,
+    resourceId: row.resource_id,
+    resourceSlug: row.resource_slug ?? null,
+    resourceName: row.resource_name ?? null,
+    resourceVersion: row.resource_version ?? null,
+    isShared: Boolean(row.is_shared),
+    metadata: parseJsonColumn(row.metadata),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies ModuleResourceContextRecord;
+}
+
 function parseJsonColumn(value: unknown): JsonValue | null {
   if (value === null || value === undefined) {
     return null;
@@ -1703,6 +1725,10 @@ export function mapWorkflowEventRow(row: WorkflowEventRow): WorkflowEventRecord 
   const metadata = parseJsonColumn(row.metadata);
   const ttlCandidate = row.ttl_ms === null || row.ttl_ms === undefined ? null : Number(row.ttl_ms);
   const ttlMs = ttlCandidate !== null && Number.isFinite(ttlCandidate) ? ttlCandidate : null;
+  const ingressSequence =
+    row.ingress_sequence === null || row.ingress_sequence === undefined
+      ? '0'
+      : String(row.ingress_sequence);
 
   return {
     id: row.id,
@@ -1710,10 +1736,13 @@ export function mapWorkflowEventRow(row: WorkflowEventRow): WorkflowEventRecord 
     source: row.source,
     occurredAt: row.occurred_at,
     receivedAt: row.received_at,
+    ingressSequence,
     payload,
     correlationId: row.correlation_id ?? null,
     ttlMs,
-    metadata: metadata ?? null
+    metadata: metadata ?? null,
+    schemaVersion: row.schema_version ?? null,
+    schemaHash: row.schema_hash ?? null
   } satisfies WorkflowEventRecord;
 }
 
@@ -1735,6 +1764,26 @@ export function mapWorkflowEventProducerSampleRow(
     expiresAt: row.expires_at ?? null,
     cleanupAttemptedAt: row.cleanup_attempted_at ?? null
   } satisfies WorkflowEventProducerSampleRecord;
+}
+
+export function mapEventSchemaRow(row: EventSchemaRow): EventSchemaRecord {
+  const metadata = parseJsonColumn(row.metadata);
+  const schema = parseJsonColumn(row.schema) ?? ({} as JsonValue);
+
+  const normalizedStatus = (row.status as EventSchemaStatus) ?? 'draft';
+
+  return {
+    eventType: row.event_type,
+    version: Number(row.version),
+    status: normalizedStatus,
+    schema,
+    schemaHash: row.schema_hash,
+    metadata: metadata,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdBy: row.created_by ?? null,
+    updatedBy: row.updated_by ?? null
+  } satisfies EventSchemaRecord;
 }
 
 function normalizeTriggerStatus(value: string): WorkflowEventTriggerStatus {

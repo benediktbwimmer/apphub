@@ -28,6 +28,7 @@ export type ServiceRegistryBackfillResult = {
   moduleId: string;
   servicesApplied: number;
   networksApplied: number;
+  moduleVersion: string;
 };
 
 function normalizePath(specifier: string | undefined): string | undefined {
@@ -111,7 +112,8 @@ export async function backfillServiceRegistry(
       results.push({
         moduleId: preview.moduleId,
         servicesApplied: importResult.servicesApplied,
-        networksApplied: importResult.networksApplied
+        networksApplied: importResult.networksApplied,
+        moduleVersion: importResult.moduleVersion
       });
     }
 
@@ -136,5 +138,5 @@ export async function backfillServiceRegistryFromPaths(
 }
 
 export function formatBackfillResult(result: ServiceRegistryBackfillResult): string {
-  return `Module ${result.moduleId}: ${result.servicesApplied} services, ${result.networksApplied} networks`;
+  return `Module ${result.moduleId}@${result.moduleVersion}: ${result.servicesApplied} services, ${result.networksApplied} networks`;
 }

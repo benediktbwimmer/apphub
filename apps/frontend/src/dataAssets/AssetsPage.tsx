@@ -23,15 +23,28 @@ import {
   DATA_ASSET_PAGE_SUBTITLE,
   DATA_ASSET_PAGE_TITLE
 } from './dataAssetsTokens';
+import { useModuleScope } from '../modules/ModuleScopeContext';
+import { ModuleScopeGate } from '../modules/ModuleScopeGate';
 
 function buildPendingKey(action: string, slug: string, partitionKey: string | null): string {
   return `${action}:${slug}:${partitionKey ?? '::default::'}`;
 }
 
-export default function AssetsPage() {
+function AssetsPageContent() {
   const { activeToken: authToken } = useAuth();
   const { showSuccess, showError, showDestructiveSuccess, showDestructiveError } = useToastHelpers();
+  const moduleScope = useModuleScope();
+  const {
+    kind: moduleScopeKind,
+    moduleId: activeModuleId,
+    getResourceIds,
+    getResourceSlugs,
+    isResourceInScope,
+    loadingResources: moduleLoadingResources
+  } = moduleScope;
+  const isModuleScoped = moduleScopeKind === 'module';
   const [graph, setGraph] = useState<AssetGraphData | null>(null);
+  const [rawGraph, setRawGraph] = useState<AssetGraphData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -48,17 +61,108 @@ export default function AssetsPage() {
   const [workflowInputsLoading, setWorkflowInputsLoading] = useState(false);
   const [workflowInputsError, setWorkflowInputsError] = useState<string | null>(null);
 
+  const normalizeAssetKey = useCallback((value: string | null | undefined) => (value ? value.trim().toLowerCase() : ''), []);
+
+  const moduleAssetKeys = useMemo(() => {
+    if (!isModuleScoped) {
+      return null;
+    }
+    const keys = new Set<string>();
+    for (const id of getResourceIds('asset')) {
+      const normalized = normalizeAssetKey(id);
+      if (normalized) {
+        keys.add(normalized);
+      }
+    }
+    for (const slug of getResourceSlugs('asset')) {
+      const normalized = normalizeAssetKey(slug);
+      if (normalized) {
+        keys.add(normalized);
+      }
+    }
+    return keys;
+  }, [getResourceIds, getResourceSlugs, isModuleScoped, normalizeAssetKey]);
+
+  const moduleWorkflowSlugs = useMemo(() => {
+    if (!isModuleScoped) {
+      return null;
+    }
+    const slugs = new Set<string>();
+    for (const slug of getResourceSlugs('workflow-definition')) {
+      const normalized = normalizeAssetKey(slug);
+      if (normalized) {
+        slugs.add(normalized);
+      }
+    }
+    return slugs;
+  }, [getResourceSlugs, isModuleScoped, normalizeAssetKey]);
+
+  const filterGraphForScope = useCallback(
+    (data: AssetGraphData): AssetGraphData => {
+      if (!isModuleScoped) {
+        return data;
+      }
+      const assetKeys = moduleAssetKeys;
+      const workflowSlugs = moduleWorkflowSlugs;
+      if (!assetKeys && (!workflowSlugs || workflowSlugs.size === 0)) {
+        return { assets: [], edges: [] } satisfies AssetGraphData;
+      }
+
+      const shouldKeepNode = (node: AssetGraphNode) => {
+        const assetKey = normalizeAssetKey(node.assetId);
+        const normalizedKey = normalizeAssetKey(node.normalizedAssetId);
+        if (assetKeys && (assetKeys.has(assetKey) || assetKeys.has(normalizedKey))) {
+          return true;
+        }
+        if (workflowSlugs && workflowSlugs.size > 0) {
+          if (node.producers.some((producer) => workflowSlugs.has(normalizeAssetKey(producer.workflowSlug)))) {
+            return true;
+          }
+          if (node.consumers.some((consumer) => workflowSlugs.has(normalizeAssetKey(consumer.workflowSlug)))) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const assets = data.assets.filter(shouldKeepNode);
+      const retainedKeys = new Set<string>(assets.map((asset) => normalizeAssetKey(asset.normalizedAssetId)));
+      const edges = data.edges.filter((edge) => {
+        const fromKey = normalizeAssetKey(edge.fromAssetNormalizedId ?? edge.fromAssetId);
+        const toKey = normalizeAssetKey(edge.toAssetNormalizedId ?? edge.toAssetId);
+        if (!retainedKeys.has(fromKey) || !retainedKeys.has(toKey)) {
+          return false;
+        }
+        if (workflowSlugs && workflowSlugs.size > 0) {
+          return workflowSlugs.has(normalizeAssetKey(edge.workflowSlug));
+        }
+        return true;
+      });
+
+      return { assets, edges } satisfies AssetGraphData;
+    },
+    [isModuleScoped, moduleAssetKeys, moduleWorkflowSlugs, normalizeAssetKey]
+  );
+
   const refreshGraph = useCallback(async () => {
     if (!authToken) {
       throw new ApiError('Authentication required', 401);
     }
-    const data = await fetchAssetGraph(authToken);
-    setGraph(data);
-    return data;
-  }, [authToken]);
+    const moduleId = isModuleScoped ? activeModuleId ?? undefined : undefined;
+    const data = moduleId
+      ? await fetchAssetGraph(authToken, { moduleId })
+      : await fetchAssetGraph(authToken);
+    setRawGraph(data);
+    const scoped = filterGraphForScope(data);
+    setGraph(scoped);
+    return scoped;
+  }, [activeModuleId, authToken, filterGraphForScope, isModuleScoped]);
 
   useEffect(() => {
     if (!authToken) {
+      return;
+    }
+    if (isModuleScoped && moduleLoadingResources) {
       return;
     }
     let active = true;
@@ -80,7 +184,14 @@ export default function AssetsPage() {
     return () => {
       active = false;
     };
-  }, [authToken, refreshGraph]);
+  }, [authToken, isModuleScoped, moduleLoadingResources, refreshGraph]);
+
+  useEffect(() => {
+    if (!rawGraph) {
+      return;
+    }
+    setGraph(filterGraphForScope(rawGraph));
+  }, [filterGraphForScope, rawGraph]);
 
   const selectedAsset: AssetGraphNode | null = useMemo(() => {
     if (!graph || !selectedAssetId) {
@@ -127,13 +238,17 @@ export default function AssetsPage() {
       }
       setPartitionsLoading(true);
       setPartitionsError(null);
+      if (isModuleScoped && !isResourceInScope('workflow-definition', workflowSlug)) {
+        setPartitions(null);
+        setPartitionsError('Workflow not available in current module');
+        setPartitionsLoading(false);
+        return;
+      }
       try {
-        const data = await fetchWorkflowAssetPartitions(
-          authToken,
-          workflowSlug,
-          assetNode.assetId,
-          {}
-        );
+        const moduleId = isModuleScoped ? activeModuleId ?? undefined : undefined;
+        const data = moduleId
+          ? await fetchWorkflowAssetPartitions(authToken, workflowSlug, assetNode.assetId, { moduleId })
+          : await fetchWorkflowAssetPartitions(authToken, workflowSlug, assetNode.assetId, {});
         setPartitions(data);
       } catch (err) {
         const message = err instanceof ApiError ? err.message : 'Failed to load partitions';
@@ -143,7 +258,7 @@ export default function AssetsPage() {
         setPartitionsLoading(false);
       }
     },
-    [authToken]
+    [activeModuleId, authToken, isModuleScoped, isResourceInScope]
   );
 
   useEffect(() => {
@@ -215,7 +330,9 @@ export default function AssetsPage() {
     let active = true;
     setWorkflowInputsLoading(true);
     setWorkflowInputsError(null);
-    getWorkflowDetail(authToken, selectedWorkflowSlug)
+    getWorkflowDetail(authToken, selectedWorkflowSlug, {
+      moduleId: moduleScope.kind === 'module' ? moduleScope.moduleId ?? undefined : undefined
+    })
       .then(({ workflow }) => {
         if (!active) {
           return;
@@ -246,6 +363,8 @@ export default function AssetsPage() {
   }, [
     authToken,
     cachedWorkflowInputs,
+    moduleScope.kind,
+    moduleScope.moduleId,
     pendingRunPartition,
     selectedWorkflowSlug,
     setWorkflowInputsBySlug,
@@ -262,7 +381,8 @@ export default function AssetsPage() {
       await withPendingAction(actionKey, async () => {
         try {
           await markAssetPartitionStale(authToken, selectedWorkflowSlug, selectedAsset.assetId, {
-            partitionKey
+            partitionKey,
+            moduleId: isModuleScoped ? activeModuleId ?? undefined : undefined
           });
           showDestructiveSuccess('Mark stale', partitionKey ? `partition ${partitionKey}` : 'asset');
           await loadPartitions(selectedAsset, selectedWorkflowSlug);
@@ -273,7 +393,9 @@ export default function AssetsPage() {
       });
     },
     [
+      activeModuleId,
       authToken,
+      isModuleScoped,
       loadPartitions,
       refreshGraph,
       selectedAsset,
@@ -292,7 +414,13 @@ export default function AssetsPage() {
       const actionKey = buildPendingKey('clear', selectedWorkflowSlug, partitionKey);
       await withPendingAction(actionKey, async () => {
         try {
-          await clearAssetPartitionStale(authToken, selectedWorkflowSlug, selectedAsset.assetId, partitionKey ?? undefined);
+          await clearAssetPartitionStale(
+            authToken,
+            selectedWorkflowSlug,
+            selectedAsset.assetId,
+            partitionKey ?? undefined,
+            isModuleScoped ? activeModuleId ?? undefined : undefined
+          );
           showDestructiveSuccess('Clear stale flag', partitionKey ? `partition ${partitionKey}` : 'asset');
           await loadPartitions(selectedAsset, selectedWorkflowSlug);
           await refreshGraph();
@@ -302,7 +430,9 @@ export default function AssetsPage() {
       });
     },
     [
+      activeModuleId,
       authToken,
+      isModuleScoped,
       loadPartitions,
       refreshGraph,
       selectedAsset,
@@ -329,10 +459,12 @@ export default function AssetsPage() {
       const actionKey = buildPendingKey('run', selectedWorkflowSlug, partitionKey);
       await withPendingAction(actionKey, async () => {
         try {
+          const moduleId = isModuleScoped ? activeModuleId ?? undefined : undefined;
           if (persistParameters) {
             await saveAssetPartitionParameters(authToken, selectedWorkflowSlug, selectedAsset.assetId, {
               partitionKey: partitionKey ?? null,
-              parameters
+              parameters,
+              moduleId
             });
             setPendingRunPartition((current: WorkflowAssetPartitionSummary | null) => {
               if (!current) {
@@ -354,7 +486,8 @@ export default function AssetsPage() {
 
           const run = await triggerWorkflowRun(authToken, selectedWorkflowSlug, {
             partitionKey,
-            parameters
+            parameters,
+            moduleId
           });
           showSuccess('Recompute triggered', `Run ${run.id} enqueued.`);
           await loadPartitions(selectedAsset, selectedWorkflowSlug);
@@ -366,7 +499,9 @@ export default function AssetsPage() {
       });
     },
     [
+      activeModuleId,
       authToken,
+      isModuleScoped,
       loadPartitions,
       refreshGraph,
       selectedAsset,
@@ -404,7 +539,8 @@ export default function AssetsPage() {
             authToken,
             selectedWorkflowSlug,
             selectedAsset.assetId,
-            partitionKey ?? undefined
+            partitionKey ?? undefined,
+            isModuleScoped ? activeModuleId ?? undefined : undefined
           );
           showDestructiveSuccess('Clear stored parameters', partitionKey ? `partition ${partitionKey}` : 'default partition');
           setPendingRunPartition((current: WorkflowAssetPartitionSummary | null) => {
@@ -432,9 +568,11 @@ export default function AssetsPage() {
       });
     },
     [
+      activeModuleId,
       authToken,
       loadPartitions,
       refreshGraph,
+      isModuleScoped,
       selectedAsset,
       selectedWorkflowSlug,
       showDestructiveError,
@@ -496,4 +634,12 @@ export default function AssetsPage() {
       />
     </div>
   );
+}
+
+export default function AssetsPage() {
+  const moduleScope = useModuleScope();
+  if (moduleScope.kind !== 'module' || moduleScope.loadingResources) {
+    return <ModuleScopeGate resourceName="assets" />;
+  }
+  return <AssetsPageContent />;
 }

@@ -119,7 +119,9 @@ export const eventEnvelopeSchema = z
     payload: jsonValueSchema,
     correlationId: z.string().min(1).optional(),
     ttl: z.number().int().positive().optional(),
-    metadata: metadataSchema.optional()
+    metadata: metadataSchema.optional(),
+    schemaVersion: z.number().int().positive().optional(),
+    schemaHash: z.string().min(1).optional()
   })
   .strict();
 
@@ -129,6 +131,8 @@ export type EventEnvelopeInput = Omit<EventEnvelope, 'id' | 'occurredAt'> & {
   id?: string;
   occurredAt?: string | Date;
   payload?: JsonValue;
+  schemaVersion?: number | null;
+  schemaHash?: string | null;
 };
 
 export type EventPublisher<TOptions = unknown> = (
@@ -161,6 +165,18 @@ export function normalizeEventEnvelope(input: EventEnvelopeInput): EventEnvelope
     occurredAt: occurredAtValue,
     payload: input.payload ?? {}
   };
+
+  if (input.schemaVersion !== undefined && input.schemaVersion !== null) {
+    candidate.schemaVersion = input.schemaVersion;
+  } else {
+    delete candidate.schemaVersion;
+  }
+
+  if (input.schemaHash !== undefined && input.schemaHash !== null) {
+    candidate.schemaHash = input.schemaHash;
+  } else {
+    delete candidate.schemaHash;
+  }
 
   if (metadata === undefined) {
     delete candidate.metadata;

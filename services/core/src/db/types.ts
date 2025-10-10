@@ -326,16 +326,45 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export type EventSchemaStatus = 'draft' | 'active' | 'deprecated';
+
+export type EventSchemaRecord = {
+  eventType: string;
+  version: number;
+  status: EventSchemaStatus;
+  schema: JsonValue;
+  schemaHash: string;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+};
+
+export type EventSchemaInsert = {
+  eventType: string;
+  version: number;
+  status: EventSchemaStatus;
+  schema: JsonValue;
+  schemaHash: string;
+  metadata?: JsonValue | null;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+};
+
 export type WorkflowEventRecord = {
   id: string;
   type: string;
   source: string;
   occurredAt: string;
   receivedAt: string;
+  ingressSequence: string;
   payload: JsonValue;
   correlationId: string | null;
   ttlMs: number | null;
   metadata: JsonValue | null;
+  schemaVersion: number | null;
+  schemaHash: string | null;
 };
 
 export type WorkflowEventInsert = {
@@ -348,6 +377,9 @@ export type WorkflowEventInsert = {
   ttlMs?: number | null;
   metadata?: JsonValue | null;
   receivedAt?: string;
+  schemaVersion?: number | null;
+  schemaHash?: string | null;
+  ingressSequence?: string | null;
 };
 
 export type WorkflowEventCursor = WorkflowEventCursorPayload;
@@ -361,6 +393,7 @@ export type WorkflowEventQueryOptions = {
   jsonPath?: string | null;
   limit?: number;
   cursor?: WorkflowEventCursor | null;
+  eventIds?: string[] | null;
 };
 
 export type WorkflowEventQueryResult = {
@@ -884,6 +917,50 @@ export type ModuleRecord = {
   isEnabled: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ModuleResourceType =
+  | 'service'
+  | 'service-network'
+  | 'workflow-definition'
+  | 'workflow-run'
+  | 'job-definition'
+  | 'job-run'
+  | 'asset'
+  | 'event'
+  | 'view'
+  | 'metric';
+
+export type ModuleResourceContextRecord = {
+  moduleId: string;
+  moduleVersion: string | null;
+  resourceType: ModuleResourceType;
+  resourceId: string;
+  resourceSlug: string | null;
+  resourceName: string | null;
+  resourceVersion: string | null;
+  isShared: boolean;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ModuleResourceContextUpsertInput = {
+  moduleId: string;
+  moduleVersion?: string | null;
+  resourceType: ModuleResourceType;
+  resourceId: string;
+  resourceSlug?: string | null;
+  resourceName?: string | null;
+  resourceVersion?: string | null;
+  isShared?: boolean;
+  metadata?: JsonValue | null;
+};
+
+export type ModuleResourceContextDeleteInput = {
+  moduleId: string;
+  resourceType: ModuleResourceType;
+  resourceId: string;
 };
 
 export type WorkflowTriggerScheduleDefinition = {

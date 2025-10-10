@@ -10,57 +10,58 @@ import {
 } from '@components/diagrams';
 
 const title = 'Technical overview | Osiris AppHub';
-const description = 'Dive into the architecture of the AppHub operations platform: orchestrator, data plane, event bus, and module ergonomics.';
+const description =
+  'Dive into the architecture I am building for AppHub: the orchestrator, event bus, timestore, filestore, metastore, and UI working as one system.';
 
 const coreStack = [
   {
     heading: 'Core orchestrator',
     detail:
-      'Fastify gateway with typed OpenAPI surface. Redis + BullMQ drive ingest, workflow, build, and materializer queues. Asset materialisation keeps data fresh automatically.'
+      'Fastify gateway with typed OpenAPI surface. Redis plus BullMQ drive ingest, workflow, build, trigger, and schedule queues. Asset auto-materialisation keeps modules fresh without manual babysitting.'
   },
   {
     heading: 'Timestore',
     detail:
-      'DuckDB runtime generates Parquet partitions in object storage, exposes ANSI SQL, and uses predicate pushdown to keep IO costs low.'
+      'DuckDB runtime buffers writes on a staging disk, flushes Parquet partitions, and serves ANSI SQL. Predicate pushdown and partition pruning keep scans fast while scaling on object storage.'
   },
   {
     heading: 'Filestore',
     detail:
-      'Transactional filesystem API that journals mutations, tracks hashes, and reconciles drift across MinIO, S3, GCS, or local disks.'
+      'Transactional storage API that journals mutations, tracks sizes and hashes, maintains the inventory, and emits change events across MinIO, S3, GCS, Azure, or local disks.'
   },
   {
     heading: 'Metastore',
-    detail: 'PostgreSQL-backed document store with optimistic concurrency and JSON-path querying for module settings and topology.'
+    detail: 'PostgreSQL-backed document store with optimistic concurrency that emits events whenever a document changes, making configuration and topology reactive by default.'
   },
   {
     heading: 'Unified UI',
-    detail: 'Vite + React console streaming WebSocket events, rendering workflow graphs, SQL editor, and service health from the core.'
+    detail: 'Vite plus React console that streams from the event bus, rendering workflow graphs, SQL workspaces, asset inventories, and health panels in one place.'
   }
 ];
 
 const eventHighlights = [
-  'BullMQ queues with Redis deliver sub-50ms event fan-out for workflow runs, asset updates, and service health frames.',
-  'Inline mode keeps local development simple, while HTTP proxies let sandboxed jobs publish events without bundling BullMQ.',
-  'Asset materialisation and explicit event triggers both kick off workflows—choose freshness-based or domain-driven execution patterns.'
+  'BullMQ queues with Redis deliver low latency fan-out for workflow runs, asset updates, triggers, and schedule heartbeats.',
+  'Inline mode keeps local development simple, while HTTP proxies let sandboxed jobs publish events without embedding BullMQ clients.',
+  'Asset auto-materialisation, explicit event triggers, and cron schedules coexist—mix freshness based or domain driven execution whenever you need.'
 ];
 
 const timestoreDetails = [
-  'Partitioned Parquet manifests sharded by day keep ingestion free of row-level contention.',
-  'DuckDB query plans exploit predicate pushdown and column pruning, so scanning months of data remains affordable.',
-  'Lifecycle workers manage compaction, retention, and exports. Metrics such as `timestore_ingest_job_duration_seconds` ship out of the box.',
-  'SQL editor in the UI reuses the same API surface exposed to modules; no parallel warehouse required.'
+  'Partitioned Parquet manifests sharded by time keep ingestion free of row-level contention and ready for horizontal planning.',
+  'DuckDB query plans exploit predicate pushdown, column pruning, and parallel execution so scanning months of history stays affordable.',
+  'Lifecycle workers manage compaction, retention, exports, and streaming merges. Metrics such as `timestore_ingest_job_duration_seconds` ship out of the box.',
+  'Streaming inputs slot straight into the same datasets while the SQL editor in the UI reuses the exact API modules call.'
 ];
 
 const filestoreDetails = [
-  'Journaled mutations guarantee metadata accuracy—size, checksums, lifecycles—across every node.',
+  'Journaled mutations guarantee inventory accuracy—sizes, checksums, metadata, lineage—across every node.',
   'Watchers and reconciliation workers detect drift introduced outside the API and self-heal using BullMQ jobs.',
-  'Backends span local volumes, MinIO, S3, or GCS. Metadata stays central in Postgres while payloads live in object storage.',
-  'Event feeds push change notifications into modules and timestore so downstream consumers react instantly.'
+  'Backends span local volumes, MinIO, S3, Azure, or GCS. Metadata stays central in Postgres while payloads live in object storage.',
+  'Event feeds push change notifications into modules, timestore, and metastore so downstream consumers react instantly.'
 ];
 
 const moduleErgonomics = [
-  'TypeScript SDK supplies capability shims for filestore, metastore, timestore, and the event bus. Authors focus on domain logic.',
-  'Targets (jobs, workflows, services) declare semantic versions and assets, enabling precise rollouts and auto-materialisation.',
+  'TypeScript SDK supplies capability shims for filestore, metastore, timestore, the event bus, and UI surfaces. Authors stay focused on domain logic.',
+  'Targets (jobs, workflows, schedules, triggers, services) declare semantic versions and assets, enabling precise rollouts and asset auto-materialisation.',
   'Services ship with registrations so module-defined UIs appear automatically in the AppHub console.'
 ];
 
@@ -91,21 +92,21 @@ export default defineModule({
 const deployment = [
   {
     title: 'Single-node prototyping',
-    copy: 'Docker Compose or Minikube packages Redis, Postgres, object storage (MinIO), and the AppHub services for quick demos.'
+    copy: 'Docker Compose or Minikube packages Redis, Postgres, MinIO, and the AppHub services. A small staging disk buffers timestore writes before they flush to Parquet.'
   },
   {
     title: 'Kubernetes-first',
-    copy: 'Helm manifests and workers scale horizontally. Object storage can be S3, GCS, or in-cluster MinIO; Redis and Postgres scale independently.'
+    copy: 'Helm manifests and workers scale horizontally. Object storage can be S3, GCS, Azure, or in-cluster MinIO; Redis, DuckDB, and Postgres scale independently.'
   },
   {
     title: 'Hybrid footprints',
-    copy: 'Run ingestion workers next to data sources while keeping AppHub services in the cloud. Event bus routing and service registry keep everything in sync.'
+    copy: 'Run ingestion workers next to data sources while keeping AppHub services in the cloud. The event bus and shared stores keep everything in sync across sites.'
   }
 ];
 
 const observability = [
   'Prometheus metrics across services (queue depth, ingest latency, reconciliation backlog) with configurable scopes.',
-  'OpenTelemetry spans for timestore queries, ingestion, and workflow execution.',
+  'OpenTelemetry spans for timestore queries, ingestion, and workflow execution, plus structured logs for every job.',
   'Admin APIs expose queue health, event explorers, dataset audit trails, and asset histories.'
 ];
 ---
@@ -113,10 +114,10 @@ const observability = [
   <section class="page-hero">
     <div class="container page-hero__inner">
       <div>
-        <p class="page-hero__eyebrow">For engineering and platform teams</p>
-        <h1>The event-driven operations platform behind AppHub modules.</h1>
+        <p class="page-hero__eyebrow">Under the hood of AppHub</p>
+        <h1>The orchestration engine I am building for real operations.</h1>
         <p class="page-hero__intro">
-          AppHub is open source. It pairs an opinionated orchestrator with a scalable data plane so modules can blend automation, telemetry, and operator experiences without reinventing the stack.
+          AppHub is open source. I am welding the orchestrator, Redis plus BullMQ bus, timestore, filestore, metastore, and UI together so modules blend automation, telemetry, and operator experiences without reinventing plumbing.
         </p>
         <div class="page-hero__actions">
           <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Book an architecture review</a>
@@ -126,7 +127,7 @@ const observability = [
         <div class="page-hero__notice">
           <strong>Current status:</strong>
           <span>
-            UI polish is ongoing and the platform is still an early prototype. We will publish production guidance once the modules and services are battle-tested—contributors are welcome to help us get there.
+            UI polish is ongoing and the platform is still an early prototype. I will publish production guidance once workflows, stores, and the UI prove themselves under load—help me get there by contributing.
           </span>
         </div>
       </div>
@@ -134,7 +135,7 @@ const observability = [
         <div class="diagram">
           <TechnicalArchitectureDiagram />
         </div>
-        <figcaption>Core workers, data services, and UI share the same event bus and object storage fabric.</figcaption>
+        <figcaption>Core workers, data services, and the UI share the Redis plus BullMQ event bus and the same storage fabric.</figcaption>
       </figure>
     </div>
   </section>
@@ -161,7 +162,10 @@ const observability = [
         </div>
       </figure>
       <div>
-        <h2 id="events-heading" class="section-heading">Event bus & asset materialisation</h2>
+        <h2 id="events-heading" class="section-heading">Event bus, triggers, and schedules</h2>
+        <p>
+          Everything in AppHub talks over the same Redis plus BullMQ bus: workflows, jobs, triggers, schedules, and asset refreshes. Low latency is the baseline, not an afterthought.
+        </p>
         <ul>
           {eventHighlights.map((item) => (
             <li>{item}</li>
@@ -175,6 +179,9 @@ const observability = [
     <div class="container timestore__inner">
       <div>
         <h2 id="timestore-heading" class="section-heading">Timestore at scale</h2>
+        <p>
+          Designed for high volume timeseries. Writes hit a staging disk, flush to Parquet partitions, and DuckDB handles SQL with partition-aware planning.
+        </p>
         <ul>
           {timestoreDetails.map((item) => (
             <li>{item}</li>
@@ -197,7 +204,10 @@ const observability = [
         </div>
       </figure>
       <div>
-        <h2 id="filestore-heading" class="section-heading">Filestore metadata engine</h2>
+        <h2 id="filestore-heading" class="section-heading">Filestore inventory and event engine</h2>
+        <p>
+          Files never bypass the service. That is how we keep the inventory accurate, emit change events, and reconcile drift across every storage backend.
+        </p>
         <ul>
           {filestoreDetails.map((item) => (
             <li>{item}</li>

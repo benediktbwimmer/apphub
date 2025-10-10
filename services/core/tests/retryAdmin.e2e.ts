@@ -1,10 +1,10 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres, runE2E } from '@apphub/test-helpers';
+import type EmbeddedPostgres from 'embedded-postgres';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
-import { runE2E } from '@apphub/test-helpers';
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let postgresDataDir: string | null = null;
@@ -20,7 +20,7 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   postgresDataDir = dataRoot;
 
   const port = 14_000 + Math.floor(Math.random() * 1_000);
-  const postgres = new EmbeddedPostgres({
+  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
     port,
     databaseDir: dataRoot,
     persistent: false,
@@ -43,7 +43,7 @@ async function shutdownEmbeddedPostgres(): Promise<void> {
     return;
   }
   try {
-    await embeddedPostgres.stop();
+    await stopEmbeddedPostgres(embeddedPostgres);
   } finally {
     embeddedPostgres = null;
     if (postgresDataDir) {

@@ -6,6 +6,7 @@ import { DEFAULT_EVENTS_FILTERS, EVENTS_EXPLORER_PRESETS } from '../explorerType
 import type { EventsExplorerState } from '../useEventsExplorer';
 import type { WorkflowEventSample, WorkflowEventSchema } from '../../workflows/types';
 import { useEventsExplorer } from '../useEventsExplorer';
+import { ModuleScopeContextProvider, type ModuleScopeContextValue } from '../../modules/ModuleScopeContext';
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
@@ -62,6 +63,25 @@ vi.mock('../useEventHealthSnapshot', () => ({
 }));
 
 const useEventsExplorerMock = vi.mocked(useEventsExplorer);
+
+const stubModuleScope: ModuleScopeContextValue = {
+  kind: 'module',
+  moduleId: 'test-module',
+  moduleVersion: '1.0.0',
+  modules: [],
+  loadingModules: false,
+  modulesError: null,
+  resources: [],
+  loadingResources: false,
+  resourcesError: null,
+  setModuleId: vi.fn(),
+  buildModulePath: (path: string) => path,
+  stripModulePrefix: (pathname: string) => pathname,
+  getResourceContexts: () => [],
+  getResourceIds: () => [],
+  getResourceSlugs: () => [],
+  isResourceInScope: () => true
+};
 
 const sampleEvents: WorkflowEventSample[] = [
   {
@@ -133,7 +153,11 @@ beforeEach(() => {
 
 describe('EventsExplorerPage', () => {
   it('renders events and opens the detail drawer', async () => {
-    render(<EventsExplorerPage />);
+    render(
+      <ModuleScopeContextProvider value={stubModuleScope}>
+        <EventsExplorerPage />
+      </ModuleScopeContextProvider>
+    );
 
     expect(screen.getByText('Events Explorer')).toBeInTheDocument();
     expect(screen.getByText('Live events')).toBeInTheDocument();

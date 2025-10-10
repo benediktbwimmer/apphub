@@ -629,10 +629,13 @@ export type WorkflowEventRow = {
   source: string;
   occurred_at: string;
   received_at: string;
+  ingress_sequence: string | number;
   payload: unknown;
   correlation_id: string | null;
   ttl_ms: number | null;
   metadata: unknown;
+  schema_version: number | null;
+  schema_hash: string | null;
 };
 
 export type WorkflowEventProducerSampleRow = {
@@ -729,6 +732,33 @@ export type ModuleTargetConfigRow = {
   target_version: string;
   settings: unknown;
   secrets: unknown;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EventSchemaRow = {
+  event_type: string;
+  version: number;
+  status: string;
+  schema: unknown;
+  schema_hash: string;
+  metadata: unknown;
+  created_at: string;
+  created_by: string | null;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+export type ModuleResourceContextRow = {
+  module_id: string;
+  module_version: string | null;
+  resource_type: string;
+  resource_id: string;
+  resource_slug: string | null;
+  resource_name: string | null;
+  resource_version: string | null;
+  is_shared: boolean;
   metadata: unknown;
   created_at: string;
   updated_at: string;

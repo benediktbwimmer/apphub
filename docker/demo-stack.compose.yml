@@ -77,6 +77,8 @@ x-shared-env: &shared-env
   DATABASE_URL: postgres://apphub:apphub@postgres:5432/apphub
   FILESTORE_DATABASE_URL: postgres://apphub:apphub@postgres:5432/apphub
   TIMESTORE_DATABASE_URL: postgres://apphub:apphub@postgres:5432/apphub
+  APPHUB_EVENT_SEQUENCE_DATABASE_URL: postgres://sequencer:sequencer@sequencer-db:5432/apphub_sequences
+  APPHUB_EVENT_SEQUENCE_NAME: ${APPHUB_EVENT_SEQUENCE_NAME:-apphub_event_ingress_seq}
   REDIS_URL: redis://redis:6379
   APPHUB_DEV_REDIS_URL: redis://redis:6379
   FILESTORE_REDIS_URL: redis://redis:6379
@@ -110,6 +112,34 @@ x-shared-env: &shared-env
     [{"subject":"demo-admin","token":"${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}","scopes":"*","kind":"user"},{"subject":"demo-service","token":"${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}","scopes":["jobs:write","jobs:run","jobs:read","job-bundles:write","job-bundles:read","workflows:write","workflows:run","workflows:read","filestore:read","filestore:write","filestore:admin","metastore:read","metastore:write","metastore:delete","metastore:admin","timestore:read","timestore:write","timestore:admin","timestore:metrics","timestore:sql:read","timestore:sql:exec","observatory:read","observatory:write","observatory:reprocess","runtime:write"],"kind":"service"},{"subject":"demo-viewer","token":"${APPHUB_DEMO_VIEWER_TOKEN:-demo-viewer-token}","scopes":["jobs:read","jobs:run","job-bundles:read","workflows:read","workflows:run","filestore:read","metastore:read","timestore:read","timestore:sql:read","timestore:metrics","observatory:read"],"kind":"user"}]
 
 services:
+  sequencer-db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: apphub_sequences
+      POSTGRES_USER: sequencer
+      POSTGRES_PASSWORD: sequencer
+    command:
+      - postgres
+      - -c
+      - synchronous_commit=off
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=64MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sequencer -d apphub_sequences"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/sequencer
+        target: /var/lib/postgresql/data
+      - type: bind
+        source: ./init/sequencer.sql
+        target: /docker-entrypoint-initdb.d/00-sequencer.sql
+
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
     restart: unless-stopped
@@ -374,6 +404,8 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      sequencer-db:
         condition: service_healthy
       redis:
         condition: service_healthy

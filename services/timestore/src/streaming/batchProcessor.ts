@@ -53,6 +53,7 @@ export class StreamingBatchProcessor {
   private readonly buffers = new Map<string, WindowBuffer>();
   private readonly windowStates = new Map<string, WindowState>();
   private readonly datasetSlug: string;
+  private readonly orderingField: string | null;
   private bufferedRowCount = 0;
   private lastFlushAtMs: number | null = null;
   private lastEventTimestampMs: number | null = null;
@@ -67,6 +68,7 @@ export class StreamingBatchProcessor {
     this.now = dependencies.now ?? Date.now;
     this.retryDelayMs = dependencies.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
     this.datasetSlug = config.datasetSlug;
+    this.orderingField = config.orderingField ?? null;
   }
 
   async processRecord(event: Record<string, unknown>): Promise<void> {
@@ -251,7 +253,7 @@ export class StreamingBatchProcessor {
 
   private async performFlush(buffer: WindowBuffer, reason: FlushReason): Promise<void> {
     const rows = [...buffer.rows];
-    rows.sort((a, b) => compareByTimeField(a, b, this.config.timeField));
+    rows.sort((a, b) => compareByOrderingOrTime(a, b, this.orderingField, this.config.timeField));
 
     const chunkLabel = buffer.chunkIndex.toString();
     const partitionKey = {
@@ -386,6 +388,27 @@ function normalizeTimestamp(value: unknown): Date | null {
   return null;
 }
 
+function compareByOrderingOrTime(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+  orderingField: string | null,
+  timeField: string
+): number {
+  if (orderingField) {
+    const leftOrdering = toBigIntOrNull(left[orderingField]);
+    const rightOrdering = toBigIntOrNull(right[orderingField]);
+    if (leftOrdering !== null && rightOrdering !== null) {
+      if (leftOrdering < rightOrdering) {
+        return -1;
+      }
+      if (leftOrdering > rightOrdering) {
+        return 1;
+      }
+    }
+  }
+  return compareByTimeField(left, right, timeField);
+}
+
 function compareByTimeField(
   left: Record<string, unknown>,
   right: Record<string, unknown>,
@@ -397,4 +420,29 @@ function compareByTimeField(
     return 0;
   }
   return leftValue.getTime() - rightValue.getTime();
+}
+
+function toBigIntOrNull(value: unknown): bigint | null {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    try {
+      return BigInt(Math.trunc(value));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    try {
+      return BigInt(trimmed);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }

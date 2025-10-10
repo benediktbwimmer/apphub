@@ -1465,7 +1465,90 @@ const migrations: Migration[] = [
     ]
   },
   {
-    id: '052_workflow_activity_indexes',
+    id: '052_module_resource_contexts',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS module_resource_contexts (
+         module_id TEXT NOT NULL,
+         module_version TEXT,
+         resource_type TEXT NOT NULL,
+         resource_id TEXT NOT NULL,
+         resource_slug TEXT,
+         resource_name TEXT,
+         resource_version TEXT,
+         is_shared BOOLEAN NOT NULL DEFAULT FALSE,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (module_id, resource_type, resource_id)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_module_resource_contexts_resource
+         ON module_resource_contexts(resource_type, resource_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_module_resource_contexts_module
+         ON module_resource_contexts(module_id, resource_type);`
+    ]
+  },
+  {
+    id: '053_event_schema_registry',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS event_schema_registry (
+         event_type TEXT NOT NULL,
+         version INTEGER NOT NULL,
+         status TEXT NOT NULL DEFAULT 'active',
+         schema JSONB NOT NULL,
+         schema_hash TEXT NOT NULL,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         created_by TEXT,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_by TEXT,
+         PRIMARY KEY (event_type, version)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_event_schema_registry_active
+         ON event_schema_registry(event_type, version DESC)
+         WHERE status = 'active';`,
+      `ALTER TABLE workflow_events
+         ADD COLUMN IF NOT EXISTS schema_version INTEGER;`,
+      `ALTER TABLE workflow_events
+         ADD COLUMN IF NOT EXISTS schema_hash TEXT;`
+    ]
+  },
+  {
+    id: '054_event_ingress_sequence',
+    statements: [
+      `CREATE SEQUENCE IF NOT EXISTS workflow_events_ingress_seq AS BIGINT START WITH 1 INCREMENT BY 1 CACHE 128;`,
+      `ALTER SEQUENCE workflow_events_ingress_seq OWNED BY NONE;`,
+      `ALTER TABLE workflow_events
+         ADD COLUMN IF NOT EXISTS ingress_sequence BIGINT;`,
+      `DO $$
+       DECLARE
+         record_id TEXT;
+       BEGIN
+         FOR record_id IN
+           SELECT id
+           FROM workflow_events
+           WHERE ingress_sequence IS NULL
+           ORDER BY received_at, occurred_at, id
+         LOOP
+           UPDATE workflow_events
+             SET ingress_sequence = nextval('workflow_events_ingress_seq')
+             WHERE id = record_id;
+         END LOOP;
+       END $$;`,
+      `SELECT setval(
+         'workflow_events_ingress_seq',
+         COALESCE((SELECT MAX(ingress_sequence) FROM workflow_events), 0),
+         true
+       );`,
+      `ALTER TABLE workflow_events
+         ALTER COLUMN ingress_sequence SET DEFAULT nextval('workflow_events_ingress_seq');`,
+      `ALTER TABLE workflow_events
+         ALTER COLUMN ingress_sequence SET NOT NULL;`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_events_ingress_sequence
+         ON workflow_events (ingress_sequence DESC);`
+    ]
+  },
+  {
+    id: '055_workflow_activity_indexes',
     statements: [
       `CREATE INDEX IF NOT EXISTS idx_workflow_runs_created_at
          ON workflow_runs(created_at DESC);`,

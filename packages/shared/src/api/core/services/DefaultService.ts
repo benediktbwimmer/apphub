@@ -167,6 +167,33 @@ export class DefaultService {
    * @returns any Default Response
    * @throws ApiError
    */
+  public getModules(): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/modules',
+    });
+  }
+  /**
+   * @returns any Default Response
+   * @throws ApiError
+   */
+  public getModulesResources({
+    moduleId,
+  }: {
+    moduleId: string,
+  }): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/modules/{moduleId}/resources',
+      path: {
+        'moduleId': moduleId,
+      },
+    });
+  }
+  /**
+   * @returns any Default Response
+   * @throws ApiError
+   */
   public postAiTimestoreSql(): CancelablePromise<any> {
     return this.httpRequest.request({
       method: 'POST',
