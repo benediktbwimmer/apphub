@@ -1,8 +1,9 @@
-import { useCallback, useMemo, type ChangeEvent } from 'react';
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { PRIMARY_NAV_ITEMS, type PrimaryNavKey } from '../routes/paths';
 import { useModuleScope } from '../modules/ModuleScopeContext';
+import type { ModuleSummary } from '../modules/types';
 
 interface NavbarProps {
   variant?: 'default' | 'overlay';
@@ -207,55 +208,276 @@ function ModuleSwitcher({
   variant: 'sidebar' | 'overlay';
   moduleScope: ReturnType<typeof useModuleScope>;
 }) {
-  const { moduleId, moduleVersion, modules, loadingModules, setModuleId } = moduleScope;
+  const { moduleId, moduleVersion, modules, loadingModules, modulesError, setModuleId } = moduleScope;
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const previousModuleIdRef = useRef<string | null>(moduleId);
 
-  const handleChange = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      const value = event.target.value;
-      if (value === '__all__') {
-        setModuleId(null);
-      } else {
-        setModuleId(value);
+  const handleToggle = useCallback(() => {
+    if (loadingModules) {
+      return;
+    }
+    setOpen((value) => !value);
+  }, [loadingModules]);
+
+  const closePopover = useCallback(() => {
+    setOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handlePointer(event: MouseEvent) {
+      const target = event.target as Node;
+      if (
+        popoverRef.current?.contains(target) ||
+        triggerRef.current?.contains(target)
+      ) {
+        return;
       }
+      closePopover();
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        closePopover();
+        triggerRef.current?.focus();
+      }
+    }
+
+    window.addEventListener('mousedown', handlePointer);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('mousedown', handlePointer);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [open, closePopover]);
+
+  useEffect(() => {
+    if (previousModuleIdRef.current !== moduleId) {
+      previousModuleIdRef.current = moduleId;
+      closePopover();
+    }
+  }, [moduleId, closePopover]);
+
+  const activeModule = useMemo(() => {
+    if (!moduleId) {
+      return null;
+    }
+    return modules.find((entry) => entry.id === moduleId) ?? null;
+  }, [moduleId, modules]);
+
+  const handleSelect = useCallback(
+    (nextModuleId: string | null) => {
+      setModuleId(nextModuleId);
     },
     [setModuleId]
   );
 
-  const selectedModule = moduleId ? modules.find((entry) => entry.id === moduleId) ?? null : null;
-
-  const containerClasses =
-    variant === 'sidebar'
-      ? 'w-full rounded-2xl border border-subtle bg-surface-muted px-3 py-2 text-left'
-      : 'flex flex-col gap-1 rounded-2xl border border-default bg-surface-sunken-glass px-4 py-3 text-left';
+  const isModuleScoped = Boolean(moduleId);
+  const isPopoverVisible = open;
 
   return (
-    <div className={`${containerClasses} text-scale-xs font-weight-semibold uppercase tracking-[0.15em] text-muted`}>
-      <label className="flex flex-col gap-2">
-        <span>Module Scope</span>
-        <select
-          className="w-full rounded-xl border border-subtle bg-surface-base px-3 py-2 text-scale-sm font-weight-medium text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          value={moduleId ?? '__all__'}
-          onChange={handleChange}
-          disabled={loadingModules}
-        >
-          <option value="__all__">All modules</option>
-          {modules.map((module) => (
-            <option key={module.id} value={module.id}>
-              {module.displayName ?? module.id}
-            </option>
-          ))}
-        </select>
-      </label>
-      {selectedModule && (
-        <div className="mt-2 text-scale-2xs font-weight-regular text-secondary normal-case tracking-normal">
-          <div className="font-weight-semibold text-scale-xs text-primary">{selectedModule.displayName ?? selectedModule.id}</div>
-          {moduleVersion && <div className="text-scale-2xs text-muted">Version {moduleVersion}</div>}
-          {selectedModule.description && (
-            <p className="mt-1 text-muted">{selectedModule.description}</p>
-          )}
-        </div>
+    <div className="relative">
+      <button
+        type="button"
+        ref={triggerRef}
+        className={getModuleTriggerClasses(variant, isModuleScoped, open)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Module scope"
+        onClick={handleToggle}
+        disabled={loadingModules}
+      >
+        <ModuleScopeIcon className={variant === 'sidebar' ? 'h-5 w-5' : 'h-4 w-4'} />
+        {variant === 'overlay' && (
+          <span className="truncate text-scale-sm font-weight-medium">
+            {moduleId ? activeModule?.displayName ?? moduleId : 'All modules'}
+          </span>
+        )}
+        {variant === 'overlay' && (
+          <ChevronIcon
+            className={`h-3 w-3 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+          />
+        )}
+        {variant === 'sidebar' && <Tooltip label="Module scope" />}
+      </button>
+      {isPopoverVisible && (
+        <ModuleScopePopover
+          ref={popoverRef}
+          variant={variant}
+          modules={modules}
+          moduleId={moduleId}
+          moduleVersion={moduleVersion}
+          loadingModules={loadingModules}
+          modulesError={modulesError}
+          onSelect={handleSelect}
+        />
+      )}
+      {loadingModules && variant === 'overlay' && (
+        <span className="text-scale-2xs text-muted">Loading modules…</span>
       )}
     </div>
+  );
+}
+
+type ModuleScopePopoverProps = {
+  variant: 'sidebar' | 'overlay';
+  modules: ModuleSummary[];
+  moduleId: string | null;
+  moduleVersion: string | null;
+  loadingModules: boolean;
+  modulesError: string | null;
+  onSelect: (moduleId: string | null) => void;
+};
+
+const ModuleScopePopover = forwardRef<HTMLDivElement, ModuleScopePopoverProps>(
+  function ModuleScopePopover({ variant, modules, moduleId, moduleVersion, loadingModules, modulesError, onSelect }, ref) {
+    const activeModule = moduleId ? modules.find((entry) => entry.id === moduleId) ?? null : null;
+    const placementClasses =
+      variant === 'sidebar'
+        ? 'absolute left-full top-1/2 ml-4 -translate-y-1/2'
+        : 'absolute right-0 top-full mt-3';
+
+    return (
+      <div
+        ref={ref}
+        role="dialog"
+        aria-label="Module scope options"
+        className={`${placementClasses} z-20 w-72 max-w-[18rem] rounded-2xl border border-subtle bg-surface-base p-4 text-left shadow-elevation-xl`}
+      >
+        <div className="flex flex-col gap-1 border-b border-subtle pb-3">
+          <span className="text-scale-2xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
+            Module scope
+          </span>
+          <span className="text-scale-sm font-weight-semibold text-primary">
+            {moduleId ? activeModule?.displayName ?? moduleId : 'All modules'}
+          </span>
+          {moduleId && moduleVersion && (
+            <span className="text-scale-2xs text-muted">Version {moduleVersion}</span>
+          )}
+          {activeModule?.description && (
+            <p className="text-scale-xs text-secondary">{activeModule.description}</p>
+          )}
+        </div>
+        <div className="mt-3 max-h-72 overflow-y-auto pr-1" role="menu" aria-orientation="vertical">
+          {loadingModules && (
+            <p className="px-3 text-scale-xs text-muted">Loading modules…</p>
+          )}
+          <ModuleScopeOption
+            label="All modules"
+            description="Show data across every module."
+            isActive={!moduleId}
+            onSelect={() => onSelect(null)}
+          />
+          {modulesError && (
+            <p className="mt-3 px-3 text-scale-xs text-danger" role="status">
+              {modulesError}
+            </p>
+          )}
+          {modules.map((module) => (
+            <ModuleScopeOption
+              key={module.id}
+              label={module.displayName ?? module.id}
+              description={module.description ?? undefined}
+              meta={module.latestVersion ? `Version ${module.latestVersion}` : undefined}
+              isActive={moduleId === module.id}
+              onSelect={() => onSelect(module.id)}
+            />
+          ))}
+          {modules.length === 0 && !modulesError && (
+            <p className="mt-3 text-scale-xs text-muted">No modules available.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+);
+
+type ModuleScopeOptionProps = {
+  label: string;
+  description?: string;
+  meta?: string;
+  isActive: boolean;
+  onSelect: () => void;
+};
+
+function ModuleScopeOption({ label, description, meta, isActive, onSelect }: ModuleScopeOptionProps) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={isActive}
+      onClick={onSelect}
+      className={`mt-2 w-full rounded-xl border border-transparent px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+        isActive ? 'bg-accent-soft text-primary ring-1 ring-accent' : 'hover:border-accent-soft hover:bg-surface-muted text-primary'
+      }`}
+    >
+      <span className="block text-scale-sm font-weight-semibold">{label}</span>
+      {meta && <span className="block text-scale-2xs text-muted">{meta}</span>}
+      {description && <p className="mt-1 text-scale-xs text-secondary">{description}</p>}
+    </button>
+  );
+}
+
+function getModuleTriggerClasses(
+  variant: 'sidebar' | 'overlay',
+  isModuleScoped: boolean,
+  open: boolean
+): string {
+  if (variant === 'sidebar') {
+    return getSidebarLinkClasses(isModuleScoped || open);
+  }
+
+  const base =
+    'group inline-flex max-w-xs items-center gap-2 rounded-full border border-default bg-surface-sunken-glass px-4 py-2 text-scale-sm font-weight-medium text-inverse transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+  if (open || isModuleScoped) {
+    return `${base} border-accent text-on-accent bg-accent`;
+  }
+
+  return `${base} hover:bg-surface-sunken-glass`;
+}
+
+function ModuleScopeIcon({ className }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="5" />
+      <path d="M4 12a8 8 0 0 1 8-8" />
+      <path d="M12 20a8 8 0 0 0 8-8" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ className }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className={className}
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 4.5 6 7.5l3-3" />
+    </svg>
   );
 }
 

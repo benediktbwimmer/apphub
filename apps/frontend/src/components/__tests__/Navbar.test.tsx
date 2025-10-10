@@ -44,6 +44,8 @@ describe('Navbar', () => {
     const nav = screen.getByRole('navigation', { name: /primary/i });
     expect(nav).toBeInTheDocument();
 
+    expect(screen.getByRole('button', { name: /module scope/i })).toBeInTheDocument();
+
     PRIMARY_NAV_ITEMS.forEach((item) => {
       const link = screen.getByRole('link', { name: item.label });
       expect(link).toBeInTheDocument();
@@ -62,5 +64,6 @@ describe('Navbar', () => {
     const tablist = screen.getByRole('tablist', { name: 'Pages' });
     expect(tablist).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: /module scope/i })).toBeInTheDocument();
   });
 });

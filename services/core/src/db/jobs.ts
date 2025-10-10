@@ -252,8 +252,17 @@ export async function listJobDefinitions(options: { moduleIds?: string[] | null 
     const whereClauses: string[] = [];
 
     if (moduleIds && moduleIds.length > 0) {
-      params.push(moduleIds);
-      whereClauses.push(`module_id = ANY($${params.length}::text[])`);
+      const paramIndex = params.push(moduleIds);
+      whereClauses.push(`(
+        job_definitions.module_id = ANY($${paramIndex}::text[])
+        OR EXISTS (
+          SELECT 1
+            FROM module_resource_contexts mrc
+           WHERE mrc.resource_type = 'job-definition'
+             AND mrc.resource_id = job_definitions.id
+             AND mrc.module_id = ANY($${paramIndex}::text[])
+        )
+      )`);
     }
 
     const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -695,7 +704,25 @@ export async function listJobRuns(
       );
       if (moduleIds.length > 0) {
         params.push(moduleIds);
-        conditions.push(`jd.module_id = ANY($${params.length}::text[])`);
+        const moduleParamIndex = params.length;
+        conditions.push(`(
+          jd.module_id = ANY($${moduleParamIndex}::text[])
+          OR jr.module_id = ANY($${moduleParamIndex}::text[])
+          OR EXISTS (
+            SELECT 1
+              FROM module_resource_contexts mrc
+             WHERE mrc.resource_type = 'job-definition'
+               AND mrc.resource_id = jd.id
+               AND mrc.module_id = ANY($${moduleParamIndex}::text[])
+          )
+          OR EXISTS (
+            SELECT 1
+              FROM module_resource_contexts mrc
+             WHERE mrc.resource_type = 'job-run'
+               AND mrc.resource_id = jr.id
+               AND mrc.module_id = ANY($${moduleParamIndex}::text[])
+          )
+        )`);
       }
     }
 

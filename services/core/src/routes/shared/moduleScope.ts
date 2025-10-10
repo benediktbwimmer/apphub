@@ -35,12 +35,12 @@ export type ModuleScope = {
   hasFilters: boolean;
   matches: (
     resourceType: ModuleResourceType,
-    identifiers: { id?: string | null; slug?: string | null }
+    identifiers: { id?: string | null; slug?: string | null; moduleId?: string | null }
   ) => boolean;
   filter: <T>(
     records: T[],
     resourceType: ModuleResourceType,
-    getIdentifiers: (record: T) => { id?: string | null; slug?: string | null }
+    getIdentifiers: (record: T) => { id?: string | null; slug?: string | null; moduleId?: string | null }
   ) => T[];
   getSlugs: (resourceType: ModuleResourceType) => string[];
   getIds: (resourceType: ModuleResourceType) => string[];
@@ -65,13 +65,14 @@ export async function resolveModuleScope(
 
   const moduleIds = Array.from(new Set(rawModuleIds));
   const resources = await loadModuleResources(moduleIds, resourceTypes);
+  const moduleIdSet = new Set(moduleIds.map((id) => id.trim().toLowerCase()).filter((id) => id.length > 0));
 
   return {
     moduleIds,
     hasFilters: true,
-    matches: (resourceType, identifiers) => matchesResource(resources, resourceType, identifiers),
+    matches: (resourceType, identifiers) => matchesResource(resources, moduleIdSet, resourceType, identifiers),
     filter: (records, resourceType, getIdentifiers) =>
-      records.filter((record) => matchesResource(resources, resourceType, getIdentifiers(record))),
+      records.filter((record) => matchesResource(resources, moduleIdSet, resourceType, getIdentifiers(record))),
     getSlugs: (resourceType) => {
       const entry = resources.get(resourceType);
       return entry ? Array.from(entry.slugs.values()) : [];
@@ -142,12 +143,13 @@ async function loadModuleResources(
 
 function matchesResource(
   resources: Map<ModuleResourceType, ResourceEntry>,
+  moduleIdSet: Set<string>,
   resourceType: ModuleResourceType,
-  identifiers: { id?: string | null; slug?: string | null }
+  identifiers: { id?: string | null; slug?: string | null; moduleId?: string | null }
 ): boolean {
   const entry = resources.get(resourceType);
   if (!entry) {
-    return false;
+    return matchesFallback(moduleIdSet, identifiers);
   }
   const identifierId = identifiers.id?.trim();
   if (identifierId && entry.ids.has(identifierId)) {
@@ -156,6 +158,32 @@ function matchesResource(
   const slug = identifiers.slug?.trim().toLowerCase();
   if (slug && entry.slugLookup.has(slug)) {
     return true;
+  }
+  return matchesFallback(moduleIdSet, identifiers);
+}
+
+function matchesFallback(
+  moduleIdSet: Set<string>,
+  identifiers: { slug?: string | null; moduleId?: string | null }
+): boolean {
+  if (moduleIdSet.size === 0) {
+    return false;
+  }
+
+  const explicitModuleId = typeof identifiers.moduleId === 'string' ? identifiers.moduleId.trim() : '';
+  if (explicitModuleId && moduleIdSet.has(explicitModuleId.toLowerCase())) {
+    return true;
+  }
+
+  const slug = typeof identifiers.slug === 'string' ? identifiers.slug.trim().toLowerCase() : '';
+  if (!slug) {
+    return false;
+  }
+
+  for (const moduleId of moduleIdSet) {
+    if (slug === moduleId || slug.startsWith(`${moduleId}-`)) {
+      return true;
+    }
   }
   return false;
 }
