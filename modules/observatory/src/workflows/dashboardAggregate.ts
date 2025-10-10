@@ -69,47 +69,58 @@ const definition: WorkflowDefinition = {
   }
 };
 
-const triggers = [
-  createWorkflowTrigger({
-    name: 'Aggregate on burst expiry',
-    description: 'Refresh dashboards when the burst window TTL expires with no new drops.',
-    eventType: 'asset.expired',
-    predicates: [
-      {
-        path: '$.payload.assetId',
-        operator: 'equals',
-        value: 'observatory.burst.window'
-      },
-      {
-        path: '$.payload.reason',
-        operator: 'equals',
-        value: 'ttl'
-      }
-    ],
-    parameterTemplate: {
-      partitionKey: '{{ event.payload.partitionKey | default: event.payload.workflowSlug | default: "" }}',
-      burstReason: '{{ event.payload.reason | default: "" }}',
-      burstFinishedAt: '{{ event.payload.expiresAt | default: "" }}'
-    },
-    metadata: {
-      lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
-    },
-    idempotencyKeyExpression:
-      'dashboard-aggregate-{{ event.payload.partitionKey | default: event.payload.workflowSlug }}-{{ event.payload.expiresAt }}'
-  })
-];
+const dashboardAutoAggregateEnv =
+  process.env.OBSERVATORY_DASHBOARD_AUTO_AGGREGATE ??
+  process.env.APPHUB_OBSERVATORY_DASHBOARD_AUTO_AGGREGATE;
+const dashboardAutoAggregateEnabled =
+  !dashboardAutoAggregateEnv ||
+  !/^(false|0|off|disable|disabled|no)$/i.test(dashboardAutoAggregateEnv.trim());
 
-const schedules = [
-  createWorkflowSchedule({
-    name: 'Periodic dashboard refresh',
-    description: 'Fallback aggregation to cover long-running bursts.',
-    cron: '*/5 * * * *',
-    timezone: 'UTC',
-    parameterTemplate: {
-      partitionKey: '{{ run.trigger.schedule.occurrence | slice: 0, 16 }}'
-    }
-  })
-];
+const triggers = dashboardAutoAggregateEnabled
+  ? [
+      createWorkflowTrigger({
+        name: 'Aggregate on burst expiry',
+        description: 'Refresh dashboards when the burst window TTL expires with no new drops.',
+        eventType: 'asset.expired',
+        predicates: [
+          {
+            path: '$.payload.assetId',
+            operator: 'equals',
+            value: 'observatory.burst.window'
+          },
+          {
+            path: '$.payload.reason',
+            operator: 'equals',
+            value: 'ttl'
+          }
+        ],
+        parameterTemplate: {
+          partitionKey: '{{ event.payload.partitionKey | default: event.payload.workflowSlug | default: "" }}',
+          burstReason: '{{ event.payload.reason | default: "" }}',
+          burstFinishedAt: '{{ event.payload.expiresAt | default: "" }}'
+        },
+        metadata: {
+          lookbackMinutes: moduleSetting('dashboard.lookbackMinutes')
+        },
+        idempotencyKeyExpression:
+          'dashboard-aggregate-{{ event.payload.partitionKey | default: event.payload.workflowSlug }}-{{ event.payload.expiresAt }}'
+      })
+    ]
+  : [];
+
+const schedules = dashboardAutoAggregateEnabled
+  ? [
+      createWorkflowSchedule({
+        name: 'Periodic dashboard refresh',
+        description: 'Fallback aggregation to cover long-running bursts.',
+        cron: '*/5 * * * *',
+        timezone: 'UTC',
+        parameterTemplate: {
+          partitionKey: '{{ run.trigger.schedule.occurrence | slice: 0, 16 }}'
+        }
+      })
+    ]
+  : [];
 
 export const dashboardAggregateWorkflow = createWorkflow<
   ObservatorySettings,

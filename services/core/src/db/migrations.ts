@@ -1546,6 +1546,17 @@ const migrations: Migration[] = [
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_events_ingress_sequence
          ON workflow_events (ingress_sequence DESC);`
     ]
+  },
+  {
+    id: '055_workflow_activity_indexes',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_workflow_runs_created_at
+         ON workflow_runs(created_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_occurred_at
+         ON workflow_trigger_deliveries((COALESCE(updated_at, created_at)) DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_run_id
+         ON workflow_trigger_deliveries(workflow_run_id);`
+    ]
   }
 ];
 

@@ -94,6 +94,7 @@ x-shared-env: &shared-env
   OBSERVATORY_METASTORE_TOKEN: ${APPHUB_DEMO_SERVICE_TOKEN:-demo-service-token}
   OBSERVATORY_DATA_ROOT: /var/lib/apphub/scratch/observatory
   OBSERVATORY_CONFIG_OUTPUT: /var/lib/apphub/scratch/observatory/config/observatory-config.json
+  OBSERVATORY_DASHBOARD_AUTO_AGGREGATE: ${APPHUB_OBSERVATORY_DASHBOARD_AUTO_AGGREGATE:-false}
   OBSERVATORY_FILESTORE_BACKEND_KEY: observatory-event-driven-s3
   OBSERVATORY_FILESTORE_S3_BUCKET: apphub-filestore
   OBSERVATORY_FILESTORE_S3_ENDPOINT: http://minio:9000

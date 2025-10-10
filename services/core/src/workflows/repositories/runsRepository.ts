@@ -883,7 +883,6 @@ export async function listWorkflowActivity(
 
   const runConditions: string[] = [];
   const deliveryConditions: string[] = [];
-  const outerConditions: string[] = [];
 
   const normalizeArray = (values: string[] | undefined) =>
     Array.from(
@@ -969,91 +968,129 @@ export async function listWorkflowActivity(
     deliveryConditions.push(`COALESCE(wtd.updated_at, wtd.created_at) <= ${placeholder}`);
   }
 
-  const kinds = normalizeArray(filters.kinds?.map((kind) => kind.toLowerCase()))
+  let kinds = normalizeArray(filters.kinds?.map((kind) => kind.toLowerCase()))
     .map((kind) => (kind === 'delivery' ? 'delivery' : kind === 'run' ? 'run' : ''))
     .filter((kind): kind is 'run' | 'delivery' => kind === 'run' || kind === 'delivery');
   if (kinds.length > 0) {
-    const placeholder = addParam(kinds);
-    outerConditions.push(`activity.kind = ANY(${placeholder}::text[])`);
+    kinds = Array.from(new Set(kinds));
+  }
+  let includeRuns = kinds.length === 0 || kinds.includes('run');
+  let includeDeliveries = kinds.length === 0 || kinds.includes('delivery');
+  if (!includeRuns && !includeDeliveries) {
+    includeRuns = true;
+    includeDeliveries = true;
   }
 
-  if (typeof filters.search === 'string' && filters.search.trim().length > 0) {
-    const term = `%${filters.search.trim().replace(/[%_]/g, '\\$&')}%`;
-    const placeholder = addParam(term);
-    outerConditions.push(
-      `(
-         activity.workflow_slug ILIKE ${placeholder}
-         OR activity.workflow_name ILIKE ${placeholder}
-         OR activity.entry_id ILIKE ${placeholder}
-         OR (activity.run_data ->> 'run_key') ILIKE ${placeholder}
-         OR (activity.run_data ->> 'triggered_by') ILIKE ${placeholder}
-         OR (activity.delivery_data ->> 'event_id') ILIKE ${placeholder}
-         OR (activity.delivery_data ->> 'dedupe_key') ILIKE ${placeholder}
-         OR (activity.trigger_data ->> 'name') ILIKE ${placeholder}
-         OR (activity.trigger_data ->> 'eventType') ILIKE ${placeholder}
-       )`
-    );
+  const searchTerm =
+    typeof filters.search === 'string' && filters.search.trim().length > 0
+      ? `%${filters.search.trim().replace(/[%_]/g, '\\$&')}%`
+      : null;
+  const sourceLimit = Math.max(offset + queryLimit, queryLimit);
+  const unionParts: string[] = [];
+
+  if (includeRuns) {
+    if (searchTerm) {
+      const placeholder = addParam(searchTerm);
+      runConditions.push(
+        `(
+           wd.slug ILIKE ${placeholder}
+           OR wd.name ILIKE ${placeholder}
+           OR wr.id ILIKE ${placeholder}
+           OR COALESCE(wr.run_key, '') ILIKE ${placeholder}
+           OR COALESCE(wr.triggered_by, '') ILIKE ${placeholder}
+         )`
+      );
+    }
+    const runScopedWhere =
+      runConditions.length > 0 ? `WHERE ${runConditions.join(' AND ')}` : '';
+    const runLimitPlaceholder = addParam(sourceLimit);
+    unionParts.push(`
+      SELECT
+        'run'::text AS kind,
+        wr.id AS entry_id,
+        wr.workflow_definition_id,
+        wd.slug AS workflow_slug,
+        wd.name AS workflow_name,
+        wd.version AS workflow_version,
+        wr.status AS status,
+        wr.created_at AS occurred_at,
+        NULL::text AS trigger_id,
+        to_jsonb(wr) AS run_data,
+        NULL::jsonb AS linked_run_data,
+        NULL::jsonb AS delivery_data,
+        NULL::jsonb AS trigger_data
+      FROM workflow_runs wr
+      INNER JOIN workflow_definitions wd ON wd.id = wr.workflow_definition_id
+      ${runScopedWhere}
+      ORDER BY wr.created_at DESC, wr.id DESC
+      LIMIT ${runLimitPlaceholder}
+    `);
   }
 
-  const runWhereClause = runConditions.length > 0 ? `WHERE ${runConditions.join(' AND ')}` : '';
-  const deliveryWhereClause =
-    deliveryConditions.length > 0 ? `WHERE ${deliveryConditions.join(' AND ')}` : '';
-  const outerWhereClause = outerConditions.length > 0 ? `WHERE ${outerConditions.join(' AND ')}` : '';
+  if (includeDeliveries) {
+    if (searchTerm) {
+      const placeholder = addParam(searchTerm);
+      deliveryConditions.push(
+        `(
+           wd.slug ILIKE ${placeholder}
+           OR wd.name ILIKE ${placeholder}
+           OR wtd.id ILIKE ${placeholder}
+           OR wtd.event_id ILIKE ${placeholder}
+           OR COALESCE(wtd.dedupe_key, '') ILIKE ${placeholder}
+           OR COALESCE(wtd.trigger_id, '') ILIKE ${placeholder}
+           OR COALESCE(wet.name, '') ILIKE ${placeholder}
+           OR COALESCE(wet.event_type, '') ILIKE ${placeholder}
+           OR COALESCE(wet.event_source, '') ILIKE ${placeholder}
+           OR COALESCE(wr_linked.run_key, '') ILIKE ${placeholder}
+         )`
+      );
+    }
+    const deliveryScopedWhere =
+      deliveryConditions.length > 0 ? `WHERE ${deliveryConditions.join(' AND ')}` : '';
+    const deliveryLimitPlaceholder = addParam(sourceLimit);
+    unionParts.push(`
+      SELECT
+        'delivery'::text AS kind,
+        wtd.id AS entry_id,
+        wtd.workflow_definition_id,
+        wd.slug AS workflow_slug,
+        wd.name AS workflow_name,
+        wd.version AS workflow_version,
+        wtd.status AS status,
+        COALESCE(wtd.updated_at, wtd.created_at) AS occurred_at,
+        wtd.trigger_id AS trigger_id,
+        NULL::jsonb AS run_data,
+        to_jsonb(wr_linked) AS linked_run_data,
+        to_jsonb(wtd) AS delivery_data,
+        CASE
+          WHEN wet.id IS NULL THEN NULL
+          ELSE jsonb_build_object(
+            'id', wet.id,
+            'name', wet.name,
+            'eventType', wet.event_type,
+            'eventSource', wet.event_source,
+            'status', wet.status
+          )
+        END AS trigger_data
+      FROM workflow_trigger_deliveries wtd
+      INNER JOIN workflow_definitions wd ON wd.id = wtd.workflow_definition_id
+      LEFT JOIN workflow_event_triggers wet ON wet.id = wtd.trigger_id
+      LEFT JOIN workflow_runs wr_linked ON wr_linked.id = wtd.workflow_run_id
+      ${deliveryScopedWhere}
+      ORDER BY COALESCE(wtd.updated_at, wtd.created_at) DESC, wtd.id DESC
+      LIMIT ${deliveryLimitPlaceholder}
+    `);
+  }
+
+  if (unionParts.length === 0) {
+    return { items: [], hasMore: false };
+  }
 
   const limitPlaceholder = addParam(queryLimit);
   const offsetPlaceholder = addParam(offset);
-
   const query = `
     SELECT *
-      FROM (
-        SELECT
-          'run'::text AS kind,
-          wr.id AS entry_id,
-          wr.workflow_definition_id,
-          wd.slug AS workflow_slug,
-          wd.name AS workflow_name,
-          wd.version AS workflow_version,
-          wr.status AS status,
-          wr.created_at AS occurred_at,
-          NULL::text AS trigger_id,
-          to_jsonb(wr) AS run_data,
-          NULL::jsonb AS linked_run_data,
-          NULL::jsonb AS delivery_data,
-          NULL::jsonb AS trigger_data
-        FROM workflow_runs wr
-        INNER JOIN workflow_definitions wd ON wd.id = wr.workflow_definition_id
-        ${runWhereClause}
-      UNION ALL
-        SELECT
-          'delivery'::text AS kind,
-          wtd.id AS entry_id,
-          wtd.workflow_definition_id,
-          wd.slug AS workflow_slug,
-          wd.name AS workflow_name,
-          wd.version AS workflow_version,
-          wtd.status AS status,
-          COALESCE(wtd.updated_at, wtd.created_at) AS occurred_at,
-          wtd.trigger_id AS trigger_id,
-          NULL::jsonb AS run_data,
-          to_jsonb(wr_linked) AS linked_run_data,
-          to_jsonb(wtd) AS delivery_data,
-          CASE
-            WHEN wet.id IS NULL THEN NULL
-            ELSE jsonb_build_object(
-              'id', wet.id,
-              'name', wet.name,
-              'eventType', wet.event_type,
-              'eventSource', wet.event_source,
-              'status', wet.status
-            )
-          END AS trigger_data
-        FROM workflow_trigger_deliveries wtd
-        INNER JOIN workflow_definitions wd ON wd.id = wtd.workflow_definition_id
-        LEFT JOIN workflow_event_triggers wet ON wet.id = wtd.trigger_id
-        LEFT JOIN workflow_runs wr_linked ON wr_linked.id = wtd.workflow_run_id
-        ${deliveryWhereClause}
-      ) AS activity
-      ${outerWhereClause}
+      FROM (${unionParts.map((part) => `(${part})`).join(' UNION ALL ')}) AS activity
       ORDER BY activity.occurred_at DESC, activity.entry_id DESC
       LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`;
 
