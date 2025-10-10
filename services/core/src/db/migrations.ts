@@ -1534,11 +1534,17 @@ const migrations: Migration[] = [
              WHERE id = record_id;
          END LOOP;
        END $$;`,
-      `SELECT setval(
-         'workflow_events_ingress_seq',
-         COALESCE((SELECT MAX(ingress_sequence) FROM workflow_events), 0),
-         true
-       );`,
+      `DO $$
+       DECLARE
+         max_value BIGINT;
+       BEGIN
+         SELECT MAX(ingress_sequence) INTO max_value FROM workflow_events;
+         IF max_value IS NULL OR max_value < 1 THEN
+           PERFORM setval('workflow_events_ingress_seq', 1, false);
+         ELSE
+           PERFORM setval('workflow_events_ingress_seq', max_value, true);
+         END IF;
+       END $$;`,
       `ALTER TABLE workflow_events
          ALTER COLUMN ingress_sequence SET DEFAULT nextval('workflow_events_ingress_seq');`,
       `ALTER TABLE workflow_events

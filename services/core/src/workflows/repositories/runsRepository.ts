@@ -469,6 +469,7 @@ export async function createWorkflowRun(
   const { runKey, runKeyNormalized } = computeRunKeyColumns(input.runKey ?? null);
 
   let run: WorkflowRunRecord | null = null;
+  let reusedExistingRun = false;
 
   async function insertRun(client: PoolClient): Promise<WorkflowRunRecord> {
     const { rows } = await client.query<WorkflowRunRow>(
@@ -536,6 +537,24 @@ export async function createWorkflowRun(
   }
 
   await useTransaction(async (client) => {
+    if (runKeyNormalized) {
+      const existing = await client.query<WorkflowRunRow>(
+        `SELECT *
+           FROM workflow_runs
+          WHERE workflow_definition_id = $1
+            AND run_key_normalized = $2
+            AND status IN ('pending', 'running')
+          ORDER BY created_at DESC
+          LIMIT 1
+          FOR UPDATE`,
+        [workflowDefinitionId, runKeyNormalized]
+      );
+      if (existing.rows.length > 0) {
+        run = mapWorkflowRunRow(existing.rows[0]);
+        reusedExistingRun = true;
+        return;
+      }
+    }
     run = await insertRun(client);
   });
 
@@ -544,7 +563,11 @@ export async function createWorkflowRun(
   }
 
   await syncWorkflowRunModuleContext(run);
-  emitWorkflowRunEvents(run);
+
+  if (!reusedExistingRun) {
+    emitWorkflowRunEvents(run);
+  }
+
   return run;
 }
 
@@ -986,7 +1009,7 @@ export async function listWorkflowActivity(
     kinds = Array.from(new Set(kinds));
   }
   let includeRuns = kinds.length === 0 || kinds.includes('run');
-  let includeDeliveries = kinds.length === 0 || kinds.includes('delivery');
+  let includeDeliveries = kinds.includes('delivery');
   if (!includeRuns && !includeDeliveries) {
     includeRuns = true;
     includeDeliveries = true;

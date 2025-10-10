@@ -4,6 +4,7 @@ import cookie from '@fastify/cookie';
 import websocket from '@fastify/websocket';
 import { initializeServiceRegistry } from './serviceRegistry';
 import { registerDefaultServices } from './startup/registerDefaultServices';
+import { registerDefaultEventSchemas } from './startup/registerDefaultEventSchemas';
 import { stopAnalyticsSnapshots, verifyEventBusConnectivity } from './events';
 import { registerCoreRoutes } from './routes/core';
 import { registerAuthRoutes } from './routes/auth';
@@ -97,6 +98,7 @@ export async function buildServer() {
   await registerOpenApi(app);
 
   await registerDefaultServices(app.log);
+  await registerDefaultEventSchemas(app.log);
 
   const featureFlags = getFeatureFlags();
   configureKafkaPublisher({ logger: app.log });

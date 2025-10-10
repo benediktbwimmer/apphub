@@ -1,4 +1,4 @@
-import type { PoolClient } from 'pg';
+import type { PoolClient, DatabaseError } from 'pg';
 import {
   type NumberPartitionKeyPredicate,
   type PartitionFilters,
@@ -484,26 +484,43 @@ export async function createDatasetSchemaVersion(
   input: CreateDatasetSchemaVersionInput
 ): Promise<DatasetSchemaVersionRecord> {
   return withConnection(async (client) => {
-    const { rows } = await client.query<DatasetSchemaVersionRow>(
-      `INSERT INTO dataset_schema_versions (
-         id,
-         dataset_id,
-         version,
-         description,
-         schema,
-         checksum
-       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6)
-       RETURNING *` as const,
-      [
-        input.id,
-        input.datasetId,
-        input.version,
-        input.description ?? null,
-        JSON.stringify(input.schema),
-        input.checksum ?? null
-      ]
-    );
-    return mapSchemaVersion(rows[0]);
+    try {
+      const { rows } = await client.query<DatasetSchemaVersionRow>(
+        `INSERT INTO dataset_schema_versions (
+           id,
+           dataset_id,
+           version,
+           description,
+           schema,
+           checksum
+         ) VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+         RETURNING *` as const,
+        [
+          input.id,
+          input.datasetId,
+          input.version,
+          input.description ?? null,
+          JSON.stringify(input.schema),
+          input.checksum ?? null
+        ]
+      );
+      return mapSchemaVersion(rows[0]);
+    } catch (error) {
+      if (isSchemaVersionConflict(error) && input.checksum) {
+        const { rows } = await client.query<DatasetSchemaVersionRow>(
+          `SELECT *
+             FROM dataset_schema_versions
+            WHERE dataset_id = $1 AND checksum = $2
+            ORDER BY version DESC
+            LIMIT 1`,
+          [input.datasetId, input.checksum]
+        );
+        if (rows.length > 0) {
+          return mapSchemaVersion(rows[0]);
+        }
+      }
+      throw error;
+    }
   });
 }
 
@@ -646,8 +663,10 @@ export async function appendPartitionsToManifest(
            $14::jsonb,
            $15::jsonb,
            $16::jsonb,
-           $17
-         )` as const,
+         $17
+        )
+        ON CONFLICT (dataset_id, ingestion_signature)
+          WHERE ingestion_signature IS NOT NULL DO NOTHING` as const,
         [
           partition.id,
           datasetId,
@@ -808,7 +827,9 @@ export async function replacePartitionsInManifest(
            $15::jsonb,
            $16::jsonb,
            $17
-         )` as const,
+         )
+        ON CONFLICT (dataset_id, ingestion_signature)
+          WHERE ingestion_signature IS NOT NULL DO NOTHING` as const,
         [
           partition.id,
           datasetId,
@@ -2031,10 +2052,12 @@ async function insertPartitions(
          $13,
          $14::jsonb,
          $15::jsonb,
-         $16::jsonb,
-         $17
-       )
-       RETURNING *` as const,
+       $16::jsonb,
+       $17
+      )
+      ON CONFLICT (dataset_id, ingestion_signature)
+        WHERE ingestion_signature IS NOT NULL DO NOTHING
+      RETURNING *` as const,
       [
         partition.id,
         input.datasetId,
@@ -2055,7 +2078,21 @@ async function insertPartitions(
         partition.ingestionSignature ?? null
       ]
     );
-    partitions.push(mapPartition(rows[0]));
+    let row = rows[0] ?? null;
+    if (!row && partition.ingestionSignature) {
+      const existing = await client.query<DatasetPartitionRow>(
+        `SELECT *
+           FROM dataset_partitions
+          WHERE dataset_id = $1
+            AND ingestion_signature = $2
+          LIMIT 1`,
+        [input.datasetId, partition.ingestionSignature]
+      );
+      row = existing.rows[0] ?? null;
+    }
+    if (row) {
+      partitions.push(mapPartition(row));
+    }
   }
   return partitions;
 }
@@ -2572,6 +2609,14 @@ function buildTimestampPartitionClauses(
     clauses.push(`${timestampExpression} <= ${valueParam}::timestamptz`);
   }
   return clauses;
+}
+
+function isSchemaVersionConflict(error: unknown): error is DatabaseError & { constraint?: string } {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as DatabaseError & { constraint?: string };
+  return candidate.code === '23505' && candidate.constraint === 'dataset_schema_versions_dataset_id_version_key';
 }
 
 function hasItems<T>(values: readonly T[] | undefined): values is readonly T[] {
