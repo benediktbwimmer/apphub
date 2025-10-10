@@ -733,3 +733,17 @@ export type ModuleTargetConfigRow = {
   created_at: string;
   updated_at: string;
 };
+
+export type ModuleResourceContextRow = {
+  module_id: string;
+  module_version: string | null;
+  resource_type: string;
+  resource_id: string;
+  resource_slug: string | null;
+  resource_name: string | null;
+  resource_version: string | null;
+  is_shared: boolean;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+};

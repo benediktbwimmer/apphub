@@ -8,9 +8,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, beforeEach, test } from 'node:test';
-import EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from '@apphub/test-helpers';
 import type { FastifyBaseLogger } from 'fastify';
 import type { FilestoreNodeEventPayload, FilestoreNodeReconciledPayload } from '@apphub/shared/filestoreEvents';
+import type EmbeddedPostgres from 'embedded-postgres';
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
@@ -43,7 +44,7 @@ before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'metastore-filestore-pg-'));
   dataDirectory = dataRoot;
   const port = 56000 + Math.floor(Math.random() * 500);
-  const embedded = new EmbeddedPostgres({
+  const embedded: EmbeddedPostgres = createEmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
@@ -87,9 +88,7 @@ beforeEach(async () => {
 after(async () => {
   await consumerModule.shutdownFilestoreSync().catch(() => undefined);
   await dbClientModule.closePool().catch(() => undefined);
-  if (postgres) {
-    await postgres.stop();
-  }
+  await stopEmbeddedPostgres(postgres);
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }

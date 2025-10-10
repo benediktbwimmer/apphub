@@ -115,6 +115,7 @@ import { registerWorkflowTriggerRoutes } from './workflows/triggers';
 import { registerWorkflowGraphRoute } from './workflows/graph';
 import { getWorkflowDefaultParameters } from '../bootstrap';
 import { schemaRef } from '../openapi/definitions';
+import { handleModuleScopeError, resolveModuleScope } from './shared/moduleScope';
 import {
   diffJson,
   diffStatusTransitions,
@@ -305,7 +306,8 @@ const workflowRunListQuerySchema = z
     partition: z.string().max(200).optional(),
     search: z.string().max(200).optional(),
     from: z.string().datetime({ offset: true }).optional(),
-    to: z.string().datetime({ offset: true }).optional()
+    to: z.string().datetime({ offset: true }).optional(),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -330,7 +332,11 @@ const workflowRunListQueryOpenApiSchema = {
     partition: { type: 'string', maxLength: 200 },
     search: { type: 'string', maxLength: 200 },
     from: { type: 'string', format: 'date-time' },
-    to: { type: 'string', format: 'date-time' }
+    to: { type: 'string', format: 'date-time' },
+    moduleId: {
+      anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+      description: 'Optional module identifier to scope workflow runs.'
+    }
   }
 } as const;
 
@@ -347,7 +353,8 @@ const workflowActivityListQuerySchema = z
     kind: stringArrayQuerySchema,
     search: z.string().max(200).optional(),
     from: z.string().datetime({ offset: true }).optional(),
-    to: z.string().datetime({ offset: true }).optional()
+    to: z.string().datetime({ offset: true }).optional(),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -367,7 +374,8 @@ const workflowTimelineQuerySchema = z
           return val.split(',');
         }
         return undefined;
-      }, z.array(z.string()).optional())
+      }, z.array(z.string()).optional()),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -415,14 +423,16 @@ const workflowAssetHistoryQuerySchema = z
   .object({
     limit: z
       .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(100).optional()),
-    partitionKey: z.string().min(1).max(200).optional()
+    partitionKey: z.string().min(1).max(200).optional(),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
 const workflowAssetPartitionsQuerySchema = z
   .object({
     lookback: z
-      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(10_000).optional())
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(10_000).optional()),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -447,7 +457,8 @@ const workflowAssetAutoMaterializeUpdateSchema = z
 
 const workflowAssetPartitionParamsQuerySchema = z
   .object({
-    partitionKey: z.string().min(1).max(200).optional()
+    partitionKey: z.string().min(1).max(200).optional(),
+    moduleId: z.union([z.string(), z.array(z.string())]).optional()
   })
   .partial();
 
@@ -467,17 +478,43 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       schema: {
         tags: ['Workflows'],
         summary: 'List workflow definitions',
+        querystring: {
+          type: 'object',
+          additionalProperties: true,
+          properties: {
+            moduleId: {
+              anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+              description: 'Optional module identifier to scope workflow definitions.'
+            }
+          }
+        },
         response: {
           200: workflowDefinitionListResponse('Workflow definitions currently available.'),
           500: errorResponse('The server failed to fetch workflow definitions.')
         }
       }
     },
-    async (_request, reply) => {
+    async (request, reply) => {
+      let moduleScope;
       try {
-        const workflows = await listWorkflowDefinitions();
+        moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+          'workflow-definition'
+        ]);
+      } catch (error) {
+        return handleModuleScopeError(reply, error);
+      }
+      try {
+        const workflows = await listWorkflowDefinitions({
+          moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
+        });
+        const filtered = moduleScope?.hasFilters
+          ? moduleScope.filter(workflows, 'workflow-definition', (workflow) => ({
+              id: workflow.id,
+              slug: workflow.slug
+            }))
+          : workflows;
         reply.status(200);
-        return { data: workflows.map((workflow) => serializeWorkflowDefinition(workflow)) };
+        return { data: filtered.map((workflow) => serializeWorkflowDefinition(workflow)) };
       } catch (err) {
         reply.status(500);
         return { error: 'Failed to list workflows' };
@@ -486,11 +523,29 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
   );
 
   app.get('/workflow-schedules', async (request, reply) => {
+    let moduleScope;
     try {
-      const schedules = await listWorkflowSchedulesWithWorkflow();
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+    try {
+      const schedules = await listWorkflowSchedulesWithWorkflow({
+        moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
+      });
+      const filteredSchedules = moduleScope?.hasFilters
+        ? schedules.filter((entry) =>
+            moduleScope.matches('workflow-definition', {
+              id: entry.workflow.id,
+              slug: entry.workflow.slug
+            })
+          )
+        : schedules;
       reply.status(200);
       return {
-        data: schedules.map((entry) => ({
+        data: filteredSchedules.map((entry) => ({
           schedule: serializeWorkflowSchedule(entry.schedule),
           workflow: {
             id: entry.workflow.id,
@@ -527,33 +582,60 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const limit = Math.min(Math.max(parseQuery.data.limit ?? 20, 1), 50);
     const offset = Math.max(parseQuery.data.offset ?? 0, 0);
+    const slugSet = new Set<string>(parseQuery.data.workflow ?? []);
+    if (moduleScope?.hasFilters) {
+      for (const slug of moduleScope.getSlugs('workflow-definition')) {
+        slugSet.add(slug);
+      }
+    }
     const filters = {
       statuses: parseQuery.data.status,
-      workflowSlugs: parseQuery.data.workflow,
+      workflowSlugs: slugSet.size > 0 ? Array.from(slugSet) : undefined,
       triggerTypes: parseQuery.data.trigger,
       partition: parseQuery.data.partition,
       search: parseQuery.data.search,
       from: parseQuery.data.from,
-      to: parseQuery.data.to
-    };
+      to: parseQuery.data.to,
+      moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
+    } satisfies NonNullable<Parameters<typeof listWorkflowRuns>[0]>['filters'];
+
     const { items, hasMore } = await listWorkflowRuns({ limit, offset, filters });
+    const scopedItems = moduleScope?.hasFilters
+      ? items.filter((entry) =>
+          moduleScope.matches('workflow-run', { id: entry.run.id }) ||
+          moduleScope.matches('workflow-definition', {
+            id: entry.workflow.id,
+            slug: entry.workflow.slug
+          })
+        )
+      : items;
 
     reply.status(200);
     await authResult.auth.log('succeeded', {
       action: 'workflow-runs.list',
-      count: items.length,
+      count: scopedItems.length,
       limit,
       offset,
-      hasMore
+      hasMore: hasMore && scopedItems.length > 0
     });
     return {
-      data: items.map((entry) => serializeWorkflowRunWithDefinition(entry)),
+      data: scopedItems.map((entry) => serializeWorkflowRunWithDefinition(entry)),
       meta: {
         limit,
         offset,
-        hasMore,
+        hasMore: hasMore && scopedItems.length > 0,
         nextOffset: hasMore ? offset + limit : null
       }
     };
@@ -580,6 +662,16 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const limit = Math.min(Math.max(parseQuery.data.limit ?? 20, 1), 100);
     const offset = Math.max(parseQuery.data.offset ?? 0, 0);
     const kinds = parseQuery.data.kind?.filter((value): value is 'run' | 'delivery' =>
@@ -594,7 +686,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       kinds,
       search: parseQuery.data.search,
       from: parseQuery.data.from,
-      to: parseQuery.data.to
+      to: parseQuery.data.to,
+      moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
     } satisfies NonNullable<Parameters<typeof listWorkflowActivity>[0]>['filters'];
 
     const { items, hasMore } = await listWorkflowActivity({ limit, offset, filters });
@@ -940,8 +1033,18 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
-    if (!workflow) {
+    if (!workflow || (moduleScope?.hasFilters && !moduleScope.matches('workflow-definition', { id: workflow.id, slug: workflow.slug }))) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
@@ -976,8 +1079,18 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
-    if (!workflow) {
+    if (!workflow || (moduleScope?.hasFilters && !moduleScope.matches('workflow-definition', { id: workflow.id, slug: workflow.slug }))) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
@@ -1016,6 +1129,16 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
     const now = new Date();
     const toDate = parseQuery.data.to ? new Date(parseQuery.data.to) : now;
     if (Number.isNaN(toDate.getTime())) {
@@ -1050,7 +1173,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     const statusesFilter = statuses.length > 0 ? statuses : undefined;
 
     const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
-    if (!workflow) {
+    if (!workflow || (moduleScope?.hasFilters && !moduleScope.matches('workflow-definition', { id: workflow.id, slug: workflow.slug }))) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
@@ -1250,7 +1373,19 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         return { error: parseQuery.error.flatten() };
       }
 
-      const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+      let moduleScope;
+      try {
+        moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+          'workflow-definition',
+          'workflow-run'
+        ]);
+      } catch (error) {
+        return handleModuleScopeError(reply, error);
+      }
+
+      const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+      const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
       if (!workflow) {
         reply.status(404);
         return { error: 'workflow not found' };
@@ -1260,9 +1395,9 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       const offset = Math.max(0, parseQuery.data.offset ?? 0);
 
       const [runs, claim, failureState] = await Promise.all([
-        listWorkflowAutoRunsForDefinition(workflow.id, { limit, offset }),
-        getWorkflowAutoRunClaim(workflow.id),
-        getAutoMaterializeFailureState(workflow.id)
+        listWorkflowAutoRunsForDefinition(workflow.id, { limit, offset, moduleIds }),
+        getWorkflowAutoRunClaim(workflow.id, { moduleIds }),
+        getAutoMaterializeFailureState(workflow.id, { moduleIds })
       ]);
 
       reply.status(200);
@@ -1432,6 +1567,24 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
     const normalized = normalizeAnalyticsQuery(parseQuery.data ?? {});
     if (!normalized.ok) {
       reply.status(400);
@@ -1439,10 +1592,10 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
-      const stats = await getWorkflowRunStatsBySlug(
-        parseParams.data.slug,
-        normalized.value.options
-      );
+      const stats = await getWorkflowRunStatsBySlug(parseParams.data.slug, {
+        ...normalized.value.options,
+        moduleIds
+      });
       const serialized = serializeWorkflowRunStats(stats);
       reply.status(200);
       return {
@@ -1476,6 +1629,24 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
+        'workflow-definition',
+        'workflow-run'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
     const normalized = normalizeAnalyticsQuery(parseQuery.data ?? {});
     if (!normalized.ok) {
       reply.status(400);
@@ -1483,10 +1654,10 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
-      const metrics = await getWorkflowRunMetricsBySlug(
-        parseParams.data.slug,
-        normalized.value.options
-      );
+      const metrics = await getWorkflowRunMetricsBySlug(parseParams.data.slug, {
+        ...normalized.value.options,
+        moduleIds
+      });
       const serialized = serializeWorkflowRunMetrics(metrics);
       const bucketKey =
         normalized.value.bucketKey ?? mapIntervalToBucketKey(serialized.bucketInterval);
@@ -1524,14 +1695,27 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseParams.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
 
     const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
 
     type StepDescriptor = {
       stepId: string;
@@ -1599,7 +1783,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       }
     }
 
-    const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id);
+    const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id, { moduleIds });
     const latestByAsset = new Map<string, WorkflowAssetSnapshotRecord>();
     for (const snapshot of latestSnapshots) {
       const assetId = snapshot.asset.assetId;
@@ -1706,7 +1890,20 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseBody.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       await authResult.auth.log('failed', {
@@ -1781,13 +1978,26 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
 
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
     const assetExists = assetDeclarations.some(
       (declaration) =>
         declaration.workflowDefinitionId === workflow.id &&
@@ -1821,7 +2031,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
 
     const history = await listWorkflowAssetHistory(workflow.id, parseParams.data.assetId, {
       limit,
-      partitionKey: partitionKeyFilter ?? null
+      partitionKey: partitionKeyFilter ?? null,
+      moduleIds
     });
     const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
 
@@ -1894,13 +2105,26 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       return { error: 'workflow not found' };
     }
 
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
     const assetMatches = assetDeclarations.filter(
       (declaration) =>
         declaration.workflowDefinitionId === workflow.id &&
@@ -1913,7 +2137,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     const partitioningSpec = assetMatches.find((declaration) => declaration.partitioning)?.partitioning ?? null;
-    const partitions = await listWorkflowAssetPartitions(workflow.id, parseParams.data.assetId);
+    const partitions = await listWorkflowAssetPartitions(workflow.id, parseParams.data.assetId, { moduleIds });
     const partitionMap = new Map<string, typeof partitions[number]>();
 
     for (const entry of partitions) {
@@ -2051,7 +2275,20 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseBody.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       await authResult.auth.log('failed', {
@@ -2061,7 +2298,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: 'workflow not found' };
     }
 
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
     const assetMatches = assetDeclarations.filter(
       (declaration) =>
         declaration.workflowDefinitionId === workflow.id &&
@@ -2166,7 +2403,20 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: parseQuery.error.flatten() };
     }
 
-    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    let moduleScope;
+    try {
+      moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+        'workflow-definition',
+        'workflow-run',
+        'asset'
+      ]);
+    } catch (error) {
+      return handleModuleScopeError(reply, error);
+    }
+
+    const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug, { moduleIds });
     if (!workflow) {
       reply.status(404);
       await authResult.auth.log('failed', {
@@ -2176,7 +2426,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return { error: 'workflow not found' };
     }
 
-    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug, { moduleIds });
     const assetMatches = assetDeclarations.filter(
       (declaration) =>
         declaration.workflowDefinitionId === workflow.id &&

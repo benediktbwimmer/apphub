@@ -22,6 +22,7 @@ import type {
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES } from './shared/scopes';
 import { schemaRef } from '../openapi/definitions';
+import { resolveModuleScope, handleModuleScopeError } from './shared/moduleScope';
 
 function jsonResponse(schemaName: string, description: string) {
   return {
@@ -327,15 +328,39 @@ export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
         tags: ['Workflows'],
         summary: 'Retrieve workflow asset graph',
         description: 'Aggregates asset producers and consumers across all registered workflows.',
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            moduleId: {
+              anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+              description: 'Optional module identifier to scope workflow assets.'
+            }
+          }
+        },
         response: {
           200: assetGraphResponse('Current asset graph snapshot.'),
           500: errorResponse('Failed to build the workflow asset graph.')
         }
       }
     },
-    async (_request, reply) => {
+    async (request, reply) => {
+      let moduleScope;
       try {
-        const workflows = await listWorkflowDefinitions();
+        moduleScope = await resolveModuleScope(request, (request.query as { moduleId?: unknown } | undefined)?.moduleId, [
+          'workflow-definition',
+          'workflow-run',
+          'asset'
+        ]);
+      } catch (error) {
+        return handleModuleScopeError(reply, error);
+      }
+
+      try {
+        const workflows = await listWorkflowDefinitions({
+          moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
+        });
+        const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
         const aggregates = new Map<string, AssetGraphNode>();
         const edges: AssetGraphEdge[] = [];
         const edgeKeys = new Set<string>();
@@ -343,7 +368,7 @@ export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
         for (const workflow of workflows) {
           const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
           const declarations = await listWorkflowAssetDeclarations(workflow.id);
-          const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id);
+          const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id, { moduleIds });
           const stalePartitions = await listWorkflowAssetStalePartitions(workflow.id);
           const rolesByStep = buildStepAssetRoles(declarations);
 

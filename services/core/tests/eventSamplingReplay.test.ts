@@ -5,7 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import EmbeddedPostgres from 'embedded-postgres';
+import { createEmbeddedPostgres, stopEmbeddedPostgres } from '@apphub/test-helpers';
+import type EmbeddedPostgres from 'embedded-postgres';
 
 async function allocatePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -27,7 +28,7 @@ async function allocatePort(): Promise<number> {
 async function startDatabase(): Promise<() => Promise<void>> {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'apphub-event-sampling-replay-db-'));
   const port = await allocatePort();
-  const postgres = new EmbeddedPostgres({
+  const postgres: EmbeddedPostgres = createEmbeddedPostgres({
     databaseDir: dataDir,
     port,
     user: 'postgres',
@@ -44,7 +45,7 @@ async function startDatabase(): Promise<() => Promise<void>> {
 
   return async () => {
     try {
-      await postgres.stop();
+    await stopEmbeddedPostgres(postgres);
     } finally {
       await rm(dataDir, { recursive: true, force: true });
     }

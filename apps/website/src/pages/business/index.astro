@@ -10,17 +10,17 @@ const reasons = [
   {
     heading: 'Everything becomes a module',
     detail:
-      'Use cases live as versioned modules with jobs, assets, UI surfaces, and runbooks. Governance, rollout, and measurement stay consistent across teams.'
+      'Use cases live as versioned modules with workflows, jobs, events, triggers, schedules, assets, UI surfaces, and runbooks. Governance, rollout, and measurement stay consistent across teams.'
   },
   {
     heading: 'Shared operations platform',
     detail:
-      'Executives, engineers, and operators work from the same data and workflow fabric—no fragmented stacks or duplicate tooling.'
+      'Executives, engineers, and operators work from the same event bus, stores, and UI. No fragmented stacks or duplicate tooling.'
   },
   {
     heading: 'Weeks, not quarters',
     detail:
-      'We model the first module alongside you and hand over a repeatable blueprint so every follow-on use case arrives faster.'
+      'We model the first module alongside you, wire it into the orchestrator, and hand over a repeatable blueprint so every follow-on use case arrives faster.'
   }
 ];
 
@@ -55,10 +55,10 @@ const modulePatterns = [
 ];
 
 const valueSignals = [
-  'Shared source of truth for telemetry, workflows, and reports.',
-  'Faster time-to-market because modules reuse the same infrastructure footprint.',
-  'Lower integration risk: Redis queues, timestore partitions, and module governance are already battle tested in the platform.',
-  'Operators stay in the loop through the AppHub UI—no context lost in spreadsheets or slide decks.'
+  'Shared source of truth for telemetry, workflows, schedules, and reports over the same event bus.',
+  'Faster time-to-market because modules reuse Filestore, Metastore, and Timestore instead of stitching point solutions.',
+  'Lower integration risk: Redis plus BullMQ, Parquet partitions, and document events are already built into the platform.',
+  'Operators stay in the loop through the AppHub UI—live graphs and analytics remove the need for spreadsheet syncs.'
 ];
 
 const engagementTimeline = [
@@ -79,15 +79,15 @@ const engagementTimeline = [
 const observatoryHighlights = [
   {
     title: 'Telemetry to action',
-    detail: 'Instrument data arrives via the observatory gateway, lands in Filestore with rich metadata, and kicks off workflow runs when assets refresh.'
+    detail: 'Instrument data arrives via the observatory gateway, lands in Filestore with rich metadata, updates Timestore, and kicks off workflows or schedules when assets refresh.'
   },
   {
     title: 'Audience-aligned visuals',
-    detail: 'Module services render dashboards directly inside the AppHub UI, so site leads and executives read the same view.'
+    detail: 'Module services render dashboards and the live graph directly inside the AppHub UI, so site leads and executives read the same view with real-time status.'
   },
   {
     title: 'Auditable outcomes',
-    detail: 'Every workflow run, file change, and timestore partition is logged. Leadership reviews readiness in minutes, not days.'
+    detail: 'Every workflow run, document change, file event, and timestore partition is logged. Leadership reviews readiness in minutes, not days.'
   }
 ];
 ---
@@ -98,7 +98,7 @@ const observatoryHighlights = [
         <p class="page-hero__eyebrow">For leadership teams</p>
         <h1>Model any operations programme as an AppHub module.</h1>
         <p class="page-hero__intro">
-          AppHub is open source and currently an early prototype. We are outlining how we will partner with business leaders once the platform is production ready.
+          AppHub is open source and still an early prototype. I am outlining how I plan to partner with business leaders once the platform proves itself in the field.
         </p>
         <div class="page-hero__actions">
           <a class="button button--primary" href="mailto:osirisapphub@gmail.com">Schedule a strategy workshop</a>
@@ -108,7 +108,7 @@ const observatoryHighlights = [
         <div class="page-hero__notice">
           <strong>Planning in progress:</strong>
           <span>
-            Adoption services are not yet available. We are looking for contributors across the platform, operations playbooks, and this website to help shape the launch—email
+            Adoption services are not yet available. I am looking for contributors across the platform, operations playbooks, and this website to help shape the launch—email
             <a href="mailto:osirisapphub@gmail.com">osirisapphub@gmail.com</a> if you would like to help.
           </span>
         </div>
@@ -190,7 +190,7 @@ const observatoryHighlights = [
         ))}
       </ol>
       <p class="timeline__note">
-        Combine internal teams with our strategists, solution engineers, and operator coaches once the programme launches—this draft timeline captures how we aim to support open-source adopters.
+        Combine internal teams with collaborators from the community once the programme launches—this draft timeline captures how I expect to support open-source adopters.
       </p>
     </div>
   </section>

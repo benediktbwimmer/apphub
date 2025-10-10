@@ -12,7 +12,8 @@ import { useWorkflowAccess } from './useWorkflowAccess';
 import { useWorkflowDefinitions } from './useWorkflowDefinitions';
 import {
   getWorkflowRunMetrics,
-  getWorkflowStats
+  getWorkflowStats,
+  type WorkflowAnalyticsQuery
 } from '../api';
 import {
   normalizeWorkflowRunMetrics,
@@ -24,6 +25,7 @@ import type {
   WorkflowRunStatsSummary
 } from '../types';
 import { useAppHubEvent, type AppHubSocketEvent } from '../../events/context';
+import { useModuleScope } from '../../modules/ModuleScopeContext';
 
 export type WorkflowAnalyticsState = {
   stats: WorkflowRunStatsSummary | null;
@@ -62,6 +64,9 @@ function createDefaultAnalyticsState(): WorkflowAnalyticsState {
 export function WorkflowAnalyticsProvider({ children }: { children: ReactNode }) {
   const { authorizedFetch } = useWorkflowAccess();
   const { selectedSlug } = useWorkflowDefinitions();
+  const moduleScope = useModuleScope();
+  const { kind: moduleScopeKind, isResourceInScope } = moduleScope;
+  const isModuleScoped = moduleScopeKind === 'module';
 
   const [workflowAnalytics, setWorkflowAnalytics] = useState<Record<string, WorkflowAnalyticsState>>({});
   const workflowAnalyticsRef = useRef<Record<string, WorkflowAnalyticsState>>({});
@@ -71,9 +76,19 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
       if (!slug) {
         return;
       }
+      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
+        return;
+      }
       const existing = workflowAnalyticsRef.current[slug];
       const targetRange = range ?? existing?.rangeKey ?? ANALYTICS_DEFAULT_RANGE;
-      const query = targetRange === 'custom' ? undefined : { range: targetRange };
+      const moduleId = isModuleScoped ? moduleScope.moduleId : null;
+      const query: WorkflowAnalyticsQuery = {};
+      if (targetRange !== 'custom') {
+        query.range = targetRange;
+      }
+      if (moduleId) {
+        query.moduleId = moduleId;
+      }
       try {
         const [stats, metrics] = await Promise.all([
           getWorkflowStats(authorizedFetch, slug, query),
@@ -106,7 +121,7 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
         console.error('workflow.analytics.fetch_failed', { slug, error });
       }
     },
-    [authorizedFetch]
+    [authorizedFetch, isModuleScoped, isResourceInScope, moduleScope.moduleId]
   );
 
   const setWorkflowAnalyticsRange = useCallback((slug: string, range: WorkflowAnalyticsRangeKey) => {
@@ -145,6 +160,9 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
     if (!slug) {
       return;
     }
+    if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
+      return;
+    }
     const stats = record.stats ? normalizeWorkflowRunStats(record.stats) : null;
     const metrics = record.metrics ? normalizeWorkflowRunMetrics(record.metrics) : null;
     if (!stats && !metrics) {
@@ -174,15 +192,24 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
         }
       };
     });
-  }, []);
+  }, [isModuleScoped, isResourceInScope]);
 
   const handleAnalyticsEvent = useCallback(
     (event: Extract<AppHubSocketEvent, { type: typeof WORKFLOW_ANALYTICS_EVENT }>) => {
-      if (event.data) {
-        handleAnalyticsSnapshot(event.data);
+      const payload = event.data;
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+      const record = payload as { slug?: unknown };
+      const slug = typeof record.slug === 'string' ? record.slug : null;
+      if (!slug) {
+        return;
+      }
+      if (!isModuleScoped || isResourceInScope('workflow-definition', slug)) {
+        handleAnalyticsSnapshot(payload);
       }
     },
-    [handleAnalyticsSnapshot]
+    [handleAnalyticsSnapshot, isModuleScoped, isResourceInScope]
   );
 
   useAppHubEvent(WORKFLOW_ANALYTICS_EVENT, handleAnalyticsEvent);
@@ -193,9 +220,12 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
 
   useEffect(() => {
     if (selectedSlug) {
+      if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
+        return;
+      }
       void loadWorkflowAnalytics(selectedSlug);
     }
-  }, [selectedSlug, loadWorkflowAnalytics]);
+  }, [isModuleScoped, isResourceInScope, selectedSlug, loadWorkflowAnalytics]);
 
   const value = useMemo<WorkflowAnalyticsContextValue>(
     () => ({

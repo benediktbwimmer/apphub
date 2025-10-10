@@ -26,6 +26,8 @@ vi.mock('../../api', () => ({
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { JobDefinitionSummary } from '../../../workflows/api';
 import { useJobsList } from '../useJobsList';
+import { ModuleScopeContextProvider, type ModuleScopeContextValue } from '../../../modules/ModuleScopeContext';
+import type { ReactNode } from 'react';
 
 function makeJob(
   slug: string,
@@ -54,6 +56,35 @@ function makeJob(
 }
 
 describe('useJobsList', () => {
+  const moduleScopeStub: ModuleScopeContextValue = {
+    kind: 'all',
+    moduleId: null,
+    moduleVersion: null,
+    modules: [],
+    loadingModules: false,
+    modulesError: null,
+    resources: [],
+    loadingResources: false,
+    resourcesError: null,
+    setModuleId: vi.fn(),
+    buildModulePath: (path: string) => path,
+    stripModulePrefix: (pathname: string) => pathname,
+    getResourceContexts: () => [],
+    getResourceIds: () => [],
+    getResourceSlugs: () => [],
+    isResourceInScope: () => true
+  };
+
+  function withModuleScope(children: ReactNode) {
+    return (
+      <ModuleScopeContextProvider value={moduleScopeStub}>
+        {children}
+      </ModuleScopeContextProvider>
+    );
+  }
+
+  const wrapper = ({ children }: { children: ReactNode }) => withModuleScope(children);
+
   beforeEach(() => {
     fetchJobsMock.mockReset();
   });
@@ -64,7 +95,7 @@ describe('useJobsList', () => {
       makeJob('alpha', { runtime: 'python' })
     ];
     fetchJobsMock.mockResolvedValueOnce(jobs);
-    const { result } = renderHook(() => useJobsList());
+    const { result } = renderHook(() => useJobsList(), { wrapper });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -82,7 +113,7 @@ describe('useJobsList', () => {
     const second = [makeJob('two')];
 
     fetchJobsMock.mockResolvedValueOnce(first);
-    const { result } = renderHook(() => useJobsList());
+    const { result } = renderHook(() => useJobsList(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.jobs).toEqual(first);
@@ -100,7 +131,7 @@ describe('useJobsList', () => {
 
   it('captures errors from the API', async () => {
     fetchJobsMock.mockRejectedValueOnce(new Error('boom'));
-    const { result } = renderHook(() => useJobsList());
+    const { result } = renderHook(() => useJobsList(), { wrapper });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);

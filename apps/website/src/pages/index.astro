@@ -12,153 +12,152 @@ import {
 
 const title = 'Osiris AppHub | Unified modular operations platform';
 const description =
-  'AppHub pairs an event-driven core, timestore, filestore, metastore, and unified UI so teams can ship modules that orchestrate data and automation in weeks.';
+  'AppHub is the orchestration engine I always wanted: workflows, jobs, assets, and data services sharing a Redis + BullMQ bus with a live UI on top.';
 
 const heroStats = [
-  { label: 'Platform status', value: 'Open-source operations platform' },
-  { label: 'Module rollout time', value: 'Weeks from sketch to live operations' },
-  { label: 'Engagement focus', value: 'Teaching + turnkey module creation' }
+  { label: 'Platform compass', value: 'Performance, scalability, flexibility - no trade-offs' },
+  { label: 'Core loop', value: 'Workflows / jobs / events / triggers / schedules / assets' },
+  { label: 'Data fabric', value: 'Filestore, Metastore, and Timestore stay in lockstep via the bus' }
 ];
 
 const components = [
   {
-    name: 'Core orchestrator',
+    name: 'Orchestration engine',
     copy:
-      'Fastify API and Redis-backed BullMQ workers coordinate jobs, assets, and events. Asset auto-materialisation keeps modules fresh without manual triggers.'
+      'Temporal and Dagster showed the way, but I trimmed the fat. Modules wire workflows, jobs, events, triggers, schedules, and assets together while BullMQ keeps latency in the single-digit milliseconds.'
   },
   {
     name: 'Timestore',
     copy:
-      'DuckDB-powered SQL API backed by partitioned Parquet in object storage. Predicate pushdown and distributed execution keep costs low and queries fast.'
+      'DuckDB plans buffer on a staging disk, flush into Parquet partitions, and scale out on object storage. ANSI SQL stays front and center whether you are querying minutes of telemetry or months of history.'
   },
   {
     name: 'Filestore',
     copy:
-      'Deterministic storage manager that tracks directory sizes, hashes, and change events across S3, MinIO, and local mounts.'
+      'Every read or write goes through the service so we always know sizes, checksums, provenance, and which module touched a payload across S3, GCS, Azure, MinIO, or local disks.'
   },
   {
     name: 'Metastore',
     copy:
-      'Namespace-scoped document store with optimistic concurrency and rich querying for module settings, topology, and governance metadata.'
+      'Postgres-backed document store that emits events whenever a document changes. Perfect for configuration, topology, and everything human-sized that still needs orchestration hooks.'
   },
   {
     name: 'Unified UI',
     copy:
-      'React console renders live workflow graphs, asset lineage, service health, and SQL workspaces without leaving the browser.'
+      'React console streaming straight from the event bus. Graphs, SQL workspaces, asset inventories, and analytics land in one place, with Prometheus-ready metrics still exposed if you want Grafana.'
   }
 ];
 
 const modulePrinciples = [
   {
-    title: 'Modules everywhere',
+    title: 'Wire the system you need',
     detail:
-      'Every use case becomes a module bundle built with the TypeScript SDK. Jobs, workflows, services, and UI surfaces ship together, versioned, and ready to import.'
+      'Workflow runs, cron schedules, event triggers, and asset auto-materialisation live side by side. Mix them per module and change course without asking platform teams for permission.'
   },
   {
-    title: 'First-class ergonomics',
+    title: 'Modules stay flexible',
     detail:
-      'Capability shims for filestore, metastore, timestore, and the event bus mean module authors write clear domain logic instead of plumbing.'
+      'Jobs, services, assets, events, and UI surfaces live in one bundle. Version it, promote it, or tear it apart when requirements shift.'
   },
   {
-    title: 'Real-time evolution',
+    title: 'Fast ergonomics',
     detail:
-      'Publish new module versions with compatibility checks, migrations, and promotion pipelines so operations stay ahead of changing requirements.'
+      'The TypeScript SDK exposes filestore, metastore, timestore, and event bus capabilities so authors write domain logic instead of plumbing.'
   }
 ];
 
 const useCases = [
   {
-    name: 'Environmental observatory',
+    name: 'Observatory operations',
     summary:
-      'Ingest instrument telemetry every minute, reconcile files with Filestore, materialise partitions in Timestore, and publish dashboards automatically.'
+      'Stream sensor events into Timestore, reconcile files through Filestore, and light up workflows the instant an asset refreshes.'
   },
   {
-    name: 'Industrial asset uptime',
+    name: 'Industrial runtime',
     summary:
-      'Fuse PLC readings, operator inspections, and maintenance orders into a module that predicts equipment drift and schedules remediation flows.'
+      'Blend PLC telemetry, maintenance records, and operator feedback. Schedules cover steady-state tasks while events and asset freshness handle surprises.'
   },
   {
-    name: 'Field logistics co-ordination',
+    name: 'Data product platform',
     summary:
-      'Blend inventory snapshots, routing constraints, and crew updates with custom events so dispatchers and sites stay in lockstep.'
+      'Publish data assets backed by Timestore partitions, broadcast change notices with Metastore events, and let the UI visualise lineage automatically.'
   }
 ];
 
 const dataHighlights = [
-  'SQL you already know. Timestore accepts ANSI SQL while translating queries into DuckDB plans executed over Parquet shards in object storage.',
-  'Partitioned manifests. Manifest sharding keeps ingestion fast even as datasets span months of history.',
-  'Hybrid storage. Pair cloud buckets with MinIO or on-prem disks; Filestore keeps metadata consistent and reconciles drift automatically.'
+  'Staging first. Ingest lands on a fast disk, then flushes into Parquet partitions once thresholds hit so the hot path stays predictable while object storage scales.',
+  'DuckDB everywhere. Queries hit ANSI SQL endpoints, lean on predicate pushdown, and can fan out horizontally thanks to partition-aware planning.',
+  'Streaming ready. Kafka or any streaming pipe can drop records right into the flow while Filestore keeps file-like assets aligned with the same dataset.'
 ];
 
 const orchestrationPoints = [
-  'Redis-backed event bus. BullMQ queues move events, workflow runs, and triggers with millisecond latency.',
-  'Asset-based automation and event triggers. Choose freshness-based runs or explicit domain events to launch workflows instantly.',
-  'Observable workers. Queue metrics, Prometheus exports, and OpenTelemetry traces come baked in for every background role.'
+  'Redis plus BullMQ at the core. Events, triggers, workflows, and schedules ride the same low-latency bus.',
+  'Asset auto-materialisation keeps modules fresh. Assets declare freshness rules, and the orchestrator reacts the moment data moves.',
+  'Event hooks everywhere. Filestore and Metastore emit change events so modules react instantly without brittle polling.'
 ];
 
 const uiHighlights = [
-  'Live workflow topology. Graphs show each run, dependency, and asset freshness in real time—no separate tracing tool needed.',
-  'Faster than stand-alone orchestrators. AppHub skips heavyweight RPC layers so modules move quicker than Temporal while inheriting Dagster-style assets.',
-  'In-app SQL lab. Query timestores, preview files, and link every result back to the producing module without leaving the console.'
+  'Live graph view. Every workflow, job, and asset overlays its status as the bus emits updates.',
+  'Analytics built in. Inspect timestore partitions, file inventories, and metastore documents without leaving the console.',
+  'Still pluggable. Prometheus metrics, structured logs, and traces escape so you keep external dashboards if you want them.'
 ];
 
 const deploymentOptions = [
   {
-    heading: 'Dedicated servers',
-    detail: 'Bring your own hardware with Docker Compose or Minikube. MinIO supplies object storage when S3 is not available.'
+    heading: 'Single machine',
+    detail: 'Docker Compose or Minikube plus a small staging disk gives you the full stack and flushes to object storage as partitions mature.'
   },
   {
-    heading: 'Cloud-native',
-    detail: 'Deploy on Kubernetes with autoscaling workers, or run the stack on a VM plus managed S3/GCS buckets for effortless durability.'
+    heading: 'Cloud native',
+    detail: 'Run services on Kubernetes with autoscaling workers. Object storage can be S3, GCS, or Azure while Redis and DuckDB scale independently.'
   },
   {
-    heading: 'Hybrid topologies',
-    detail: 'Mix local ingestion workers with cloud AppHub services. Redis queues and service discovery keep modules coordinated across sites.'
+    heading: 'Hybrid topology',
+    detail: 'Place ingestion next to data sources and keep the core in the cloud. The event bus and shared stores keep every module in sync.'
   }
 ];
 
 const services = [
   {
-    title: 'Immersive teaching sessions',
+    title: 'Deep-dive architecture sessions',
     detail:
-      'Hands-on workshops cover AppHub architecture, the module SDK, and how to wire timestore/filestore integrations. Teams leave ready to build.'
+      'Walk through orchestrator patterns, event trigger design, and how to map modules onto the stores without guesswork.'
   },
   {
-    title: 'Module modelling sprints',
+    title: 'Module design sprints',
     detail:
-      'We translate your use case into a module blueprint—jobs, assets, services, and governance artifacts included.'
+      'Codify workflows, schedules, assets, and UI surfaces together so your first module launches with confidence.'
   },
   {
-    title: 'Turnkey module builds',
+    title: 'Benchmark and scale reviews',
     detail:
-      'Partner with our engineers to deliver a production-ready module, complete with observability dashboards and runbooks.'
+      'Stress Timestore, measure Redis and BullMQ throughput, and tune the staging to Parquet pipeline before you bet your operations on it.'
   }
 ];
 
 const observatoryTakeaways = [
-  'Gateway normalises sensor events and pushes them through the Redis event bus into the Core.',
-  'Filestore journals every instrument upload, tracking directory sizes and hashing payloads for provenance.',
-  'Timestore compacts minute partitions into Parquet shards while exposing a SQL API for analysts and dashboards.',
-  'Event triggers fire downstream workflows the moment new telemetry arrives, complementing asset auto-materialisation.',
-  'Module services render the Observatory graph and status boards inside the unified UI using the module SDK capabilities.'
+  'Sensors post events onto the bus so workflows, schedules, and assets stay in sync.',
+  'Filestore captures every file with metadata, checksums, and emits change events for downstream jobs.',
+  'Metastore documents track sites and equipment; updates fire events so the right workflows adjust immediately.',
+  'Timestore stages minute data on disk, flushes to Parquet, and responds to SQL in milliseconds thanks to DuckDB.',
+  'The UI graph streams live status so operators drill into runs without refreshing dashboards.'
 ];
 ---
 <BaseLayout title={title} description={description}>
   <section class="hero" aria-labelledby="hero-heading">
     <div class="container hero__inner">
       <div class="hero__content">
-        <p class="hero__eyebrow">Built for evolving operations</p>
-        <h1 id="hero-heading">Launch a modular operations platform that keeps pace with change.</h1>
+        <p class="hero__eyebrow">For operators who want it all</p>
+        <h1 id="hero-heading">Build the operations platform I kept wishing existed.</h1>
         <p class="hero__summary">
-          Osiris AppHub unifies the orchestrator, timestore, filestore, metastore, and UI into one event-driven platform. It is fully open
-          source—self-host it, fork it, or collaborate with our team to build modules faster.
+          Osiris AppHub is a fast orchestration engine inspired by Temporal and Dagster but trimmed for real-world performance. Workflows, jobs, events, triggers, schedules, and assets live inside one module, all speaking over a low-latency Redis plus BullMQ bus while Filestore, Metastore, and Timestore listen in.
         </p>
         <div class="hero__status">
           <p>
-            <strong>Heads-up:</strong> the unified UI is mid-polish and will keep changing rapidly—expect frequent visual and UX updates as we harden the experience.
+            <strong>Heads-up:</strong> the unified UI is still rough around the edges. Please give the demo a spin anyway—the live graph view streams straight off the event bus.
           </p>
           <p>
-            <strong>Early prototype:</strong> AppHub is pre-production and evolving in the open. We will announce production readiness once the community validates the full workflow.
+            <strong>Early prototype:</strong> AppHub is pre-production and evolving in the open while I prove out performance, scalability, and flexibility. Production guidance will land once the community helps hammer on the entire loop.
           </p>
         </div>
         <div class="hero__actions">
@@ -171,9 +170,9 @@ const observatoryTakeaways = [
         <div class="hero__contributor">
           <strong>Join the crew:</strong>
           <span>
-            We are actively looking for contributors across the stack—core services, SDKs, and this website. If you want to shape onboarding playbooks, strengthen the platform, or ship UI polish, email
+            I am actively looking for collaborators across the stack—core services, SDKs, modules, and this site. If you want to load test Timestore, tune the orchestrator, or help polish the UI, email
             <a href="mailto:osirisapphub@gmail.com">osirisapphub@gmail.com</a>
-            or hop into our
+            or hop into the
             <a href="https://discord.gg/STJGs5zHCN" target="_blank" rel="noreferrer">Discord server</a>.
           </span>
         </div>
@@ -190,7 +189,7 @@ const observatoryTakeaways = [
         <div class="diagram">
           <SystemArchitectureDiagram />
         </div>
-        <figcaption>Event bus at the centre: modules speak through shared services instead of bespoke glue code.</figcaption>
+        <figcaption>Redis and BullMQ sit at the centre so workflows, stores, and the UI stay in sync without bespoke glue.</figcaption>
       </figure>
     </div>
   </section>
@@ -198,10 +197,9 @@ const observatoryTakeaways = [
   <section class="components" aria-labelledby="components-heading">
     <div class="container components__inner">
       <div class="section-header">
-        <h2 id="components-heading" class="section-heading">Five services, one platform</h2>
+        <h2 id="components-heading" class="section-heading">Five services, one purpose-built platform</h2>
         <p>
-          Each AppHub workspace ships the same building blocks, so modules rely on proven infrastructure instead of reinventing data pipes
-          and orchestration.
+          Every workspace ships the orchestrator plus Filestore, Metastore, Timestore, and the UI. They all speak over the same event bus so modules stay fast, observable, and ready to evolve.
         </p>
       </div>
       <div class="components__grid">
@@ -223,7 +221,7 @@ const observatoryTakeaways = [
         </div>
       </figure>
       <div>
-        <h2 id="modules-heading" class="section-heading">Modules are how you ship use cases</h2>
+        <h2 id="modules-heading" class="section-heading">Modules bundle workflows, jobs, events, and assets</h2>
         <div class="modules__grid">
           {modulePrinciples.map((item) => (
             <article>
@@ -233,8 +231,7 @@ const observatoryTakeaways = [
           ))}
         </div>
         <p class="modules__footnote">
-          The module SDK lives in <code>packages/module-sdk</code> and gives authors typed access to filestore, metastore, timestore, and the event bus in just a
-          few lines.
+          The module SDK lives in <code>packages/module-sdk</code> and gives authors typed access to filestore, metastore, timestore, the event bus, and UI surfaces from a few lines of TypeScript.
         </p>
       </div>
     </div>
@@ -242,7 +239,7 @@ const observatoryTakeaways = [
 
   <section class="use-cases" aria-labelledby="use-cases-heading">
     <div class="container use-cases__inner">
-      <h2 id="use-cases-heading" class="section-heading">Example modules we are delivering</h2>
+      <h2 id="use-cases-heading" class="section-heading">Example modules we are proving out right now</h2>
       <div class="use-cases__grid">
         {useCases.map((item) => (
           <article>
@@ -257,7 +254,10 @@ const observatoryTakeaways = [
   <section class="data-plane" aria-labelledby="data-plane-heading">
     <div class="container data-plane__inner">
       <div>
-        <h2 id="data-plane-heading" class="section-heading">Data plane built on object storage</h2>
+        <h2 id="data-plane-heading" class="section-heading">Timestore data plane built on object storage</h2>
+        <p>
+          Timestore is tuned for high-volume timeseries. It stages writes on disk, flushes to Parquet, and answers ANSI SQL through DuckDB without forcing a separate warehouse.
+        </p>
         <ul>
           {dataHighlights.map((point) => (
             <li>{point}</li>
@@ -280,7 +280,10 @@ const observatoryTakeaways = [
         </div>
       </figure>
       <div>
-        <h2 id="orchestration-heading" class="section-heading">Event-driven orchestration without the overhead</h2>
+        <h2 id="orchestration-heading" class="section-heading">Event-driven orchestration tuned for latency</h2>
+        <p>
+          The Redis plus BullMQ bus moves events, triggers, schedules, and asset materialisations with minimal overhead so modules react in real time.
+        </p>
         <ul>
           {orchestrationPoints.map((point) => (
             <li>{point}</li>
@@ -293,7 +296,10 @@ const observatoryTakeaways = [
   <section class="ui" aria-labelledby="ui-heading">
     <div class="container ui__inner">
       <div>
-        <h2 id="ui-heading" class="section-heading">A unified UI operators actually enjoy using</h2>
+        <h2 id="ui-heading" class="section-heading">Unified UI with live graphs and analytics built in</h2>
+        <p>
+          The console blends real-time updates from the bus with polling where it still makes sense, so operators see fresh status without juggling dashboards.
+        </p>
         <ul>
           {uiHighlights.map((point) => (
             <li>{point}</li>
@@ -323,16 +329,16 @@ const observatoryTakeaways = [
         ))}
       </div>
       <p class="deploy__note">
-        Redis queues, Postgres, and object storage scale independently, so hybrid footprints—edge ingestion, cloud analytics, dedicated failover—stay in sync.
+        Redis, Postgres, staging disks, and object storage scale on their own timelines, so hybrid footprints—edge ingest, cloud analytics, active failover—stay in sync.
       </p>
     </div>
   </section>
 
   <section class="services" aria-labelledby="services-heading">
     <div class="container services__inner">
-      <h2 id="services-heading" class="section-heading">Adoption services in the works</h2>
+      <h2 id="services-heading" class="section-heading">Adoption services we are sketching</h2>
       <p class="services__intro">
-        We are drafting these co-building tracks right now—adoption services are not yet available. Help us design and deliver them by contributing to the platform and playbooks.
+        These tracks are still drafts while I harden the platform. Help shape them by contributing to the services, modules, and playbooks that will power launch day.
       </p>
       <div class="services__grid">
         {services.map((item) => (
@@ -348,9 +354,9 @@ const observatoryTakeaways = [
   <section class="observatory" aria-labelledby="observatory-heading">
     <div class="container observatory__inner">
       <div>
-        <h2 id="observatory-heading" class="section-heading">Case study · Observatory module</h2>
+        <h2 id="observatory-heading" class="section-heading">Case study · Observatory module tying it all together</h2>
         <p class="observatory__intro">
-          The environmental observatory module is built entirely with the module SDK. It ingests instrument data, reconciles files, materialises parquet, and renders dashboards without leaving AppHub.
+          The environmental observatory module is built with the SDK end to end. It ingests telemetry, reconciles files, flushes timestore partitions, reacts to metastore updates, and renders live dashboards inside AppHub.
         </p>
         <ul>
           {observatoryTakeaways.map((item) => (
@@ -369,9 +375,9 @@ const observatoryTakeaways = [
   <section class="cta" aria-labelledby="cta-heading">
     <div class="container cta__inner">
       <div>
-        <h2 id="cta-heading" class="section-heading">Start building with the community</h2>
+        <h2 id="cta-heading" class="section-heading">Help stress test the platform with the community</h2>
         <p>
-          Clone the repo, explore existing modules, and ship your own workflows. We collaborate in the open—file issues, open pull requests, or team up with us for turnkey delivery.
+          Clone the repo, explore existing modules, and see how the orchestrator behaves under real workloads. File issues, open pull requests, or partner with me if you want a turnkey build.
         </p>
       </div>
       <div class="cta__actions">

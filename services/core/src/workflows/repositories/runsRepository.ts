@@ -1,6 +1,24 @@
 import { mapWorkflowRunRow, mapWorkflowRunStepRow, mapWorkflowRunStepAssetRow, mapWorkflowExecutionHistoryRow, mapWorkflowTriggerDeliveryRow } from '../../db/rowMappers';
 import { WorkflowRunRow, WorkflowRunStepRow, WorkflowRunStepAssetRow, WorkflowExecutionHistoryRow, WorkflowActivityRow } from '../../db/rowTypes';
-import type { WorkflowRunCreateInput, WorkflowRunRecord, WorkflowRunRetrySummary, WorkflowRunWithDefinition, WorkflowRunStatus, WorkflowRunUpdateInput, WorkflowRunStepCreateInput, WorkflowRunStepRecord, WorkflowRunStepUpdateInput, WorkflowRunStepStatus, JsonValue, WorkflowRunStepAssetRecord, WorkflowRunStepAssetInput, WorkflowExecutionHistoryRecord, WorkflowExecutionHistoryEventInput, WorkflowTriggerDeliveryRecord } from '../../db/types';
+import type {
+  WorkflowRunCreateInput,
+  WorkflowRunRecord,
+  WorkflowRunRetrySummary,
+  WorkflowRunWithDefinition,
+  WorkflowRunStatus,
+  WorkflowRunUpdateInput,
+  WorkflowRunStepCreateInput,
+  WorkflowRunStepRecord,
+  WorkflowRunStepUpdateInput,
+  WorkflowRunStepStatus,
+  JsonValue,
+  WorkflowRunStepAssetRecord,
+  WorkflowRunStepAssetInput,
+  WorkflowExecutionHistoryRecord,
+  WorkflowExecutionHistoryEventInput,
+  WorkflowTriggerDeliveryRecord,
+  ModuleResourceContextRecord
+} from '../../db/types';
 import { useConnection, useTransaction } from '../../db/utils';
 import { emitApphubEvent } from '../../events';
 import { mirrorWorkflowRunLifecycle } from '../../streaming/workflowMirror';
@@ -10,6 +28,11 @@ import { MANUAL_TRIGGER } from './definitionsRepository';
 import { serializeJson, reuseJsonColumn } from './shared';
 import { randomUUID } from 'node:crypto';
 import { PoolClient } from 'pg';
+import {
+  deleteModuleAssignmentsForResource,
+  listModuleAssignmentsForResource,
+  upsertModuleResourceContext
+} from '../../db/moduleResourceContexts';
 
 const RUN_KEY_UNIQUE_INDEX = 'idx_workflow_runs_active_run_key';
 
@@ -63,6 +86,7 @@ export type WorkflowActivityListFilters = {
   search?: string;
   from?: string;
   to?: string;
+  moduleIds?: string[];
 };
 
 const EMPTY_RETRY_SUMMARY: WorkflowRunRetrySummary = {
@@ -77,6 +101,121 @@ function cloneRetrySummary(summary: WorkflowRunRetrySummary): WorkflowRunRetrySu
     nextAttemptAt: summary.nextAttemptAt,
     overdueSteps: summary.overdueSteps
   } satisfies WorkflowRunRetrySummary;
+}
+
+const TERMINAL_WORKFLOW_RUN_STATUSES: ReadonlySet<WorkflowRunStatus> = new Set([
+  'succeeded',
+  'failed',
+  'canceled'
+]);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function parseAssignmentMetadata(assignment: ModuleResourceContextRecord): Record<string, unknown> | null {
+  if (!assignment.metadata) {
+    return null;
+  }
+  if (isPlainObject(assignment.metadata)) {
+    return assignment.metadata as Record<string, unknown>;
+  }
+  return null;
+}
+
+function selectLatestAssignment(
+  assignments: ModuleResourceContextRecord[]
+): ModuleResourceContextRecord | null {
+  if (assignments.length === 0) {
+    return null;
+  }
+  return assignments.reduce((latest, current) => {
+    const latestTime = Date.parse(latest.updatedAt);
+    const currentTime = Date.parse(current.updatedAt);
+    if (Number.isNaN(latestTime) || currentTime > latestTime) {
+      return current;
+    }
+    return latest;
+  }, assignments[0]);
+}
+
+async function resolveWorkflowDefinitionAssignment(
+  workflowDefinitionId: string
+): Promise<ModuleResourceContextRecord | null> {
+  const assignments = await listModuleAssignmentsForResource('workflow-definition', workflowDefinitionId);
+  return selectLatestAssignment(assignments);
+}
+
+function buildWorkflowRunModuleContextMetadata(
+  run: WorkflowRunRecord,
+  definitionAssignment: ModuleResourceContextRecord | null
+): JsonValue {
+  const metadata: Record<string, JsonValue> = {
+    workflowDefinitionId: run.workflowDefinitionId,
+    status: run.status,
+    runKey: run.runKey ?? null,
+    runKeyNormalized: run.runKeyNormalized ?? null,
+    partitionKey: run.partitionKey ?? null,
+    triggeredBy: run.triggeredBy ?? null,
+    trigger: run.trigger ?? null,
+    startedAt: run.startedAt ?? null,
+    completedAt: run.completedAt ?? null,
+    durationMs: run.durationMs ?? null,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt
+  } satisfies Record<string, JsonValue>;
+
+  const assignmentMetadata = definitionAssignment ? parseAssignmentMetadata(definitionAssignment) : null;
+  if (assignmentMetadata) {
+    if (typeof assignmentMetadata.slug === 'string') {
+      metadata.workflowSlug = assignmentMetadata.slug;
+    }
+    if (typeof assignmentMetadata.name === 'string') {
+      metadata.workflowName = assignmentMetadata.name;
+    }
+    if (assignmentMetadata.version !== undefined) {
+      metadata.workflowVersion = assignmentMetadata.version as JsonValue;
+    }
+  }
+
+  return metadata;
+}
+
+async function syncWorkflowRunModuleContext(run: WorkflowRunRecord): Promise<void> {
+  if (TERMINAL_WORKFLOW_RUN_STATUSES.has(run.status)) {
+    await deleteModuleAssignmentsForResource('workflow-run', run.id);
+    return;
+  }
+
+  const assignment = await resolveWorkflowDefinitionAssignment(run.workflowDefinitionId);
+
+  if (!assignment) {
+    await deleteModuleAssignmentsForResource('workflow-run', run.id);
+    return;
+  }
+
+  const assignmentMetadata = parseAssignmentMetadata(assignment);
+  const workflowSlug = assignmentMetadata && typeof assignmentMetadata.slug === 'string' ? assignmentMetadata.slug : null;
+  const workflowName = assignmentMetadata && typeof assignmentMetadata.name === 'string' ? assignmentMetadata.name : null;
+
+  try {
+    await upsertModuleResourceContext({
+      moduleId: assignment.moduleId,
+      moduleVersion: assignment.moduleVersion ?? null,
+      resourceType: 'workflow-run',
+      resourceId: run.id,
+      resourceSlug: workflowSlug,
+      resourceName: workflowName,
+      resourceVersion: run.runKey ?? run.id,
+      metadata: buildWorkflowRunModuleContextMetadata(run, assignment)
+    });
+  } catch (err) {
+    console.warn('[workflows] failed to sync workflow run module context', {
+      workflowRunId: run.id,
+      moduleId: assignment.moduleId,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
 }
 
 async function collectWorkflowRunRetrySummaries(
@@ -404,6 +543,7 @@ export async function createWorkflowRun(
     throw new Error('failed to create workflow run');
   }
 
+  await syncWorkflowRunModuleContext(run);
   emitWorkflowRunEvents(run);
   return run;
 }
@@ -541,21 +681,40 @@ export async function listWorkflowRunsInRange(
 
 export async function listWorkflowAutoRunsForDefinition(
   workflowDefinitionId: string,
-  options: { limit?: number; offset?: number } = {}
+  options: { limit?: number; offset?: number; moduleIds?: string[] | null } = {}
 ): Promise<WorkflowRunRecord[]> {
   const limit = Math.min(Math.max(options.limit ?? 20, 1), 50);
   const offset = Math.max(options.offset ?? 0, 0);
+  const moduleIds = Array.isArray(options.moduleIds)
+    ? Array.from(new Set(options.moduleIds.map((id) => id.trim()).filter((id) => id.length > 0)))
+    : null;
 
   return useConnection(async (client) => {
+    const params: unknown[] = [workflowDefinitionId, limit, offset];
+    const moduleFilterClause = moduleIds && moduleIds.length > 0
+      ? `AND EXISTS (
+          SELECT 1
+            FROM module_resource_contexts mrc
+           WHERE mrc.resource_type = 'workflow-run'
+             AND mrc.resource_id = workflow_runs.id
+             AND mrc.module_id = ANY($4::text[])
+        )`
+      : '';
+
+    if (moduleIds && moduleIds.length > 0) {
+      params.push(moduleIds);
+    }
+
     const { rows } = await client.query<WorkflowRunRow>(
       `SELECT *
        FROM workflow_runs
        WHERE workflow_definition_id = $1
          AND trigger ->> 'type' = 'auto-materialize'
+         ${moduleFilterClause}
        ORDER BY created_at DESC
        LIMIT $2
        OFFSET $3`,
-      [workflowDefinitionId, limit, offset]
+      params
     );
     const runs = rows.map(mapWorkflowRunRow);
     await attachWorkflowRunRetrySummaries(runs);
@@ -580,6 +739,10 @@ export async function listWorkflowRuns(
   return useConnection(async (client) => {
     const conditions: string[] = [];
     const params: unknown[] = [];
+
+    const moduleIds = Array.isArray(filters.moduleIds)
+      ? Array.from(new Set(filters.moduleIds.map((id) => id.trim()).filter((id) => id.length > 0)))
+      : [];
 
     if (Array.isArray(filters.statuses) && filters.statuses.length > 0) {
       const normalized = Array.from(
@@ -648,6 +811,27 @@ export async function listWorkflowRuns(
         params.push(parsed.toISOString());
         conditions.push(`wr.created_at <= $${params.length}`);
       }
+    }
+
+    if (moduleIds.length > 0) {
+      params.push(moduleIds);
+      const moduleParamIndex = params.length;
+      conditions.push(`(
+        EXISTS (
+          SELECT 1
+            FROM module_resource_contexts mrc
+           WHERE mrc.resource_type = 'workflow-definition'
+             AND mrc.resource_id = wd.id
+             AND mrc.module_id = ANY($${moduleParamIndex}::text[])
+        )
+        OR EXISTS (
+          SELECT 1
+            FROM module_resource_contexts mrc
+           WHERE mrc.resource_type = 'workflow-run'
+             AND mrc.resource_id = wr.id
+             AND mrc.module_id = ANY($${moduleParamIndex}::text[])
+        )
+      )`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -720,6 +904,45 @@ export async function listWorkflowActivity(
     const placeholder = addParam(workflowSlugs);
     runConditions.push(`wd.slug = ANY(${placeholder}::text[])`);
     deliveryConditions.push(`wd.slug = ANY(${placeholder}::text[])`);
+  }
+
+  const moduleIds = normalizeArray(filters.moduleIds);
+  if (moduleIds.length > 0) {
+    const runPlaceholder = addParam(moduleIds);
+    runConditions.push(`(
+      EXISTS (
+        SELECT 1
+          FROM module_resource_contexts mrc
+         WHERE mrc.resource_type = 'workflow-definition'
+           AND mrc.resource_id = wd.id
+           AND mrc.module_id = ANY(${runPlaceholder}::text[])
+      )
+      OR EXISTS (
+        SELECT 1
+          FROM module_resource_contexts mrc
+         WHERE mrc.resource_type = 'workflow-run'
+           AND mrc.resource_id = wr.id
+           AND mrc.module_id = ANY(${runPlaceholder}::text[])
+      )
+    )`);
+
+    const deliveryPlaceholder = addParam(moduleIds);
+    deliveryConditions.push(`(
+      EXISTS (
+        SELECT 1
+          FROM module_resource_contexts mrc
+         WHERE mrc.resource_type = 'workflow-definition'
+           AND mrc.resource_id = wd.id
+           AND mrc.module_id = ANY(${deliveryPlaceholder}::text[])
+      )
+      OR EXISTS (
+        SELECT 1
+          FROM module_resource_contexts mrc
+         WHERE mrc.resource_type = 'workflow-run'
+           AND mrc.resource_id = wtd.workflow_run_id
+           AND mrc.module_id = ANY(${deliveryPlaceholder}::text[])
+      )
+    )`);
   }
 
   const triggerTypes = normalizeArray(filters.triggerTypes?.map((type) => type.toLowerCase()));
@@ -1026,6 +1249,7 @@ export async function updateWorkflowRun(
 
   if (updated) {
     await attachWorkflowRunRetrySummaries([updated]);
+    await syncWorkflowRunModuleContext(updated);
   }
 
   if (updated && emitEvents) {

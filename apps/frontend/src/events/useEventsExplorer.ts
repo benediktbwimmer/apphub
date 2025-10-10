@@ -16,6 +16,7 @@ import {
   useAppHubEvent,
   type AppHubConnectionStatus
 } from './context';
+import { useModuleScope } from '../modules/ModuleScopeContext';
 
 const HIGHLIGHT_DURATION_MS = 6_000;
 
@@ -110,6 +111,9 @@ export type EventsExplorerState = {
 
 export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplorerState {
   const eventsClient = useAppHubEventsClient();
+  const moduleScope = useModuleScope();
+  const { kind: moduleScopeKind, moduleId: activeModuleId, getResourceIds, getResourceSlugs, isResourceInScope } = moduleScope;
+  const isModuleScoped = moduleScopeKind === 'module';
   const [filters, setFilters] = useState<EventsExplorerFilters>(DEFAULT_EVENTS_FILTERS);
   const [events, setEvents] = useState<WorkflowEventSample[]>([]);
   const [schema, setSchema] = useState<WorkflowEventSchema | null>(null);
@@ -127,8 +131,102 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
   const seenIdsRef = useRef<Set<string>>(new Set());
   const pollingTimerRef = useRef<number | null>(null);
   const highlightTimersRef = useRef<Map<string, number>>(new Map());
-
   const preparedFilters = useMemo(() => prepareEventFilters(filters), [filters]);
+  const normalizeId = useCallback((value: string | null | undefined) => (typeof value === 'string' ? value.trim().toLowerCase() : ''), []);
+  const normalizeIdentifier = useCallback((value: string | null | undefined) => (typeof value === 'string' ? value.trim() : ''), []);
+
+  const scopeKey = isModuleScoped ? `module:${normalizeIdentifier(activeModuleId) || 'active'}` : 'all';
+  const scopeKeyRef = useRef(scopeKey);
+
+  const moduleEventIds = useMemo(() => {
+    if (!isModuleScoped) {
+      return null;
+    }
+    const ids = new Set<string>();
+    for (const id of getResourceIds('event')) {
+      const normalized = normalizeId(id);
+      if (normalized) {
+        ids.add(normalized);
+      }
+    }
+    return ids;
+  }, [getResourceIds, isModuleScoped, normalizeId]);
+
+  const moduleWorkflowDefinitionIds = useMemo(() => {
+    if (!isModuleScoped) {
+      return null;
+    }
+    const ids = new Set<string>();
+    for (const id of getResourceIds('workflow-definition')) {
+      const normalized = normalizeIdentifier(id);
+      if (normalized) {
+        ids.add(normalized);
+      }
+    }
+    return ids;
+  }, [getResourceIds, isModuleScoped, normalizeIdentifier]);
+
+  const moduleWorkflowSlugs = useMemo(() => {
+    if (!isModuleScoped) {
+      return null;
+    }
+    const slugs = new Set<string>();
+    for (const slug of getResourceSlugs('workflow-definition')) {
+      const normalized = normalizeId(slug);
+      if (normalized) {
+        slugs.add(normalized);
+      }
+    }
+    return slugs;
+  }, [getResourceSlugs, isModuleScoped, normalizeId]);
+
+  const isEventInScope = useCallback(
+    (event: WorkflowEventSample) => {
+      if (!isModuleScoped) {
+        return true;
+      }
+      const normalizedEventId = normalizeId(event.id);
+      if (moduleEventIds && moduleEventIds.has(normalizedEventId)) {
+        return true;
+      }
+      if (moduleWorkflowDefinitionIds && moduleWorkflowDefinitionIds.size > 0) {
+        const definitionIds = event.links?.workflowDefinitionIds ?? [];
+        if (definitionIds.some((id) => moduleWorkflowDefinitionIds.has(normalizeIdentifier(id)))) {
+          return true;
+        }
+      }
+      const workflowRunIds = event.links?.workflowRunIds ?? [];
+      if (workflowRunIds.some((id) => isResourceInScope('workflow-run', id))) {
+        return true;
+      }
+      if (moduleWorkflowSlugs && moduleWorkflowSlugs.size > 0) {
+        const slugMatches = event.links?.workflowIds ?? [];
+        if (slugMatches.some((slug) => moduleWorkflowSlugs.has(normalizeId(slug)))) {
+          return true;
+        }
+      }
+      return false;
+    },
+    [
+      isModuleScoped,
+      isResourceInScope,
+      moduleEventIds,
+      moduleWorkflowDefinitionIds,
+      moduleWorkflowSlugs,
+      normalizeId,
+      normalizeIdentifier
+    ]
+  );
+
+  const filterEventsForScope = useCallback(
+    (incoming: WorkflowEventSample[]) => {
+      if (!isModuleScoped) {
+        return incoming;
+      }
+      return incoming.filter((event) => isEventInScope(event));
+    },
+    [isEventInScope, isModuleScoped]
+  );
 
   const markHighlighted = useCallback((eventId: string) => {
     if (typeof window === 'undefined') {
@@ -162,17 +260,25 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
 
   const updateEvents = useCallback(
     (incoming: WorkflowEventSample[], mode: LoadMode) => {
+      const scoped = filterEventsForScope(incoming);
+      if (scoped.length === 0) {
+        if (mode === 'replace') {
+          setEvents([]);
+          seenIdsRef.current.clear();
+        }
+        return;
+      }
       setEvents((current) => {
         let combined: WorkflowEventSample[];
         switch (mode) {
           case 'append':
-            combined = [...current, ...incoming];
+            combined = [...current, ...scoped];
             break;
           case 'merge':
-            combined = [...incoming, ...current];
+            combined = [...scoped, ...current];
             break;
           default:
-            combined = [...incoming];
+            combined = [...scoped];
             break;
         }
         const deduped = dedupeAndSort(combined);
@@ -180,7 +286,7 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
         return deduped;
       });
     },
-    []
+    [filterEventsForScope]
   );
 
   const fetchAndUpdate = useCallback(
@@ -274,6 +380,19 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
   }, [fetchAndUpdate]);
 
   useEffect(() => {
+    if (scopeKeyRef.current === scopeKey) {
+      return;
+    }
+    scopeKeyRef.current = scopeKey;
+    seenIdsRef.current.clear();
+    setEvents([]);
+    setHighlightedIds(new Set<string>());
+    setHasMore(false);
+    setNextCursor(null);
+    void fetchAndUpdate(filters, { mode: 'replace', background: false });
+  }, [fetchAndUpdate, filters, scopeKey]);
+
+  useEffect(() => {
     const unsubscribe = eventsClient.subscribeConnection((status) => {
       setConnectionStatus(status);
       if (typeof window === 'undefined') {
@@ -309,6 +428,9 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
       return;
     }
     if (!matchesEventFilters(sample, preparedFilters)) {
+      return;
+    }
+    if (!isEventInScope(sample)) {
       return;
     }
     updateEvents([sample], 'merge');
