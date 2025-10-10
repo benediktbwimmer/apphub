@@ -345,13 +345,20 @@ export async function listWorkflowDefinitions(options: { moduleIds?: string[] | 
     const conditions: string[] = [];
 
     if (moduleIds && moduleIds.length > 0) {
-      const paramIndex = params.push(moduleIds);
-      conditions.push(`EXISTS (
-        SELECT 1
-          FROM module_resource_contexts mrc
-         WHERE mrc.resource_type = 'workflow-definition'
-           AND mrc.resource_id = workflow_definitions.id
-           AND mrc.module_id = ANY($${paramIndex}::text[])
+      const moduleParamIndex = params.push(moduleIds);
+      const loweredModuleIds = moduleIds.map((id) => id.toLowerCase());
+      const slugEqualsIndex = params.push(loweredModuleIds);
+      const slugPatternIndex = params.push(loweredModuleIds.map((id) => `${id}-%`));
+      conditions.push(`(
+        EXISTS (
+          SELECT 1
+            FROM module_resource_contexts mrc
+           WHERE mrc.resource_type = 'workflow-definition'
+             AND mrc.resource_id = workflow_definitions.id
+             AND mrc.module_id = ANY($${moduleParamIndex}::text[])
+        )
+        OR LOWER(workflow_definitions.slug) = ANY($${slugEqualsIndex}::text[])
+        OR LOWER(workflow_definitions.slug) LIKE ANY($${slugPatternIndex}::text[])
       )`);
     }
 

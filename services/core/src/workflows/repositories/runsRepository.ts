@@ -814,10 +814,14 @@ export async function listWorkflowRuns(
     }
 
     if (moduleIds.length > 0) {
-      params.push(moduleIds);
-      const moduleParamIndex = params.length;
+      const moduleParamIndex = params.push(moduleIds);
+      const loweredModuleIds = moduleIds.map((id) => id.toLowerCase());
+      const slugEqualsIndex = params.push(loweredModuleIds);
+      const slugPatternIndex = params.push(loweredModuleIds.map((id) => `${id}-%`));
       conditions.push(`(
-        EXISTS (
+        LOWER(wd.slug) = ANY($${slugEqualsIndex}::text[])
+        OR LOWER(wd.slug) LIKE ANY($${slugPatternIndex}::text[])
+        OR EXISTS (
           SELECT 1
             FROM module_resource_contexts mrc
            WHERE mrc.resource_type = 'workflow-definition'
@@ -907,39 +911,46 @@ export async function listWorkflowActivity(
 
   const moduleIds = normalizeArray(filters.moduleIds);
   if (moduleIds.length > 0) {
-    const runPlaceholder = addParam(moduleIds);
+    const modulePlaceholder = addParam(moduleIds);
+    const loweredModuleIds = moduleIds.map((id) => id.toLowerCase());
+    const slugEqualsPlaceholder = addParam(loweredModuleIds);
+    const slugPatternPlaceholder = addParam(loweredModuleIds.map((id) => `${id}-%`));
+
     runConditions.push(`(
-      EXISTS (
+      LOWER(wd.slug) = ANY(${slugEqualsPlaceholder}::text[])
+      OR LOWER(wd.slug) LIKE ANY(${slugPatternPlaceholder}::text[])
+      OR EXISTS (
         SELECT 1
           FROM module_resource_contexts mrc
          WHERE mrc.resource_type = 'workflow-definition'
            AND mrc.resource_id = wd.id
-           AND mrc.module_id = ANY(${runPlaceholder}::text[])
+           AND mrc.module_id = ANY(${modulePlaceholder}::text[])
       )
       OR EXISTS (
         SELECT 1
           FROM module_resource_contexts mrc
          WHERE mrc.resource_type = 'workflow-run'
            AND mrc.resource_id = wr.id
-           AND mrc.module_id = ANY(${runPlaceholder}::text[])
+           AND mrc.module_id = ANY(${modulePlaceholder}::text[])
       )
     )`);
 
-    const deliveryPlaceholder = addParam(moduleIds);
     deliveryConditions.push(`(
-      EXISTS (
+      LOWER(wd.slug) = ANY(${slugEqualsPlaceholder}::text[])
+      OR LOWER(wd.slug) LIKE ANY(${slugPatternPlaceholder}::text[])
+      OR EXISTS (
         SELECT 1
           FROM module_resource_contexts mrc
          WHERE mrc.resource_type = 'workflow-definition'
            AND mrc.resource_id = wd.id
-           AND mrc.module_id = ANY(${deliveryPlaceholder}::text[])
+           AND mrc.module_id = ANY(${modulePlaceholder}::text[])
       )
       OR EXISTS (
         SELECT 1
           FROM module_resource_contexts mrc
          WHERE mrc.resource_type = 'workflow-run'
            AND mrc.resource_id = wtd.workflow_run_id
-           AND mrc.module_id = ANY(${deliveryPlaceholder}::text[])
+           AND mrc.module_id = ANY(${modulePlaceholder}::text[])
       )
     )`);
   }

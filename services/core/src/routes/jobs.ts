@@ -296,7 +296,11 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
       const jobs = await jobService.listJobDefinitions({ moduleIds });
       const filteredJobs = moduleScope?.hasFilters
-        ? moduleScope.filter(jobs, 'job-definition', (job) => ({ id: job.id, slug: job.slug }))
+        ? moduleScope.filter(jobs, 'job-definition', (job) => ({
+            id: job.id,
+            slug: job.slug,
+            moduleId: job.moduleBinding?.moduleId ?? null
+          }))
         : jobs;
       reply.status(200);
       return { data: filteredJobs.map((job) => serializeJobDefinition(job)) };
@@ -389,8 +393,18 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
 
       const scopedItems = moduleScope?.hasFilters
         ? items.filter((entry) =>
-            moduleScope.matches('job-run', { id: entry.run.id }) ||
-            moduleScope.matches('job-definition', { id: entry.job.id, slug: entry.job.slug })
+            moduleScope.matches('job-run', {
+              id: entry.run.id,
+              moduleId:
+                entry.run.moduleBinding?.moduleId ??
+                entry.job.moduleBinding?.moduleId ??
+                null
+            }) ||
+            moduleScope.matches('job-definition', {
+              id: entry.job.id,
+              slug: entry.job.slug,
+              moduleId: entry.job.moduleBinding?.moduleId ?? null
+            })
           )
         : items;
 
