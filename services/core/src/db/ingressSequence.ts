@@ -100,22 +100,43 @@ async function fetchExternalSequence(): Promise<string> {
   }
 }
 
-async function syncLocalSequence(targetValue: string): Promise<string | null> {
+type SyncResult = {
+  syncedValue: bigint;
+  maxValue: bigint;
+};
+
+async function syncLocalSequence(targetValue: string): Promise<SyncResult | null> {
   try {
     const { rows } = await useConnection((client) =>
-      client.query<{ seq: string }>(
+      client.query<{ synced_value: string; max_value: string }>(
         `
-          SELECT setval(
-            $1::regclass,
-            GREATEST($2::bigint, COALESCE((SELECT MAX(ingress_sequence) FROM workflow_events), 0)),
-            true
+          WITH existing AS (
+            SELECT COALESCE(MAX(ingress_sequence), 0)::bigint AS max_value
+            FROM workflow_events
+          ),
+          updated AS (
+            SELECT
+              setval(
+                $1::regclass,
+                GREATEST($2::bigint, existing.max_value),
+                true
+              ) AS synced_value,
+              existing.max_value
+            FROM existing
           )
+          SELECT synced_value, max_value FROM updated
         `,
         [LOCAL_SEQUENCE_NAME, targetValue]
       )
     );
-    const value = rows[0]?.seq;
-    return value ?? null;
+    const row = rows[0];
+    if (!row?.synced_value || row.max_value === undefined || row.max_value === null) {
+      return null;
+    }
+    return {
+      syncedValue: BigInt(row.synced_value),
+      maxValue: BigInt(row.max_value)
+    };
   } catch (err) {
     logSyncError(err);
   }
@@ -130,11 +151,16 @@ export async function reserveIngressSequence(): Promise<string> {
 
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         const externalValue = await fetchExternalSequence();
-        const syncedValue = await syncLocalSequence(externalValue);
-        if (!syncedValue) {
+        const syncResult = await syncLocalSequence(externalValue);
+        if (!syncResult) {
           break;
         }
-        if (syncedValue === externalValue) {
+        const externalBigInt = BigInt(externalValue);
+        if (syncResult.maxValue >= externalBigInt) {
+          // Existing events already occupy this position; skip the stale external cursor value.
+          continue;
+        }
+        if (syncResult.syncedValue === externalBigInt) {
           return externalValue;
         }
         // External sequence is still behind the local cursor; discard this value and continue.

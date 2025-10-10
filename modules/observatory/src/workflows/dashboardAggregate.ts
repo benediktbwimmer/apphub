@@ -20,8 +20,7 @@ const definition: WorkflowDefinition = {
       lookbackMinutes: { type: 'number', minimum: 5, maximum: 4320 },
       burstReason: { type: 'string' },
       burstFinishedAt: { type: 'string' }
-    },
-    required: ['partitionKey']
+    }
   },
   defaultParameters: {
     burstReason: '',
@@ -116,7 +115,7 @@ const schedules = dashboardAutoAggregateEnabled
         cron: '*/5 * * * *',
         timezone: 'UTC',
         parameterTemplate: {
-          partitionKey: '{{ run.trigger.schedule.occurrence | slice: 0, 16 }}'
+          partitionKey: '{{ run.trigger.schedule.occurrence | default: schedule.occurrence | default: "" | slice: 0, 16 }}'
         }
       })
     ]

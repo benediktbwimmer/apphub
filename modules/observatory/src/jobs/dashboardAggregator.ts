@@ -28,9 +28,31 @@ const FLUSH_CHECK_MAX_ATTEMPTS = 10;
 const FLUSH_CHECK_DELAY_MS = 1_000;
 const DEFAULT_SNAPSHOT_FRESHNESS_MS = 60_000;
 
+function sanitizePartitionKey(raw: string | undefined | null): string | null {
+  if (!raw) {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/);
+  if (match) {
+    return match[1];
+  }
+  const isoCandidate = trimmed.endsWith(':00Z') ? trimmed.slice(0, 16) : trimmed;
+  return isoCandidate.length === 16 ? isoCandidate : null;
+}
+
 const parametersSchema = z
   .object({
-    partitionKey: z.string().min(1, 'partitionKey is required').optional(),
+    partitionKey: z
+      .string()
+      .optional()
+      .transform((value) => {
+        const sanitized = sanitizePartitionKey(value ?? null);
+        return sanitized ?? undefined;
+      }),
     lookbackMinutes: z
       .union([z.coerce.number().int().positive(), z.string().trim().min(1)])
       .optional(),
@@ -96,6 +118,41 @@ type DashboardSummary = {
   averagePm25: number;
   maxPm25: number;
 };
+
+async function resolvePartitionKey(
+  context: DashboardAggregatorContext,
+  coreWorkflows: CoreWorkflowsCapability,
+  principal: string | undefined
+): Promise<string> {
+  const parameterPartition = sanitizePartitionKey(context.parameters.partitionKey ?? null);
+  if (parameterPartition) {
+    return parameterPartition;
+  }
+
+  const ingestWorkflowSlug = context.settings.reprocess.ingestWorkflowSlug;
+  const ingestAssetId = context.settings.reprocess.ingestAssetId;
+  try {
+    const latestAsset = await coreWorkflows.getLatestAsset({
+      workflowSlug: ingestWorkflowSlug,
+      assetId: ingestAssetId,
+      lookback: 5,
+      principal
+    });
+    const derivedPartition = sanitizePartitionKey(latestAsset?.partitionKey ?? null);
+    if (derivedPartition) {
+      context.logger.info('Derived partition key from latest ingest asset', { partitionKey: derivedPartition });
+      return derivedPartition;
+    }
+  } catch (error) {
+    context.logger.warn('Failed to derive partition key from ingest asset', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+
+  const fallback = new Date().toISOString().slice(0, 16);
+  context.logger.warn('Falling back to current window for dashboard aggregation', { partitionKey: fallback });
+  return fallback;
+}
 
 type DashboardSnapshotNode = {
   path: string;
@@ -650,10 +707,7 @@ export const dashboardAggregatorJob = createJobHandler<
     }
 
     const principal = context.settings.principals.dashboardAggregator?.trim() || undefined;
-    const partitionKeyInput = context.parameters.partitionKey?.trim();
-    const partitionKey = partitionKeyInput && partitionKeyInput.length > 0
-      ? partitionKeyInput
-      : new Date().toISOString().slice(0, 16);
+    const partitionKey = await resolvePartitionKey(context, coreWorkflows, principal);
     const lookbackCandidate = context.parameters.lookbackMinutes;
     const resolvedLookback = (() => {
       if (typeof lookbackCandidate === 'number' && Number.isFinite(lookbackCandidate)) {

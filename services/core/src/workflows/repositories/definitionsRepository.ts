@@ -1709,9 +1709,14 @@ export async function countActiveWorkflowTriggerDeliveries(triggerId: string): P
   const { rows } = await useConnection((client) =>
     client.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
-         FROM workflow_trigger_deliveries
-        WHERE trigger_id = $1
-          AND status IN ('pending', 'matched', 'launched')`,
+         FROM workflow_trigger_deliveries d
+         LEFT JOIN workflow_runs wr ON wr.id = d.workflow_run_id
+        WHERE d.trigger_id = $1
+          AND d.status IN ('pending', 'matched', 'launched')
+          AND (
+            d.status <> 'launched'
+            OR wr.status IN ('pending', 'running')
+          )`,
       [triggerId]
     )
   );

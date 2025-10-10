@@ -215,6 +215,59 @@ async function ensureBucket(spec) {
   }
 }
 
+function buildClickHouseUrl(env) {
+  const host = (env.TIMESTORE_CLICKHOUSE_HOST ?? 'clickhouse').trim();
+  const port = (env.TIMESTORE_CLICKHOUSE_HTTP_PORT ?? '8123').trim();
+  const secure = String(env.TIMESTORE_CLICKHOUSE_SECURE ?? 'false').toLowerCase() === 'true';
+  const protocol = secure ? 'https' : 'http';
+  if (!host) {
+    return null;
+  }
+  return `${protocol}://${host}:${port}/?database=default`;
+}
+
+async function ensureClickHouseDatabase(env) {
+  const database = (env.TIMESTORE_CLICKHOUSE_DATABASE ?? 'apphub').trim();
+  if (!database) {
+    return;
+  }
+  const url = buildClickHouseUrl(env);
+  if (!url) {
+    log('warn', 'ClickHouse host not configured; skipping database creation');
+    return;
+  }
+
+  const user = (env.TIMESTORE_CLICKHOUSE_USER ?? '').trim();
+  const password = (env.TIMESTORE_CLICKHOUSE_PASSWORD ?? '').trim();
+
+  const headers = {
+    'Content-Type': 'text/plain'
+  };
+  if (user) {
+    const credentials = `${user}:${password}`;
+    headers.Authorization = `Basic ${Buffer.from(credentials).toString('base64')}`;
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: `CREATE DATABASE IF NOT EXISTS ${database}`
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`ClickHouse responded with ${response.status}: ${text || 'unknown error'}`);
+    }
+    log('info', 'Ensured ClickHouse database', { database, url });
+  } catch (error) {
+    log('warn', 'Failed to ensure ClickHouse database', {
+      database,
+      url,
+      error: error?.message ?? String(error)
+    });
+  }
+}
+
 async function main() {
   log('info', 'Starting AppHub bootstrap');
   await ensureDirectories(process.env);
@@ -223,6 +276,8 @@ async function main() {
   for (const spec of bucketSpecs) {
     await ensureBucket(spec);
   }
+
+  await ensureClickHouseDatabase(process.env);
 
   log('info', 'Bootstrap complete', { bucketsEnsured: bucketSpecs.map((spec) => spec.bucket) });
 }
