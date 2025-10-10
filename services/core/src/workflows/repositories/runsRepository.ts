@@ -1127,70 +1127,75 @@ export async function listWorkflowActivity(
   return { items, hasMore };
 }
 
-export async function updateWorkflowRun(
+type WorkflowRunInternalUpdateResult = {
+  record: WorkflowRunRecord | null;
+  emitEvents: boolean;
+};
+
+async function updateWorkflowRunInternal(
+  client: PoolClient,
   runId: string,
   updates: WorkflowRunUpdateInput
-): Promise<WorkflowRunRecord | null> {
-  let updated: WorkflowRunRecord | null = null;
+): Promise<WorkflowRunInternalUpdateResult> {
   let emitEvents = false;
+  let updated: WorkflowRunRecord | null = null;
 
-  await useTransaction(async (client) => {
-    const { rows } = await client.query<WorkflowRunRow>(
-      'SELECT * FROM workflow_runs WHERE id = $1 FOR UPDATE',
-      [runId]
-    );
-    if (rows.length === 0) {
-      return;
-    }
-    const existing = rows[0];
+  const { rows } = await client.query<WorkflowRunRow>(
+    'SELECT * FROM workflow_runs WHERE id = $1 FOR UPDATE',
+    [runId]
+  );
+  if (rows.length === 0) {
+    return { record: null, emitEvents: false };
+  }
+  const existing = rows[0];
 
-    const nextStatus = normalizeWorkflowRunStatus(updates.status ?? (existing.status as WorkflowRunStatus));
-    const nextParameters = updates.parameters ?? existing.parameters ?? {};
+  const nextStatus = normalizeWorkflowRunStatus(updates.status ?? (existing.status as WorkflowRunStatus));
+  const nextParameters = updates.parameters ?? existing.parameters ?? {};
 
-    const existingContextRaw = (existing.context ?? {}) as JsonValue;
-    let contextChanged = false;
-    let nextContext: JsonValue;
-    if (updates.contextPatch) {
-      const merged = applyWorkflowContextPatch(parseWorkflowContext(existingContextRaw), updates.contextPatch);
-      nextContext = serializeWorkflowContext(merged);
-      contextChanged = true;
-    } else if (updates.context !== undefined) {
-      nextContext = (updates.context ?? {}) as JsonValue;
-      contextChanged = JSON.stringify(existingContextRaw ?? {}) !== JSON.stringify(nextContext ?? {});
+  const existingContextRaw = (existing.context ?? {}) as JsonValue;
+  let contextChanged = false;
+  let nextContext: JsonValue;
+  if (updates.contextPatch) {
+    const merged = applyWorkflowContextPatch(parseWorkflowContext(existingContextRaw), updates.contextPatch);
+    nextContext = serializeWorkflowContext(merged);
+    contextChanged = true;
+  } else if (updates.context !== undefined) {
+    nextContext = (updates.context ?? {}) as JsonValue;
+    contextChanged = JSON.stringify(existingContextRaw ?? {}) !== JSON.stringify(nextContext ?? {});
+  } else {
+    nextContext = existingContextRaw;
+  }
+  const nextErrorMessage = 'errorMessage' in updates ? updates.errorMessage ?? null : existing.error_message;
+  const nextCurrentStepId = updates.currentStepId ?? existing.current_step_id ?? null;
+  const nextCurrentStepIndex =
+    updates.currentStepIndex !== undefined ? updates.currentStepIndex : existing.current_step_index ?? null;
+  const nextMetrics = updates.metrics ?? existing.metrics ?? null;
+  const nextTriggeredBy = updates.triggeredBy ?? existing.triggered_by ?? null;
+  const nextTrigger = updates.trigger ?? existing.trigger ?? MANUAL_TRIGGER;
+  const nextStartedAt = updates.startedAt ?? existing.started_at ?? null;
+  const nextCompletedAt = updates.completedAt ?? existing.completed_at ?? null;
+  const nextDurationMs =
+    updates.durationMs !== undefined ? updates.durationMs : existing.duration_ms ?? null;
+  const nextOutput = updates.output !== undefined ? updates.output ?? null : existing.output ?? null;
+  let nextPartitionKey = existing.partition_key ?? null;
+  if (Object.prototype.hasOwnProperty.call(updates, 'partitionKey')) {
+    const rawPartition = updates.partitionKey;
+    if (typeof rawPartition === 'string' && rawPartition.trim().length > 0) {
+      nextPartitionKey = rawPartition.trim();
     } else {
-      nextContext = existingContextRaw;
+      nextPartitionKey = null;
     }
-    const nextErrorMessage = 'errorMessage' in updates ? updates.errorMessage ?? null : existing.error_message;
-    const nextCurrentStepId = updates.currentStepId ?? existing.current_step_id ?? null;
-    const nextCurrentStepIndex =
-      updates.currentStepIndex !== undefined ? updates.currentStepIndex : existing.current_step_index ?? null;
-    const nextMetrics = updates.metrics ?? existing.metrics ?? null;
-    const nextTriggeredBy = updates.triggeredBy ?? existing.triggered_by ?? null;
-    const nextTrigger = updates.trigger ?? existing.trigger ?? MANUAL_TRIGGER;
-    const nextStartedAt = updates.startedAt ?? existing.started_at ?? null;
-    const nextCompletedAt = updates.completedAt ?? existing.completed_at ?? null;
-    const nextDurationMs =
-      updates.durationMs !== undefined ? updates.durationMs : existing.duration_ms ?? null;
-    const nextOutput = updates.output !== undefined ? updates.output ?? null : existing.output ?? null;
-    let nextPartitionKey = existing.partition_key ?? null;
-    if (Object.prototype.hasOwnProperty.call(updates, 'partitionKey')) {
-      const rawPartition = updates.partitionKey;
-      if (typeof rawPartition === 'string' && rawPartition.trim().length > 0) {
-        nextPartitionKey = rawPartition.trim();
-      } else {
-        nextPartitionKey = null;
-      }
-    }
-    let nextRunKey = existing.run_key ?? null;
-    let nextRunKeyNormalized = existing.run_key_normalized ?? null;
-    if (Object.prototype.hasOwnProperty.call(updates, 'runKey')) {
-      const columns = computeRunKeyColumns(updates.runKey ?? null);
-      nextRunKey = columns.runKey;
-      nextRunKeyNormalized = columns.runKeyNormalized;
-    }
+  }
+  let nextRunKey = existing.run_key ?? null;
+  let nextRunKeyNormalized = existing.run_key_normalized ?? null;
+  if (Object.prototype.hasOwnProperty.call(updates, 'runKey')) {
+    const columns = computeRunKeyColumns(updates.runKey ?? null);
+    nextRunKey = columns.runKey;
+    nextRunKeyNormalized = columns.runKeyNormalized;
+  }
 
-    const { rows: updatedRows } = await client.query<WorkflowRunRow>(
-      `UPDATE workflow_runs
+  const { rows: updatedRows } = await client.query<WorkflowRunRow>(
+    `UPDATE workflow_runs
        SET status = $2,
            parameters = $3::jsonb,
            context = $4::jsonb,
@@ -1210,53 +1215,63 @@ export async function updateWorkflowRun(
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [
-        runId,
-        nextStatus,
-        nextParameters,
-        nextContext,
-        nextOutput,
-        nextErrorMessage,
-        nextCurrentStepId,
-        nextCurrentStepIndex,
-        nextMetrics,
-        nextTriggeredBy,
-        nextTrigger,
-        nextPartitionKey,
-        nextRunKey,
-        nextRunKeyNormalized,
-        nextStartedAt,
-        nextCompletedAt,
-        nextDurationMs
-      ]
-    );
-    if (updatedRows.length === 0) {
-      return;
-    }
-    updated = mapWorkflowRunRow(updatedRows[0]);
-    emitEvents =
-      updated.status !== existing.status ||
-      contextChanged ||
-      JSON.stringify(existing.parameters ?? {}) !== JSON.stringify(updated.parameters ?? {}) ||
-      JSON.stringify(existing.metrics ?? {}) !== JSON.stringify(updated.metrics ?? {}) ||
-      existing.current_step_id !== updated.currentStepId ||
-      existing.current_step_index !== updated.currentStepIndex ||
-      existing.partition_key !== updated.partitionKey ||
-      existing.run_key !== updated.runKey ||
-      existing.error_message !== updated.errorMessage ||
-      JSON.stringify(existing.output ?? null) !== JSON.stringify(updated.output ?? null);
-  });
+    [
+      runId,
+      nextStatus,
+      nextParameters,
+      nextContext,
+      nextOutput,
+      nextErrorMessage,
+      nextCurrentStepId,
+      nextCurrentStepIndex,
+      nextMetrics,
+      nextTriggeredBy,
+      nextTrigger,
+      nextPartitionKey,
+      nextRunKey,
+      nextRunKeyNormalized,
+      nextStartedAt,
+      nextCompletedAt,
+      nextDurationMs
+    ]
+  );
+  if (updatedRows.length === 0) {
+    return { record: null, emitEvents: false };
+  }
+  updated = mapWorkflowRunRow(updatedRows[0]);
+  emitEvents =
+    updated.status !== existing.status ||
+    contextChanged ||
+    JSON.stringify(existing.parameters ?? {}) !== JSON.stringify(updated.parameters ?? {}) ||
+    JSON.stringify(existing.metrics ?? {}) !== JSON.stringify(updated.metrics ?? {}) ||
+    existing.current_step_id !== updated.currentStepId ||
+    existing.current_step_index !== updated.currentStepIndex ||
+    existing.partition_key !== updated.partitionKey ||
+    existing.run_key !== updated.runKey ||
+    existing.error_message !== updated.errorMessage ||
+    JSON.stringify(existing.output ?? null) !== JSON.stringify(updated.output ?? null);
 
-  if (updated) {
-    await attachWorkflowRunRetrySummaries([updated]);
-    await syncWorkflowRunModuleContext(updated);
+  return { record: updated, emitEvents };
+}
+
+export async function updateWorkflowRun(
+  runId: string,
+  updates: WorkflowRunUpdateInput
+): Promise<WorkflowRunRecord | null> {
+  const { record, emitEvents } = await useTransaction((client) =>
+    updateWorkflowRunInternal(client, runId, updates)
+  );
+
+  if (record) {
+    await attachWorkflowRunRetrySummaries([record]);
+    await syncWorkflowRunModuleContext(record);
   }
 
-  if (updated && emitEvents) {
-    emitWorkflowRunEvents(updated, { forceUpdatedEvent: true });
+  if (record && emitEvents) {
+    emitWorkflowRunEvents(record, { forceUpdatedEvent: true });
   }
 
-  return updated;
+  return record;
 }
 
 export async function createWorkflowRunStep(
@@ -1616,72 +1631,74 @@ export async function appendWorkflowExecutionHistory(
   });
 }
 
-export async function updateWorkflowRunStep(
+async function updateWorkflowRunStepInternal(
+  client: PoolClient,
   stepId: string,
-  updates: WorkflowRunStepUpdateInput
+  updates: WorkflowRunStepUpdateInput,
+  expectedRunId?: string
 ): Promise<WorkflowRunStepRecord | null> {
-  let updated: WorkflowRunStepRecord | null = null;
+  const { rows } = await client.query<WorkflowRunStepRow>(
+    'SELECT * FROM workflow_run_steps WHERE id = $1 FOR UPDATE',
+    [stepId]
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  const existing = rows[0];
+  if (expectedRunId && existing.workflow_run_id !== expectedRunId) {
+    return null;
+  }
 
-  await useTransaction(async (client) => {
-    const { rows } = await client.query<WorkflowRunStepRow>(
-      'SELECT * FROM workflow_run_steps WHERE id = $1 FOR UPDATE',
-      [stepId]
-    );
-    if (rows.length === 0) {
-      return;
-    }
-    const existing = rows[0];
+  const nextStatus = updates.status ?? existing.status;
+  const nextAttempt = updates.attempt ?? existing.attempt;
+  const nextJobRunId = updates.jobRunId ?? existing.job_run_id ?? null;
+  const inputProvided = Object.prototype.hasOwnProperty.call(updates, 'input');
+  const outputProvided = Object.prototype.hasOwnProperty.call(updates, 'output');
+  const metricsProvided = Object.prototype.hasOwnProperty.call(updates, 'metrics');
+  const contextProvided = Object.prototype.hasOwnProperty.call(updates, 'context');
 
-    const nextStatus = updates.status ?? existing.status;
-    const nextAttempt = updates.attempt ?? existing.attempt;
-    const nextJobRunId = updates.jobRunId ?? existing.job_run_id ?? null;
-    const inputProvided = Object.prototype.hasOwnProperty.call(updates, 'input');
-    const outputProvided = Object.prototype.hasOwnProperty.call(updates, 'output');
-    const metricsProvided = Object.prototype.hasOwnProperty.call(updates, 'metrics');
-    const contextProvided = Object.prototype.hasOwnProperty.call(updates, 'context');
+  const nextInput = inputProvided ? serializeJson(updates.input) : reuseJsonColumn(existing.input);
+  const nextOutput = outputProvided ? serializeJson(updates.output) : reuseJsonColumn(existing.output);
+  const nextErrorMessage = 'errorMessage' in updates ? updates.errorMessage ?? null : existing.error_message;
+  const nextLogsUrl = 'logsUrl' in updates ? updates.logsUrl ?? null : existing.logs_url;
+  const nextMetrics = metricsProvided ? serializeJson(updates.metrics) : reuseJsonColumn(existing.metrics);
+  const nextContext = contextProvided ? serializeJson(updates.context) : reuseJsonColumn(existing.context);
+  const nextStartedAt = updates.startedAt ?? existing.started_at ?? null;
+  const nextCompletedAt = updates.completedAt ?? existing.completed_at ?? null;
+  const nextParentStepId =
+    'parentStepId' in updates ? updates.parentStepId ?? null : existing.parent_step_id ?? null;
+  const nextFanoutIndex =
+    'fanoutIndex' in updates ? updates.fanoutIndex ?? null : existing.fanout_index ?? null;
+  const nextTemplateStepId =
+    'templateStepId' in updates ? updates.templateStepId ?? null : existing.template_step_id ?? null;
+  const nextLastHeartbeatAt = Object.prototype.hasOwnProperty.call(updates, 'lastHeartbeatAt')
+    ? updates.lastHeartbeatAt ?? null
+    : existing.last_heartbeat_at ?? null;
+  const nextRetryCount = normalizeStepRetryCount(
+    updates.retryCount,
+    existing.retry_count ?? 0,
+    nextAttempt ?? 1
+  );
+  const nextFailureReason = resolveStepFailureReason(
+    nextStatus as WorkflowRunStepStatus,
+    updates.failureReason,
+    existing.failure_reason ?? null
+  );
+  const nextNextAttemptAt = Object.prototype.hasOwnProperty.call(updates, 'nextAttemptAt')
+    ? updates.nextAttemptAt ?? null
+    : existing.next_attempt_at ?? null;
+  const nextRetryState = updates.retryState ?? existing.retry_state ?? 'pending';
+  const nextRetryAttempts = updates.retryAttempts ?? existing.retry_attempts ?? 0;
+  const nextRetryMetadata =
+    updates.retryMetadata !== undefined
+      ? serializeJson(updates.retryMetadata)
+      : reuseJsonColumn(existing.retry_metadata);
+  const nextResolutionError = Object.prototype.hasOwnProperty.call(updates, 'resolutionError')
+    ? Boolean(updates.resolutionError)
+    : Boolean(existing.resolution_error);
 
-    const nextInput = inputProvided ? serializeJson(updates.input) : reuseJsonColumn(existing.input);
-    const nextOutput = outputProvided ? serializeJson(updates.output) : reuseJsonColumn(existing.output);
-    const nextErrorMessage = 'errorMessage' in updates ? updates.errorMessage ?? null : existing.error_message;
-    const nextLogsUrl = 'logsUrl' in updates ? updates.logsUrl ?? null : existing.logs_url;
-    const nextMetrics = metricsProvided ? serializeJson(updates.metrics) : reuseJsonColumn(existing.metrics);
-    const nextContext = contextProvided ? serializeJson(updates.context) : reuseJsonColumn(existing.context);
-    const nextStartedAt = updates.startedAt ?? existing.started_at ?? null;
-    const nextCompletedAt = updates.completedAt ?? existing.completed_at ?? null;
-    const nextParentStepId =
-      'parentStepId' in updates ? updates.parentStepId ?? null : existing.parent_step_id ?? null;
-    const nextFanoutIndex =
-      'fanoutIndex' in updates ? updates.fanoutIndex ?? null : existing.fanout_index ?? null;
-    const nextTemplateStepId =
-      'templateStepId' in updates ? updates.templateStepId ?? null : existing.template_step_id ?? null;
-    const nextLastHeartbeatAt = Object.prototype.hasOwnProperty.call(updates, 'lastHeartbeatAt')
-      ? updates.lastHeartbeatAt ?? null
-      : existing.last_heartbeat_at ?? null;
-    const nextRetryCount = normalizeStepRetryCount(
-      updates.retryCount,
-      existing.retry_count ?? 0,
-      nextAttempt ?? 1
-    );
-    const nextFailureReason = resolveStepFailureReason(
-      nextStatus as WorkflowRunStepStatus,
-      updates.failureReason,
-      existing.failure_reason ?? null
-    );
-    const nextNextAttemptAt = Object.prototype.hasOwnProperty.call(updates, 'nextAttemptAt')
-      ? updates.nextAttemptAt ?? null
-      : existing.next_attempt_at ?? null;
-    const nextRetryState = updates.retryState ?? existing.retry_state ?? 'pending';
-    const nextRetryAttempts = updates.retryAttempts ?? existing.retry_attempts ?? 0;
-    const nextRetryMetadata =
-      updates.retryMetadata !== undefined
-        ? serializeJson(updates.retryMetadata)
-        : reuseJsonColumn(existing.retry_metadata);
-    const nextResolutionError = Object.prototype.hasOwnProperty.call(updates, 'resolutionError')
-      ? Boolean(updates.resolutionError)
-      : Boolean(existing.resolution_error);
-
-    const { rows: updatedRows } = await client.query<WorkflowRunStepRow>(
-      `UPDATE workflow_run_steps
+  const { rows: updatedRows } = await client.query<WorkflowRunStepRow>(
+    `UPDATE workflow_run_steps
        SET status = $2,
            attempt = $3,
            job_run_id = $4,
@@ -1707,38 +1724,104 @@ export async function updateWorkflowRunStep(
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [
-        stepId,
-        nextStatus,
-        nextAttempt,
-        nextJobRunId,
-        nextInput,
-        nextOutput,
-        nextErrorMessage,
-        nextLogsUrl,
-        nextMetrics,
-        nextContext,
-        nextStartedAt,
-        nextCompletedAt,
-        nextParentStepId,
-        nextFanoutIndex,
-        nextTemplateStepId,
-        nextLastHeartbeatAt,
-        nextRetryCount,
-        nextFailureReason,
-        nextNextAttemptAt,
-        nextRetryState,
-        nextRetryAttempts,
-        nextRetryMetadata,
-        nextResolutionError
-      ]
-    );
-    if (updatedRows.length === 0) {
-      return;
+    [
+      stepId,
+      nextStatus,
+      nextAttempt,
+      nextJobRunId,
+      nextInput,
+      nextOutput,
+      nextErrorMessage,
+      nextLogsUrl,
+      nextMetrics,
+      nextContext,
+      nextStartedAt,
+      nextCompletedAt,
+      nextParentStepId,
+      nextFanoutIndex,
+      nextTemplateStepId,
+      nextLastHeartbeatAt,
+      nextRetryCount,
+      nextFailureReason,
+      nextNextAttemptAt,
+      nextRetryState,
+      nextRetryAttempts,
+      nextRetryMetadata,
+      nextResolutionError
+    ]
+  );
+  if (updatedRows.length === 0) {
+    return null;
+  }
+  const assets = await fetchWorkflowRunStepAssets(client, [stepId]);
+  return mapWorkflowRunStepRow(updatedRows[0], assets.get(stepId) ?? []);
+}
+
+export async function updateWorkflowRunStep(
+  stepId: string,
+  updates: WorkflowRunStepUpdateInput
+): Promise<WorkflowRunStepRecord | null> {
+  return useTransaction((client) => updateWorkflowRunStepInternal(client, stepId, updates));
+}
+
+export type WorkflowRunStepUpdateSpec = {
+  stepId: string;
+  updates: WorkflowRunStepUpdateInput;
+};
+
+export class WorkflowRunStepUpdateError extends Error {
+  readonly stepId: string;
+  readonly originalError: unknown;
+
+  constructor(stepId: string, originalError: unknown) {
+    super(`failed to update workflow run step ${stepId}`);
+    this.name = 'WorkflowRunStepUpdateError';
+    this.stepId = stepId;
+    this.originalError = originalError;
+  }
+}
+
+type WorkflowRunAndStepsUpdateResult = {
+  run: WorkflowRunRecord | null;
+  steps: WorkflowRunStepRecord[];
+  emitEvents: boolean;
+};
+
+export async function updateWorkflowRunAndSteps(
+  runId: string,
+  runUpdates: WorkflowRunUpdateInput,
+  stepUpdates: WorkflowRunStepUpdateSpec[]
+): Promise<{ run: WorkflowRunRecord | null; steps: WorkflowRunStepRecord[] }> {
+  const result = await useTransaction(async (client) => {
+    const { record, emitEvents } = await updateWorkflowRunInternal(client, runId, runUpdates);
+    if (!record) {
+      return { run: null, steps: [], emitEvents: false };
     }
-    const assets = await fetchWorkflowRunStepAssets(client, [stepId]);
-    updated = mapWorkflowRunStepRow(updatedRows[0], assets.get(stepId) ?? []);
+
+    const updatedSteps: WorkflowRunStepRecord[] = [];
+    for (const entry of stepUpdates) {
+      try {
+        const updatedStep = await updateWorkflowRunStepInternal(client, entry.stepId, entry.updates, runId);
+        if (!updatedStep) {
+          throw new Error('workflow run step not found');
+        }
+        updatedSteps.push(updatedStep);
+      } catch (err) {
+        throw new WorkflowRunStepUpdateError(entry.stepId, err);
+      }
+    }
+
+    return { run: record, steps: updatedSteps, emitEvents };
   });
 
-  return updated;
+  const { run, steps, emitEvents } = result;
+  if (run) {
+    await attachWorkflowRunRetrySummaries([run]);
+    await syncWorkflowRunModuleContext(run);
+    if (emitEvents) {
+      emitWorkflowRunEvents(run, { forceUpdatedEvent: true });
+    }
+  }
+
+  return { run, steps };
 }

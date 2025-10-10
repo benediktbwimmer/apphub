@@ -17,7 +17,8 @@ import {
   listWorkflowAutoRunsForDefinition,
   updateWorkflowDefinition,
   updateWorkflowRun,
-  updateWorkflowRunStep,
+  updateWorkflowRunAndSteps,
+  WorkflowRunStepUpdateError,
   listWorkflowAssetDeclarationsBySlug,
   updateWorkflowAssetAutoMaterialize,
   listLatestWorkflowAssetSnapshots,
@@ -44,6 +45,7 @@ import {
   listWorkflowRunProducedAssets,
   appendWorkflowExecutionHistory
 } from '../db/index';
+import type { WorkflowRunStepUpdateSpec } from '../db/index';
 import type {
   JsonValue,
   WorkflowAssetDeclaration,
@@ -2850,6 +2852,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     const reason = parseBody.data.reason ?? 'Canceled by operator request';
     const contextPatchSteps: Record<string, Record<string, JsonValue | null>> = {};
     const cancelledStepIds: string[] = [];
+    const stepUpdates: WorkflowRunStepUpdateSpec[] = [];
     const updatedSteps: WorkflowRunStepRecord[] = [];
 
     for (const step of steps) {
@@ -2858,8 +2861,9 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       if (shouldCancel) {
         const stepErrorMessage = step.errorMessage ?? reason;
         cancelledStepIds.push(step.id);
-        try {
-          const updated = await updateWorkflowRunStep(step.id, {
+        stepUpdates.push({
+          stepId: step.id,
+          updates: {
             status: 'skipped',
             completedAt: nowIso,
             nextAttemptAt: null,
@@ -2867,24 +2871,18 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
             retryMetadata: null,
             retryAttempts: step.retryAttempts,
             errorMessage: stepErrorMessage
-          });
-          if (updated) {
-            nextStep = updated;
           }
-        } catch (err) {
-          request.log.error(
-            { err, runId: run.id, stepId: step.id },
-            'Failed to cancel workflow run step'
-          );
-          reply.status(500);
-          await authResult.auth.log('failed', {
-            reason: 'step_cancel_failed',
-            runId: run.id,
-            stepId: step.id,
-            message: (err as Error).message ?? 'unknown'
-          });
-          return { error: 'failed to cancel workflow run step' };
-        }
+        });
+        nextStep = {
+          ...step,
+          status: 'skipped',
+          completedAt: nowIso,
+          nextAttemptAt: null,
+          retryState: 'completed',
+          retryMetadata: null,
+          retryAttempts: step.retryAttempts,
+          errorMessage: stepErrorMessage
+        };
 
         contextPatchSteps[nextStep.stepId] = {
           status: 'skipped',
@@ -2933,17 +2931,38 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
 
     let updatedRun: WorkflowRunRecord | null = null;
     try {
-      updatedRun = await updateWorkflowRun(run.id, {
-        status: 'canceled',
-        errorMessage: reason,
-        currentStepId: null,
-        currentStepIndex: null,
-        completedAt: nowIso,
-        durationMs,
-        metrics: metrics as JsonValue,
-        contextPatch
-      });
+      const { run: runRecord } = await updateWorkflowRunAndSteps(
+        run.id,
+        {
+          status: 'canceled',
+          errorMessage: reason,
+          currentStepId: null,
+          currentStepIndex: null,
+          completedAt: nowIso,
+          durationMs,
+          metrics: metrics as JsonValue,
+          contextPatch
+        },
+        stepUpdates
+      );
+      updatedRun = runRecord;
     } catch (err) {
+      if (err instanceof WorkflowRunStepUpdateError) {
+        const cause = err.originalError instanceof Error ? err.originalError : err;
+        const message = cause instanceof Error ? cause.message ?? 'unknown' : 'unknown';
+        request.log.error(
+          { err: cause, runId: run.id, stepId: err.stepId },
+          'Failed to cancel workflow run step'
+        );
+        reply.status(500);
+        await authResult.auth.log('failed', {
+          reason: 'step_cancel_failed',
+          runId: run.id,
+          stepId: err.stepId,
+          message
+        });
+        return { error: 'failed to cancel workflow run step' };
+      }
       request.log.error(
         { err, runId: run.id },
         'Failed to update workflow run during cancellation'
