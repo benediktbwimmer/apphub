@@ -1,4 +1,5 @@
 import { useConnection } from './utils';
+import { reserveIngressSequence } from './ingressSequence';
 import {
   type WorkflowEventInsert,
   type WorkflowEventQueryOptions,
@@ -36,6 +37,10 @@ export async function insertWorkflowEvent(event: WorkflowEventInsert): Promise<W
   const payloadParam = toJsonbParameter(event.payload ?? {});
   const metadataParam = toJsonbParameter(event.metadata ?? null);
   const receivedAt = event.receivedAt ?? new Date().toISOString();
+  const schemaVersionParam = event.schemaVersion ?? null;
+  const schemaHashParam = event.schemaHash ?? null;
+  const ingressSequence =
+    event.ingressSequence ?? (await reserveIngressSequence());
 
   return useConnection(async (client) => {
     const { rows } = await client.query<WorkflowEventRow>(
@@ -45,20 +50,26 @@ export async function insertWorkflowEvent(event: WorkflowEventInsert): Promise<W
          source,
          occurred_at,
          received_at,
+         ingress_sequence,
          payload,
          correlation_id,
          ttl_ms,
-         metadata
+         metadata,
+         schema_version,
+         schema_hash
        ) VALUES (
          $1,
          $2,
-         $3,
-         $4,
-         $5,
-         $6::jsonb,
-         $7,
-         $8,
-         $9::jsonb
+       $3,
+        $4,
+        $5,
+        $6::bigint,
+        $7::jsonb,
+        $8,
+        $9,
+         $10::jsonb,
+         $11,
+         $12
        )
        ON CONFLICT (id) DO UPDATE SET
          type = EXCLUDED.type,
@@ -67,7 +78,9 @@ export async function insertWorkflowEvent(event: WorkflowEventInsert): Promise<W
          payload = EXCLUDED.payload,
          correlation_id = EXCLUDED.correlation_id,
          ttl_ms = EXCLUDED.ttl_ms,
-         metadata = EXCLUDED.metadata
+         metadata = EXCLUDED.metadata,
+         schema_version = EXCLUDED.schema_version,
+         schema_hash = EXCLUDED.schema_hash
        RETURNING *`,
       [
         event.id,
@@ -75,10 +88,13 @@ export async function insertWorkflowEvent(event: WorkflowEventInsert): Promise<W
         event.source,
         event.occurredAt,
         receivedAt,
+        ingressSequence,
         payloadParam,
         event.correlationId ?? null,
         event.ttlMs ?? null,
-        metadataParam
+        metadataParam,
+        schemaVersionParam,
+        schemaHashParam
       ]
     );
 
@@ -142,12 +158,9 @@ export async function listWorkflowEvents(
   }
 
   if (options.cursor) {
-    conditions.push(
-      `(occurred_at < $${index} OR (occurred_at = $${index} AND id < $${index + 1}))`
-    );
-    params.push(options.cursor.occurredAt);
-    params.push(options.cursor.id);
-    index += 2;
+    conditions.push(`ingress_sequence < $${index}::bigint`);
+    params.push(options.cursor.ingressSequence);
+    index += 1;
   }
 
   if (options.jsonPath) {
@@ -164,7 +177,7 @@ export async function listWorkflowEvents(
 
   const limit = clampLimit(options.limit);
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const query = `SELECT * FROM workflow_events ${whereClause} ORDER BY occurred_at DESC, id DESC LIMIT $${index}`;
+  const query = `SELECT * FROM workflow_events ${whereClause} ORDER BY ingress_sequence DESC LIMIT $${index}`;
   params.push(limit + 1);
 
   return useConnection(async (client) => {
@@ -174,7 +187,7 @@ export async function listWorkflowEvents(
     const events = hasMore ? mapped.slice(0, limit) : mapped;
     const nextCursor = hasMore
       ? {
-          occurredAt: events[events.length - 1].occurredAt,
+          ingressSequence: events[events.length - 1].ingressSequence,
           id: events[events.length - 1].id
         }
       : null;
@@ -198,7 +211,7 @@ export async function listWorkflowEventsByIds(ids: string[]): Promise<WorkflowEv
 
   return useConnection(async (client) => {
     const { rows } = await client.query<WorkflowEventRow>(
-      'SELECT * FROM workflow_events WHERE id = ANY($1::text[]) ORDER BY occurred_at DESC',
+      'SELECT * FROM workflow_events WHERE id = ANY($1::text[]) ORDER BY ingress_sequence DESC',
       [unique]
     );
     return rows.map(mapWorkflowEventRow);

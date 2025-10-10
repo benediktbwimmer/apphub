@@ -66,11 +66,11 @@ export function withTransaction<T>(
 }
 
 export async function closePool(): Promise<void> {
-  if (!poolHelpers) {
-    return;
+  if (poolHelpers) {
+    await poolHelpers.closePool();
+    poolHelpers = null;
   }
-  await poolHelpers.closePool();
-  poolHelpers = null;
+  await closeSequencePoolIfNeeded();
 }
 
 export function getPool(): Pool {
@@ -82,4 +82,15 @@ export async function resetDatabasePool(options: PoolOptions = {}): Promise<void
     await poolHelpers.closePool().catch(() => undefined);
   }
   poolHelpers = buildPool(options);
+}
+
+async function closeSequencePoolIfNeeded(): Promise<void> {
+  try {
+    const module = await import('./ingressSequence');
+    if (typeof module.closeIngressSequencePool === 'function') {
+      await module.closeIngressSequencePool();
+    }
+  } catch {
+    // ignore errors when tearing down the optional sequence pool
+  }
 }

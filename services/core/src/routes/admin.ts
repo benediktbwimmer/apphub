@@ -1,5 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import { normalizePositiveNumber } from '@apphub/shared/retries/config';
+import { jsonValueSchema } from '@apphub/event-bus';
 import {
   ensureDatabase,
   listWorkflowEvents,
@@ -35,7 +37,7 @@ import {
   getEventIngressRetryById,
   updateEventIngressRetry
 } from '../db/eventIngressRetries';
-import type { JsonValue } from '../db/types';
+import type { JsonValue, EventSchemaRecord, EventSchemaStatus } from '../db/types';
 import {
   getWorkflowTriggerDeliveryById,
   getWorkflowRunStepById,
@@ -67,6 +69,11 @@ import type { RuntimeScalingSnapshot } from '../runtimeScaling/policies';
 import { getRuntimeScalingTarget, type RuntimeScalingTargetKey } from '../runtimeScaling/targets';
 import { publishRuntimeScalingUpdate } from '../runtimeScaling/notifications';
 import { resolveModuleScope, handleModuleScopeError } from './shared/moduleScope';
+import {
+  registerEventSchemaDefinition,
+  listEventSchemas,
+  resolveEventSchema
+} from '../eventSchemas';
 
 const DEFAULT_SAMPLING_STALE_MINUTES = normalizePositiveNumber(
   process.env.EVENT_SAMPLING_STALE_MINUTES,
@@ -75,6 +82,24 @@ const DEFAULT_SAMPLING_STALE_MINUTES = normalizePositiveNumber(
 );
 
 const RUNTIME_SCALING_ACK_LIMIT = 20;
+
+const EVENT_SCHEMA_STATUS_VALUES = ['draft', 'active', 'deprecated'] as const;
+type EventSchemaStatusValue = typeof EVENT_SCHEMA_STATUS_VALUES[number];
+
+function serializeEventSchema(record: EventSchemaRecord) {
+  return {
+    eventType: record.eventType,
+    version: record.version,
+    status: record.status,
+    schemaHash: record.schemaHash,
+    schema: record.schema,
+    metadata: record.metadata,
+    createdAt: record.createdAt,
+    createdBy: record.createdBy,
+    updatedAt: record.updatedAt,
+    updatedBy: record.updatedBy
+  };
+}
 
 function parseLimitParam(value: string | undefined): number | undefined {
   if (!value) {
@@ -252,6 +277,176 @@ function mergeMetadata(existing: JsonValue | null | undefined, patch: Record<str
 }
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/admin/event-schemas', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'event-schemas.list',
+      resource: 'event-schemas',
+      requiredScopes: ADMIN_DANGER_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const querySchema = z.object({
+      eventType: z.string().trim().min(1).optional(),
+      status: z.string().trim().optional(),
+      limit: z.coerce.number().int().positive().max(200).optional(),
+      offset: z.coerce.number().int().nonnegative().optional()
+    });
+
+    const parsed = querySchema.safeParse(request.query ?? {});
+    if (!parsed.success) {
+      reply.status(400);
+      return { error: parsed.error.flatten() };
+    }
+
+    let statusFilter: EventSchemaStatus | EventSchemaStatus[] | undefined;
+    if (parsed.data.status) {
+      const segments = parsed.data.status
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+      const statuses: EventSchemaStatusValue[] = [];
+      const invalid: string[] = [];
+      for (const status of segments) {
+        if ((EVENT_SCHEMA_STATUS_VALUES as readonly string[]).includes(status)) {
+          statuses.push(status as EventSchemaStatusValue);
+        } else {
+          invalid.push(status);
+        }
+      }
+      if (invalid.length > 0) {
+        reply.status(400);
+        return { error: `Invalid status values: ${invalid.join(', ')}` };
+      }
+      if (statuses.length === 1) {
+        statusFilter = statuses[0] as EventSchemaStatus;
+      } else if (statuses.length > 1) {
+        statusFilter = statuses as EventSchemaStatus[];
+      }
+    }
+
+    const records = await listEventSchemas({
+      eventType: parsed.data.eventType,
+      status: statusFilter,
+      limit: parsed.data.limit,
+      offset: parsed.data.offset
+    });
+
+    return {
+      data: {
+        schemas: records.map(serializeEventSchema)
+      }
+    };
+  });
+
+  app.get('/admin/event-schemas/:eventType/latest', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'event-schemas.read',
+      resource: 'event-schemas',
+      requiredScopes: ADMIN_DANGER_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const params = z
+      .object({ eventType: z.string().trim().min(1) })
+      .safeParse(request.params ?? {});
+    if (!params.success) {
+      reply.status(400);
+      return { error: params.error.flatten() };
+    }
+
+    const result = await resolveEventSchema(params.data.eventType, { statuses: ['active'] });
+    if (!result) {
+      reply.status(404);
+      return { error: 'Schema not found' };
+    }
+
+    return {
+      data: {
+        schema: serializeEventSchema(result.record)
+      }
+    };
+  });
+
+  app.post('/admin/event-schemas', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'event-schemas.register',
+      resource: 'event-schemas',
+      requiredScopes: ADMIN_DANGER_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const bodySchema = z.object({
+      eventType: z.string().trim().min(1),
+      version: z.coerce.number().int().positive().optional(),
+      status: z.enum(EVENT_SCHEMA_STATUS_VALUES).optional(),
+      schema: jsonValueSchema,
+      metadata: jsonValueSchema.optional(),
+      author: z.string().trim().min(1).optional()
+    });
+
+    const parsed = bodySchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parsed.error.flatten()
+      });
+      return { error: parsed.error.flatten() };
+    }
+
+    try {
+      const record = await registerEventSchemaDefinition({
+        eventType: parsed.data.eventType,
+        version: parsed.data.version,
+        status: parsed.data.status,
+        schema: parsed.data.schema,
+        metadata: parsed.data.metadata ?? null,
+        author:
+          parsed.data.author
+          ?? authResult.auth.identity.email
+          ?? authResult.auth.identity.subject
+      });
+
+      reply.status(201);
+      await authResult.auth.log('succeeded', {
+        action: 'event-schema.register',
+        eventType: record.eventType,
+        version: record.version
+      });
+      return {
+        data: {
+          schema: serializeEventSchema(record)
+        }
+      };
+    } catch (err) {
+      if (err instanceof Error) {
+        if (/already exists/i.test(err.message)) {
+          reply.status(409);
+        } else {
+          reply.status(400);
+        }
+        await authResult.auth.log('failed', {
+          reason: 'schema_registration_failed',
+          message: err.message,
+          eventType: parsed.data.eventType
+        });
+        return { error: err.message };
+      }
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'schema_registration_failed',
+        message: 'unexpected error',
+        eventType: parsed.data.eventType
+      });
+      return { error: 'Failed to register schema definition' };
+    }
+  });
   app.get('/admin/event-health', async (request, reply) => {
     try {
       const [
