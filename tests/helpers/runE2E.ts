@@ -150,6 +150,9 @@ export async function runE2E(
 
   try {
     await main(context);
+    if (typeof process.exitCode === 'number') {
+      exitCode = Math.max(exitCode, process.exitCode);
+    }
   } catch (error) {
     exitCode = 1;
     if (error instanceof Error) {
@@ -157,6 +160,11 @@ export async function runE2E(
     } else {
       console.error(error);
     }
+  } finally {
+    if (typeof process.exitCode === 'number') {
+      exitCode = Math.max(exitCode, process.exitCode);
+    }
+    console.info('[runE2E] main completed with exitCode', exitCode, 'process.exitCode', process.exitCode);
   }
 
   await shutdown(exitCode, 'main completed');

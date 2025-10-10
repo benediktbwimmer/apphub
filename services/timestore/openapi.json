@@ -2005,8 +2005,7 @@
           "writeFormat": {
             "type": "string",
             "enum": [
-              "duckdb",
-              "parquet"
+              "clickhouse"
             ]
           },
           "defaultStorageTargetId": {
@@ -2164,8 +2163,7 @@
                 "fileFormat": {
                   "type": "string",
                   "enum": [
-                    "duckdb",
-                    "parquet"
+                    "clickhouse"
                   ]
                 },
                 "filePath": {
@@ -2264,8 +2262,7 @@
           "fileFormat": {
             "type": "string",
             "enum": [
-              "duckdb",
-              "parquet"
+              "clickhouse"
             ]
           },
           "filePath": {
@@ -2469,8 +2466,7 @@
                     "fileFormat": {
                       "type": "string",
                       "enum": [
-                        "duckdb",
-                        "parquet"
+                        "clickhouse"
                       ]
                     },
                     "filePath": {
@@ -2565,8 +2561,7 @@
               "writeFormat": {
                 "type": "string",
                 "enum": [
-                  "duckdb",
-                  "parquet"
+                  "clickhouse"
                 ]
               },
               "defaultStorageTargetId": {
@@ -3913,6 +3908,47 @@
               }
             },
             "nullable": true
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "published",
+              "hotBuffer"
+            ],
+            "properties": {
+              "published": {
+                "type": "object",
+                "required": [
+                  "rows",
+                  "partitions"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from published partitions."
+                  },
+                  "partitions": {
+                    "type": "integer",
+                    "description": "Total published partitions inspected for this query."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "hotBuffer": {
+                "type": "object",
+                "required": [
+                  "rows"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from the streaming hot buffer."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
           }
         }
       },
@@ -4213,6 +4249,165 @@
               "elapsedMs": {
                 "type": "number"
               }
+            }
+          }
+        }
+      },
+      "ClickHouseProxyRequest": {
+        "type": "object",
+        "required": [
+          "sql"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "sql": {
+            "type": "string",
+            "description": "ClickHouse statement to execute."
+          },
+          "mode": {
+            "type": "string",
+            "description": "Execution mode override. When omitted, the server infers whether the statement returns a result set.",
+            "enum": [
+              "auto",
+              "query",
+              "command"
+            ],
+            "default": "auto"
+          },
+          "maxRows": {
+            "type": "integer",
+            "description": "Maximum number of rows to include in the response payload.",
+            "default": 10000,
+            "minimum": 1,
+            "maximum": 100000
+          }
+        }
+      },
+      "ClickHouseProxyResponse": {
+        "type": "object",
+        "required": [
+          "executionId",
+          "mode",
+          "command",
+          "columns",
+          "rows",
+          "truncated",
+          "statistics",
+          "warnings"
+        ],
+        "properties": {
+          "executionId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "query",
+              "command"
+            ]
+          },
+          "command": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "type"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "nullable": {
+                  "type": "boolean",
+                  "nullable": true
+                },
+                "description": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "Arbitrary JSON value.",
+                "nullable": true,
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "array",
+                    "items": {}
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                ]
+              }
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "statistics": {
+            "type": "object",
+            "required": [
+              "elapsedMs",
+              "rowCount"
+            ],
+            "properties": {
+              "elapsedMs": {
+                "type": "number"
+              },
+              "rowCount": {
+                "type": "integer"
+              },
+              "raw": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "rowsRead": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "bytesRead": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "appliedLimit": {
+                    "type": "number",
+                    "nullable": true
+                  }
+                },
+                "nullable": true
+              }
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         }
@@ -6647,8 +6842,7 @@
           "writeFormat": {
             "type": "string",
             "enum": [
-              "duckdb",
-              "parquet"
+              "clickhouse"
             ]
           },
           "defaultStorageTargetId": {
@@ -6817,8 +7011,7 @@
                 "fileFormat": {
                   "type": "string",
                   "enum": [
-                    "duckdb",
-                    "parquet"
+                    "clickhouse"
                   ]
                 },
                 "filePath": {
@@ -6926,8 +7119,7 @@
           "fileFormat": {
             "type": "string",
             "enum": [
-              "duckdb",
-              "parquet"
+              "clickhouse"
             ]
           },
           "filePath": {
@@ -7151,8 +7343,7 @@
                     "fileFormat": {
                       "type": "string",
                       "enum": [
-                        "duckdb",
-                        "parquet"
+                        "clickhouse"
                       ]
                     },
                     "filePath": {
@@ -7256,8 +7447,7 @@
               "writeFormat": {
                 "type": "string",
                 "enum": [
-                  "duckdb",
-                  "parquet"
+                  "clickhouse"
                 ]
               },
               "defaultStorageTargetId": {
@@ -8823,6 +9013,47 @@
                 "description": "True when streaming data covers the requested range end."
               }
             }
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "published",
+              "hotBuffer"
+            ],
+            "properties": {
+              "published": {
+                "type": "object",
+                "required": [
+                  "rows",
+                  "partitions"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from published partitions."
+                  },
+                  "partitions": {
+                    "type": "integer",
+                    "description": "Total published partitions inspected for this query."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "hotBuffer": {
+                "type": "object",
+                "required": [
+                  "rows"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "integer",
+                    "description": "Number of rows returned from the streaming hot buffer."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
           }
         },
         "title": "https://timestore.apphub/schemas/DatasetQueryResponse.json"
@@ -9172,6 +9403,185 @@
       },
       "def-40": {
         "type": "object",
+        "required": [
+          "sql"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "sql": {
+            "type": "string",
+            "description": "ClickHouse statement to execute."
+          },
+          "mode": {
+            "type": "string",
+            "description": "Execution mode override. When omitted, the server infers whether the statement returns a result set.",
+            "enum": [
+              "auto",
+              "query",
+              "command"
+            ],
+            "default": "auto"
+          },
+          "maxRows": {
+            "type": "integer",
+            "description": "Maximum number of rows to include in the response payload.",
+            "default": 10000,
+            "minimum": 1,
+            "maximum": 100000
+          }
+        },
+        "title": "https://timestore.apphub/schemas/ClickHouseProxyRequest.json"
+      },
+      "def-41": {
+        "type": "object",
+        "required": [
+          "executionId",
+          "mode",
+          "command",
+          "columns",
+          "rows",
+          "truncated",
+          "statistics",
+          "warnings"
+        ],
+        "properties": {
+          "executionId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "query",
+              "command"
+            ]
+          },
+          "command": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "type"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "nullable": {
+                  "type": [
+                    "null",
+                    "boolean"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                }
+              }
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "description": "Arbitrary JSON value.",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "array",
+                        "items": {}
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "statistics": {
+            "type": "object",
+            "required": [
+              "elapsedMs",
+              "rowCount"
+            ],
+            "properties": {
+              "elapsedMs": {
+                "type": "number"
+              },
+              "rowCount": {
+                "type": "integer"
+              },
+              "raw": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "rowsRead": {
+                    "type": [
+                      "null",
+                      "number"
+                    ]
+                  },
+                  "bytesRead": {
+                    "type": [
+                      "null",
+                      "number"
+                    ]
+                  },
+                  "appliedLimit": {
+                    "type": [
+                      "null",
+                      "number"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "title": "https://timestore.apphub/schemas/ClickHouseProxyResponse.json"
+      },
+      "def-42": {
+        "type": "object",
         "additionalProperties": false,
         "properties": {
           "rowCount": {
@@ -9189,7 +9599,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryStats.json"
       },
-      "def-41": {
+      "def-43": {
         "type": "object",
         "required": [
           "id",
@@ -9249,7 +9659,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQuery.json"
       },
-      "def-42": {
+      "def-44": {
         "type": "object",
         "required": [
           "savedQueries"
@@ -9320,7 +9730,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryListResponse.json"
       },
-      "def-43": {
+      "def-45": {
         "type": "object",
         "required": [
           "savedQuery"
@@ -9388,7 +9798,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryResponse.json"
       },
-      "def-44": {
+      "def-46": {
         "type": "object",
         "required": [
           "id"
@@ -9401,7 +9811,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryParams.json"
       },
-      "def-45": {
+      "def-47": {
         "type": "object",
         "required": [
           "statement"
@@ -9442,7 +9852,7 @@
         },
         "title": "https://timestore.apphub/schemas/SqlSavedQueryUpsertRequest.json"
       },
-      "def-46": {
+      "def-48": {
         "type": "object",
         "required": [
           "command",
@@ -9654,7 +10064,7 @@
             }
           },
           "503": {
-            "description": "Ingestion staging queue is full. Please retry.",
+            "description": "Ingestion queue is currently unavailable. Please retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9901,6 +10311,76 @@
         }
       }
     },
+    "/sql/admin/clickhouse": {
+      "post": {
+        "summary": "Execute raw ClickHouse statement",
+        "tags": [
+          "SQL"
+        ],
+        "description": "Runs an arbitrary ClickHouse statement against the configured ClickHouse backend without dataset rewrites.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/def-40"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Statement executed successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-41"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ClickHouse proxy request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-2"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-2"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller lacks permission to execute ClickHouse statements.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-2"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ClickHouse proxy execution failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/def-2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/sql/saved": {
       "get": {
         "summary": "List saved SQL queries",
@@ -9913,7 +10393,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-42"
+                  "$ref": "#/components/schemas/def-44"
                 }
               }
             }
@@ -9974,7 +10454,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-43"
+                  "$ref": "#/components/schemas/def-45"
                 }
               }
             }
@@ -10030,7 +10510,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/def-45"
+                "$ref": "#/components/schemas/def-47"
               }
             }
           }
@@ -10052,7 +10532,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-43"
+                  "$ref": "#/components/schemas/def-45"
                 }
               }
             }
@@ -10191,7 +10671,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-46"
+                  "$ref": "#/components/schemas/def-48"
                 }
               },
               "text/csv": {

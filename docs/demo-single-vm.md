@@ -37,6 +37,10 @@ This guide walks through provisioning the AppHub demo stack on a single Linux VM
    APPHUB_FRONTEND_PORT=4173
    APPHUB_MINIO_PORT=9000
    APPHUB_MINIO_CONSOLE_PORT=9001
+   APPHUB_CLICKHOUSE_HTTP_PORT=28123
+   APPHUB_CLICKHOUSE_NATIVE_PORT=29000
+   # Optional: adjust how long data stays on NVMe before shifting to S3
+   TIMESTORE_CLICKHOUSE_TTL_DAYS=7
 
    # Rotate these before sharing the demo externally
    APPHUB_SESSION_SECRET=$(openssl rand -hex 32)
@@ -72,14 +76,21 @@ This guide walks through provisioning the AppHub demo stack on a single Linux VM
    When the container exits with code `0`, the demo data generator schedule is live.
 
 3. **Validate the stack**:
-   - `docker compose ... ps` should show all core and worker containers as `healthy` or `running`.
-   - Browse the frontend at `http://<vm-host>:4173/` (or the port specified in `APPHUB_FRONTEND_PORT`).
+- `docker compose ... ps` should show all core and worker containers as `healthy` or `running`.
+- ClickHouse answers on `http://<vm-host>:28123/` (HTTP) and `clickhouse-client --host <vm-host> --port 29000 --user apphub --password apphub --query "SELECT 1"` succeeds with the default credentials.
+- Storage policy is in place: run  
+  `docker compose -f demo-stack.compose.yml --env-file demo.env exec clickhouse clickhouse-client --user apphub --password apphub --query "SELECT policy_name, volume_name, disks FROM system.storage_policies WHERE policy_name = 'timestore_demo'"`.
+- Disk/cold-tier metrics are exposed:  
+  `curl http://localhost:4200/metrics | grep timestore_clickhouse` shows disk bytes and S3 cache counters.
+- Browse the frontend at `http://<vm-host>:4173/` (or the port specified in `APPHUB_FRONTEND_PORT`).
    - The UI is automatically authenticated with the read-only token and showcases the Environmental Observatory dashboards.
 
 ## 4. Operating the demo
 
 - **Read-only mode**: The bundled viewer token only grants `jobs:read`, `workflows:read`, `filestore:read`, `metastore:read`, and `timestore:sql:read` scopes. Buttons that launch jobs or workflows remain disabled.
 - **Admin access**: Use the admin token from `demo.env` with the “Settings → API Access” page if you need elevated access during internal demos.
+- **ClickHouse access**: The prototype timestore service connects to `clickhouse:8123` internally. From your workstation, use `http://<vm-host>:28123` (HTTP) or the native port `29000` with `clickhouse-client` and the default `apphub/apphub` credentials—rotate these before any public demo.
+- **S3 tiering**: Tables created by the prototype use the `timestore_demo` storage policy. By default rows stay on NVMe for seven days, then ClickHouse moves them to MinIO-backed cold storage; adjust `TIMESTORE_CLICKHOUSE_TTL_DAYS` in `demo.env` if you need a longer or shorter window.
 - **Persistent state**: Postgres, Redis snapshots, MinIO objects, and the AppHub scratch space all live under `/var/lib/apphub`. Snapshot or back up that directory to preserve demo content.
 - **Rebuilding the frontend token**: To rotate the viewer token, update `APPHUB_DEMO_VIEWER_TOKEN` in `demo.env` and rebuild (`docker compose ... up -d --build`). The build arg rewrites the token baked into the frontend bundle.
 - **Tearing down**: `docker compose -f demo-stack.compose.yml --env-file demo.env down` stops containers but keeps volumes. Remove the `/var/lib/apphub` data root if you want a clean slate.

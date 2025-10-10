@@ -114,7 +114,7 @@ function parseArgs(argv: string[]): CliArgs {
 
 function logSummary(result: Awaited<ReturnType<typeof executeSchemaMigration>>): void {
   console.log('[schema-migration] migration summary');
-  console.log(`  dataset: ${result.dataset.slug}`);
+  console.log(`  dataset: ${result.datasetSlug ?? '<unknown>'}`);
   console.log(`  dryRun: ${result.dryRun}`);
   console.log(`  manifestsProcessed: ${result.manifestsProcessed}`);
   console.log(`  partitionsEvaluated: ${result.partitionsEvaluated}`);

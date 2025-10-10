@@ -165,7 +165,7 @@ export function stripCodeFences(sql: string): string {
     return trimmed;
   }
 
-  const fencePattern = /^```(?:sql|duckdb)?\s*([\s\S]*?)\s*```$/i;
+  const fencePattern = /^```(?:sql|clickhouse)?\s*([\s\S]*?)\s*```$/i;
   const match = trimmed.match(fencePattern);
   if (match && match[1]) {
     return match[1].trim();

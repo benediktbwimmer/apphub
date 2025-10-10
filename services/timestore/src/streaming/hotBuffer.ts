@@ -256,6 +256,7 @@ export class HotBufferStore {
 class StreamingHotBufferManager {
   private readonly store: HotBufferStore;
   private readonly kafka: Kafka;
+  private readonly datasetSlugs: Set<string>;
   private readonly consumers: Consumer[] = [];
   private watermarkTimer: NodeJS.Timeout | null = null;
   private metricsTimer: NodeJS.Timeout | null = null;
@@ -271,6 +272,7 @@ class StreamingHotBufferManager {
     private readonly logger: FastifyBaseLogger
   ) {
     this.store = new HotBufferStore(config);
+    this.datasetSlugs = new Set(batchers.map((batcher) => batcher.datasetSlug));
     this.kafka = new Kafka({
       clientId: 'timestore-hot-buffer',
       brokers: [brokerUrl],
@@ -381,6 +383,14 @@ class StreamingHotBufferManager {
 
   query(datasetSlug: string, options: HotBufferQueryOptions): HotBufferQueryResult {
     if (!this.config.enabled) {
+      return {
+        rows: [],
+        watermark: null,
+        latestTimestamp: null,
+        bufferState: 'disabled'
+      };
+    }
+    if (!this.datasetSlugs.has(datasetSlug)) {
       return {
         rows: [],
         watermark: null,

@@ -212,7 +212,7 @@ export default function TimestoreStreamingPage() {
         <header className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-scale-base font-weight-semibold text-primary">Streaming connectors</h2>
-            <p className={STATUS_MESSAGE}>Live view of micro-batcher consumers feeding Timestore staging.</p>
+            <p className={STATUS_MESSAGE}>Live view of micro-batcher consumers feeding the Timestore hot buffer.</p>
           </div>
         </header>
         <div className="mt-4 overflow-x-auto">

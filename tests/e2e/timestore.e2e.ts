@@ -132,10 +132,10 @@ async function waitForManifestCondition(
         log?.(`waitForManifestCondition(${label}): predicate satisfied`);
         return lastManifest;
       }
+      const partitions = countPublishedPartitions(lastManifest);
+      const rows = sumPartitionRows(lastManifest);
       log?.(
-        `waitForManifestCondition(${label}): predicate not yet satisfied (partitions=${countPublishedPartitions(
-          lastManifest
-        )}, stagingRows=${manifestStagingRows(lastManifest)}), retrying`
+        `waitForManifestCondition(${label}): predicate not yet satisfied (partitions=${partitions}, rows=${rows}), retrying`
       );
     } catch (error) {
       log?.(`waitForManifestCondition(${label}): error ${(error as Error)?.message ?? error}`);
@@ -159,13 +159,6 @@ function countPublishedPartitions(manifest: DatasetManifestPayload | null): numb
   return manifest.manifest?.partitions?.length ?? 0;
 }
 
-function manifestStagingRows(manifest: DatasetManifestPayload | null): number {
-  if (!manifest?.staging) {
-    return 0;
-  }
-  return manifest.staging.totalRows ?? 0;
-}
-
 function sumPartitionRows(manifest: DatasetManifestPayload | null): number {
   if (!manifest) {
     return 0;
@@ -174,6 +167,20 @@ function sumPartitionRows(manifest: DatasetManifestPayload | null): number {
     ? manifest.manifests.flatMap((entry) => entry.partitions ?? [])
     : manifest.manifest?.partitions ?? [];
   return partitions.reduce((total, partition) => total + (partition?.rowCount ?? 0), 0);
+}
+
+async function waitForManifestRows(
+  client: TimestoreClient,
+  slug: string,
+  expectedRows: number,
+  options: { timeoutMs?: number; pollIntervalMs?: number; label?: string; log?: (line: string) => void } = {}
+) {
+  return waitForManifestCondition(
+    client,
+    slug,
+    (manifest) => sumPartitionRows(manifest) >= expectedRows && countPublishedPartitions(manifest) > 0,
+    options
+  );
 }
 
 function assertRowsInclude(
@@ -210,10 +217,6 @@ function iso(timestamp: number): string {
 
 test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, async (t) => {
   const flushRowThreshold = Number(process.env.APPHUB_E2E_FLUSH_ROW_THRESHOLD ?? '6');
-  process.env.TIMESTORE_STAGING_FLUSH_MAX_ROWS = String(flushRowThreshold);
-  process.env.TIMESTORE_STAGING_FLUSH_MAX_BYTES = '0';
-  process.env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS = '0';
-  process.env.TIMESTORE_STAGING_EAGER_BYTES_ONLY = 'false';
   process.env.TIMESTORE_TEST_API_ENABLED = process.env.TIMESTORE_TEST_API_ENABLED ?? '1';
   process.env.TIMESTORE_TEST_HOT_BUFFER_ENABLED =
     process.env.TIMESTORE_TEST_HOT_BUFFER_ENABLED ?? '1';
@@ -234,7 +237,7 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
     t.diagnostic(line);
   };
 
-  log(`configured staging flush threshold to ${flushRowThreshold} rows`);
+  log(`configured ingestion flush threshold to ${flushRowThreshold} rows`);
   log(`starting stack (skipUp=${SKIP_STACK})`);
   const stack = await startStack({ skipUp: SKIP_STACK });
   const startedAt = new Date();
@@ -261,7 +264,7 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
 
   const client = new TimestoreClient();
 
-  // Batch dataset exercises staging-only reads, automatic parquet flush, and unified queries.
+  // Batch dataset exercises ClickHouse ingestion and unified query visibility.
   const batchSlug = `timestore-e2e-batch-${TEST_ID}`;
   const batchBaseTime = Date.UTC(2024, 0, 1, 0, 0, 0);
   const batchSchema = {
@@ -321,8 +324,14 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
     allBatchRows.push(...rows);
   }
 
-  await ingestBatchRows(batchChunk1, 'batch-stage-1');
-  const batchStage1Query = await waitForQueryRows(
+  await ingestBatchRows(batchChunk1, 'batch-chunk-1');
+  await waitForManifestRows(
+    client,
+    batchSlug,
+    allBatchRows.length,
+    { label: `${batchSlug}-manifest-initial`, log }
+  );
+  const batchInitialQuery = await waitForQueryRows(
     client,
     batchSlug,
     {
@@ -330,19 +339,18 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
       timestampColumn: 'timestamp'
     },
     allBatchRows.length,
-    { label: `${batchSlug}-staging`, log }
+    { label: `${batchSlug}-initial`, log }
   );
-  assertRowsInclude(batchStage1Query.rows, allBatchRows, `${batchSlug}-staging`);
-  const manifestStage1 = await client.getDatasetManifest(batchSlug);
-  assert.equal(countPublishedPartitions(manifestStage1), 0, 'no parquet partitions expected yet');
-  assert.equal(
-    manifestStagingRows(manifestStage1),
-    allBatchRows.length,
-    'staging rows should match ingested rows before flush'
-  );
+  assertRowsInclude(batchInitialQuery.rows, allBatchRows, `${batchSlug}-initial`);
 
-  await ingestBatchRows(batchChunk2, 'batch-stage-2');
-  const batchAfterFlushQuery = await waitForQueryRows(
+  await ingestBatchRows(batchChunk2, 'batch-chunk-2');
+  await waitForManifestRows(
+    client,
+    batchSlug,
+    allBatchRows.length,
+    { label: `${batchSlug}-manifest-second`, log }
+  );
+  const batchAfterSecondQuery = await waitForQueryRows(
     client,
     batchSlug,
     {
@@ -350,22 +358,17 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
       timestampColumn: 'timestamp'
     },
     allBatchRows.length,
-    { label: `${batchSlug}-post-flush`, log }
+    { label: `${batchSlug}-second`, log }
   );
-  assertRowsInclude(batchAfterFlushQuery.rows, allBatchRows, `${batchSlug}-post-flush`);
+  assertRowsInclude(batchAfterSecondQuery.rows, allBatchRows, `${batchSlug}-second`);
 
-  const manifestAfterFlush = await waitForManifestCondition(
+  await ingestBatchRows(batchChunk3, 'batch-chunk-3');
+  await waitForManifestRows(
     client,
     batchSlug,
-    (manifest) => countPublishedPartitions(manifest) > 0 && manifestStagingRows(manifest) === 0,
-    { label: `${batchSlug}-flush`, log }
+    allBatchRows.length,
+    { label: `${batchSlug}-manifest-final`, log }
   );
-  assert.ok(
-    sumPartitionRows(manifestAfterFlush) >= allBatchRows.length,
-    'parquet manifest should contain at least the ingested row count'
-  );
-
-  await ingestBatchRows(batchChunk3, 'batch-stage-3');
   const batchFinalQuery = await waitForQueryRows(
     client,
     batchSlug,
@@ -378,17 +381,12 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
   );
   assertRowsInclude(batchFinalQuery.rows, allBatchRows, `${batchSlug}-final`);
 
-  const manifestWithStaging = await waitForManifestCondition(
-    client,
-    batchSlug,
-    (manifest) =>
-      countPublishedPartitions(manifest) > 0 && manifestStagingRows(manifest) >= batchChunk3.length,
-    { label: `${batchSlug}-staging-after-flush`, log }
-  );
+  const manifestSummary = await client.getDatasetManifest(batchSlug);
+  const finalPartitionRows = sumPartitionRows(manifestSummary);
   assert.equal(
-    manifestStagingRows(manifestWithStaging),
-    batchChunk3.length,
-    'latest ingestion should remain staged while previous data is parquet'
+    finalPartitionRows,
+    allBatchRows.length,
+    'manifest row count should equal total ingested rows'
   );
 
   const batchView = buildViewName(batchSlug);
@@ -456,8 +454,14 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
     allStreamRows.push(...rows);
   }
 
-  await ingestStreamRows(streamChunk1, 'stream-stage-1');
-  const streamStage1Query = await waitForQueryRows(
+  await ingestStreamRows(streamChunk1, 'stream-chunk-1');
+  await waitForManifestRows(
+    client,
+    streamSlug,
+    allStreamRows.length,
+    { label: `${streamSlug}-manifest-initial`, log }
+  );
+  const streamInitialQuery = await waitForQueryRows(
     client,
     streamSlug,
     {
@@ -465,19 +469,18 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
       timestampColumn: 'timestamp'
     },
     allStreamRows.length,
-    { label: `${streamSlug}-staging`, log }
+    { label: `${streamSlug}-initial`, log }
   );
-  assertRowsInclude(streamStage1Query.rows, allStreamRows, `${streamSlug}-staging`);
-  const manifestStreamStage1 = await client.getDatasetManifest(streamSlug);
-  assert.equal(countPublishedPartitions(manifestStreamStage1), 0);
-  assert.equal(
-    manifestStagingRows(manifestStreamStage1),
-    allStreamRows.length,
-    'stream staging rows should equal ingested rows before flush'
-  );
+  assertRowsInclude(streamInitialQuery.rows, allStreamRows, `${streamSlug}-initial`);
 
-  await ingestStreamRows(streamChunk2, 'stream-stage-2');
-  const streamAfterFlushQuery = await waitForQueryRows(
+  await ingestStreamRows(streamChunk2, 'stream-chunk-2');
+  await waitForManifestRows(
+    client,
+    streamSlug,
+    allStreamRows.length,
+    { label: `${streamSlug}-manifest-second`, log }
+  );
+  const streamAfterSecondQuery = await waitForQueryRows(
     client,
     streamSlug,
     {
@@ -485,19 +488,18 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
       timestampColumn: 'timestamp'
     },
     allStreamRows.length,
-    { label: `${streamSlug}-post-flush`, log }
+    { label: `${streamSlug}-second`, log }
   );
-  assertRowsInclude(streamAfterFlushQuery.rows, allStreamRows, `${streamSlug}-post-flush`);
+  assertRowsInclude(streamAfterSecondQuery.rows, allStreamRows, `${streamSlug}-second`);
 
-  await waitForManifestCondition(
+  await ingestStreamRows(streamChunk3, 'stream-chunk-3');
+  await waitForManifestRows(
     client,
     streamSlug,
-    (manifest) => countPublishedPartitions(manifest) > 0 && manifestStagingRows(manifest) === 0,
-    { label: `${streamSlug}-flush`, log }
+    allStreamRows.length,
+    { label: `${streamSlug}-manifest-final`, log }
   );
-
-  await ingestStreamRows(streamChunk3, 'stream-stage-3');
-  const streamWithFreshStagingQuery = await waitForQueryRows(
+  const streamFinalIngestQuery = await waitForQueryRows(
     client,
     streamSlug,
     {
@@ -505,17 +507,9 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
       timestampColumn: 'timestamp'
     },
     allStreamRows.length,
-    { label: `${streamSlug}-mixed`, log }
+    { label: `${streamSlug}-final-ingest`, log }
   );
-  assertRowsInclude(streamWithFreshStagingQuery.rows, allStreamRows, `${streamSlug}-mixed`);
-
-  await waitForManifestCondition(
-    client,
-    streamSlug,
-    (manifest) =>
-      countPublishedPartitions(manifest) > 0 && manifestStagingRows(manifest) >= streamChunk3.length,
-    { label: `${streamSlug}-mixed-manifest`, log }
-  );
+  assertRowsInclude(streamFinalIngestQuery.rows, allStreamRows, `${streamSlug}-final-ingest`);
 
   log(`injecting ${hotBufferInserts.length} rows into hot buffer for ${streamSlug}`);
   await client.updateHotBuffer(streamSlug, {
@@ -540,8 +534,9 @@ test('timestore row-threshold flush behavior', { timeout: TEST_TIMEOUT_MS }, asy
   assertRowsInclude(streamFinalQuery.rows, streamExpectedWithHotBuffer, `${streamSlug}-with-hot-buffer`);
   assert.ok(streamFinalQuery.streaming, 'streaming metadata should be populated');
   assert.equal((streamFinalQuery.streaming as Record<string, unknown>)?.bufferState, 'ready');
+  assert.equal(streamFinalQuery.sources?.hotBuffer.rows ?? 0, hotBufferInserts.length);
 
-  // SQL visibility for streaming datasets should include base ingestion (parquet + staging).
+  // SQL visibility for streaming datasets should include ClickHouse-backed ingestion data.
   const streamView = buildViewName(streamSlug);
   await waitForSqlCount(client, streamView, allStreamRows.length, { log });
 

@@ -59,7 +59,13 @@ x-shared-env: &shared-env
   TIMESTORE_STREAMING_BUFFER_ENABLED: ${TIMESTORE_STREAMING_BUFFER_ENABLED:-true}
   TIMESTORE_STREAMING_BUFFER_RETENTION_SECONDS: ${TIMESTORE_STREAMING_BUFFER_RETENTION_SECONDS:-300}
   TIMESTORE_STREAMING_BATCHERS: ${TIMESTORE_STREAMING_BATCHERS:-""}
-  TIMESTORE_STAGING_DIRECTORY: /var/lib/apphub/scratch/timestore/staging
+  TIMESTORE_CLICKHOUSE_HOST: ${TIMESTORE_CLICKHOUSE_HOST:-clickhouse}
+  TIMESTORE_CLICKHOUSE_HTTP_PORT: ${TIMESTORE_CLICKHOUSE_HTTP_PORT:-8123}
+  TIMESTORE_CLICKHOUSE_NATIVE_PORT: ${TIMESTORE_CLICKHOUSE_NATIVE_PORT:-9000}
+  TIMESTORE_CLICKHOUSE_USER: ${TIMESTORE_CLICKHOUSE_USER:-apphub}
+  TIMESTORE_CLICKHOUSE_PASSWORD: ${TIMESTORE_CLICKHOUSE_PASSWORD:-apphub}
+  TIMESTORE_CLICKHOUSE_DATABASE: ${TIMESTORE_CLICKHOUSE_DATABASE:-apphub}
+  TIMESTORE_CLICKHOUSE_SECURE: ${TIMESTORE_CLICKHOUSE_SECURE:-false}
   AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-apphub}
   AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-apphub123}
   AWS_REGION: us-east-1
@@ -155,8 +161,8 @@ services:
       sleep 2
       rpk cluster info --brokers redpanda:9092 >/dev/null 2>&1
       for topic in apphub.core.events apphub.ingestion.telemetry apphub.workflows.events apphub.workflows.runs apphub.jobs.runs apphub.streaming.input apphub.streaming.aggregates; do
-        rpk topic create "$topic" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
-        rpk topic describe "$topic" --brokers redpanda:9092 >/dev/null 2>&1
+        rpk topic create "$$topic" --brokers redpanda:9092 --partitions 6 --replicas 1 --config retention.ms=604800000 >/dev/null 2>&1 || \
+        rpk topic describe "$$topic" --brokers redpanda:9092 >/dev/null 2>&1
       done
     restart: "no"
 
@@ -293,6 +299,34 @@ services:
         source: ${APPHUB_DATA_ROOT:-./demo-data}/redis
         target: /data
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.11
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${TIMESTORE_CLICKHOUSE_DATABASE:-apphub}
+      CLICKHOUSE_USER: ${TIMESTORE_CLICKHOUSE_USER:-apphub}
+      CLICKHOUSE_PASSWORD: ${TIMESTORE_CLICKHOUSE_PASSWORD:-apphub}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          clickhouse-client --host localhost --port ${TIMESTORE_CLICKHOUSE_NATIVE_PORT:-9000} \
+            --user "$$CLICKHOUSE_USER" --password "$$CLICKHOUSE_PASSWORD" --query 'SELECT 1'
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - ${APPHUB_CLICKHOUSE_HTTP_PORT:-28123}:8123
+      - ${APPHUB_CLICKHOUSE_NATIVE_PORT:-29000}:9000
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/clickhouse
+        target: /var/lib/clickhouse
+      - type: bind
+        source: ./clickhouse/config.d
+        target: /etc/clickhouse-server/config.d
+
   minio:
     image: minio/minio:RELEASE.2024-11-07T00-52-20Z
     restart: unless-stopped
@@ -317,6 +351,21 @@ services:
         source: ${APPHUB_DATA_ROOT:-./demo-data}/minio
         target: /data
 
+  apphub-bootstrap:
+    build:
+      <<: *build-config
+      target: apphub-bootstrap-runtime
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *shared-env
+    restart: "no"
+    volumes:
+      - type: bind
+        source: ${APPHUB_DATA_ROOT:-./demo-data}/scratch
+        target: /var/lib/apphub/scratch
+
   core-api:
     build:
       <<: *build-config
@@ -330,6 +379,8 @@ services:
       minio:
         condition: service_healthy
       redpanda-init:
+        condition: service_completed_successfully
+      apphub-bootstrap:
         condition: service_completed_successfully
     environment:
       <<: *shared-env
@@ -483,6 +534,8 @@ services:
         condition: service_healthy
       redpanda-init:
         condition: service_completed_successfully
+      apphub-bootstrap:
+        condition: service_completed_successfully
     environment:
       <<: *shared-env
       PORT: 4300
@@ -510,6 +563,10 @@ services:
         condition: service_healthy
       redpanda-init:
         condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      apphub-bootstrap:
+        condition: service_completed_successfully
     environment:
       <<: *shared-env
       PORT: 4200
@@ -533,6 +590,8 @@ services:
         condition: service_healthy
       streaming-job-submit:
         condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
     environment:
       <<: *shared-env
     command: ["services/timestore/dist/workers/ingestionWorker.js"]
@@ -548,6 +607,8 @@ services:
     restart: unless-stopped
     depends_on:
       timestore:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     environment:
       <<: *shared-env

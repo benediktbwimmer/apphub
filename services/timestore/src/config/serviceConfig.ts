@@ -4,9 +4,9 @@ import { fieldDefinitionSchema, type FieldDefinition } from '../ingestion/types'
 
 type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
-type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob';
+export type QueryExecutionBackendKind = 'clickhouse';
 
-export type QueryExecutionBackendKind = 'duckdb_local' | 'duckdb_cluster';
+type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob';
 
 export interface QueryExecutionBackendConfig {
   name: string;
@@ -162,7 +162,7 @@ const manifestCacheSchema = z.object({
 
 const queryExecutionBackendSchema = z.object({
   name: z.string().min(1),
-  kind: z.enum(['duckdb_local', 'duckdb_cluster']),
+  kind: z.literal('clickhouse'),
   queueName: z.string().min(1).optional(),
   maxPartitionFanout: z.number().int().positive().optional(),
   maxWorkerConcurrency: z.number().int().positive().optional()
@@ -388,21 +388,6 @@ const auditLogSchema = z.object({
   deleteBatchSize: z.number().int().positive()
 });
 
-const stagingFlushSchema = z.object({
-  maxRows: z.number().int().nonnegative(),
-  maxBytes: z.number().int().nonnegative(),
-  maxAgeMs: z.number().int().nonnegative(),
-  eagerWhenBytesOnly: z.boolean().default(false)
-});
-
-const stagingSchema = z.object({
-  directory: z.string().min(1),
-  maxDatasetBytes: z.number().int().nonnegative(),
-  maxTotalBytes: z.number().int().nonnegative(),
-  maxPendingPerDataset: z.number().int().positive(),
-  flush: stagingFlushSchema
-});
-
 const gcsSchema = z.object({
   bucket: z.string().min(1),
   projectId: z.string().min(1).optional(),
@@ -420,6 +405,16 @@ const azureSchema = z.object({
   accountKey: z.string().min(1).optional(),
   sasToken: z.string().min(1).optional(),
   endpoint: z.string().min(1).optional()
+});
+
+const clickhouseSchema = z.object({
+  host: z.string().min(1),
+  httpPort: z.number().int().positive(),
+  nativePort: z.number().int().positive(),
+  username: z.string().min(1),
+  password: z.string(),
+  database: z.string().min(1),
+  secure: z.boolean()
 });
 
 const configSchema = z.object({
@@ -487,13 +482,13 @@ const configSchema = z.object({
     tracing: tracingSchema
   }),
   filestore: filestoreSchema,
-  staging: stagingSchema,
   auditLog: auditLogSchema,
   features: z.object({
     streaming: z.object({
       enabled: z.boolean()
     })
-  })
+  }),
+  clickhouse: clickhouseSchema
 });
 
 export type ServiceConfig = z.infer<typeof configSchema>;
@@ -544,39 +539,6 @@ function resolveCacheDirectory(envValue: string | undefined): string {
     return envValue;
   }
   return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'cache');
-}
-
-function resolveStagingDirectory(envValue: string | undefined): string {
-  const trimmed = typeof envValue === 'string' ? envValue.trim() : '';
-  const scratchRoot = (process.env.APPHUB_SCRATCH_ROOT ?? '').trim();
-
-  if (trimmed) {
-    if (scratchRoot && pointsToLegacyStagingPath(trimmed)) {
-      const rewritten = path.join(scratchRoot, 'timestore', 'staging');
-      console.warn(
-        '[timestore] overriding legacy staging directory with APPHUB_SCRATCH_ROOT path',
-        { from: trimmed, to: rewritten }
-      );
-      return rewritten;
-    }
-    return trimmed;
-  }
-
-  if (scratchRoot) {
-    return path.join(scratchRoot, 'timestore', 'staging');
-  }
-
-  return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'staging');
-}
-
-function pointsToLegacyStagingPath(candidate: string): boolean {
-  const normalizedCandidate = path.resolve(candidate).replace(/\\/g, '/');
-  const legacyFallback = path
-    .resolve(process.cwd(), 'services', 'data', 'timestore', 'staging')
-    .replace(/\\/g, '/');
-  return (
-    normalizedCandidate === legacyFallback || normalizedCandidate === '/app/services/data/timestore/staging'
-  );
 }
 
 function parseList(value: string | undefined): string[] {
@@ -713,27 +675,27 @@ function normalizeExecutionConfig(
   backends: QueryExecutionBackendConfig[],
   defaultBackend: string
 ): QueryExecutionConfig {
-  const fallbackBackend: QueryExecutionBackendConfig = {
-    name: 'duckdb-local',
-    kind: 'duckdb_local'
-  };
+  const fallbackBackends: QueryExecutionBackendConfig[] = [
+    { name: 'clickhouse-default', kind: 'clickhouse' }
+  ];
 
   const normalizedBackends = new Map<string, QueryExecutionBackendConfig>();
   for (const backend of backends) {
     normalizedBackends.set(backend.name, backend);
   }
 
-  if (!normalizedBackends.has(fallbackBackend.name)) {
-    normalizedBackends.set(fallbackBackend.name, fallbackBackend);
+  for (const fallback of fallbackBackends) {
+    if (!normalizedBackends.has(fallback.name)) {
+      normalizedBackends.set(fallback.name, fallback);
+    }
   }
 
-  const effectiveDefault = normalizedBackends.has(defaultBackend)
-    ? defaultBackend
-    : fallbackBackend.name;
+  const preferredDefault = defaultBackend.trim().length > 0 ? defaultBackend : fallbackBackends[0].name;
+  const effectiveDefault = normalizedBackends.has(preferredDefault) ? preferredDefault : fallbackBackends[0].name;
 
-  if (!normalizedBackends.has(defaultBackend) && defaultBackend.trim().length > 0 && defaultBackend !== fallbackBackend.name) {
+  if (!normalizedBackends.has(preferredDefault) && preferredDefault !== fallbackBackends[0].name) {
     console.warn(
-      `[timestore] execution backend '${defaultBackend}' not found; falling back to '${fallbackBackend.name}'`
+      `[timestore] execution backend '${preferredDefault}' not found; falling back to '${fallbackBackends[0].name}'`
     );
   }
 
@@ -1021,26 +983,6 @@ export function loadServiceConfig(): ServiceConfig {
   );
   const storageDriver = (env.TIMESTORE_STORAGE_DRIVER || 'local') as StorageDriver;
   const storageRoot = resolveStorageRoot(env.TIMESTORE_STORAGE_ROOT);
-  const stagingDirectory = resolveStagingDirectory(env.TIMESTORE_STAGING_DIRECTORY);
-  const stagingMaxDatasetBytesRaw = parseNumber(env.TIMESTORE_STAGING_MAX_DATASET_BYTES, 512 * 1024 * 1024);
-  const stagingMaxTotalBytesRaw = parseNumber(env.TIMESTORE_STAGING_MAX_TOTAL_BYTES, 0);
-  const stagingMaxDatasetBytes = stagingMaxDatasetBytesRaw > 0 ? stagingMaxDatasetBytesRaw : 0;
-  const stagingMaxTotalBytes = stagingMaxTotalBytesRaw > 0 ? stagingMaxTotalBytesRaw : 0;
-  const stagingMaxPendingRaw = parseNumber(env.TIMESTORE_STAGING_MAX_PENDING, 64);
-  const stagingMaxPendingPerDataset = stagingMaxPendingRaw > 0 ? stagingMaxPendingRaw : 64;
-  const stagingFlushMaxRowsRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_ROWS, 0);
-  const stagingFlushMaxRows = stagingFlushMaxRowsRaw >= 0 ? stagingFlushMaxRowsRaw : 0;
-  const stagingFlushMaxBytesRaw = parseNumber(
-    env.TIMESTORE_STAGING_FLUSH_MAX_BYTES,
-    1_073_741_824
-  );
-  const stagingFlushMaxBytes = stagingFlushMaxBytesRaw >= 0 ? stagingFlushMaxBytesRaw : 0;
-  const stagingFlushMaxAgeRaw = parseNumber(env.TIMESTORE_STAGING_FLUSH_MAX_AGE_MS, 0);
-  const stagingFlushMaxAgeMs = stagingFlushMaxAgeRaw >= 0 ? stagingFlushMaxAgeRaw : 0;
-  const stagingFlushEagerWhenBytesOnly = parseBoolean(
-    env.TIMESTORE_STAGING_EAGER_BYTES_ONLY,
-    false
-  );
   const s3Bucket = env.TIMESTORE_S3_BUCKET;
   const s3Endpoint = env.TIMESTORE_S3_ENDPOINT;
   const s3Region = env.TIMESTORE_S3_REGION;
@@ -1061,6 +1003,13 @@ export function loadServiceConfig(): ServiceConfig {
   const azureAccountKey = env.TIMESTORE_AZURE_ACCOUNT_KEY;
   const azureSasToken = env.TIMESTORE_AZURE_SAS_TOKEN;
   const azureEndpoint = env.TIMESTORE_AZURE_ENDPOINT;
+  const clickhouseHost = env.TIMESTORE_CLICKHOUSE_HOST || 'clickhouse';
+  const clickhouseHttpPort = parseNumber(env.TIMESTORE_CLICKHOUSE_HTTP_PORT, 8123);
+  const clickhouseNativePort = parseNumber(env.TIMESTORE_CLICKHOUSE_NATIVE_PORT, 9000);
+  const clickhouseUsername = env.TIMESTORE_CLICKHOUSE_USER || 'apphub';
+  const clickhousePassword = env.TIMESTORE_CLICKHOUSE_PASSWORD || 'apphub';
+  const clickhouseDatabase = env.TIMESTORE_CLICKHOUSE_DATABASE || 'apphub';
+  const clickhouseSecure = parseBoolean(env.TIMESTORE_CLICKHOUSE_SECURE, false);
   const queryCacheEnabled = parseBoolean(env.TIMESTORE_QUERY_CACHE_ENABLED, true);
   const queryCacheDirectory = resolveCacheDirectory(env.TIMESTORE_QUERY_CACHE_DIR);
   const queryCacheMaxBytes = parseNumber(env.TIMESTORE_QUERY_CACHE_MAX_BYTES, 5 * 1024 * 1024 * 1024);
@@ -1141,7 +1090,7 @@ export function loadServiceConfig(): ServiceConfig {
   const executionDefaultBackendRaw = env.TIMESTORE_QUERY_EXECUTION_DEFAULT;
   const executionDefaultBackend = executionDefaultBackendRaw && executionDefaultBackendRaw.trim().length > 0
     ? executionDefaultBackendRaw.trim()
-    : 'duckdb-local';
+    : 'clickhouse-default';
   const executionBackends = parseExecutionBackendList(env.TIMESTORE_QUERY_EXECUTION_BACKENDS);
   const executionConfig = normalizeExecutionConfig(executionBackends, executionDefaultBackend);
 
@@ -1355,22 +1304,19 @@ export function loadServiceConfig(): ServiceConfig {
       retryDelayMs: filestoreRetryMs > 0 ? filestoreRetryMs : 3_000,
       inline: filestoreInline
     },
-    staging: {
-      directory: stagingDirectory,
-      maxDatasetBytes: stagingMaxDatasetBytes,
-      maxTotalBytes: stagingMaxTotalBytes,
-      maxPendingPerDataset: stagingMaxPendingPerDataset,
-      flush: {
-        maxRows: stagingFlushMaxRows,
-        maxBytes: stagingFlushMaxBytes,
-        maxAgeMs: stagingFlushMaxAgeMs,
-        eagerWhenBytesOnly: stagingFlushEagerWhenBytesOnly
-      }
-    },
     features: {
       streaming: {
         enabled: streamingFeatureEnabled
       }
+    },
+    clickhouse: {
+      host: clickhouseHost,
+      httpPort: clickhouseHttpPort > 0 ? clickhouseHttpPort : 8123,
+      nativePort: clickhouseNativePort > 0 ? clickhouseNativePort : 9000,
+      username: clickhouseUsername,
+      password: clickhousePassword,
+      database: clickhouseDatabase,
+      secure: clickhouseSecure
     }
   } satisfies ServiceConfig;
 

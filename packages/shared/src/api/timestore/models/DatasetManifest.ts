@@ -28,7 +28,7 @@ export type DatasetManifest = {
     manifestShard?: string;
     partitionKey: Record<string, def_0>;
     storageTargetId: string;
-    fileFormat: 'duckdb' | 'parquet';
+    fileFormat: 'clickhouse';
     filePath: string;
     fileSizeBytes?: number | null;
     rowCount?: number | null;

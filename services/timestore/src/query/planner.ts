@@ -26,7 +26,6 @@ import {
   normalizeFieldDefinitions
 } from '../schema/compatibility';
 import type { FieldDefinition } from '../storage';
-import { readStagingSchemaFields } from '../sql/stagingSchema';
 import type { ColumnPredicate } from '../types/partitionFilters';
 
 export interface QueryPlanPartition {
@@ -43,14 +42,20 @@ export interface QueryPlanPartition {
 export interface DownsampleAggregationPlan {
   alias: string;
   expression: string;
+  fn: DownsampleAggregationInput['fn'];
+  column?: string;
+  percentile?: number;
 }
 
 export interface DownsamplePlan {
   intervalLiteral: string;
+  intervalUnit: DownsampleInput['intervalUnit'];
+  intervalSize: number;
   aggregations: DownsampleAggregationPlan[];
 }
 
 export interface QueryPlan {
+  dataset: DatasetRecord;
   datasetId: string;
   datasetSlug: string;
   timestampColumn: string;
@@ -133,6 +138,7 @@ export async function buildQueryPlan(
   const execution = resolveExecutionPlan(dataset, config);
 
   return {
+    dataset,
     datasetId: dataset.id,
     datasetSlug,
     timestampColumn: request.timestampColumn,
@@ -215,24 +221,7 @@ async function resolveSchemaFieldsForPlan(
     }
   }
 
-  const stagingFields = await readStagingSchemaFields(dataset, config);
-  if (stagingFields.length === 0) {
-    return [];
-  }
-
-  const mapped: FieldDefinition[] = [];
-  for (const field of stagingFields) {
-    const name = field.name.trim();
-    if (!name) {
-      continue;
-    }
-    mapped.push({
-      name,
-      type: mapStagingTypeToFieldType(field.type)
-    });
-  }
-
-  return mapped;
+  return [];
 }
 
 function buildPlanPartition(
@@ -265,6 +254,8 @@ function buildDownsamplePlan(
   const aggregationPlans = aggregations.map(createDownsampleAggregationPlan);
   return {
     intervalLiteral,
+    intervalUnit,
+    intervalSize,
     aggregations: aggregationPlans
   } satisfies DownsamplePlan;
 }
@@ -274,7 +265,10 @@ function createDownsampleAggregationPlan(aggregation: DownsampleAggregationInput
   const expression = resolveAggregationExpression(aggregation);
   return {
     alias,
-    expression
+    expression,
+    fn: aggregation.fn,
+    column: aggregation.column ?? undefined,
+    percentile: aggregation.fn === 'percentile' ? aggregation.percentile : undefined
   } satisfies DownsampleAggregationPlan;
 }
 
@@ -327,33 +321,4 @@ function createIntervalLiteral(size: number, unit: DownsampleInput['intervalUnit
 
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
-}
-
-function mapStagingTypeToFieldType(input: string): FieldDefinition['type'] {
-  const normalized = input.trim().toLowerCase();
-  if (normalized.includes('time')) {
-    return 'timestamp';
-  }
-  if (normalized === 'boolean' || normalized === 'bool') {
-    return 'boolean';
-  }
-  if (
-    normalized === 'double' ||
-    normalized === 'float' ||
-    normalized === 'real' ||
-    normalized === 'numeric' ||
-    normalized === 'decimal'
-  ) {
-    return 'double';
-  }
-  if (
-    normalized === 'integer' ||
-    normalized === 'int' ||
-    normalized === 'bigint' ||
-    normalized === 'smallint' ||
-    normalized === 'tinyint'
-  ) {
-    return 'integer';
-  }
-  return 'string';
 }

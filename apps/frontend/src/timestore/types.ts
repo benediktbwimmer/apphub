@@ -64,6 +64,9 @@ export type DatasetAccessAuditListQuery = z.infer<typeof datasetAccessAuditListQ
 export type DatasetAccessAuditEvent = z.infer<typeof datasetAccessAuditEventSchema>;
 export type DatasetAccessAuditListResponse = z.infer<typeof datasetAccessAuditListResponseSchema>;
 
+export const sqlEditorModes = ['timestore', 'clickhouse'] as const;
+export type SqlEditorMode = (typeof sqlEditorModes)[number];
+
 export const datasetListResponseSchema = z.object({
   datasets: z.array(datasetRecordSchema),
   nextCursor: z.string().nullable().optional()
@@ -187,10 +190,8 @@ export const lifecycleMetricsSnapshotSchema = z.object({
   lastErrorAt: z.string().nullable(),
   operationTotals: z.object({
     compaction: lifecycleOperationTotalsSchema,
-    retention: lifecycleOperationTotalsSchema,
-    parquetExport: lifecycleOperationTotalsSchema
+    retention: lifecycleOperationTotalsSchema
   }),
-  exportLatencyMs: z.array(z.number().nonnegative()),
   compactionChunks: z.array(compactionChunkSampleSchema)
 });
 
@@ -215,7 +216,7 @@ export const retentionResponseSchema = z.object({
 export type RetentionResponse = z.infer<typeof retentionResponseSchema>;
 
 export const lifecycleOperationResultSchema = z.object({
-  operation: z.enum(['compaction', 'retention', 'parquetExport']),
+  operation: z.enum(['compaction', 'retention']),
   status: z.enum(['skipped', 'completed', 'failed']),
   message: z.string().nullable().optional()
 });
@@ -349,8 +350,17 @@ export const sqlQueryColumnSchema = z.object({
 
 export type SqlQueryColumn = z.infer<typeof sqlQueryColumnSchema>;
 
+export const sqlQueryRawStatisticsSchema = z.object({
+  rowsRead: z.number().nullable().optional(),
+  bytesRead: z.number().nullable().optional(),
+  appliedLimit: z.number().nullable().optional()
+});
+
 export const sqlQueryResultSchema = z.object({
   executionId: z.string().optional(),
+  command: z.string().optional(),
+  mode: z.enum(['query', 'command']).optional(),
+  engine: z.enum(sqlEditorModes).optional(),
   columns: z.array(sqlQueryColumnSchema),
   rows: z.array(z.record(z.string(), z.unknown())),
   truncated: z.boolean().optional(),
@@ -358,7 +368,8 @@ export const sqlQueryResultSchema = z.object({
   statistics: z
     .object({
       rowCount: z.number().nonnegative().optional(),
-      elapsedMs: z.number().nonnegative().optional()
+      elapsedMs: z.number().nonnegative().optional(),
+      raw: sqlQueryRawStatisticsSchema.optional()
     })
     .optional()
 });

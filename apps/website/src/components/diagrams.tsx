@@ -31,11 +31,11 @@ type DiagramSpec = {
 
 const frameWidth = 360
 const frameHeight = 220
-const nodeDefaultWidth = 92
-const nodeDefaultHeight = 44
-const connectionPadding = 8
-const connectionStartInset = 4
-const connectionArrowInset = 10
+const nodeDefaultWidth = 104
+const nodeDefaultHeight = 52
+const connectionPadding = 12
+const connectionStartInset = 5
+const connectionArrowInset = 12
 
 type NodeRect = {
   x: number
@@ -248,37 +248,25 @@ const createDiagram = (spec: DiagramSpec): FC => {
 export const DataPlaneDiagram = createDiagram({
   title: 'Data plane flow',
   nodes: [
-    { id: 'ingest', label: 'Ingestion\nWorkers', x: 20, y: 30 },
-    { id: 'stream', label: 'Streaming\nFeeds', x: 136, y: 24 },
-    { id: 'bus', label: 'Event\nBus', x: 252, y: 30 },
-    { id: 'core', label: 'Workflows /\nJobs / Assets', x: 118, y: 90, width: 140, height: 68 },
-    {
-      id: 'timestore',
-      label: 'Timestore\nStaging -> Parquet',
-      x: 16,
-      y: 164,
-      width: 148,
-      height: 52
-    },
-    {
-      id: 'stores',
-      label: 'Filestore +\nMetastore Events',
-      x: 212,
-      y: 164,
-      width: 140,
-      height: 52
-    }
+    { id: 'ingest', label: 'Ingestion\nWorkers', x: 18, y: 32, width: 108, height: 56 },
+    { id: 'events', label: 'Event Bus', x: 236, y: 24, width: 100, height: 50 },
+    { id: 'core', label: 'Core\nOrchestrator', x: 128, y: 92, width: 132, height: 72 },
+    { id: 'timestore', label: 'Timestore', x: 18, y: 178 },
+    { id: 'filestore', label: 'Filestore', x: 132, y: 178 },
+    { id: 'metastore', label: 'Metastore', x: 246, y: 178 }
   ],
   connections: [
     { from: 'ingest', to: 'core' },
-    { from: 'stream', to: 'core' },
-    { from: 'core', to: 'bus' },
-    { from: 'bus', to: 'core' },
+    { from: 'events', to: 'core' },
+    { from: 'core', to: 'events' },
     { from: 'core', to: 'timestore' },
-    { from: 'core', to: 'stores' },
-    { from: 'timestore', to: 'core', dashed: true },
-    { from: 'stores', to: 'core', dashed: true },
-    { from: 'bus', to: 'stores', dashed: true }
+    { from: 'core', to: 'filestore' },
+    { from: 'core', to: 'metastore' }
+  ],
+  annotations: [
+    { x: 68, y: 26, text: 'Telemetry in' },
+    { x: 292, y: 20, text: 'Queues & triggers', align: 'end' },
+    { x: 180, y: 166, text: 'Persisted state', align: 'middle' }
   ]
 })
 
@@ -286,7 +274,7 @@ export const DeploymentOptionsDiagram = createDiagram({
   title: 'Deployment options',
   nodes: [
     { id: 'control', label: 'Control Plane', x: 130, y: 26, width: 120, height: 60 },
-    { id: 'servers', label: 'Single\nMachine', x: 24, y: 134 },
+    { id: 'servers', label: 'Dedicated\nServers', x: 24, y: 134 },
     { id: 'cloud', label: 'Cloud\nKubernetes', x: 132, y: 148 },
     { id: 'hybrid', label: 'Hybrid\nEdge Sites', x: 240, y: 134 }
   ],
@@ -294,106 +282,118 @@ export const DeploymentOptionsDiagram = createDiagram({
     { from: 'control', to: 'servers' },
     { from: 'control', to: 'cloud' },
     { from: 'control', to: 'hybrid' }
+  ],
+  annotations: [
+    { x: 190, y: 104, text: 'Same module tooling across environments', align: 'middle' }
   ]
 })
 
 export const EventBusDiagram = createDiagram({
   title: 'Event bus coordination',
   nodes: [
-    { id: 'producers', label: 'Module Jobs\n& Assets', x: 24, y: 40 },
-    { id: 'bus', label: 'Event\nBus', x: 204, y: 36, width: 120, height: 52 },
-    { id: 'workflows', label: 'Workflows', x: 24, y: 148 },
-    { id: 'triggers', label: 'Triggers /\nSchedules', x: 204, y: 144, width: 120, height: 52 },
-    { id: 'external', label: 'External\nSystems', x: 312, y: 92 }
+    { id: 'producers', label: 'Module Jobs', x: 26, y: 34 },
+    { id: 'bus', label: 'Redis / BullMQ\nEvent Bus', x: 198, y: 60, width: 140, height: 64 },
+    { id: 'workflows', label: 'Workflows', x: 26, y: 160 },
+    { id: 'external', label: 'External\nSystems', x: 238, y: 162 }
   ],
   connections: [
     { from: 'producers', to: 'bus' },
     { from: 'bus', to: 'workflows' },
-    { from: 'bus', to: 'triggers' },
     { from: 'bus', to: 'external' },
-    { from: 'triggers', to: 'bus', dashed: true },
     { from: 'external', to: 'bus', dashed: true }
+  ],
+  annotations: [
+    { x: 200, y: 40, text: 'Domain events, retries, scheduling' }
   ]
 })
 
 export const ModuleLifecycleDiagram = createDiagram({
   title: 'Module lifecycle',
   nodes: [
-    { id: 'design', label: 'Scope\nWorkflows & Assets', x: 24, y: 44, width: 140, height: 68 },
-    { id: 'develop', label: 'Build\nModule Bundle', x: 224, y: 44, width: 136, height: 68 },
-    { id: 'deploy', label: 'Operate &\nObserve', x: 224, y: 156, width: 136, height: 68 },
-    { id: 'evolve', label: 'Evolve\nVersion', x: 24, y: 156, width: 140, height: 68 }
+    { id: 'design', label: 'Design\nBlueprint', x: 32, y: 44 },
+    { id: 'develop', label: 'Develop\nModule', x: 228, y: 44 },
+    { id: 'deploy', label: 'Deploy &\nOperate', x: 228, y: 156 },
+    { id: 'evolve', label: 'Evolve\nVersion', x: 32, y: 156 }
   ],
   connections: [
     { from: 'design', to: 'develop' },
     { from: 'develop', to: 'deploy' },
     { from: 'deploy', to: 'evolve' },
     { from: 'evolve', to: 'design', dashed: true }
+  ],
+  annotations: [
+    { x: 180, y: 26, text: 'Tests, docs & observability baked in', align: 'middle' }
   ]
 })
 
 export const ObservatoryFlowDiagram = createDiagram({
   title: 'Observatory data flow',
   nodes: [
-    { id: 'sensors', label: 'Field\nSensors', x: 20, y: 112, width: 88, height: 48 },
-    { id: 'gateway', label: 'Gateway /\nEvent Bus', x: 128, y: 24, width: 112, height: 52 },
-    { id: 'jobs', label: 'Module Jobs\n& Workflows', x: 118, y: 96, width: 140, height: 64 },
-    { id: 'filestore', label: 'Filestore\nInventory', x: 16, y: 164, width: 104, height: 48 },
-    { id: 'metastore', label: 'Metastore\nDocuments', x: 132, y: 164, width: 112, height: 48 },
-    { id: 'timestore', label: 'Timestore\nParquet', x: 248, y: 164, width: 104, height: 48 },
-    { id: 'ui', label: 'UI Graph\nDashboards', x: 252, y: 32, width: 96, height: 56 }
+    { id: 'sensors', label: 'Field\nSensors', x: 18, y: 108 },
+    { id: 'gateway', label: 'Observatory\nGateway', x: 112, y: 48 },
+    { id: 'core', label: 'Core\nJobs', x: 210, y: 108 },
+    { id: 'storage', label: 'Timestore', x: 112, y: 174 },
+    { id: 'dashboards', label: 'Dashboards\n& Alerts', x: 292, y: 86, width: 112, height: 68 }
   ],
   connections: [
     { from: 'sensors', to: 'gateway' },
-    { from: 'gateway', to: 'jobs' },
-    { from: 'jobs', to: 'filestore' },
-    { from: 'jobs', to: 'metastore' },
-    { from: 'jobs', to: 'timestore' },
-    { from: 'gateway', to: 'ui' },
-    { from: 'timestore', to: 'ui', dashed: true },
-    { from: 'filestore', to: 'jobs', dashed: true },
-    { from: 'metastore', to: 'jobs', dashed: true }
+    { from: 'gateway', to: 'core' },
+    { from: 'core', to: 'storage' },
+    { from: 'storage', to: 'dashboards' },
+    { from: 'core', to: 'dashboards' }
+  ],
+  annotations: [
+    { x: 112, y: 32, text: 'Validated telemetry' },
+    { x: 270, y: 172, text: 'Fresh partitions & metrics', align: 'end' }
   ]
 })
 
 export const SystemArchitectureDiagram = createDiagram({
   title: 'System architecture overview',
   nodes: [
-    { id: 'ui', label: 'Unified\nUI', x: 24, y: 24, width: 96, height: 56 },
-    { id: 'gateway', label: 'API\nGateway', x: 132, y: 24, width: 96, height: 56 },
-    { id: 'workflows', label: 'Workflows\n& Jobs', x: 240, y: 24, width: 108, height: 60 },
-    { id: 'bus', label: 'Event\nBus', x: 134, y: 96, width: 112, height: 64 },
-    { id: 'filestore', label: 'Filestore', x: 24, y: 168, width: 96, height: 56 },
-    { id: 'timestore', label: 'Timestore', x: 134, y: 168, width: 96, height: 56 },
-    { id: 'metastore', label: 'Metastore', x: 244, y: 168, width: 96, height: 56 }
+    { id: 'ui', label: 'Unified\nUI', x: 30, y: 36, width: 96, height: 52 },
+    { id: 'api', label: 'API\nGateway', x: 132, y: 36, width: 96, height: 52 },
+    { id: 'workers', label: 'Workers', x: 234, y: 36, width: 96, height: 52 },
+    { id: 'db', label: 'DB', x: 30, y: 156, width: 96, height: 52 },
+    { id: 'eventBus', label: 'Event\nBus', x: 132, y: 150, width: 96, height: 64 },
+    { id: 'storage', label: 'Object\nStorage', x: 234, y: 156, width: 96, height: 52 }
   ],
   connections: [
-    { from: 'ui', to: 'gateway' },
-    { from: 'gateway', to: 'workflows' },
-    { from: 'gateway', to: 'bus' },
-    { from: 'workflows', to: 'bus' },
-    { from: 'bus', to: 'filestore' },
-    { from: 'bus', to: 'timestore' },
-    { from: 'bus', to: 'metastore' },
-    { from: 'filestore', to: 'bus', dashed: true },
-    { from: 'timestore', to: 'bus', dashed: true },
-    { from: 'metastore', to: 'bus', dashed: true }
+    { from: 'ui', to: 'api' },
+    { from: 'api', to: 'workers' },
+    { from: 'api', to: 'eventBus' },
+    { from: 'workers', to: 'eventBus' },
+    { from: 'api', to: 'db' },
+    { from: 'workers', to: 'storage' },
+    { from: 'eventBus', to: 'workers', dashed: true },
+    { from: 'db', to: 'api', dashed: true }
+  ],
+  annotations: [
+    {
+      x: 180,
+      y: 222,
+      text: 'Event bus centered keeps services decoupled without bespoke glue',
+      align: 'middle'
+    }
   ]
 })
 
 export const UiGraphDiagram = createDiagram({
   title: 'UI graph highlights',
   nodes: [
-    { id: 'workflows', label: 'Graph View\nWorkflows', x: 24, y: 108 },
-    { id: 'assets', label: 'Assets &\nLineage', x: 132, y: 36 },
-    { id: 'sql', label: 'SQL +\nAnalytics', x: 240, y: 108 },
-    { id: 'status', label: 'Streaming\nStatus', x: 132, y: 178 }
+    { id: 'workflows', label: 'Workflows\nGraph', x: 24, y: 108 },
+    { id: 'assets', label: 'Assets\nLineage', x: 132, y: 38 },
+    { id: 'sql', label: 'SQL Lab', x: 240, y: 108 },
+    { id: 'alerts', label: 'Health &\nAlerts', x: 132, y: 178 }
   ],
   connections: [
     { from: 'assets', to: 'workflows' },
     { from: 'assets', to: 'sql' },
-    { from: 'workflows', to: 'status' },
-    { from: 'sql', to: 'status', dashed: true }
+    { from: 'workflows', to: 'alerts' },
+    { from: 'sql', to: 'alerts', dashed: true }
+  ],
+  annotations: [
+    { x: 180, y: 24, text: 'Cross-linked experiences', align: 'middle' }
   ]
 })
 
@@ -411,6 +411,9 @@ export const BusinessConstellationDiagram = createDiagram({
     { from: 'platform', to: 'engineering' },
     { from: 'leadership', to: 'operations', dashed: true },
     { from: 'operations', to: 'engineering', dashed: true }
+  ],
+  annotations: [
+    { x: 180, y: 118, text: 'Shared metrics & playbooks', align: 'middle' }
   ]
 })
 
@@ -427,6 +430,9 @@ export const BusinessObservatoryDiagram = createDiagram({
     { from: 'module', to: 'governance' },
     { from: 'module', to: 'dashboards' },
     { from: 'governance', to: 'dashboards' }
+  ],
+  annotations: [
+    { x: 182, y: 36, text: 'Co-owned by leadership + engineering', align: 'middle' }
   ]
 })
 
@@ -443,6 +449,9 @@ export const AdoptionJourneyDiagram = createDiagram({
     { from: 'lab', to: 'launch' },
     { from: 'launch', to: 'expand' },
     { from: 'expand', to: 'frame', dashed: true }
+  ],
+  annotations: [
+    { x: 180, y: 30, text: 'Guided enablement loops', align: 'middle' }
   ]
 })
 export const EventFlowDiagram = createDiagram({
@@ -450,7 +459,7 @@ export const EventFlowDiagram = createDiagram({
   nodes: [
     { id: 'sources', label: 'Module\nJobs', x: 20, y: 92 },
     { id: 'router', label: 'Event\nRouter', x: 128, y: 52 },
-    { id: 'bus', label: 'Redis +\nBullMQ Bus', x: 236, y: 92, width: 120, height: 52 },
+    { id: 'bus', label: 'Queues /\nTopics', x: 236, y: 92 },
     { id: 'workflows', label: 'Workflows', x: 128, y: 164 },
     { id: 'metrics', label: 'Metrics &\nAlerts', x: 236, y: 164 }
   ],
@@ -460,6 +469,9 @@ export const EventFlowDiagram = createDiagram({
     { from: 'bus', to: 'workflows' },
     { from: 'workflows', to: 'metrics' },
     { from: 'metrics', to: 'router', dashed: true }
+  ],
+  annotations: [
+    { x: 182, y: 36, text: 'Typed payloads + replay support', align: 'middle' }
   ]
 })
 
@@ -468,7 +480,7 @@ export const FilestoreStackDiagram = createDiagram({
   nodes: [
     { id: 'clients', label: 'Workers &\nModules', x: 24, y: 132 },
     { id: 'api', label: 'Filestore\nAPI', x: 132, y: 52 },
-    { id: 'ledger', label: 'Metadata\nLedger & Events', x: 240, y: 132, width: 120, height: 60 },
+    { id: 'ledger', label: 'Metadata\nLedger', x: 240, y: 132 },
     { id: 'storage', label: 'Object\nStorage', x: 132, y: 196 }
   ],
   connections: [
@@ -477,6 +489,9 @@ export const FilestoreStackDiagram = createDiagram({
     { from: 'api', to: 'storage' },
     { from: 'ledger', to: 'clients', dashed: true },
     { from: 'ledger', to: 'storage', dashed: true }
+  ],
+  annotations: [
+    { x: 182, y: 36, text: 'Deterministic reconciliation', align: 'middle' }
   ]
 })
 
@@ -498,6 +513,9 @@ export const ObservabilityDiagram = createDiagram({
     { from: 'logs', to: 'dash' },
     { from: 'metrics', to: 'alerts' },
     { from: 'traces', to: 'alerts', dashed: true }
+  ],
+  annotations: [
+    { x: 184, y: 206, text: 'Unified telemetry pipeline', align: 'middle' }
   ]
 })
 
@@ -518,6 +536,9 @@ export const TechnicalArchitectureDiagram = createDiagram({
     { from: 'worker', to: 'observability' },
     { from: 'storage', to: 'catalog' },
     { from: 'catalog', to: 'gateway' }
+  ],
+  annotations: [
+    { x: 190, y: 16, text: 'Types + contracts propagate across layers', align: 'middle' }
   ]
 })
 
@@ -525,14 +546,16 @@ export const TimestoreStackDiagram = createDiagram({
   title: 'Timestore stack',
   nodes: [
     { id: 'ingest', label: 'Ingest\nJobs', x: 24, y: 124 },
-    { id: 'duckdb', label: 'DuckDB\nPlanner', x: 132, y: 44 },
-    { id: 'parquet', label: 'Parquet\nPartitions', x: 240, y: 124 },
+    { id: 'clickhouse', label: 'ClickHouse\nPlanner', x: 132, y: 44 },
+    { id: 'parquet', label: 'Parquet\nShards', x: 240, y: 124 },
     { id: 'sql', label: 'ANSI SQL\nAPI', x: 132, y: 196 }
   ],
   connections: [
-    { from: 'ingest', to: 'duckdb' },
-    { from: 'duckdb', to: 'parquet' },
-    { from: 'duckdb', to: 'sql' },
+    { from: 'ingest', to: 'clickhouse' },
+    { from: 'clickhouse', to: 'sql' },
     { from: 'sql', to: 'parquet', dashed: true }
+  ],
+  annotations: [
+    { x: 188, y: 32, text: 'Pushdown + partition pruning', align: 'middle' }
   ]
 })

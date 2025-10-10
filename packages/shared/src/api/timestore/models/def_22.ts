@@ -12,7 +12,7 @@ export type def_22 = {
     name: string;
     description?: string | null;
     status: 'active' | 'inactive';
-    writeFormat: 'duckdb' | 'parquet';
+    writeFormat: 'clickhouse';
     defaultStorageTargetId: string | null;
     metadata: Record<string, def_0>;
     createdAt: string;

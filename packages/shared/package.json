@@ -14,11 +14,6 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./duckdb": {
-      "types": "./dist/duckdb.d.ts",
-      "require": "./dist/duckdb.js",
-      "default": "./dist/duckdb.js"
-    },
     "./exampleJobBundles": {
       "types": "./dist/exampleJobBundles.d.ts",
       "require": "./dist/exampleJobBundles.js",

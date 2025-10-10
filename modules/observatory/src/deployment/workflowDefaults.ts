@@ -49,6 +49,11 @@ export function applyObservatoryWorkflowDefaults(
     return;
   }
 
+  const metadata = ensureJsonObject(definition.metadata as JsonValue | undefined);
+  metadata.moduleId = metadata.moduleId ?? 'observatory';
+  metadata.moduleSlug = metadata.moduleSlug ?? 'observatory';
+  definition.metadata = metadata;
+
   const defaults = ensureJsonObject(definition.defaultParameters as JsonValue | undefined);
   definition.defaultParameters = defaults;
 

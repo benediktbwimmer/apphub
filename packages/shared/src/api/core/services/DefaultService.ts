@@ -723,6 +723,23 @@ export class DefaultService {
    * @returns any Default Response
    * @throws ApiError
    */
+  public postWorkflowRunsCancel({
+    runId,
+  }: {
+    runId: string,
+  }): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'POST',
+      url: '/workflow-runs/{runId}/cancel',
+      path: {
+        'runId': runId,
+      },
+    });
+  }
+  /**
+   * @returns any Default Response
+   * @throws ApiError
+   */
   public postWorkflowRunsReplay({
     runId,
   }: {

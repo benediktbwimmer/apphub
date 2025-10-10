@@ -11,7 +11,7 @@ import type {
 } from '../db/metadata';
 import type { ServiceConfig } from '../config/serviceConfig';
 
-export type LifecycleOperation = 'compaction' | 'retention' | 'parquetExport';
+export type LifecycleOperation = 'compaction' | 'retention';
 
 export type LifecycleTrigger = 'schedule' | 'manual' | 'retry' | 'api';
 
@@ -111,7 +111,7 @@ export function normalizeOperations(operations: LifecycleOperation[]): Lifecycle
     }
   }
   if (normalized.length === 0) {
-    return ['compaction', 'retention', 'parquetExport'];
+    return ['compaction', 'retention'];
   }
   return normalized;
 }

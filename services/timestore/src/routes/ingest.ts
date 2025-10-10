@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { ingestionRequestSchema, ingestionJobPayloadSchema } from '../ingestion/types';
 import { enqueueIngestionJob, isInlineQueueMode } from '../queue';
-import { StagingQueueFullError } from '../ingestion/stagingManager';
 import { loadDatasetForWrite, resolveRequestActor, getRequestScopes } from '../service/iam';
 import { recordDatasetAccessEvent } from '../db/metadata';
 import { observeIngestion } from '../observability/metrics';
@@ -39,7 +38,7 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
           403: errorResponse('Caller lacks permission to ingest into this dataset.'),
           404: errorResponse('Dataset not found.'),
           500: errorResponse('Unexpected error while scheduling ingestion.'),
-          503: errorResponse('Ingestion staging queue is full. Please retry.')
+          503: errorResponse('Ingestion queue is currently unavailable. Please retry.')
         }
       }
     },
@@ -243,12 +242,6 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
           },
           'dataset ingestion failed'
         );
-        if (error instanceof StagingQueueFullError) {
-          return reply.status(503).send({
-            error: 'Service Unavailable',
-            message: failureMessage
-          });
-        }
         throw error;
       }
     }

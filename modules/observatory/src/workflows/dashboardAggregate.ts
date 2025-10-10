@@ -35,9 +35,9 @@ const definition: WorkflowDefinition = {
       jobSlug: 'observatory-dashboard-aggregator',
       storeResultAs: 'result',
       parameters: {
-        partitionKey: '{{ parameters.partitionKey }}',
-        burstReason: '{{ parameters.burstReason }}',
-        burstFinishedAt: '{{ parameters.burstFinishedAt }}'
+        partitionKey: '{{ parameters.partitionKey | default: run.partitionKey | default: "" }}',
+        burstReason: '{{ parameters.burstReason | default: "" }}',
+        burstFinishedAt: '{{ parameters.burstFinishedAt | default: "" }}'
       },
       produces: [
         {

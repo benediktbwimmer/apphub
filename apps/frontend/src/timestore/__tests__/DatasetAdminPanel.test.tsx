@@ -38,7 +38,7 @@ const BASE_DATASET: DatasetRecord = {
   displayName: 'Observatory Events',
   description: 'Initial description',
   status: 'active',
-  writeFormat: 'duckdb',
+  writeFormat: 'clickhouse',
   defaultStorageTargetId: 'st-1',
   metadata: {
     iam: {

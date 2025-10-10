@@ -56,7 +56,7 @@ tests/handler.test.ts
 - `slug` becomes the bundle identifier used when publishing (`slug@version`).
 - `entry` points to the TypeScript source that esbuild compiles into `manifest.entry`.
 - `files` controls which paths land in the tarball (globs resolved relative to the bundle root).
-- `externals` (optional) lists Node modules that should remain `require()` calls in the compiled output. Use this for native dependencies bundled alongside the job (for example `sqlite3` or `duckdb`) and make sure their directories are included in `files`.
+- `externals` (optional) lists Node modules that should remain `require()` calls in the compiled output. Use this for native dependencies bundled alongside the job (for example `sqlite3`) and make sure their directories are included in `files`.
 
 ### `manifest.json`
 
