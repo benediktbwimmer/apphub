@@ -68,6 +68,7 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 | Health data stale | Verify Redis URL is not `inline` in multi-pod environments; missing invalidations keep caches hot forever. |
 | Backfill fails with placeholder errors | Re-run with explicit `--var KEY=VALUE` overrides. The event-driven module documents required keys in `service-manifests/README.md`. |
 | Duplicate manifests | Check for multiple imports of the same module from different git refs. Active rows are unique on `(module_id, module_version, service_slug)`; superseded rows are safe to keep. |
+| Module-scoped dashboards show empty workflow data | Run `npm exec --workspace @apphub/core -- tsx src/scripts/backfillModuleContexts.ts` to seed workflow definition/run contexts for the affected module, then redeploy core. |
 
 ## Reference Commands
 
