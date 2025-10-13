@@ -87,6 +87,9 @@ export type WorkflowActivityListFilters = {
   from?: string;
   to?: string;
   moduleIds?: string[];
+  moduleWorkflowDefinitionIds?: string[];
+  moduleWorkflowDefinitionSlugs?: string[];
+  moduleWorkflowRunIds?: string[];
 };
 
 const EMPTY_RETRY_SUMMARY: WorkflowRunRetrySummary = {
@@ -932,14 +935,43 @@ export async function listWorkflowActivity(
     deliveryConditions.push(`wd.slug = ANY(${placeholder}::text[])`);
   }
 
+  const moduleWorkflowDefinitionIds = normalizeArray(filters.moduleWorkflowDefinitionIds);
+  const moduleWorkflowDefinitionSlugs = normalizeArray(filters.moduleWorkflowDefinitionSlugs);
+  const moduleWorkflowRunIds = normalizeArray(filters.moduleWorkflowRunIds);
   const moduleIds = normalizeArray(filters.moduleIds);
-  if (moduleIds.length > 0) {
+
+  const moduleRunConditionParts: string[] = [];
+  const moduleDeliveryConditionParts: string[] = [];
+
+  if (moduleWorkflowDefinitionIds.length > 0) {
+    const placeholder = addParam(moduleWorkflowDefinitionIds);
+    moduleRunConditionParts.push(`wr.workflow_definition_id = ANY(${placeholder}::text[])`);
+    moduleDeliveryConditionParts.push(`wtd.workflow_definition_id = ANY(${placeholder}::text[])`);
+  }
+
+  if (moduleWorkflowDefinitionSlugs.length > 0) {
+    const placeholder = addParam(moduleWorkflowDefinitionSlugs);
+    moduleRunConditionParts.push(`wd.slug = ANY(${placeholder}::text[])`);
+    moduleDeliveryConditionParts.push(`wd.slug = ANY(${placeholder}::text[])`);
+  }
+
+  if (moduleWorkflowRunIds.length > 0) {
+    const placeholder = addParam(moduleWorkflowRunIds);
+    moduleRunConditionParts.push(`wr.id = ANY(${placeholder}::text[])`);
+    moduleDeliveryConditionParts.push(`wtd.workflow_run_id = ANY(${placeholder}::text[])`);
+  }
+
+  if (
+    moduleIds.length > 0 &&
+    moduleRunConditionParts.length === 0 &&
+    moduleDeliveryConditionParts.length === 0
+  ) {
     const modulePlaceholder = addParam(moduleIds);
     const loweredModuleIds = moduleIds.map((id) => id.toLowerCase());
     const slugEqualsPlaceholder = addParam(loweredModuleIds);
     const slugPatternPlaceholder = addParam(loweredModuleIds.map((id) => `${id}-%`));
 
-    runConditions.push(`(
+    moduleRunConditionParts.push(`(
       LOWER(wd.slug) = ANY(${slugEqualsPlaceholder}::text[])
       OR LOWER(wd.slug) LIKE ANY(${slugPatternPlaceholder}::text[])
       OR EXISTS (
@@ -958,7 +990,7 @@ export async function listWorkflowActivity(
       )
     )`);
 
-    deliveryConditions.push(`(
+    moduleDeliveryConditionParts.push(`(
       LOWER(wd.slug) = ANY(${slugEqualsPlaceholder}::text[])
       OR LOWER(wd.slug) LIKE ANY(${slugPatternPlaceholder}::text[])
       OR EXISTS (
@@ -976,6 +1008,14 @@ export async function listWorkflowActivity(
            AND mrc.module_id = ANY(${modulePlaceholder}::text[])
       )
     )`);
+  }
+
+  if (moduleRunConditionParts.length > 0) {
+    runConditions.push(`(${moduleRunConditionParts.join(' OR ')})`);
+  }
+
+  if (moduleDeliveryConditionParts.length > 0) {
+    deliveryConditions.push(`(${moduleDeliveryConditionParts.join(' OR ')})`);
   }
 
   const triggerTypes = normalizeArray(filters.triggerTypes?.map((type) => type.toLowerCase()));

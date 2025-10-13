@@ -586,10 +586,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
 
     let moduleScope;
     try {
-      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
-        'workflow-definition',
-        'workflow-run'
-      ]);
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, ['workflow-definition']);
     } catch (error) {
       return handleModuleScopeError(reply, error);
     }
@@ -666,10 +663,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
 
     let moduleScope;
     try {
-      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, [
-        'workflow-definition',
-        'workflow-run'
-      ]);
+      moduleScope = await resolveModuleScope(request, parseQuery.data.moduleId, ['workflow-definition']);
     } catch (error) {
       return handleModuleScopeError(reply, error);
     }
@@ -689,7 +683,13 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       search: parseQuery.data.search,
       from: parseQuery.data.from,
       to: parseQuery.data.to,
-      moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
+      moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined,
+      moduleWorkflowDefinitionIds:
+        moduleScope?.hasFilters ? nonEmpty(moduleScope.getIds('workflow-definition')) : undefined,
+      moduleWorkflowDefinitionSlugs:
+        moduleScope?.hasFilters ? nonEmpty(moduleScope.getSlugs('workflow-definition')) : undefined,
+      moduleWorkflowRunIds:
+        moduleScope?.hasFilters ? nonEmpty(moduleScope.getIds('workflow-run')) : undefined
     } satisfies NonNullable<Parameters<typeof listWorkflowActivity>[0]>['filters'];
 
     const { items, hasMore } = await listWorkflowActivity({ limit, offset, filters });
@@ -3146,4 +3146,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       }
     };
   });
+}
+
+function nonEmpty(values: string[]): string[] | undefined {
+  return values.length > 0 ? values : undefined;
 }
