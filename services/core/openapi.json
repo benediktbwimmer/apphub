@@ -16187,6 +16187,262 @@
           }
         }
       },
+      "StreamingMirrorTopicDiagnostics": {
+        "type": "object",
+        "required": [
+          "topic",
+          "lastSuccessAt",
+          "lastFailureAt",
+          "failureCount",
+          "lastError"
+        ],
+        "properties": {
+          "topic": {
+            "type": "string"
+          },
+          "lastSuccessAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastFailureAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "failureCount": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "StreamingMirrorSourceDiagnostics": {
+        "type": "object",
+        "required": [
+          "source",
+          "total",
+          "throttled",
+          "dropped",
+          "failures",
+          "averageLagMs",
+          "lastLagMs",
+          "maxLagMs",
+          "lastEventAt"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "throttled": {
+            "type": "integer"
+          },
+          "dropped": {
+            "type": "integer"
+          },
+          "failures": {
+            "type": "integer"
+          },
+          "averageLagMs": {
+            "type": "integer",
+            "nullable": true
+          },
+          "lastLagMs": {
+            "type": "integer"
+          },
+          "maxLagMs": {
+            "type": "integer"
+          },
+          "lastEventAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "StreamingMirrorSummary": {
+        "type": "object",
+        "required": [
+          "totalEvents",
+          "totalThrottled",
+          "totalDropped",
+          "totalFailures"
+        ],
+        "properties": {
+          "totalEvents": {
+            "type": "integer"
+          },
+          "totalThrottled": {
+            "type": "integer"
+          },
+          "totalDropped": {
+            "type": "integer"
+          },
+          "totalFailures": {
+            "type": "integer"
+          }
+        }
+      },
+      "StreamingMirrorPublisherStatus": {
+        "type": "object",
+        "required": [
+          "configured",
+          "lastSuccessAt",
+          "lastFailureAt",
+          "failureCount",
+          "lastError",
+          "broker",
+          "topics",
+          "sources",
+          "summary"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "lastSuccessAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastFailureAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "failureCount": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": "string",
+            "nullable": true
+          },
+          "broker": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "topic",
+                "lastSuccessAt",
+                "lastFailureAt",
+                "failureCount",
+                "lastError"
+              ],
+              "properties": {
+                "topic": {
+                  "type": "string"
+                },
+                "lastSuccessAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "lastFailureAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "failureCount": {
+                  "type": "integer"
+                },
+                "lastError": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "source",
+                "total",
+                "throttled",
+                "dropped",
+                "failures",
+                "averageLagMs",
+                "lastLagMs",
+                "maxLagMs",
+                "lastEventAt"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "integer"
+                },
+                "throttled": {
+                  "type": "integer"
+                },
+                "dropped": {
+                  "type": "integer"
+                },
+                "failures": {
+                  "type": "integer"
+                },
+                "averageLagMs": {
+                  "type": "integer",
+                  "nullable": true
+                },
+                "lastLagMs": {
+                  "type": "integer"
+                },
+                "maxLagMs": {
+                  "type": "integer"
+                },
+                "lastEventAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "totalEvents",
+              "totalThrottled",
+              "totalDropped",
+              "totalFailures"
+            ],
+            "properties": {
+              "totalEvents": {
+                "type": "integer"
+              },
+              "totalThrottled": {
+                "type": "integer"
+              },
+              "totalDropped": {
+                "type": "integer"
+              },
+              "totalFailures": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
       "StreamingStatus": {
         "type": "object",
         "required": [
@@ -16401,6 +16657,393 @@
               },
               "coreEvents": {
                 "type": "boolean"
+              }
+            }
+          },
+          "publisher": {
+            "type": "object",
+            "required": [
+              "configured",
+              "lastSuccessAt",
+              "lastFailureAt",
+              "failureCount",
+              "lastError",
+              "broker",
+              "topics",
+              "sources",
+              "summary"
+            ],
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "lastSuccessAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "lastFailureAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "failureCount": {
+                "type": "integer"
+              },
+              "lastError": {
+                "type": "string",
+                "nullable": true
+              },
+              "broker": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              },
+              "topics": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "topic",
+                    "lastSuccessAt",
+                    "lastFailureAt",
+                    "failureCount",
+                    "lastError"
+                  ],
+                  "properties": {
+                    "topic": {
+                      "type": "string"
+                    },
+                    "lastSuccessAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "lastFailureAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "failureCount": {
+                      "type": "integer"
+                    },
+                    "lastError": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "source",
+                    "total",
+                    "throttled",
+                    "dropped",
+                    "failures",
+                    "averageLagMs",
+                    "lastLagMs",
+                    "maxLagMs",
+                    "lastEventAt"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "throttled": {
+                      "type": "integer"
+                    },
+                    "dropped": {
+                      "type": "integer"
+                    },
+                    "failures": {
+                      "type": "integer"
+                    },
+                    "averageLagMs": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "lastLagMs": {
+                      "type": "integer"
+                    },
+                    "maxLagMs": {
+                      "type": "integer"
+                    },
+                    "lastEventAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    }
+                  }
+                }
+              },
+              "summary": {
+                "type": "object",
+                "required": [
+                  "totalEvents",
+                  "totalThrottled",
+                  "totalDropped",
+                  "totalFailures"
+                ],
+                "properties": {
+                  "totalEvents": {
+                    "type": "integer"
+                  },
+                  "totalThrottled": {
+                    "type": "integer"
+                  },
+                  "totalDropped": {
+                    "type": "integer"
+                  },
+                  "totalFailures": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "EventSchemaStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "active",
+          "deprecated"
+        ]
+      },
+      "EventSchema": {
+        "type": "object",
+        "required": [
+          "eventType",
+          "version",
+          "status",
+          "schemaHash",
+          "schema",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "eventType": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          },
+          "schemaHash": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "EventSchemaListResponse": {
+        "type": "object",
+        "required": [
+          "schemas"
+        ],
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "eventType",
+                "version",
+                "status",
+                "schemaHash",
+                "schema",
+                "createdAt",
+                "updatedAt"
+              ],
+              "properties": {
+                "eventType": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "active",
+                    "deprecated"
+                  ]
+                },
+                "schemaHash": {
+                  "type": "string"
+                },
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "createdBy": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedBy": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "EventSchemaRegisterRequest": {
+        "type": "object",
+        "required": [
+          "eventType",
+          "schema"
+        ],
+        "properties": {
+          "eventType": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "author": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "EventSchemaRegisterResponse": {
+        "type": "object",
+        "required": [
+          "schema"
+        ],
+        "properties": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "eventType",
+              "version",
+              "status",
+              "schemaHash",
+              "schema",
+              "createdAt",
+              "updatedAt"
+            ],
+            "properties": {
+              "eventType": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "deprecated"
+                ]
+              },
+              "schemaHash": {
+                "type": "string"
+              },
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "createdBy": {
+                "type": "string",
+                "nullable": true
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedBy": {
+                "type": "string",
+                "nullable": true
               }
             }
           }
@@ -16646,6 +17289,161 @@
                       },
                       "coreEvents": {
                         "type": "boolean"
+                      }
+                    }
+                  },
+                  "publisher": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "lastSuccessAt",
+                      "lastFailureAt",
+                      "failureCount",
+                      "lastError",
+                      "broker",
+                      "topics",
+                      "sources",
+                      "summary"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "lastSuccessAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "lastFailureAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "failureCount": {
+                        "type": "integer"
+                      },
+                      "lastError": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "broker": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "topics": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "topic",
+                            "lastSuccessAt",
+                            "lastFailureAt",
+                            "failureCount",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "topic": {
+                              "type": "string"
+                            },
+                            "lastSuccessAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFailureAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "failureCount": {
+                              "type": "integer"
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      },
+                      "sources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "total",
+                            "throttled",
+                            "dropped",
+                            "failures",
+                            "averageLagMs",
+                            "lastLagMs",
+                            "maxLagMs",
+                            "lastEventAt"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "total": {
+                              "type": "integer"
+                            },
+                            "throttled": {
+                              "type": "integer"
+                            },
+                            "dropped": {
+                              "type": "integer"
+                            },
+                            "failures": {
+                              "type": "integer"
+                            },
+                            "averageLagMs": {
+                              "type": "integer",
+                              "nullable": true
+                            },
+                            "lastLagMs": {
+                              "type": "integer"
+                            },
+                            "maxLagMs": {
+                              "type": "integer"
+                            },
+                            "lastEventAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      },
+                      "summary": {
+                        "type": "object",
+                        "required": [
+                          "totalEvents",
+                          "totalThrottled",
+                          "totalDropped",
+                          "totalFailures"
+                        ],
+                        "properties": {
+                          "totalEvents": {
+                            "type": "integer"
+                          },
+                          "totalThrottled": {
+                            "type": "integer"
+                          },
+                          "totalDropped": {
+                            "type": "integer"
+                          },
+                          "totalFailures": {
+                            "type": "integer"
+                          }
+                        }
                       }
                     }
                   }
@@ -16897,6 +17695,161 @@
                         "type": "boolean"
                       }
                     }
+                  },
+                  "publisher": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "lastSuccessAt",
+                      "lastFailureAt",
+                      "failureCount",
+                      "lastError",
+                      "broker",
+                      "topics",
+                      "sources",
+                      "summary"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "lastSuccessAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "lastFailureAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "failureCount": {
+                        "type": "integer"
+                      },
+                      "lastError": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "broker": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "topics": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "topic",
+                            "lastSuccessAt",
+                            "lastFailureAt",
+                            "failureCount",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "topic": {
+                              "type": "string"
+                            },
+                            "lastSuccessAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFailureAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "failureCount": {
+                              "type": "integer"
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      },
+                      "sources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "total",
+                            "throttled",
+                            "dropped",
+                            "failures",
+                            "averageLagMs",
+                            "lastLagMs",
+                            "maxLagMs",
+                            "lastEventAt"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "total": {
+                              "type": "integer"
+                            },
+                            "throttled": {
+                              "type": "integer"
+                            },
+                            "dropped": {
+                              "type": "integer"
+                            },
+                            "failures": {
+                              "type": "integer"
+                            },
+                            "averageLagMs": {
+                              "type": "integer",
+                              "nullable": true
+                            },
+                            "lastLagMs": {
+                              "type": "integer"
+                            },
+                            "maxLagMs": {
+                              "type": "integer"
+                            },
+                            "lastEventAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      },
+                      "summary": {
+                        "type": "object",
+                        "required": [
+                          "totalEvents",
+                          "totalThrottled",
+                          "totalDropped",
+                          "totalFailures"
+                        ],
+                        "properties": {
+                          "totalEvents": {
+                            "type": "integer"
+                          },
+                          "totalThrottled": {
+                            "type": "integer"
+                          },
+                          "totalDropped": {
+                            "type": "integer"
+                          },
+                          "totalFailures": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -17146,6 +18099,161 @@
                         "type": "boolean"
                       }
                     }
+                  },
+                  "publisher": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "lastSuccessAt",
+                      "lastFailureAt",
+                      "failureCount",
+                      "lastError",
+                      "broker",
+                      "topics",
+                      "sources",
+                      "summary"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "lastSuccessAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "lastFailureAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "failureCount": {
+                        "type": "integer"
+                      },
+                      "lastError": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "broker": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "topics": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "topic",
+                            "lastSuccessAt",
+                            "lastFailureAt",
+                            "failureCount",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "topic": {
+                              "type": "string"
+                            },
+                            "lastSuccessAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFailureAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "failureCount": {
+                              "type": "integer"
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      },
+                      "sources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "total",
+                            "throttled",
+                            "dropped",
+                            "failures",
+                            "averageLagMs",
+                            "lastLagMs",
+                            "maxLagMs",
+                            "lastEventAt"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "total": {
+                              "type": "integer"
+                            },
+                            "throttled": {
+                              "type": "integer"
+                            },
+                            "dropped": {
+                              "type": "integer"
+                            },
+                            "failures": {
+                              "type": "integer"
+                            },
+                            "averageLagMs": {
+                              "type": "integer",
+                              "nullable": true
+                            },
+                            "lastLagMs": {
+                              "type": "integer"
+                            },
+                            "maxLagMs": {
+                              "type": "integer"
+                            },
+                            "lastEventAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      },
+                      "summary": {
+                        "type": "object",
+                        "required": [
+                          "totalEvents",
+                          "totalThrottled",
+                          "totalDropped",
+                          "totalFailures"
+                        ],
+                        "properties": {
+                          "totalEvents": {
+                            "type": "integer"
+                          },
+                          "totalThrottled": {
+                            "type": "integer"
+                          },
+                          "totalDropped": {
+                            "type": "integer"
+                          },
+                          "totalFailures": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -17393,6 +18501,161 @@
                       },
                       "coreEvents": {
                         "type": "boolean"
+                      }
+                    }
+                  },
+                  "publisher": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "lastSuccessAt",
+                      "lastFailureAt",
+                      "failureCount",
+                      "lastError",
+                      "broker",
+                      "topics",
+                      "sources",
+                      "summary"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "lastSuccessAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "lastFailureAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "failureCount": {
+                        "type": "integer"
+                      },
+                      "lastError": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "broker": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "topics": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "topic",
+                            "lastSuccessAt",
+                            "lastFailureAt",
+                            "failureCount",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "topic": {
+                              "type": "string"
+                            },
+                            "lastSuccessAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "lastFailureAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "failureCount": {
+                              "type": "integer"
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      },
+                      "sources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "total",
+                            "throttled",
+                            "dropped",
+                            "failures",
+                            "averageLagMs",
+                            "lastLagMs",
+                            "maxLagMs",
+                            "lastEventAt"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "total": {
+                              "type": "integer"
+                            },
+                            "throttled": {
+                              "type": "integer"
+                            },
+                            "dropped": {
+                              "type": "integer"
+                            },
+                            "failures": {
+                              "type": "integer"
+                            },
+                            "averageLagMs": {
+                              "type": "integer",
+                              "nullable": true
+                            },
+                            "lastLagMs": {
+                              "type": "integer"
+                            },
+                            "maxLagMs": {
+                              "type": "integer"
+                            },
+                            "lastEventAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      },
+                      "summary": {
+                        "type": "object",
+                        "required": [
+                          "totalEvents",
+                          "totalThrottled",
+                          "totalDropped",
+                          "totalFailures"
+                        ],
+                        "properties": {
+                          "totalEvents": {
+                            "type": "integer"
+                          },
+                          "totalThrottled": {
+                            "type": "integer"
+                          },
+                          "totalDropped": {
+                            "type": "integer"
+                          },
+                          "totalFailures": {
+                            "type": "integer"
+                          }
+                        }
                       }
                     }
                   }
@@ -35618,6 +36881,294 @@
       "def-95": {
         "type": "object",
         "required": [
+          "topic",
+          "lastSuccessAt",
+          "lastFailureAt",
+          "failureCount",
+          "lastError"
+        ],
+        "properties": {
+          "topic": {
+            "type": "string"
+          },
+          "lastSuccessAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastFailureAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "failureCount": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "https://core.apphub/schemas/StreamingMirrorTopicDiagnostics.json"
+      },
+      "def-96": {
+        "type": "object",
+        "required": [
+          "source",
+          "total",
+          "throttled",
+          "dropped",
+          "failures",
+          "averageLagMs",
+          "lastLagMs",
+          "maxLagMs",
+          "lastEventAt"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "throttled": {
+            "type": "integer"
+          },
+          "dropped": {
+            "type": "integer"
+          },
+          "failures": {
+            "type": "integer"
+          },
+          "averageLagMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lastLagMs": {
+            "type": "integer"
+          },
+          "maxLagMs": {
+            "type": "integer"
+          },
+          "lastEventAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "title": "https://core.apphub/schemas/StreamingMirrorSourceDiagnostics.json"
+      },
+      "def-97": {
+        "type": "object",
+        "required": [
+          "totalEvents",
+          "totalThrottled",
+          "totalDropped",
+          "totalFailures"
+        ],
+        "properties": {
+          "totalEvents": {
+            "type": "integer"
+          },
+          "totalThrottled": {
+            "type": "integer"
+          },
+          "totalDropped": {
+            "type": "integer"
+          },
+          "totalFailures": {
+            "type": "integer"
+          }
+        },
+        "title": "https://core.apphub/schemas/StreamingMirrorSummary.json"
+      },
+      "def-98": {
+        "type": "object",
+        "required": [
+          "configured",
+          "lastSuccessAt",
+          "lastFailureAt",
+          "failureCount",
+          "lastError",
+          "broker",
+          "topics",
+          "sources",
+          "summary"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "lastSuccessAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastFailureAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "failureCount": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "broker": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "topic",
+                "lastSuccessAt",
+                "lastFailureAt",
+                "failureCount",
+                "lastError"
+              ],
+              "properties": {
+                "topic": {
+                  "type": "string"
+                },
+                "lastSuccessAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "lastFailureAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "failureCount": {
+                  "type": "integer"
+                },
+                "lastError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "source",
+                "total",
+                "throttled",
+                "dropped",
+                "failures",
+                "averageLagMs",
+                "lastLagMs",
+                "maxLagMs",
+                "lastEventAt"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "integer"
+                },
+                "throttled": {
+                  "type": "integer"
+                },
+                "dropped": {
+                  "type": "integer"
+                },
+                "failures": {
+                  "type": "integer"
+                },
+                "averageLagMs": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "lastLagMs": {
+                  "type": "integer"
+                },
+                "maxLagMs": {
+                  "type": "integer"
+                },
+                "lastEventAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "totalEvents",
+              "totalThrottled",
+              "totalDropped",
+              "totalFailures"
+            ],
+            "properties": {
+              "totalEvents": {
+                "type": "integer"
+              },
+              "totalThrottled": {
+                "type": "integer"
+              },
+              "totalDropped": {
+                "type": "integer"
+              },
+              "totalFailures": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/StreamingMirrorPublisherStatus.json"
+      },
+      "def-99": {
+        "type": "object",
+        "required": [
           "enabled",
           "state",
           "reason",
@@ -35851,11 +37402,445 @@
                 "type": "boolean"
               }
             }
+          },
+          "publisher": {
+            "type": "object",
+            "required": [
+              "configured",
+              "lastSuccessAt",
+              "lastFailureAt",
+              "failureCount",
+              "lastError",
+              "broker",
+              "topics",
+              "sources",
+              "summary"
+            ],
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "lastSuccessAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "lastFailureAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "failureCount": {
+                "type": "integer"
+              },
+              "lastError": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "broker": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "topics": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "topic",
+                    "lastSuccessAt",
+                    "lastFailureAt",
+                    "failureCount",
+                    "lastError"
+                  ],
+                  "properties": {
+                    "topic": {
+                      "type": "string"
+                    },
+                    "lastSuccessAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastFailureAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "failureCount": {
+                      "type": "integer"
+                    },
+                    "lastError": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "source",
+                    "total",
+                    "throttled",
+                    "dropped",
+                    "failures",
+                    "averageLagMs",
+                    "lastLagMs",
+                    "maxLagMs",
+                    "lastEventAt"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "throttled": {
+                      "type": "integer"
+                    },
+                    "dropped": {
+                      "type": "integer"
+                    },
+                    "failures": {
+                      "type": "integer"
+                    },
+                    "averageLagMs": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "lastLagMs": {
+                      "type": "integer"
+                    },
+                    "maxLagMs": {
+                      "type": "integer"
+                    },
+                    "lastEventAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  }
+                }
+              },
+              "summary": {
+                "type": "object",
+                "required": [
+                  "totalEvents",
+                  "totalThrottled",
+                  "totalDropped",
+                  "totalFailures"
+                ],
+                "properties": {
+                  "totalEvents": {
+                    "type": "integer"
+                  },
+                  "totalThrottled": {
+                    "type": "integer"
+                  },
+                  "totalDropped": {
+                    "type": "integer"
+                  },
+                  "totalFailures": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
           }
         },
         "title": "https://core.apphub/schemas/StreamingStatus.json"
       },
-      "def-96": {
+      "def-100": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "active",
+          "deprecated"
+        ],
+        "title": "https://core.apphub/schemas/EventSchemaStatus.json"
+      },
+      "def-101": {
+        "type": "object",
+        "required": [
+          "eventType",
+          "version",
+          "status",
+          "schemaHash",
+          "schema",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "eventType": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          },
+          "schemaHash": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "https://core.apphub/schemas/EventSchema.json"
+      },
+      "def-102": {
+        "type": "object",
+        "required": [
+          "schemas"
+        ],
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "eventType",
+                "version",
+                "status",
+                "schemaHash",
+                "schema",
+                "createdAt",
+                "updatedAt"
+              ],
+              "properties": {
+                "eventType": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "active",
+                    "deprecated"
+                  ]
+                },
+                "schemaHash": {
+                  "type": "string"
+                },
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "metadata": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": true
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "createdBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/EventSchemaListResponse.json"
+      },
+      "def-103": {
+        "type": "object",
+        "required": [
+          "eventType",
+          "schema"
+        ],
+        "properties": {
+          "eventType": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "https://core.apphub/schemas/EventSchemaRegisterRequest.json"
+      },
+      "def-104": {
+        "type": "object",
+        "required": [
+          "schema"
+        ],
+        "properties": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "eventType",
+              "version",
+              "status",
+              "schemaHash",
+              "schema",
+              "createdAt",
+              "updatedAt"
+            ],
+            "properties": {
+              "eventType": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "deprecated"
+                ]
+              },
+              "schemaHash": {
+                "type": "string"
+              },
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "metadata": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": true
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "createdBy": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedBy": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "title": "https://core.apphub/schemas/EventSchemaRegisterResponse.json"
+      },
+      "def-105": {
         "type": "object",
         "required": [
           "status",
@@ -36117,6 +38102,179 @@
                         "type": "boolean"
                       }
                     }
+                  },
+                  "publisher": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "lastSuccessAt",
+                      "lastFailureAt",
+                      "failureCount",
+                      "lastError",
+                      "broker",
+                      "topics",
+                      "sources",
+                      "summary"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "lastSuccessAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastFailureAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "failureCount": {
+                        "type": "integer"
+                      },
+                      "lastError": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "broker": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        }
+                      },
+                      "topics": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "topic",
+                            "lastSuccessAt",
+                            "lastFailureAt",
+                            "failureCount",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "topic": {
+                              "type": "string"
+                            },
+                            "lastSuccessAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFailureAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "failureCount": {
+                              "type": "integer"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "sources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "total",
+                            "throttled",
+                            "dropped",
+                            "failures",
+                            "averageLagMs",
+                            "lastLagMs",
+                            "maxLagMs",
+                            "lastEventAt"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "total": {
+                              "type": "integer"
+                            },
+                            "throttled": {
+                              "type": "integer"
+                            },
+                            "dropped": {
+                              "type": "integer"
+                            },
+                            "failures": {
+                              "type": "integer"
+                            },
+                            "averageLagMs": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ]
+                            },
+                            "lastLagMs": {
+                              "type": "integer"
+                            },
+                            "maxLagMs": {
+                              "type": "integer"
+                            },
+                            "lastEventAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            }
+                          }
+                        }
+                      },
+                      "summary": {
+                        "type": "object",
+                        "required": [
+                          "totalEvents",
+                          "totalThrottled",
+                          "totalDropped",
+                          "totalFailures"
+                        ],
+                        "properties": {
+                          "totalEvents": {
+                            "type": "integer"
+                          },
+                          "totalThrottled": {
+                            "type": "integer"
+                          },
+                          "totalDropped": {
+                            "type": "integer"
+                          },
+                          "totalFailures": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -36125,7 +38283,7 @@
         },
         "title": "https://core.apphub/schemas/HealthResponse.json"
       },
-      "def-97": {
+      "def-106": {
         "type": "object",
         "required": [
           "status",
@@ -36387,6 +38545,179 @@
                         "type": "boolean"
                       }
                     }
+                  },
+                  "publisher": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "lastSuccessAt",
+                      "lastFailureAt",
+                      "failureCount",
+                      "lastError",
+                      "broker",
+                      "topics",
+                      "sources",
+                      "summary"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "lastSuccessAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastFailureAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "failureCount": {
+                        "type": "integer"
+                      },
+                      "lastError": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "broker": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        }
+                      },
+                      "topics": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "topic",
+                            "lastSuccessAt",
+                            "lastFailureAt",
+                            "failureCount",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "topic": {
+                              "type": "string"
+                            },
+                            "lastSuccessAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFailureAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "failureCount": {
+                              "type": "integer"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "sources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "total",
+                            "throttled",
+                            "dropped",
+                            "failures",
+                            "averageLagMs",
+                            "lastLagMs",
+                            "maxLagMs",
+                            "lastEventAt"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "total": {
+                              "type": "integer"
+                            },
+                            "throttled": {
+                              "type": "integer"
+                            },
+                            "dropped": {
+                              "type": "integer"
+                            },
+                            "failures": {
+                              "type": "integer"
+                            },
+                            "averageLagMs": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ]
+                            },
+                            "lastLagMs": {
+                              "type": "integer"
+                            },
+                            "maxLagMs": {
+                              "type": "integer"
+                            },
+                            "lastEventAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            }
+                          }
+                        }
+                      },
+                      "summary": {
+                        "type": "object",
+                        "required": [
+                          "totalEvents",
+                          "totalThrottled",
+                          "totalDropped",
+                          "totalFailures"
+                        ],
+                        "properties": {
+                          "totalEvents": {
+                            "type": "integer"
+                          },
+                          "totalThrottled": {
+                            "type": "integer"
+                          },
+                          "totalDropped": {
+                            "type": "integer"
+                          },
+                          "totalFailures": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -36395,7 +38726,7 @@
         },
         "title": "https://core.apphub/schemas/HealthUnavailableResponse.json"
       },
-      "def-98": {
+      "def-107": {
         "type": "object",
         "required": [
           "status",
@@ -36657,6 +38988,179 @@
                         "type": "boolean"
                       }
                     }
+                  },
+                  "publisher": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "lastSuccessAt",
+                      "lastFailureAt",
+                      "failureCount",
+                      "lastError",
+                      "broker",
+                      "topics",
+                      "sources",
+                      "summary"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "lastSuccessAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastFailureAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "failureCount": {
+                        "type": "integer"
+                      },
+                      "lastError": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "broker": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        }
+                      },
+                      "topics": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "topic",
+                            "lastSuccessAt",
+                            "lastFailureAt",
+                            "failureCount",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "topic": {
+                              "type": "string"
+                            },
+                            "lastSuccessAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFailureAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "failureCount": {
+                              "type": "integer"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "sources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "total",
+                            "throttled",
+                            "dropped",
+                            "failures",
+                            "averageLagMs",
+                            "lastLagMs",
+                            "maxLagMs",
+                            "lastEventAt"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "total": {
+                              "type": "integer"
+                            },
+                            "throttled": {
+                              "type": "integer"
+                            },
+                            "dropped": {
+                              "type": "integer"
+                            },
+                            "failures": {
+                              "type": "integer"
+                            },
+                            "averageLagMs": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ]
+                            },
+                            "lastLagMs": {
+                              "type": "integer"
+                            },
+                            "maxLagMs": {
+                              "type": "integer"
+                            },
+                            "lastEventAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            }
+                          }
+                        }
+                      },
+                      "summary": {
+                        "type": "object",
+                        "required": [
+                          "totalEvents",
+                          "totalThrottled",
+                          "totalDropped",
+                          "totalFailures"
+                        ],
+                        "properties": {
+                          "totalEvents": {
+                            "type": "integer"
+                          },
+                          "totalThrottled": {
+                            "type": "integer"
+                          },
+                          "totalDropped": {
+                            "type": "integer"
+                          },
+                          "totalFailures": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -36665,7 +39169,7 @@
         },
         "title": "https://core.apphub/schemas/ReadyResponse.json"
       },
-      "def-99": {
+      "def-108": {
         "type": "object",
         "required": [
           "status",
@@ -36927,6 +39431,179 @@
                         "type": "boolean"
                       }
                     }
+                  },
+                  "publisher": {
+                    "type": "object",
+                    "required": [
+                      "configured",
+                      "lastSuccessAt",
+                      "lastFailureAt",
+                      "failureCount",
+                      "lastError",
+                      "broker",
+                      "topics",
+                      "sources",
+                      "summary"
+                    ],
+                    "properties": {
+                      "configured": {
+                        "type": "boolean"
+                      },
+                      "lastSuccessAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "lastFailureAt": {
+                        "type": [
+                          "null",
+                          "string"
+                        ],
+                        "format": "date-time"
+                      },
+                      "failureCount": {
+                        "type": "integer"
+                      },
+                      "lastError": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "broker": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        }
+                      },
+                      "topics": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "topic",
+                            "lastSuccessAt",
+                            "lastFailureAt",
+                            "failureCount",
+                            "lastError"
+                          ],
+                          "properties": {
+                            "topic": {
+                              "type": "string"
+                            },
+                            "lastSuccessAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "lastFailureAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
+                            "failureCount": {
+                              "type": "integer"
+                            },
+                            "lastError": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "sources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "total",
+                            "throttled",
+                            "dropped",
+                            "failures",
+                            "averageLagMs",
+                            "lastLagMs",
+                            "maxLagMs",
+                            "lastEventAt"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "total": {
+                              "type": "integer"
+                            },
+                            "throttled": {
+                              "type": "integer"
+                            },
+                            "dropped": {
+                              "type": "integer"
+                            },
+                            "failures": {
+                              "type": "integer"
+                            },
+                            "averageLagMs": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ]
+                            },
+                            "lastLagMs": {
+                              "type": "integer"
+                            },
+                            "maxLagMs": {
+                              "type": "integer"
+                            },
+                            "lastEventAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            }
+                          }
+                        }
+                      },
+                      "summary": {
+                        "type": "object",
+                        "required": [
+                          "totalEvents",
+                          "totalThrottled",
+                          "totalDropped",
+                          "totalFailures"
+                        ],
+                        "properties": {
+                          "totalEvents": {
+                            "type": "integer"
+                          },
+                          "totalThrottled": {
+                            "type": "integer"
+                          },
+                          "totalDropped": {
+                            "type": "integer"
+                          },
+                          "totalFailures": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -36935,7 +39612,7 @@
         },
         "title": "https://core.apphub/schemas/ReadyUnavailableResponse.json"
       },
-      "def-100": {
+      "def-109": {
         "type": "object",
         "required": [
           "error"
@@ -37036,7 +39713,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-96"
+                  "$ref": "#/components/schemas/def-105"
                 }
               }
             }
@@ -37046,7 +39723,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-97"
+                  "$ref": "#/components/schemas/def-106"
                 }
               }
             }
@@ -37067,7 +39744,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-98"
+                  "$ref": "#/components/schemas/def-107"
                 }
               }
             }
@@ -37077,7 +39754,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-99"
+                  "$ref": "#/components/schemas/def-108"
                 }
               }
             }
@@ -37137,7 +39814,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37147,7 +39824,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37157,7 +39834,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37208,7 +39885,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37218,7 +39895,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37228,7 +39905,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37238,7 +39915,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37300,7 +39977,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37310,7 +39987,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37346,7 +40023,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37356,7 +40033,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37366,7 +40043,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37440,7 +40117,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37450,7 +40127,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37460,7 +40137,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37470,7 +40147,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37517,7 +40194,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37527,7 +40204,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37537,7 +40214,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37547,7 +40224,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37557,7 +40234,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37641,7 +40318,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37651,7 +40328,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37661,7 +40338,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37671,7 +40348,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37681,7 +40358,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37712,7 +40389,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37823,7 +40500,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37833,7 +40510,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37843,7 +40520,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37899,7 +40576,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37909,7 +40586,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37919,7 +40596,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37929,7 +40606,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37939,7 +40616,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -37949,7 +40626,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38062,7 +40739,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38072,7 +40749,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38082,7 +40759,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38148,7 +40825,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38158,7 +40835,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38168,7 +40845,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38178,7 +40855,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38235,7 +40912,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38245,7 +40922,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38255,7 +40932,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38265,7 +40942,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38380,7 +41057,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38390,7 +41067,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38400,7 +41077,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38410,7 +41087,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38451,7 +41128,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38461,7 +41138,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38471,7 +41148,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38527,7 +41204,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38537,7 +41214,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38547,7 +41224,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38557,7 +41234,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38567,7 +41244,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38577,7 +41254,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38587,7 +41264,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38597,7 +41274,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38653,7 +41330,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38663,7 +41340,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38673,7 +41350,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38683,7 +41360,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38693,7 +41370,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38703,7 +41380,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38713,7 +41390,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38769,7 +41446,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38779,7 +41456,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38789,7 +41466,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38799,7 +41476,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -38809,7 +41486,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39218,7 +41895,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39228,7 +41905,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39238,7 +41915,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39289,7 +41966,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39323,7 +42000,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39333,7 +42010,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39343,7 +42020,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39353,7 +42030,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39363,7 +42040,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39636,7 +42313,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39646,7 +42323,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39804,7 +42481,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39814,7 +42491,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39824,7 +42501,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -39834,7 +42511,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40106,7 +42783,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40171,7 +42848,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40181,7 +42858,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40191,7 +42868,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40201,7 +42878,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40211,7 +42888,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40275,7 +42952,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40285,7 +42962,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40295,7 +42972,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40305,7 +42982,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40315,7 +42992,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40378,7 +43055,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40487,7 +43164,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40497,7 +43174,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40507,7 +43184,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40517,7 +43194,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40688,7 +43365,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40698,7 +43375,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40708,7 +43385,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40718,7 +43395,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40728,7 +43405,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40833,7 +43510,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40843,7 +43520,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40853,7 +43530,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40863,7 +43540,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40873,7 +43550,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -40883,7 +43560,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41574,7 +44251,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41612,7 +44289,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41654,7 +44331,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41664,7 +44341,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41906,7 +44583,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41916,7 +44593,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41926,7 +44603,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41969,7 +44646,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41979,7 +44656,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41989,7 +44666,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -41999,7 +44676,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42046,7 +44723,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42056,7 +44733,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42066,7 +44743,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42076,7 +44753,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42130,7 +44807,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42140,7 +44817,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42150,7 +44827,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42160,7 +44837,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42205,7 +44882,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42215,7 +44892,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42225,7 +44902,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42235,7 +44912,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42282,7 +44959,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42292,7 +44969,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42302,7 +44979,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42312,7 +44989,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42359,7 +45036,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42369,7 +45046,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42379,7 +45056,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42389,7 +45066,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42425,7 +45102,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42435,7 +45112,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42478,7 +45155,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42488,7 +45165,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42498,7 +45175,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42508,7 +45185,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42555,7 +45232,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42565,7 +45242,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42575,7 +45252,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42585,7 +45262,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42639,7 +45316,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42649,7 +45326,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42659,7 +45336,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42669,7 +45346,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42679,7 +45356,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42724,7 +45401,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42734,7 +45411,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42744,7 +45421,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42754,7 +45431,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42801,7 +45478,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42811,7 +45488,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42821,7 +45498,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42831,7 +45508,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42878,7 +45555,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42888,7 +45565,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42898,7 +45575,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
@@ -42908,10 +45585,45 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/def-100"
+                  "$ref": "#/components/schemas/def-109"
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/admin/event-schemas": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "post": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/admin/event-schemas/{eventType}/latest": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "eventType",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }

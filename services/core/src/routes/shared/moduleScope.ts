@@ -117,10 +117,9 @@ async function loadModuleResources(
     if (!record) {
       throw new ModuleScopeError(404, `Module not found: ${moduleId}`);
     }
-    const contexts = await listModuleResourceContextsForModule(moduleId, {});
-    for (const context of contexts) {
-      const resourceType = context.resourceType as ModuleResourceType;
-      if (!typeSet.has(resourceType)) {
+    for (const resourceType of typeSet) {
+      const contexts = await listModuleResourceContextsForModule(moduleId, { resourceType });
+      if (contexts.length === 0) {
         continue;
       }
       let entry = resources.get(resourceType);
@@ -128,15 +127,17 @@ async function loadModuleResources(
         entry = { ids: new Set<string>(), slugs: new Set<string>(), slugLookup: new Set<string>() } satisfies ResourceEntry;
         resources.set(resourceType, entry);
       }
-      const normalizedId = context.resourceId.trim();
-      if (normalizedId) {
-        entry.ids.add(normalizedId);
-      }
-      if (context.resourceSlug) {
-        const slug = context.resourceSlug.trim();
-        if (slug) {
-          entry.slugs.add(slug);
-          entry.slugLookup.add(slug.toLowerCase());
+      for (const context of contexts) {
+        const normalizedId = context.resourceId.trim();
+        if (normalizedId) {
+          entry.ids.add(normalizedId);
+        }
+        if (context.resourceSlug) {
+          const slug = context.resourceSlug.trim();
+          if (slug) {
+            entry.slugs.add(slug);
+            entry.slugLookup.add(slug.toLowerCase());
+          }
         }
       }
     }
