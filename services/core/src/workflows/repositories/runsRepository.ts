@@ -1896,3 +1896,41 @@ export async function updateWorkflowRunAndSteps(
 
   return { run, steps };
 }
+
+export async function backfillWorkflowRunModuleContextsForDefinition(
+  workflowDefinitionId: string
+): Promise<number> {
+  const batchSize = 200;
+  let offset = 0;
+  let processed = 0;
+
+  while (true) {
+    const rows = await useConnection((client) =>
+      client
+        .query<WorkflowRunRow>(
+          `SELECT *
+             FROM workflow_runs
+            WHERE workflow_definition_id = $1
+            ORDER BY created_at ASC, id ASC
+            LIMIT $2
+            OFFSET $3`,
+          [workflowDefinitionId, batchSize, offset]
+        )
+        .then((result) => result.rows)
+    );
+
+    if (rows.length === 0) {
+      break;
+    }
+
+    const runs = rows.map(mapWorkflowRunRow);
+    for (const run of runs) {
+      await syncWorkflowRunModuleContext(run);
+    }
+
+    processed += rows.length;
+    offset += rows.length;
+  }
+
+  return processed;
+}

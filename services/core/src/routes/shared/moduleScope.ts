@@ -5,6 +5,10 @@ import {
   listModuleResourceContextsForModule
 } from '../../db';
 import type { ModuleResourceType } from '../../db/types';
+import type { ModuleTargetRow } from '../../db/rowTypes';
+import { useConnection } from '../../db/utils';
+import { mapModuleTargetRow } from '../../db/rowMappers';
+import { getWorkflowDefinitionBySlug } from '../../workflows/repositories/definitionsRepository';
 
 const moduleIdSchema = z
   .union([z.string(), z.array(z.string())])
@@ -136,9 +140,78 @@ async function loadModuleResources(
         }
       }
     }
+
+    if (typeSet.has('workflow-definition')) {
+      let entry = resources.get('workflow-definition');
+      if (!entry || entry.ids.size === 0) {
+        const fallbacks = await loadWorkflowDefinitionsFromTargets(moduleId);
+        if (fallbacks.length > 0) {
+          if (!entry) {
+            entry = {
+              ids: new Set<string>(),
+              slugs: new Set<string>(),
+              slugLookup: new Set<string>()
+            } satisfies ResourceEntry;
+            resources.set('workflow-definition', entry);
+          }
+          for (const def of fallbacks) {
+            entry.ids.add(def.id);
+            entry.slugs.add(def.slug);
+            entry.slugLookup.add(def.slug.toLowerCase());
+          }
+        }
+      }
+    }
   }
 
   return resources;
+}
+
+async function loadWorkflowDefinitionsFromTargets(
+  moduleId: string
+): Promise<Array<{ id: string; slug: string }>> {
+  const { rows } = await useConnection((client) =>
+    client.query<ModuleTargetRow>(
+      `SELECT *
+         FROM module_targets
+        WHERE module_id = $1
+          AND target_kind = 'workflow'
+        ORDER BY target_name ASC`,
+      [moduleId]
+    )
+  );
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const slugPromises = rows.map(async (row) => {
+    const mapped = mapModuleTargetRow(row);
+    const workflowMetadata = mapped.metadata?.workflow;
+    const definitionMetadata =
+      workflowMetadata && typeof workflowMetadata === 'object'
+        ? (workflowMetadata as Record<string, unknown>).definition
+        : null;
+    const slugValue =
+      definitionMetadata && typeof definitionMetadata === 'object'
+        ? (definitionMetadata as Record<string, unknown>).slug
+        : undefined;
+    const slug =
+      typeof slugValue === 'string' && slugValue.trim().length > 0
+        ? slugValue.trim()
+        : mapped.name.trim();
+    if (!slug) {
+      return null;
+    }
+    const definition = await getWorkflowDefinitionBySlug(slug);
+    if (!definition) {
+      return null;
+    }
+    return { id: definition.id, slug: definition.slug };
+  });
+
+  const resolved = await Promise.all(slugPromises);
+  return resolved.filter((entry): entry is { id: string; slug: string } => entry !== null);
 }
 
 function matchesResource(

@@ -164,8 +164,8 @@ function appendArray(values: string[] | undefined, key: string, query: URLSearch
     return;
   }
   const unique = Array.from(new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)));
-  for (const entry of unique) {
-    query.append(key, entry);
+  if (unique.length > 0) {
+    query.set(key, unique.join(','));
   }
 }
 

@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { JSX } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { PRIMARY_NAV_ITEMS, type PrimaryNavKey } from '../routes/paths';
@@ -316,6 +317,7 @@ function ModuleSwitcher({
           loadingModules={loadingModules}
           modulesError={modulesError}
           onSelect={handleSelect}
+          onDismiss={closePopover}
         />
       )}
       {loadingModules && variant === 'overlay' && (
@@ -333,22 +335,110 @@ type ModuleScopePopoverProps = {
   loadingModules: boolean;
   modulesError: string | null;
   onSelect: (moduleId: string | null) => void;
+  onDismiss: () => void;
 };
 
 const ModuleScopePopover = forwardRef<HTMLDivElement, ModuleScopePopoverProps>(
-  function ModuleScopePopover({ variant, modules, moduleId, moduleVersion, loadingModules, modulesError, onSelect }, ref) {
+  function ModuleScopePopover(
+    { variant, modules, moduleId, moduleVersion, loadingModules, modulesError, onSelect, onDismiss },
+    ref
+  ) {
     const activeModule = moduleId ? modules.find((entry) => entry.id === moduleId) ?? null : null;
-    const placementClasses =
-      variant === 'sidebar'
-        ? 'absolute left-full top-1/2 ml-4 -translate-y-1/2'
-        : 'absolute right-0 top-full mt-3';
+    const renderOptions = () => (
+      <div role="menu" aria-orientation="vertical">
+        {loadingModules && (
+          <p className="px-3 text-scale-xs text-muted">Loading modules…</p>
+        )}
+        <ModuleScopeOption
+          variant={variant}
+          label="All modules"
+          description="Show data across every module."
+          isActive={!moduleId}
+          onSelect={() => {
+            onSelect(null);
+            if (variant === 'overlay') {
+              onDismiss();
+            }
+          }}
+        />
+        {modulesError && (
+          <p className="mt-3 px-3 text-scale-xs text-danger" role="status">
+            {modulesError}
+          </p>
+        )}
+        {modules.map((module) => (
+          <ModuleScopeOption
+            key={module.id}
+            variant={variant}
+            label={module.displayName ?? module.id}
+            description={module.description ?? undefined}
+            meta={module.latestVersion ? `Version ${module.latestVersion}` : undefined}
+            isActive={moduleId === module.id}
+            onSelect={() => {
+              onSelect(module.id);
+              if (variant === 'overlay') {
+                onDismiss();
+              }
+            }}
+          />
+        ))}
+        {modules.length === 0 && !modulesError && (
+          <p className="mt-3 text-scale-xs text-muted">No modules available.</p>
+        )}
+      </div>
+    );
+
+    if (variant === 'overlay') {
+      const overlayContent = (
+        <div className="fixed inset-0 z-[80] flex items-start justify-center px-4 py-16">
+          <div
+            className="absolute inset-0 bg-surface-sunken/60 backdrop-blur-sm"
+            aria-hidden="true"
+            onClick={onDismiss}
+          />
+          <div
+            ref={ref}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Select module scope"
+            className="relative z-10 w-full max-w-lg rounded-3xl border border-subtle bg-surface-base p-6 text-left shadow-elevation-2xl"
+          >
+            <header className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-scale-sm font-weight-semibold text-primary">Choose a module</h2>
+                <p className="text-scale-xs text-secondary">
+                  Filter the workspace by a specific module or view everything across AppHub.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-transparent bg-surface-muted p-2 text-muted transition-colors hover:border-accent-soft hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                onClick={onDismiss}
+                aria-label="Close module selector"
+              >
+                <CloseIcon className="h-4 w-4" />
+              </button>
+            </header>
+            <div className="max-h-[60vh] overflow-y-auto pr-2">
+              {renderOptions()}
+            </div>
+          </div>
+        </div>
+      );
+
+      if (typeof document !== 'undefined') {
+        return createPortal(overlayContent, document.body);
+      }
+
+      return overlayContent;
+    }
 
     return (
       <div
         ref={ref}
         role="dialog"
         aria-label="Module scope options"
-        className={`${placementClasses} z-20 w-72 max-w-[18rem] rounded-2xl border border-subtle bg-surface-base p-4 text-left shadow-elevation-xl`}
+        className="absolute left-full top-1/2 z-20 ml-4 w-72 max-w-[18rem] -translate-y-1/2 rounded-2xl border border-subtle bg-surface-base p-4 text-left shadow-elevation-xl"
       >
         <div className="flex flex-col gap-1 border-b border-subtle pb-3">
           <span className="text-scale-2xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
@@ -364,35 +454,7 @@ const ModuleScopePopover = forwardRef<HTMLDivElement, ModuleScopePopoverProps>(
             <p className="text-scale-xs text-secondary">{activeModule.description}</p>
           )}
         </div>
-        <div className="mt-3 max-h-72 overflow-y-auto pr-1" role="menu" aria-orientation="vertical">
-          {loadingModules && (
-            <p className="px-3 text-scale-xs text-muted">Loading modules…</p>
-          )}
-          <ModuleScopeOption
-            label="All modules"
-            description="Show data across every module."
-            isActive={!moduleId}
-            onSelect={() => onSelect(null)}
-          />
-          {modulesError && (
-            <p className="mt-3 px-3 text-scale-xs text-danger" role="status">
-              {modulesError}
-            </p>
-          )}
-          {modules.map((module) => (
-            <ModuleScopeOption
-              key={module.id}
-              label={module.displayName ?? module.id}
-              description={module.description ?? undefined}
-              meta={module.latestVersion ? `Version ${module.latestVersion}` : undefined}
-              isActive={moduleId === module.id}
-              onSelect={() => onSelect(module.id)}
-            />
-          ))}
-          {modules.length === 0 && !modulesError && (
-            <p className="mt-3 text-scale-xs text-muted">No modules available.</p>
-          )}
-        </div>
+        <div className="mt-3 max-h-72 overflow-y-auto pr-1">{renderOptions()}</div>
       </div>
     );
   }
@@ -404,20 +466,30 @@ type ModuleScopeOptionProps = {
   meta?: string;
   isActive: boolean;
   onSelect: () => void;
+  variant: 'sidebar' | 'overlay';
 };
 
-function ModuleScopeOption({ label, description, meta, isActive, onSelect }: ModuleScopeOptionProps) {
+function ModuleScopeOption({ label, description, meta, isActive, onSelect, variant }: ModuleScopeOptionProps) {
+  const activeClasses =
+    variant === 'overlay'
+      ? 'bg-accent-soft/50 text-primary ring-1 ring-accent'
+      : 'bg-accent-soft text-primary ring-1 ring-accent';
+  const baseClasses =
+    'mt-2 w-full rounded-xl border border-transparent px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
   return (
     <button
       type="button"
       role="menuitemradio"
       aria-checked={isActive}
       onClick={onSelect}
-      className={`mt-2 w-full rounded-xl border border-transparent px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
-        isActive ? 'bg-accent-soft text-primary ring-1 ring-accent' : 'hover:border-accent-soft hover:bg-surface-muted text-primary'
+      className={`${baseClasses} ${
+        isActive ? activeClasses : 'text-primary hover:border-accent-soft hover:bg-surface-muted'
       }`}
     >
-      <span className="block text-scale-sm font-weight-semibold">{label}</span>
+      <div className="flex items-center justify-between gap-3">
+        <span className="block text-scale-sm font-weight-semibold">{label}</span>
+        {isActive && <CheckIcon className="h-4 w-4 text-accent" />}
+      </div>
       {meta && <span className="block text-scale-2xs text-muted">{meta}</span>}
       {description && <p className="mt-1 text-scale-xs text-secondary">{description}</p>}
     </button>
@@ -477,6 +549,42 @@ function ChevronIcon({ className }: IconProps) {
       strokeLinejoin="round"
     >
       <path d="M3 4.5 6 7.5l3-3" />
+    </svg>
+  );
+}
+
+function CloseIcon({ className }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className={className}
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 3l6 6M9 3 3 9" />
+    </svg>
+  );
+}
+
+function CheckIcon({ className }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className={className}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m3.5 8.5 3 3 6-6" />
     </svg>
   );
 }

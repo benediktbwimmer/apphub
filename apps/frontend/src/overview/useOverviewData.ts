@@ -42,7 +42,8 @@ export function useOverviewData(): LoadState {
     kind: moduleScopeKind,
     loadingResources: moduleLoadingResources,
     getResourceSlugs,
-    getResourceIds
+    getResourceIds,
+    isResourceInScope
   } = moduleScope;
   const isModuleScoped = moduleScopeKind === 'module';
   const [data, setData] = useState<OverviewData>(EMPTY_DATA);
@@ -67,8 +68,13 @@ export function useOverviewData(): LoadState {
       setError(null);
 
       const scopedWorkflowSlugs = isModuleScoped ? getResourceSlugs('workflow-definition') : [];
+      const scopedWorkflowIds = isModuleScoped ? getResourceIds('workflow-definition') : [];
       const scopedJobSlugs = isModuleScoped ? getResourceSlugs('job-definition') : [];
+      const scopedJobIds = isModuleScoped ? getResourceIds('job-definition') : [];
       const scopedServiceIds = isModuleScoped ? getResourceIds('service') : [];
+      const workflowScopeAvailable = isModuleScoped && (scopedWorkflowSlugs.length > 0 || scopedWorkflowIds.length > 0);
+      const jobScopeAvailable = isModuleScoped && (scopedJobSlugs.length > 0 || scopedJobIds.length > 0);
+      const serviceScopeAvailable = isModuleScoped && scopedServiceIds.length > 0;
 
       const results = await Promise.allSettled([
         (async () => {
@@ -77,46 +83,56 @@ export function useOverviewData(): LoadState {
         })(),
         (async () => {
           const services = await listServices(authToken);
-          if (!isModuleScoped) {
+          if (!isModuleScoped || !serviceScopeAvailable) {
             return services;
-          }
-          if (scopedServiceIds.length === 0) {
-            return [];
           }
           const idSet = new Set(scopedServiceIds);
           return services.filter((service) => idSet.has(service.id));
         })(),
         (async () => {
-          if (isModuleScoped && scopedWorkflowSlugs.length === 0) {
-            return [] as WorkflowActivityRunEntry[];
-          }
           const workflowFilters: WorkflowActivityFilters = {
             kinds: ['run'],
-            workflowSlugs: isModuleScoped ? scopedWorkflowSlugs : undefined,
+            workflowSlugs: isModuleScoped && scopedWorkflowSlugs.length > 0 ? scopedWorkflowSlugs : undefined,
             moduleId: isModuleScoped ? moduleScope.moduleId : undefined
           };
           const { items } = await fetchWorkflowActivity(authToken, {
             limit: 12,
             filters: workflowFilters
           });
-          return items.filter((entry): entry is WorkflowActivityRunEntry => entry.kind === 'run');
+          const runs = items.filter((entry): entry is WorkflowActivityRunEntry => entry.kind === 'run');
+          if (!workflowScopeAvailable) {
+            return runs;
+          }
+          return runs.filter((entry) => {
+            const slug = entry.workflow.slug;
+            const id = entry.workflow.id;
+            return (
+              isResourceInScope('workflow-definition', slug) ||
+              isResourceInScope('workflow-definition', id)
+            );
+          });
         })(),
         (async () => {
-          if (isModuleScoped && scopedJobSlugs.length === 0) {
-            return [] as JobRunListItem[];
-          }
           const jobFilters = isModuleScoped
-            ? { jobSlugs: scopedJobSlugs, moduleId: moduleScope.moduleId ?? undefined }
+            ? {
+                jobSlugs: scopedJobSlugs.length > 0 ? scopedJobSlugs : undefined,
+                moduleId: moduleScope.moduleId ?? undefined
+              }
             : undefined;
           const { items } = await fetchJobRuns(authToken, {
             limit: 5,
             filters: jobFilters
           });
-          if (!isModuleScoped) {
+          if (!jobScopeAvailable) {
             return items;
           }
-          const slugSet = new Set(scopedJobSlugs.map((slug) => slug.toLowerCase()));
-          return items.filter((item) => slugSet.has(item.job.slug.toLowerCase()));
+          return items.filter((item) => {
+            const slug = item.job.slug;
+            const id = item.job.id;
+            return (
+              isResourceInScope('job-definition', slug) || isResourceInScope('job-definition', id)
+            );
+          });
         })()
       ]);
 
@@ -168,7 +184,15 @@ export function useOverviewData(): LoadState {
     return () => {
       active = false;
     };
-  }, [authToken, getResourceIds, getResourceSlugs, isModuleScoped, moduleLoadingResources, moduleScope.moduleId]);
+  }, [
+    authToken,
+    getResourceIds,
+    getResourceSlugs,
+    isModuleScoped,
+    isResourceInScope,
+    moduleLoadingResources,
+    moduleScope.moduleId
+  ]);
 
   return useMemo(() => ({ data, loading, error }), [data, loading, error]);
 }
