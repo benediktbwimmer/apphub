@@ -27,12 +27,23 @@ apphub/
 
 ### Quick Start
 
+AppHub provides two development modes:
+
+**Local Development (Recommended for development)**
 ```bash
 npm install
-npm run dev
+npm run local-dev
 ```
 
-The dev runner provisions PostgreSQL and MinIO containers, launches Redis, and starts the core services plus the frontend. Modules are no longer published automatically; load the Environmental Observatory bundle after the stack settles:
+**Docker-based Development (Uses containers for dependencies)**
+```bash
+npm install
+npm run docker-dev
+```
+
+The local runner uses native PostgreSQL and Redis installations when available, or falls back to embedded instances. The docker runner provisions PostgreSQL and MinIO containers, launches Redis, and starts the core services plus the frontend.
+
+Both runners start the core services plus the frontend. Modules are no longer published automatically; load the Environmental Observatory bundle after the stack settles:
 
 ```bash
 npm run dev:observatory
@@ -556,24 +567,39 @@ sync declarative definitions into the registry.
 
 ### Run Everything Locally
 
-From the repository root you can start Redis, the core API, the ingestion worker, and the frontend dev server in a single command:
+From the repository root you can start all services in a single command using one of two modes:
 
+**Local Development Mode (Recommended)**
 ```bash
 npm install
-npm run dev
+npm run local-dev
 ```
 
-This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis`). The script launches:
-- Redis (`redis-server --save "" --appendonly no`)
+This mode uses native local services when available:
+- Automatically starts PostgreSQL and Redis if not already running
+- Uses local file storage instead of MinIO
+- Falls back to embedded PostgreSQL instances if native PostgreSQL is not installed
+- Requires `redis-server` binary on your `$PATH` (macOS: `brew install redis`)
+- For best performance, install PostgreSQL locally
+
+**Docker Development Mode**
+```bash
+npm install
+npm run docker-dev
+```
+
+This mode uses Docker containers for dependencies:
+- Provisions PostgreSQL and MinIO containers
+- Launches Redis container
+- Requires Docker to be installed and running
+
+Both modes launch:
 - Core API on `http://127.0.0.1:4000`
-- Ingestion worker
-- Service orchestrator (`npm run dev:services`) that spawns the dev commands defined in the supplied manifest (defaults to the
-  environmental observatory module; pass manifest paths as CLI arguments to override)
+- All background workers (ingestion, builds, launches, workflows, etc.)
+- Service orchestrator that spawns dev commands from service manifests
 - Frontend on `http://localhost:5173`
 
-Ensure a PostgreSQL instance is reachable at the connection string in `DATABASE_URL` before launching the dev stack; the script does not start Postgres automatically.
-
-Stop the stack with `Ctrl+C`.
+Stop either stack with `Ctrl+C`.
 
 ### Docker Image
 

@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "prebuild": "node scripts/generate-openapi-clients.mjs",
-    "dev": "node scripts/dev-runner.js",
+    "docker-dev": "node scripts/dev-runner-docker.js",
+    "local-dev": "node scripts/dev-runner-local.js",
     "dev:minio": "node scripts/dev-minio.mjs",
     "test": "npm run test:workspaces",
     "test:workspaces": "npm run test --workspaces --if-present",
