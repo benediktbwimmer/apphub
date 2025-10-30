@@ -9,7 +9,10 @@
     "modules/*"
   ],
   "scripts": {
-    "prebuild": "node scripts/generate-openapi-clients.mjs",
+    "build": "node scripts/build-all.js build",
+    "test": "node scripts/build-all.js test",
+    "lint": "node scripts/build-all.js lint",
+    "build:with-openapi": "node scripts/generate-openapi-clients-safe.mjs && node scripts/build-all.js build",
     "docker-dev": "node scripts/dev-runner-docker.js",
     "local-dev": "node scripts/dev-runner-local.js",
     "dev:minio": "node scripts/dev-minio.mjs",
