@@ -111,7 +111,6 @@ async function loadSpec(name, specPath) {
   return document;
 }
 
-// Safe workspace build that doesn't trigger root build script
 async function ensureWorkspaceBuildSafe(workspace, outputCheckPaths = []) {
   if (!workspace) {
     return;
@@ -129,7 +128,6 @@ async function ensureWorkspaceBuildSafe(workspace, outputCheckPaths = []) {
     return;
   }
   
-  // Get workspace directory from workspace name
   const workspaceMap = {
     '@apphub/module-registry': 'packages/module-registry',
     '@apphub/module-sdk': 'packages/module-sdk', 
@@ -143,10 +141,8 @@ async function ensureWorkspaceBuildSafe(workspace, outputCheckPaths = []) {
     return;
   }
   
-  // eslint-disable-next-line no-console
   console.log(`Building workspace ${workspace} because ${unresolved.length} artifact(s) are missing...`);
   
-  // Run build directly in workspace directory to avoid root script
   execSync(`npm run build`, {
     cwd: path.join(rootDir, workspaceDir),
     stdio: 'inherit'
@@ -158,12 +154,10 @@ async function generateClient({ name, workspace, spec, output, clientName }) {
   const outputPath = path.resolve(rootDir, output);
 
   if (workspace) {
-    // eslint-disable-next-line no-console
     console.log(`Generating OpenAPI schema for ${workspace}...`);
     if (workspace === '@apphub/module-sdk') {
       // already handled explicitly below
     } else {
-      // Get workspace directory from workspace name
       const workspaceMap = {
         '@apphub/core': 'services/core',
         '@apphub/metastore': 'services/metastore',
@@ -173,7 +167,6 @@ async function generateClient({ name, workspace, spec, output, clientName }) {
       
       const workspaceDir = workspaceMap[workspace];
       if (workspaceDir) {
-        // Run build:openapi directly in workspace directory
         execSync('npm run build:openapi', {
           cwd: path.join(rootDir, workspaceDir),
           stdio: 'inherit'
@@ -211,7 +204,6 @@ async function main() {
   await ensureWorkspaceBuildSafe('@apphub/filestore-client', ['packages/filestore-client/dist/index.js']);
 
   for (const service of services) {
-    // eslint-disable-next-line no-console
     console.log(`Generating ${service.name} client...`);
     await generateClient(service);
   }

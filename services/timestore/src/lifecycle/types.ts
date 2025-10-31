@@ -11,7 +11,7 @@ import type {
 } from '../db/metadata';
 import type { ServiceConfig } from '../config/serviceConfig';
 
-export type LifecycleOperation = 'compaction' | 'retention';
+export type LifecycleOperation = 'compaction' | 'retention' | 'postgres_migration';
 
 export type LifecycleTrigger = 'schedule' | 'manual' | 'retry' | 'api';
 
@@ -69,7 +69,7 @@ export const retentionPolicySchema = z
   rules: retentionRuleSchema.default({}),
   deleteGraceMinutes: z.number().int().nonnegative().optional(),
   coldStorageAfterHours: z.number().int().positive().optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
   })
   .passthrough();
 
@@ -114,4 +114,24 @@ export function normalizeOperations(operations: LifecycleOperation[]): Lifecycle
     return ['compaction', 'retention'];
   }
   return normalized;
+}
+
+export interface PostgresMigrationConfig {
+  enabled: boolean;
+  batchSize: number;
+  maxAgeHours: number;
+  gracePeriodhours: number;
+  targetTable: string;
+  watermarkTable: string;
+}
+
+export function createDefaultPostgresMigrationConfig(): PostgresMigrationConfig {
+  return {
+    enabled: true,
+    batchSize: 10000,
+    maxAgeHours: 24 * 7,
+    gracePeriodhours: 24,
+    targetTable: 'migrated_data',
+    watermarkTable: 'migration_watermarks'
+  };
 }

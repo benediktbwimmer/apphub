@@ -45,7 +45,8 @@ const metricsState = {
   lastErrorAt: null as string | null,
   operationTotals: {
     compaction: defaultOperationTotals(),
-    retention: defaultOperationTotals()
+    retention: defaultOperationTotals(),
+    postgres_migration: defaultOperationTotals()
   } satisfies Record<LifecycleOperation, OperationTotals>,
   compactionChunks: [] as CompactionChunkSample[]
 };
@@ -102,7 +103,8 @@ export function captureLifecycleMetrics(): LifecycleMetricsSnapshot {
     lastErrorAt: metricsState.lastErrorAt,
     operationTotals: {
       compaction: { ...metricsState.operationTotals.compaction },
-      retention: { ...metricsState.operationTotals.retention }
+      retention: { ...metricsState.operationTotals.retention },
+      postgres_migration: { ...metricsState.operationTotals.postgres_migration }
     },
     compactionChunks: [...metricsState.compactionChunks]
   };
@@ -117,5 +119,6 @@ export function resetLifecycleMetrics(): void {
   metricsState.lastErrorAt = null;
   metricsState.operationTotals.compaction = defaultOperationTotals();
   metricsState.operationTotals.retention = defaultOperationTotals();
+  metricsState.operationTotals.postgres_migration = defaultOperationTotals();
   metricsState.compactionChunks = [];
 }

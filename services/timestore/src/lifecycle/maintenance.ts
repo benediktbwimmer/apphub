@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ServiceConfig } from '../config/serviceConfig';
+import { withConnection, withTransaction } from '../db/client';
+import { writeBatchToClickHouse } from '../clickhouse/writer';
 import {
   createLifecycleJobRun,
   getDatasetById,
@@ -11,6 +13,7 @@ import {
   recordLifecycleAuditEvent,
   updateLifecycleJobRun,
   type LifecycleAuditLogRecord,
+  type LifecycleAuditLogInput,
   type PartitionWithTarget
 } from '../db/metadata';
 import {
@@ -313,6 +316,8 @@ async function executeOperation(
         status: 'skipped',
         message: 'retention is managed directly by ClickHouse TTL policies'
       } satisfies LifecycleOperationExecutionResult;
+    case 'postgres_migration':
+      return await executePostgresMigration(context, partitions);
     default:
       return {
         operation,
@@ -322,6 +327,249 @@ async function executeOperation(
   }
 }
 
+async function executePostgresMigration(
+  context: LifecycleJobContext,
+  partitions: PartitionWithTarget[]
+): Promise<LifecycleOperationExecutionResult> {
+  const { config, dataset, jobRun } = context;
+  const migrationConfig = config.lifecycle?.postgresMigration || {
+    enabled: true,
+    batchSize: 10000,
+    maxAgeHours: 24 * 7,
+    gracePeriodhours: 24,
+    targetTable: 'migrated_data',
+    watermarkTable: 'migration_watermarks'
+  };
+
+  if (!migrationConfig.enabled) {
+    return {
+      operation: 'postgres_migration',
+      status: 'skipped',
+      message: 'postgres migration is disabled in configuration'
+    };
+  }
+
+  try {
+    const cutoffTime = new Date(Date.now() - migrationConfig.maxAgeHours * 60 * 60 * 1000);
+    const graceTime = new Date(Date.now() - migrationConfig.gracePeriodhours * 60 * 60 * 1000);
+    
+    const watermark = await getMigrationWatermark(dataset.id);
+    
+    const migrationTasks = [
+      { table: 'dataset_access_audit', timeColumn: 'created_at' },
+      { table: 'lifecycle_audit_log', timeColumn: 'created_at' },
+      { table: 'lifecycle_job_runs', timeColumn: 'created_at' }
+    ];
+
+    let totalMigrated = 0;
+    let totalBytes = 0;
+    const auditEvents: LifecycleAuditLogInput[] = [];
+
+    for (const task of migrationTasks) {
+      const result = await migrateTableData(
+        dataset.id,
+        task.table,
+        task.timeColumn,
+        cutoffTime,
+        watermark[task.table] || new Date(0),
+        migrationConfig,
+        config
+      );
+      
+      totalMigrated += result.recordCount;
+      totalBytes += result.bytes;
+      
+      auditEvents.push({
+        datasetId: dataset.id,
+        manifestId: context.manifest.id,
+        eventType: 'postgres_migration',
+        payload: {
+          table: task.table,
+          recordsMigrated: result.recordCount,
+          bytes: result.bytes,
+          watermark: result.newWatermark.toISOString()
+        }
+      });
+
+      await updateMigrationWatermark(dataset.id, task.table, result.newWatermark);
+    }
+
+    await cleanupOldData(dataset.id, graceTime, migrationConfig);
+
+    return {
+      operation: 'postgres_migration',
+      status: totalMigrated > 0 ? 'completed' : 'skipped',
+      message: `migrated ${totalMigrated} records (${Math.round(totalBytes / 1024)} KB) to ClickHouse`,
+      totals: {
+        partitions: migrationTasks.length,
+        bytes: totalBytes
+      },
+      auditEvents
+    };
+
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    return {
+      operation: 'postgres_migration',
+      status: 'failed',
+      message: `postgres migration failed: ${err.message}`
+    };
+  }
+}
+
 export function getMaintenanceMetrics() {
   return captureLifecycleMetrics();
+}
+
+interface MigrationWatermark {
+  [tableName: string]: Date;
+}
+
+interface MigrationResult {
+  recordCount: number;
+  bytes: number;
+  newWatermark: Date;
+}
+
+async function getMigrationWatermark(datasetId: string): Promise<MigrationWatermark> {
+  return await withConnection(async (client) => {
+    const result = await client.query(
+      `SELECT table_name, watermark_timestamp
+       FROM migration_watermarks
+       WHERE dataset_id = $1`,
+      [datasetId]
+    );
+    
+    const watermarks: MigrationWatermark = {};
+    for (const row of result.rows) {
+      watermarks[row.table_name] = new Date(row.watermark_timestamp);
+    }
+    return watermarks;
+  });
+}
+
+async function updateMigrationWatermark(
+  datasetId: string,
+  tableName: string,
+  watermark: Date
+): Promise<void> {
+  await withConnection(async (client) => {
+    await client.query(
+      `INSERT INTO migration_watermarks (dataset_id, table_name, watermark_timestamp, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (dataset_id, table_name)
+       DO UPDATE SET watermark_timestamp = $3, updated_at = NOW()`,
+      [datasetId, tableName, watermark]
+    );
+  });
+}
+
+async function migrateTableData(
+  datasetId: string,
+  tableName: string,
+  timeColumn: string,
+  cutoffTime: Date,
+  watermark: Date,
+  migrationConfig: any,
+  config: ServiceConfig
+): Promise<MigrationResult> {
+  return await withTransaction(async (client) => {
+    const query = `
+      SELECT * FROM ${tableName}
+      WHERE dataset_id = $1
+        AND ${timeColumn} > $2
+        AND ${timeColumn} <= $3
+      ORDER BY ${timeColumn}
+      LIMIT $4
+    `;
+    
+    const result = await client.query(query, [
+      datasetId,
+      watermark,
+      cutoffTime,
+      migrationConfig.batchSize
+    ]);
+
+    if (result.rows.length === 0) {
+      return {
+        recordCount: 0,
+        bytes: 0,
+        newWatermark: watermark
+      };
+    }
+
+    const rows = result.rows.map(row => ({
+      ...row,
+      __migrated_at: new Date().toISOString(),
+      __source_table: tableName
+    }));
+
+    const bytes = JSON.stringify(rows).length;
+
+    await writeBatchToClickHouse({
+      config,
+      datasetSlug: `migrated_${tableName}`,
+      tableName: migrationConfig.targetTable,
+      schema: [
+        { name: 'id', type: 'string' },
+        { name: 'dataset_id', type: 'string' },
+        { name: 'data', type: 'string' },
+        { name: '__migrated_at', type: 'timestamp' },
+        { name: '__source_table', type: 'string' }
+      ],
+      rows: rows.map(row => ({
+        id: row.id,
+        dataset_id: row.dataset_id,
+        data: JSON.stringify(row),
+        __migrated_at: row.__migrated_at,
+        __source_table: row.__source_table
+      })),
+      partitionKey: { dataset_id: datasetId, source_table: tableName },
+      partitionAttributes: { migration_batch: new Date().toISOString() },
+      timeRange: {
+        start: rows[0][timeColumn],
+        end: rows[rows.length - 1][timeColumn]
+      },
+      ingestionSignature: `migration_${tableName}_${Date.now()}`,
+      receivedAt: new Date().toISOString()
+    });
+
+    const ids = result.rows.map(row => row.id);
+    await client.query(
+      `UPDATE ${tableName}
+       SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"migrated_to_clickhouse": true, "migrated_at": "${new Date().toISOString()}"}'::jsonb
+       WHERE id = ANY($1)`,
+      [ids]
+    );
+
+    const newWatermark = new Date(Math.max(...result.rows.map(row => new Date(row[timeColumn]).getTime())));
+
+    return {
+      recordCount: result.rows.length,
+      bytes,
+      newWatermark
+    };
+  });
+}
+
+async function cleanupOldData(
+  datasetId: string,
+  graceTime: Date,
+  migrationConfig: any
+): Promise<void> {
+  const tables = ['dataset_access_audit', 'lifecycle_audit_log', 'lifecycle_job_runs'];
+  
+  await withTransaction(async (client) => {
+    for (const tableName of tables) {
+      const result = await client.query(
+        `DELETE FROM ${tableName}
+         WHERE dataset_id = $1
+           AND created_at <= $2
+           AND metadata->>'migrated_to_clickhouse' = 'true'`,
+        [datasetId, graceTime]
+      );
+      
+      console.log(`[postgres_migration] cleaned up ${result.rowCount} records from ${tableName}`);
+    }
+  });
 }
