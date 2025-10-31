@@ -144,7 +144,15 @@ const lifecycleSchema = z.object({
     outputFormat: z.literal('parquet'),
     outputPrefix: z.string().min(1),
     minIntervalHours: z.number().int().positive()
-  })
+  }),
+  postgresMigration: z.object({
+    enabled: z.boolean(),
+    batchSize: z.number().int().positive(),
+    maxAgeHours: z.number().int().positive(),
+    gracePeriodhours: z.number().int().nonnegative(),
+    targetTable: z.string().min(1),
+    watermarkTable: z.string().min(1)
+  }).optional()
 });
 
 const cacheSchema = z.object({
@@ -1080,6 +1088,12 @@ export function loadServiceConfig(): ServiceConfig {
   const lifecycleExportsEnabled = parseBoolean(env.TIMESTORE_LIFECYCLE_EXPORTS_ENABLED, true);
   const lifecycleExportPrefix = env.TIMESTORE_LIFECYCLE_EXPORT_PREFIX || 'exports';
   const lifecycleExportMinIntervalHours = parseNumber(env.TIMESTORE_LIFECYCLE_EXPORT_MIN_INTERVAL_HOURS, 24);
+  const postgresMigrationEnabled = parseBoolean(env.TIMESTORE_POSTGRES_MIGRATION_ENABLED, true);
+  const postgresMigrationBatchSize = parseNumber(env.TIMESTORE_POSTGRES_MIGRATION_BATCH_SIZE, 10000);
+  const postgresMigrationMaxAgeHours = parseNumber(env.TIMESTORE_POSTGRES_MIGRATION_MAX_AGE_HOURS, 24 * 7);
+  const postgresMigrationGracePeriodHours = parseNumber(env.TIMESTORE_POSTGRES_MIGRATION_GRACE_PERIOD_HOURS, 24);
+  const postgresMigrationTargetTable = env.TIMESTORE_POSTGRES_MIGRATION_TARGET_TABLE || 'migrated_data';
+  const postgresMigrationWatermarkTable = env.TIMESTORE_POSTGRES_MIGRATION_WATERMARK_TABLE || 'migration_watermarks';
   const metricsEnabled = parseBoolean(env.TIMESTORE_METRICS_ENABLED, true);
   const metricsCollectDefault = parseBoolean(env.TIMESTORE_METRICS_COLLECT_DEFAULT, true);
   const metricsPrefix = env.TIMESTORE_METRICS_PREFIX || 'timestore_';
@@ -1298,6 +1312,14 @@ export function loadServiceConfig(): ServiceConfig {
         outputFormat: 'parquet',
         outputPrefix: lifecycleExportPrefix,
         minIntervalHours: lifecycleExportMinIntervalHours
+      },
+      postgresMigration: {
+        enabled: postgresMigrationEnabled,
+        batchSize: postgresMigrationBatchSize,
+        maxAgeHours: postgresMigrationMaxAgeHours,
+        gracePeriodhours: postgresMigrationGracePeriodHours,
+        targetTable: postgresMigrationTargetTable,
+        watermarkTable: postgresMigrationWatermarkTable
       }
     },
     observability: {

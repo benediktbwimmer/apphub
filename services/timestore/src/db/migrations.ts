@@ -333,6 +333,20 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_streaming_watermarks_dataset
          ON streaming_watermarks(dataset_id);`
     ]
+  },
+  {
+    id: '014_timestore_postgres_migration_watermarks',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS migration_watermarks (
+         dataset_id TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+         table_name TEXT NOT NULL,
+         watermark_timestamp TIMESTAMPTZ NOT NULL,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (dataset_id, table_name)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_migration_watermarks_updated
+         ON migration_watermarks(updated_at DESC);`
+    ]
   }
 ];
 
