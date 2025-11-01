@@ -27,6 +27,22 @@ apphub/
 
 ### Quick Start
 
+#### Auto Ecosystem Setup for Linux
+
+To ensure your local environment matches the exact runtime conditions of the CI pipeline, use the included setup script.
+```console
+chmod +x auto_ecosystem_setup.sh
+./auto_ecosystem_setup.sh
+```
+This script will:
+- install / load `nvm` if it does not exist;
+- set up your Node version;
+- activate npm using corepack;
+- install all binary dependencies;
+- install the explicit Linux native binaries required by the build tools.
+
+#### Dev Environments
+
 AppHub provides two development modes:
 
 **Local Development (Recommended for development)**
