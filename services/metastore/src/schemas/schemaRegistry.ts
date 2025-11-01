@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { schemaHashSchema } from './records';
 
-const schemaFieldConstraintsSchema = z.record(z.unknown()).optional();
-const schemaFieldHintsSchema = z.record(z.unknown()).optional();
-const schemaFieldMetadataSchema = z.record(z.unknown()).optional();
+const schemaFieldConstraintsSchema = z.record(z.string(), z.unknown()).optional();
+const schemaFieldHintsSchema = z.record(z.string(), z.unknown()).optional();
+const schemaFieldMetadataSchema = z.record(z.string(), z.unknown()).optional();
 
 const schemaFieldDefinitionSchema = z
   .object({
@@ -25,7 +25,7 @@ const schemaDefinitionDocumentSchema = z
     description: z.string().trim().min(1).max(4096).optional(),
     version: z.union([z.string().trim().min(1).max(128), z.number()]).optional(),
     fields: z.array(schemaFieldDefinitionSchema).min(1, 'Schema must include at least one field definition'),
-    metadata: z.record(z.unknown()).optional()
+    metadata: z.record(z.string(), z.unknown()).optional()
   })
   .strict();
 

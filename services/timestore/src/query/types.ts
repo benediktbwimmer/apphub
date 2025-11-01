@@ -125,7 +125,7 @@ const columnPredicateSchema = z.union([
   booleanColumnPredicateSchema
 ]);
 
-const columnFiltersSchema = z.record(columnPredicateSchema).optional();
+const columnFiltersSchema = z.record(z.string(), columnPredicateSchema).optional();
 
 export const partitionFilterSchema = z
   .object({

@@ -13,7 +13,7 @@ const jsonValueSchema = zod_1.z.lazy(() => zod_1.z.union([
     zod_1.z.boolean(),
     zod_1.z.null(),
     zod_1.z.array(jsonValueSchema),
-    zod_1.z.record(jsonValueSchema)
+    zod_1.z.record(z.string(), jsonValueSchema)
 ]));
 exports.jsonValueSchema = jsonValueSchema;
 const metadataSchema = zod_1.z.record(zod_1.z.string(), jsonValueSchema);

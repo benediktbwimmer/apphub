@@ -33,10 +33,10 @@ const calibrationUploadSchema = z
     effectiveAt: z.string(),
     createdAt: z.string().optional(),
     revision: z.number().optional(),
-    offsets: z.record(z.number()).optional(),
-    scales: z.record(z.number()).optional(),
+    offsets: z.record(z.string(), z.number()).optional(),
+    scales: z.record(z.string(), z.number()).optional(),
     notes: z.string().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     filename: z.string().optional(),
     overwrite: z.boolean().optional()
   })
@@ -140,7 +140,7 @@ export async function fetchCalibrationPlanDetail(
       summary: calibrationPlanRecordSummarySchema,
       artifact: z.object({ path: z.string(), nodeId: z.number().nullable() }),
       computed: z.object({
-        partitionStateCounts: z.record(z.number()),
+        partitionStateCounts: z.record(z.string(), z.number()),
         summary: calibrationPlanSummarySchema
       })
     })
@@ -170,7 +170,7 @@ export async function triggerCalibrationPlanReprocess(
       planId: z.string(),
       mode: z.enum(['all', 'selected']),
       selectedPartitions: z.array(z.string()),
-      parameters: z.record(z.unknown())
+      parameters: z.record(z.string(), z.unknown())
     })
   );
   return client.request(`/observatory/plans/${encodeURIComponent(planId)}/reprocess`, {

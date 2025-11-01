@@ -24,7 +24,7 @@ export const retentionPolicySchema = z
     rules: retentionRuleSchema.default({}),
     deleteGraceMinutes: z.number().int().nonnegative().optional(),
     coldStorageAfterHours: z.number().int().positive().optional(),
-    metadata: z.record(z.unknown()).optional()
+    metadata: z.record(z.string(), z.unknown()).optional()
   })
   .passthrough();
 
@@ -77,7 +77,7 @@ export type DatasetListResponse = z.infer<typeof datasetListResponseSchema>;
 export const manifestPartitionSchema = z
   .object({
     id: z.string(),
-    partitionKey: z.record(z.unknown()).catch({}),
+    partitionKey: z.record(z.string(), z.unknown()).catch({}),
     storageTargetId: z.string(),
     fileFormat: z.string(),
     filePath: z.string(),
@@ -86,7 +86,7 @@ export const manifestPartitionSchema = z
     startTime: z.string(),
     endTime: z.string(),
     checksum: z.string().nullable().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     createdAt: z.string(),
     manifestShard: z.string().optional()
   })
@@ -159,7 +159,7 @@ export const lifecycleJobSchema = z.object({
   durationMs: z.number().nullable(),
   attempts: z.number(),
   error: z.string().nullable(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
   updatedAt: z.string()
 });
@@ -311,7 +311,7 @@ export const streamingStatusSchema = z.object({
     lastRefreshAt: z.string().nullable(),
     lastIngestAt: z.string().nullable()
   }),
-  mirrors: z.record(z.boolean()).optional()
+  mirrors: z.record(z.string(), z.boolean()).optional()
 });
 
 export type StreamingStatus = z.infer<typeof streamingStatusSchema>;

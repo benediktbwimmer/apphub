@@ -339,7 +339,7 @@ export type JsonVarOptions<T> = RequiredOption &
 export function jsonVar<T = unknown>(options?: JsonVarOptions<T>) {
   const schema = options?.schema ?? (z.unknown() as z.ZodType<T>);
 
-  return z.union([z.string(), z.record(z.any())]).nullable().optional().transform((value, ctx) => {
+  return z.union([z.string(), z.record(z.string(), z.any())]).nullable().optional().transform((value, ctx) => {
     const pathName = ctx.path.length > 0 ? ctx.path[ctx.path.length - 1] : undefined;
     const description = describe(pathName, options?.description);
 

@@ -11,7 +11,7 @@ const ISSUE_BODY_SCHEMA = z.object({
   subject: z.string().trim().min(1, 'subject is required'),
   keys: z.union([z.literal('*'), z.array(z.string().trim().min(1, 'key cannot be empty'))]),
   ttlSeconds: z.number().int().positive().optional(),
-  metadata: z.record(z.any()).optional()
+  metadata: z.record(z.string(), z.any()).optional()
 });
 
 const REFRESH_BODY_SCHEMA = z

@@ -70,7 +70,7 @@ export const filestoreNodeSchema = z.object({
   sizeBytes: z.number(),
   checksum: z.string().nullable(),
   contentHash: z.string().nullable(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   state: filestoreNodeStateSchema,
   version: z.number(),
   isSymlink: z.boolean(),
@@ -144,8 +144,8 @@ export const filestoreReconciliationJobSchema = z.object({
   detectChildren: z.boolean(),
   requestedHash: z.boolean(),
   attempt: z.number(),
-  result: z.record(z.unknown()).nullable(),
-  error: z.record(z.unknown()).nullable(),
+  result: z.record(z.string(), z.unknown()).nullable(),
+  error: z.record(z.string(), z.unknown()).nullable(),
   enqueuedAt: z.string(),
   startedAt: z.string().nullable(),
   completedAt: z.string().nullable(),
@@ -221,7 +221,7 @@ export const filestoreNodeEventPayloadSchema = z.object({
   sizeBytes: z.number().nullable(),
   checksum: z.string().nullable(),
   contentHash: z.string().nullable(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   journalId: z.number(),
   command: z.string(),
   idempotencyKey: z.string().nullable(),
@@ -238,7 +238,7 @@ export const filestoreCommandCompletedPayloadSchema = z.object({
   path: z.string(),
   idempotencyKey: z.string().nullable(),
   principal: z.string().nullable(),
-  result: z.record(z.unknown()),
+  result: z.record(z.string(), z.unknown()),
   observedAt: z.string()
 });
 export type FilestoreCommandCompletedPayload = z.infer<typeof filestoreCommandCompletedPayloadSchema>;
@@ -250,7 +250,7 @@ export const filestoreDriftDetectedPayloadSchema = z.object({
   detectedAt: z.string(),
   reason: z.string(),
   reporter: z.string().optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 export type FilestoreDriftDetectedPayload = z.infer<typeof filestoreDriftDetectedPayloadSchema>;
 
@@ -265,7 +265,7 @@ export const filestoreNodeReconciledPayloadSchema = z.object({
   sizeBytes: z.number().nullable(),
   checksum: z.string().nullable(),
   contentHash: z.string().nullable(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   consistencyState: filestoreConsistencyStateSchema,
   consistencyCheckedAt: z.string(),
   lastReconciledAt: z.string().nullable(),

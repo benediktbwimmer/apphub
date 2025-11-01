@@ -16,7 +16,7 @@ export const ingestionActorSchema = z.object({
 
 const schemaEvolutionOptionsSchema = z
   .object({
-    defaults: z.record(z.unknown()).optional(),
+    defaults: z.record(z.string(), z.unknown()).optional(),
     backfill: z.boolean().optional()
   })
   .partial();

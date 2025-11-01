@@ -105,7 +105,7 @@ const sampleEventSchema = z
     payload: jsonValueSchema.optional(),
     correlationId: z.string().trim().min(1).optional(),
     ttl: z.number().int().min(1).optional(),
-    metadata: z.record(jsonValueSchema).optional()
+    metadata: z.record(z.string(), jsonValueSchema).optional()
   })
   .strict()
   .transform((value) => ({
