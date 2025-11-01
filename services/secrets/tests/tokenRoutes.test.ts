@@ -1,4 +1,4 @@
-import test, { mock } from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import { registerTokenRoutes } from '../src/routes/tokens';
@@ -7,9 +7,37 @@ import type { AdminTokenDefinition, ServiceConfig } from '../src/config/serviceC
 import type { SecretRegistry } from '../src/backends/registry';
 import * as auditPublisher from '../src/audit/publisher';
 
-const noopPublish = mock.method(auditPublisher, 'publishSecretTokenEvent', async () => {
-  // no-op for tests
+const moduleNamespace = auditPublisher as { [key: string]: unknown; default?: Record<string, unknown> };
+const publisherTarget =
+  typeof moduleNamespace.publishSecretTokenEvent === 'function'
+    ? (moduleNamespace as unknown as { publishSecretTokenEvent: (event: unknown) => Promise<unknown> })
+    : ((moduleNamespace.default ?? moduleNamespace) as { publishSecretTokenEvent: (event: unknown) => Promise<unknown> });
+
+const originalPublishSecretTokenEvent = publisherTarget.publishSecretTokenEvent?.bind(publisherTarget);
+let publishCalls: unknown[] = [];
+
+publisherTarget.publishSecretTokenEvent = async (event: unknown) => {
+  publishCalls.push(event);
+  return {
+    type: typeof event === 'object' && event && 'type' in event ? (event as { type: string }).type : 'secrets.test',
+    source: 'secrets.test.runner',
+    payload: event ?? {}
+  };
+};
+
+after(() => {
+  if (originalPublishSecretTokenEvent) {
+    publisherTarget.publishSecretTokenEvent = originalPublishSecretTokenEvent;
+  }
 });
+
+function resetPublishMock() {
+  publishCalls = [];
+}
+
+function getPublishCallCount(): number {
+  return publishCalls.length;
+}
 
 test('refresh denies when admin scopes do not cover token allowed keys', async () => {
   const app = Fastify();
@@ -47,7 +75,7 @@ test('refresh denies when admin scopes do not cover token allowed keys', async (
     registry
   });
 
-  noopPublish.mock.resetCalls();
+  resetPublishMock();
 
   const issued = manager.issue({ subject: 'worker', keys: ['bar'] });
 
@@ -64,7 +92,7 @@ test('refresh denies when admin scopes do not cover token allowed keys', async (
     error: 'forbidden',
     message: 'Admin token does not allow scopes: bar'
   });
-  assert.equal(noopPublish.mock.callCount(), 0);
+  assert.equal(getPublishCallCount(), 0);
 
   await app.close();
 });

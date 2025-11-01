@@ -441,33 +441,35 @@ async function testTriggerRetryScheduling(): Promise<void> {
   await ingestWorkflowEvent(envelopeOne);
   await ingestWorkflowEvent(envelopeTwo);
 
-  const queue = new Queue<EventTriggerJobData>(EVENT_TRIGGER_QUEUE_NAME, {
-    connection: { connectionString: process.env.REDIS_URL }
-  });
+  const { queueManager } = await import('../src/queueManager');
+  const inlineMode = queueManager.isInlineMode();
+  const queue = inlineMode
+    ? null
+    : new Queue<EventTriggerJobData>(EVENT_TRIGGER_QUEUE_NAME, {
+        connection: { connectionString: process.env.REDIS_URL }
+      });
+
   try {
-    await queue.waitUntilReady();
-    await queue.drain(true);
-    await queue.clean(0, 0, 'delayed');
+    if (queue) {
+      await queue.waitUntilReady();
+      await queue.drain(true);
+      await queue.clean(0, 0, 'delayed');
+    }
 
     await processEventTriggersForEnvelope(envelopeOne);
     await processEventTriggersForEnvelope(envelopeTwo);
 
     const deliveries = await db.listWorkflowTriggerDeliveries({ triggerId: trigger.id });
-  const throttledDelivery = deliveries.find((record) => record.status === 'throttled');
-  assert.ok(throttledDelivery, 'expected throttled delivery to be created');
+    const throttledDelivery = deliveries.find((record) => record.status === 'throttled');
+    assert.ok(throttledDelivery, 'expected throttled delivery to be created');
     assert.equal(throttledDelivery.retryState, 'scheduled');
     assert.ok(throttledDelivery.nextAttemptAt, 'expected retry nextAttemptAt to be populated');
     assert.equal(throttledDelivery.retryAttempts, 1);
 
-    const delayedJobs = await queue.getDelayed();
-    assert.equal(delayedJobs.length, 1, 'expected one delayed trigger retry job');
-    const scheduledJob = delayedJobs[0];
-    assert.equal(scheduledJob?.data.deliveryId, throttledDelivery.id);
-
     const launchedDelivery = deliveries.find((record) => record.status === 'launched');
     assert.ok(launchedDelivery, 'expected first delivery to launch workflow');
 
-  const { useConnection } = await import('../src/db/utils');
+    const { useConnection } = await import('../src/db/utils');
     await useConnection(async (client) => {
       await client.query(
         `UPDATE workflow_trigger_deliveries
@@ -477,23 +479,42 @@ async function testTriggerRetryScheduling(): Promise<void> {
       );
     });
 
-    const jobPayload = scheduledJob?.data ?? {};
-    await scheduledJob?.remove();
-    await retryWorkflowTriggerDelivery(jobPayload.deliveryId ?? throttledDelivery.id);
+    if (queue) {
+      const delayedJobs = await queue.getDelayed();
+      assert.equal(delayedJobs.length, 1, 'expected one delayed trigger retry job');
+      const scheduledJob = delayedJobs[0];
+      assert.equal(scheduledJob?.data.deliveryId, throttledDelivery.id);
 
-    const retried = await db.getWorkflowTriggerDeliveryById(throttledDelivery.id);
-    assert.ok(retried, 'expected retried delivery to exist');
-    assert.equal(retried?.status, 'launched');
-    assert.equal(retried?.retryState, 'pending');
-    assert.equal(retried?.retryAttempts, throttledDelivery.retryAttempts);
-    assert.ok(retried?.workflowRunId, 'expected retried delivery to launch workflow run');
-    assert.equal(retried?.nextAttemptAt, null);
+      const jobPayload = scheduledJob?.data ?? {};
+      await scheduledJob?.remove();
+      await retryWorkflowTriggerDelivery(jobPayload.deliveryId ?? throttledDelivery.id);
 
-    const delayedAfter = await queue.getDelayed();
-    assert.equal(delayedAfter.length, 0, 'expected delayed queue to be empty after retry');
+      const retried = await db.getWorkflowTriggerDeliveryById(throttledDelivery.id);
+      assert.ok(retried, 'expected retried delivery to exist');
+      assert.equal(retried?.status, 'launched');
+      assert.equal(retried?.retryState, 'pending');
+      assert.equal(retried?.retryAttempts, throttledDelivery.retryAttempts);
+      assert.ok(retried?.workflowRunId, 'expected retried delivery to launch workflow run');
+      assert.equal(retried?.nextAttemptAt, null);
+
+      const delayedAfter = await queue.getDelayed();
+      assert.equal(delayedAfter.length, 0, 'expected delayed queue to be empty after retry');
+    } else {
+      await retryWorkflowTriggerDelivery(throttledDelivery.id);
+
+      const retried = await db.getWorkflowTriggerDeliveryById(throttledDelivery.id);
+      assert.ok(retried, 'expected retried delivery to exist');
+      assert.equal(retried?.status, 'launched');
+      assert.equal(retried?.retryState, 'pending');
+      assert.equal(retried?.retryAttempts, throttledDelivery.retryAttempts);
+      assert.ok(retried?.workflowRunId, 'expected retried delivery to launch workflow run');
+      assert.equal(retried?.nextAttemptAt, null);
+    }
   } finally {
-    await queue.drain(true).catch(() => undefined);
-    await queue.close();
+    if (queue) {
+      await queue.drain(true).catch(() => undefined);
+      await queue.close();
+    }
   }
 }
 

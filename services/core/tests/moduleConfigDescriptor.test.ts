@@ -19,10 +19,17 @@ async function run() {
     assert(dashboard, 'dashboard manifest should be present');
     const configEnv = dashboard?.env?.find((env) => env.key === 'OBSERVATORY_CONFIG_PATH');
     assert(configEnv, 'OBSERVATORY_CONFIG_PATH env should be present');
+    const configPlaceholder = preview.placeholders.find((entry) => entry.name === 'OBSERVATORY_CONFIG_PATH');
+    assert(configPlaceholder, 'placeholder summary should include OBSERVATORY_CONFIG_PATH');
     assert.equal(
       configEnv?.value,
-      '${OBSERVATORY_CONFIG_PATH}',
-      'descriptor should hydrate manifest config path'
+      configPlaceholder?.value,
+      'descriptor should hydrate manifest config path placeholder value'
+    );
+    assert(configPlaceholder?.defaultValue, 'config placeholder should define default value');
+    assert(
+      configPlaceholder?.defaultValue.includes('observatory-config.json'),
+      'config placeholder default should reference observatory config path'
     );
 
     const placeholder = preview.placeholders.find((entry) => entry.name === 'OBSERVATORY_DATA_ROOT');

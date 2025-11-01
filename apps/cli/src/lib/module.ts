@@ -16,7 +16,15 @@ import {
   type ValueDescriptor
 } from '@apphub/module-sdk';
 
-const DEFAULT_DEFINITION_LOCATIONS = ['dist/module.js', 'module.js'];
+const DEFAULT_DEFINITION_LOCATIONS = [
+  'dist/module.js',
+  'dist/module.cjs',
+  'dist/module.mjs',
+  'module.js',
+  'module.cjs',
+  'module.mjs',
+  'module.ts'
+];
 
 export interface ModuleConfigFile {
   module: ModuleMetadata;

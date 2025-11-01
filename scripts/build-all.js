@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 
 const rootDir = path.resolve(__dirname, '..');
+const tsxShimDir = path.join(rootDir, 'scripts', 'bin');
 
 const workspaces = [
   { path: 'services/core', name: '@apphub/core' },
@@ -48,9 +49,13 @@ function runScriptInWorkspace(workspacePath, scriptName) {
 
   console.log(`Running ${actualScriptName} in ${workspacePath}...`);
   try {
+    const env = { ...process.env };
+    env.PATH = env.PATH ? `${tsxShimDir}${path.delimiter}${env.PATH}` : tsxShimDir;
+    // Use --no-workspaces to prevent npm from trying to run the script in all workspaces
     execSync(`npm run ${actualScriptName} --no-workspaces`, {
       cwd: path.join(rootDir, workspacePath),
-      stdio: 'inherit'
+      stdio: 'inherit',
+      env
     });
     console.log(`✓ Successfully completed ${actualScriptName} in ${workspacePath}`);
   } catch (error) {

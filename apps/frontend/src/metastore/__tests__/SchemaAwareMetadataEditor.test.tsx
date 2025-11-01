@@ -131,7 +131,7 @@ describe('SchemaAwareMetadataEditor', () => {
 
     await user.click(screen.getByRole('button', { name: /Structured form/i }));
     const errorMessage = onParseErrorChange.mock.calls.at(-1)?.[0] as string | undefined;
-    expect(errorMessage).toMatch(/Invalid metadata JSON|Expected property name/i);
+    expect(errorMessage).toMatch(/Invalid metadata JSON|Expected property name|Unexpected token/i);
     expect(onModeChange).not.toHaveBeenCalledWith('schema');
   });
 

@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import simpleGit from 'simple-git';
-import { resolveLocalRepoOverride } from '@apphub/shared/gitRepo';
+import { resolveLocalRepoOverride, readGitHeadCommit } from '@apphub/shared/gitRepo';
 import { z } from 'zod';
 import {
   joinSourceLabel,
@@ -747,6 +747,106 @@ async function resolveConfigFilePath(repoRoot: string, overridePath?: string | n
   return normalizeConfigRelativePath('service-config.json');
 }
 
+function normalizeModuleIdentifier(id: string | null | undefined): string | null {
+  if (!id) {
+    return null;
+  }
+  const trimmed = id.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const lowered = trimmed.toLowerCase();
+  if (lowered.startsWith('github.com/')) {
+    return lowered.slice('github.com/'.length);
+  }
+  return lowered;
+}
+
+function moduleIdentifiersMatch(expected: string | null | undefined, actual: string | null | undefined): boolean {
+  const normalizedExpected = normalizeModuleIdentifier(expected);
+  const normalizedActual = normalizeModuleIdentifier(actual);
+  if (!normalizedExpected || !normalizedActual) {
+    return false;
+  }
+  if (normalizedExpected === normalizedActual) {
+    return true;
+  }
+  const expectedSuffix = normalizedExpected.split('/').pop();
+  const actualSuffix = normalizedActual.split('/').pop();
+  return Boolean(expectedSuffix && actualSuffix && expectedSuffix === actualSuffix);
+}
+
+async function findGitInfoForPath(dir: string): Promise<{ root: string; commit: string | null } | null> {
+  let current = path.resolve(dir);
+  const filesystemRoot = path.parse(current).root;
+  while (true) {
+    const candidate = path.join(current, '.git');
+    try {
+      const stats = await fs.stat(candidate);
+      if (stats.isDirectory()) {
+        return {
+          root: current,
+          commit: await readGitHeadCommit(current)
+        };
+      }
+    } catch {
+      // ignore and continue walking up
+    }
+
+    if (current === filesystemRoot) {
+      return null;
+    }
+    current = path.dirname(current);
+  }
+}
+
+async function resolveLocalImportPath(importPath: string): Promise<{
+  repoRoot: string;
+  sourceLabelBase: string;
+  commit: string | null;
+}> {
+  const trimmed = importPath.trim();
+  if (!trimmed) {
+    throw new Error('service import must provide a non-empty local path');
+  }
+
+  const candidates = new Set<string>();
+  if (path.isAbsolute(trimmed)) {
+    candidates.add(path.resolve(trimmed));
+  } else {
+    const cwd = process.cwd();
+    candidates.add(path.resolve(cwd, trimmed));
+    candidates.add(path.resolve(cwd, '..', trimmed));
+    if (process.env.APPHUB_REPO_ROOT) {
+      candidates.add(path.resolve(process.env.APPHUB_REPO_ROOT, trimmed));
+    }
+    candidates.add(path.resolve(__dirname, '..', '..', '..', trimmed));
+    candidates.add(path.resolve(__dirname, '..', '..', '..', '..', trimmed));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const stats = await fs.stat(candidate);
+      if (!stats.isDirectory()) {
+        continue;
+      }
+      const gitInfo = await findGitInfoForPath(candidate);
+      const sourceLabelBase = gitInfo?.commit
+        ? `path:${candidate}#${gitInfo.commit}`
+        : `path:${candidate}`;
+      return {
+        repoRoot: candidate,
+        sourceLabelBase,
+        commit: gitInfo?.commit ?? null
+      };
+    } catch {
+      // try the next candidate
+    }
+  }
+
+  throw new Error(`service import path not found: ${importPath}`);
+}
+
 function toRepoRelativePath(filePath: string, repoRoot?: string) {
   if (!repoRoot) {
     return filePath;
@@ -1140,8 +1240,10 @@ async function loadConfigImport(
         sourceLabelBase = `${baseLabel}#${commitLabel}`;
       }
     } else if (importConfig.path) {
-      repoRoot = path.resolve(importConfig.path);
-      sourceLabelBase = `path:${repoRoot}`;
+      const localImport = await resolveLocalImportPath(importConfig.path);
+      repoRoot = localImport.repoRoot;
+      sourceLabelBase = localImport.sourceLabelBase;
+      resolvedCommit = localImport.commit ?? resolvedCommit;
     } else if (importConfig.image) {
       const extraction = await extractDockerImageFilesystem(importConfig.image, tempDir);
       repoRoot = extraction.directory;
@@ -1251,7 +1353,7 @@ export async function previewServiceConfigImport(
     throw new Error('failed to resolve module id from service configuration');
   }
 
-  if (expectedModule && expectedModule !== result.moduleId) {
+  if (expectedModule && !moduleIdentifiersMatch(expectedModule, result.moduleId)) {
     const sourceLabel = payload.repo
       ? `git:${payload.repo}`
       : payload.path

@@ -1,10 +1,11 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import * as tar from 'tar';
 import { createEmbeddedPostgres, stopEmbeddedPostgres, runE2E } from '@apphub/test-helpers';
 import type EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
@@ -79,6 +80,30 @@ async function shutdownEmbeddedPostgres(): Promise<void> {
   embeddedPostgresCleanup = null;
   if (cleanup) {
     await cleanup();
+  }
+}
+
+async function createBundleArchive(files: Record<string, string>): Promise<Buffer> {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), 'job-import-archive-'));
+  try {
+    const entries = Object.entries(files);
+    for (const [relativePath, contents] of entries) {
+      const fullPath = path.join(tempRoot, relativePath);
+      await mkdir(path.dirname(fullPath), { recursive: true });
+      await writeFile(fullPath, contents, 'utf8');
+    }
+    const archivePath = path.join(tempRoot, 'bundle.tgz');
+    await tar.c(
+      {
+        cwd: tempRoot,
+        gzip: true,
+        file: archivePath
+      },
+      entries.map(([relativePath]) => relativePath)
+    );
+    return await readFile(archivePath);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -415,6 +440,19 @@ async function testJobBundleLifecycle(): Promise<void> {
 async function testJobImportHandlesExistingArtifact(): Promise<void> {
   await withServer(async (app) => {
     const slug = 'file-relocator';
+    const manifest = {
+      name: 'File Relocator',
+      slug,
+      version: '1.0.0',
+      entry: 'index.js',
+      runtime: 'node',
+      capabilities: ['fs']
+    };
+    const archiveBuffer = await createBundleArchive({
+      'manifest.json': JSON.stringify(manifest, null, 2),
+      'index.js': "module.exports.handler = async () => ({ status: 'succeeded' });\n"
+    });
+    const archiveBase64 = archiveBuffer.toString('base64');
 
     const previewResponse = await app.inject({
       method: 'POST',
@@ -424,8 +462,13 @@ async function testJobImportHandlesExistingArtifact(): Promise<void> {
         'Content-Type': 'application/json'
       },
       payload: {
-        source: 'example',
-        slug
+        source: 'upload',
+        reference: `${slug}@${manifest.version}`,
+        archive: {
+          data: archiveBase64,
+          filename: `${slug}-${manifest.version}.tgz`,
+          contentType: 'application/gzip'
+        }
       }
     });
     assert.equal(previewResponse.statusCode, 200, previewResponse.payload);
@@ -433,6 +476,15 @@ async function testJobImportHandlesExistingArtifact(): Promise<void> {
       data: { bundle: { slug: string; version: string } };
     };
     const reference = `${previewBody.data.bundle.slug}@${previewBody.data.bundle.version}`;
+    const importPayload = {
+      source: 'upload' as const,
+      reference,
+      archive: {
+        data: archiveBase64,
+        filename: `${slug}-${manifest.version}.tgz`,
+        contentType: 'application/gzip'
+      }
+    };
 
     const initialImport = await app.inject({
       method: 'POST',
@@ -441,11 +493,7 @@ async function testJobImportHandlesExistingArtifact(): Promise<void> {
         Authorization: `Bearer ${OPERATOR_TOKEN}`,
         'Content-Type': 'application/json'
       },
-      payload: {
-        source: 'example',
-        slug,
-        reference
-      }
+      payload: importPayload
     });
     assert.equal(initialImport.statusCode, 201, initialImport.payload);
 
@@ -464,11 +512,7 @@ async function testJobImportHandlesExistingArtifact(): Promise<void> {
         Authorization: `Bearer ${OPERATOR_TOKEN}`,
         'Content-Type': 'application/json'
       },
-      payload: {
-        source: 'example',
-        slug,
-        reference
-      }
+      payload: importPayload
     });
     assert.equal(reimportResponse.statusCode, 201, reimportResponse.payload);
   });
