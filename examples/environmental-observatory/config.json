@@ -1,7 +1,7 @@
 {
   "$schema": "../../docs/schemas/example-config.schema.json",
   "configVersion": "1.0",
-  "module": "github.com/apphub/examples/environmental-observatory",
+  "module": "observatory",
   "manifests": [
     {
       "path": "./service-manifests/service-manifest.json"

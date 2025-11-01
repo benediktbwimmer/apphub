@@ -82,7 +82,7 @@ describe('QueryConsole', () => {
     await user.click(screen.getByLabelText(/region/i));
     await user.click(screen.getByLabelText(/memory_usage/i));
 
-    await user.click(screen.getByRole('button', { name: /Run query/i }));
+    fireEvent.submit(screen.getByTestId('query-console-form'));
 
     await waitFor(() => expect(runDatasetQueryMock).toHaveBeenCalledTimes(1));
 

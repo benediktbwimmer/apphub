@@ -135,9 +135,12 @@ function handleApply(argv) {
         const customLogs = typeof annotations['kubectl-mock/logs'] === 'string'
           ? annotations['kubectl-mock/logs']
           : null;
+        const defaultLogs = typeof process.env.KUBECTL_MOCK_DEFAULT_LOGS === 'string'
+          ? process.env.KUBECTL_MOCK_DEFAULT_LOGS
+          : null;
         jobs[name] = {
           status: 'Succeeded',
-          logs: customLogs ?? '[kubectl-mock] job ' + name + ' completed\\n',
+          logs: customLogs ?? defaultLogs ?? '[kubectl-mock] job ' + name + ' completed\\n',
           manifest: resource
         };
         break;

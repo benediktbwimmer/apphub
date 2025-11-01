@@ -122,7 +122,7 @@ const config: UserConfig & { test: VitestUserConfig['test'] } = {
     }
   },
   test: {
-    environment: 'jsdom',
+    environment: 'happy-dom',
     setupFiles: './vitest.setup.ts',
     globals: true,
     include: ['src/**/*.{test,spec}.{ts,tsx}'],

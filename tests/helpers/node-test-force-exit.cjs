@@ -7,7 +7,7 @@ if (!globalThis.__apphubNodeTestForceExitInstalled) {
   globalThis.__apphubNodeTestForceExitInstalled = true;
 
   const { after } = require('node:test');
-  const { scheduleForcedExit } = require('./forceExit');
+  const { scheduleForcedExit } = require('./forceExit.cjs');
 
   after(() => {
     scheduleForcedExit({ name: process.env.APPHUB_TEST_SUITE_NAME ?? 'node:test suite' });

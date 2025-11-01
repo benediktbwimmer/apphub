@@ -10,7 +10,7 @@
     "build": "tsc -b",
     "dev": "tsx watch src/index.ts",
     "lint": "tsc --project tsconfig.json --noEmit",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "node ../../scripts/bin/tsx-runner.cjs --test tests"
   },
   "dependencies": {
     "@apphub/filestore-client": "0.1.0",
