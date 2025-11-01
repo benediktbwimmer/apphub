@@ -10,7 +10,7 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValueSchema), z.record(jsonValueSchema)])
+  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValueSchema), z.record(z.string(), jsonValueSchema)])
 );
 
 const isoDateRegex = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:?\d{2}))$/;
@@ -54,7 +54,7 @@ export const calibrationFileSchema = z
     offsets: calibrationMeasurementOffsetsSchema.default({}),
     scales: calibrationMeasurementScalesSchema.optional(),
     notes: z.string().max(10_000).optional(),
-    metadata: z.record(z.unknown()).default({})
+    metadata: z.record(z.string(), z.unknown()).default({})
   })
   .strip();
 
@@ -292,7 +292,7 @@ export const calibrationPlanPartitionSchema = z
     recordedCalibration: calibrationPlanRecordedCalibrationSchema,
     target: calibrationPlanTargetCalibrationSchema,
     latestRun: calibrationPlanLatestRunSchema.optional().nullable(),
-    parameters: z.record(jsonValueSchema).optional().nullable(),
+    parameters: z.record(z.string(), jsonValueSchema).optional().nullable(),
     status: calibrationPlanPartitionStatusSchema,
     notes: z.string().optional()
   })

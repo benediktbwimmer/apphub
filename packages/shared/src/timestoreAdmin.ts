@@ -20,7 +20,7 @@ export const datasetIamConfigSchema = z
 const datasetExecutionMetadataSchema = z
   .object({
     backend: z.string().min(1),
-    options: z.record(z.unknown()).optional()
+    options: z.record(z.string(), z.unknown()).optional()
   })
   .strict();
 
@@ -100,7 +100,7 @@ export const datasetAccessAuditEventSchema = z.object({
   actorScopes: z.array(z.string().min(1)),
   action: z.string().min(1),
   success: z.boolean(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   createdAt: isoDateTimeSchema
 });
 

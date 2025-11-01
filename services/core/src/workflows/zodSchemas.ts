@@ -16,11 +16,11 @@ export const jsonValueSchema: z.ZodType<WorkflowJsonValue> = z.lazy(() =>
     z.boolean(),
     z.null(),
     z.array(jsonValueSchema),
-    z.record(jsonValueSchema)
+    z.record(z.string(), jsonValueSchema)
   ])
 );
 
-export const jsonObjectSchema = z.record(jsonValueSchema);
+export const jsonObjectSchema = z.record(z.string(), jsonValueSchema);
 
 const assetFreshnessSchema = z
   .object({
@@ -354,7 +354,7 @@ export const workflowServiceRequestSchema = z
   .object({
     path: z.string().min(1),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']).optional(),
-    headers: z.record(serviceHeaderValueSchema).optional(),
+    headers: z.record(z.string(), serviceHeaderValueSchema).optional(),
     query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
     body: jsonValueSchema.nullable().optional()
   })

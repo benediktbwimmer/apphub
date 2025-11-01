@@ -17,7 +17,7 @@ const keySchema = z
   .min(1, 'Key is required')
   .max(256, 'Key exceeds 256 characters');
 
-const metadataSchema = z.record(z.unknown(), {
+const metadataSchema = z.record(z.string(), z.unknown(), {
   invalid_type_error: 'Metadata must be a JSON object'
 });
 

@@ -25,10 +25,10 @@ export const schemaFieldDefinitionSchema = z
     description: z.string().optional(),
     required: z.boolean().optional(),
     repeated: z.boolean().optional(),
-    constraints: z.record(z.unknown()).optional(),
-    hints: z.record(z.unknown()).optional(),
+    constraints: z.record(z.string(), z.unknown()).optional(),
+    hints: z.record(z.string(), z.unknown()).optional(),
     examples: z.array(z.unknown()).optional(),
-    metadata: z.record(z.unknown()).optional()
+    metadata: z.record(z.string(), z.unknown()).optional()
   })
   .strict();
 
@@ -40,7 +40,7 @@ export const schemaDefinitionSchema = z
     name: z.string().optional(),
     description: z.string().optional(),
     version: z.union([z.string(), z.number()]).optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     fields: z.array(schemaFieldDefinitionSchema),
     createdAt: z.string(),
     updatedAt: z.string(),
@@ -144,8 +144,8 @@ export const auditEntrySchema = z.object({
   actor: z.string().nullable(),
   previousVersion: z.number().int().positive().nullable(),
   version: z.number().int().positive().nullable(),
-  metadata: z.record(z.unknown()).nullable(),
-  previousMetadata: z.record(z.unknown()).nullable(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  previousMetadata: z.record(z.string(), z.unknown()).nullable(),
   tags: z.array(z.string()).nullable(),
   previousTags: z.array(z.string()).nullable(),
   owner: z.string().nullable(),
@@ -203,7 +203,7 @@ export const auditScalarDiffSchema = <T extends z.ZodTypeAny>(schema: T) =>
   });
 
 export const auditSnapshotSchema = z.object({
-  metadata: z.record(z.unknown()).nullable(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
   tags: z.array(z.string()),
   owner: z.string().nullable(),
   schemaHash: z.string().nullable()
@@ -233,7 +233,7 @@ export const auditDiffSchema = z.object({
 export type MetastoreAuditDiff = z.infer<typeof auditDiffSchema>;
 
 export const upsertPayloadSchema = z.object({
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   tags: z.array(z.string()).optional(),
   owner: z.string().nullable().optional(),
   schemaHash: z.string().nullable().optional(),
@@ -258,7 +258,7 @@ export const restorePayloadSchema = z
 export type MetastoreRestorePayload = z.infer<typeof restorePayloadSchema>;
 
 export const patchPayloadSchema = z.object({
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   metadataUnset: z.array(z.string()).optional(),
   tags: z
     .object({
@@ -283,7 +283,7 @@ export const bulkOperationSchema = z.union([
     type: z.literal('upsert'),
     namespace: z.string(),
     key: z.string(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     tags: z.array(z.string()).optional(),
     owner: z.string().nullable().optional(),
     schemaHash: z.string().nullable().optional(),

@@ -320,7 +320,7 @@ const bundleEditorDataSchema = z
       manifest: z.unknown().optional(),
       files: z.array(bundleEditorFileSchema).optional()
     }),
-    aiBuilder: z.record(z.unknown()).nullable().optional(),
+    aiBuilder: z.record(z.string(), z.unknown()).nullable().optional(),
     history: z
       .array(
         z.object({
@@ -492,11 +492,11 @@ const pythonSnippetPreviewSchema = z
     handlerIsAsync: z.boolean(),
     inputModel: z.object({
       name: z.string(),
-      schema: z.record(z.unknown())
+      schema: z.record(z.string(), z.unknown())
     }),
     outputModel: z.object({
       name: z.string(),
-      schema: z.record(z.unknown())
+      schema: z.record(z.string(), z.unknown())
     })
   })
   .transform((value) => ({

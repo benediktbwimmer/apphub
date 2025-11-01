@@ -14,7 +14,7 @@ const updateRequestSchema = z
       .array(
         z.object({
           timestamp: z.string().min(1),
-          payload: z.record(z.unknown())
+          payload: z.record(z.string(), z.unknown())
         })
       )
       .optional(),

@@ -7,10 +7,10 @@ export const calibrationSnapshotSchema = z
     effectiveAt: z.string(),
     createdAt: z.string().nullable(),
     revision: z.number().nullable(),
-    offsets: z.record(z.number()),
-    scales: z.record(z.number()).nullable(),
+    offsets: z.record(z.string(), z.number()),
+    scales: z.record(z.string(), z.number()).nullable(),
     notes: z.string().nullable(),
-    metadata: z.record(z.unknown()),
+    metadata: z.record(z.string(), z.unknown()),
     checksum: z.string().nullable(),
     metastoreVersion: z.number().nullable()
   })
@@ -80,7 +80,7 @@ export const calibrationPlanPartitionSchema = z
     recordedCalibration: calibrationPlanRecordedCalibrationSchema,
     target: calibrationPlanTargetCalibrationSchema,
     latestRun: calibrationPlanLatestRunSchema.nullable().optional(),
-    parameters: z.record(z.unknown()).nullable().optional(),
+    parameters: z.record(z.string(), z.unknown()).nullable().optional(),
     status: calibrationPlanPartitionStatusSchema,
     notes: z.string().nullable().optional()
   })

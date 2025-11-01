@@ -95,7 +95,7 @@ const ADMIN_TOKEN_SCHEMA = z
       .int()
       .positive()
       .optional(),
-    metadata: z.record(z.any()).optional()
+    metadata: z.record(z.string(), z.any()).optional()
   })
   .transform((value) => {
     const allowedKeys = value.allowedKeys === '*' ? '*' : Array.from(new Set(value.allowedKeys));

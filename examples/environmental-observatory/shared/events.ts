@@ -16,7 +16,7 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
     z.boolean(),
     z.null(),
     z.array(jsonValueSchema),
-    z.record(jsonValueSchema)
+    z.record(z.string(), jsonValueSchema)
   ])
 );
 
@@ -31,7 +31,7 @@ const rawMinuteUploadedPayloadSchema = z
     path: z.string().min(1),
     instrumentId: z.string().min(1).nullable(),
     site: z.string().min(1).nullable(),
-    metadata: z.record(jsonValueSchema).default({}),
+    metadata: z.record(z.string(), jsonValueSchema).default({}),
     principal: z.string().min(1).nullable(),
     sizeBytes: z.number().int().nullable(),
     checksum: z.string().min(1).nullable()

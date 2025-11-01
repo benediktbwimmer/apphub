@@ -36,7 +36,7 @@ export const calibrationFileSchema = z
     offsets: calibrationMeasurementOffsetsSchema.default({}),
     scales: calibrationMeasurementScalesSchema.optional(),
     notes: z.string().max(10_000).optional(),
-    metadata: z.record(z.unknown()).default({})
+    metadata: z.record(z.string(), z.unknown()).default({})
   })
   .strip();
 
