@@ -181,7 +181,8 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
 
   const buildModulePath = useCallback<ModuleScopeContextValue['buildModulePath']>(
     (path, options) => {
-      const targetModuleId = options?.moduleId ?? moduleId;
+      const hasOverride = options ? Object.prototype.hasOwnProperty.call(options, 'moduleId') : false;
+      const targetModuleId = hasOverride ? options?.moduleId ?? null : moduleId;
       const normalizedPath = normalizeSubPath(path);
       if (targetModuleId) {
         if (normalizedPath === '/') {
