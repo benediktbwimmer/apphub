@@ -46,6 +46,7 @@ This script will:
 AppHub provides two development modes:
 
 **Local Development (Recommended for development)**
+First make sure that you have a Redis server and Postgres installed and enabled on your system. Also, make sure you have a Postgres user `apphub` with the password `apphub`, and a database `apphub` whose owner is `apphub`. Then, run:
 ```bash
 npm install
 npm run local-dev

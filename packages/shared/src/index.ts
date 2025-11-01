@@ -1,4 +1,5 @@
 export * from './designTokens';
+export * from './duckdb';
 export * from './postgres';
 export * from './filestoreEvents';
 export * from './coreEvents';

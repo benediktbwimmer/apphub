@@ -1,20 +1,998 @@
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { promises as fs } from 'node:fs';
+import { constants as fsConstants } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+import type { Storage as GoogleStorageCtor, StorageOptions, Bucket } from '@google-cloud/storage';
+import type {
+  BlobServiceClient as AzureBlobServiceClientCtor,
+  StorageSharedKeyCredential as AzureStorageSharedKeyCredentialCtor,
+  ContainerClient
+} from '@azure/storage-blob';
+import { loadDuckDb, isCloseable } from '@apphub/shared';
+import { ServiceConfig } from '../config/serviceConfig';
 import type { DatasetPartitionRecord, StorageTargetRecord } from '../db/metadata';
-import type { ServiceConfig } from '../config/serviceConfig';
 
 export type FieldType = 'timestamp' | 'string' | 'double' | 'integer' | 'boolean';
+
+const S3_MULTIPART_THRESHOLD_BYTES = 64 * 1024 * 1024;
+const S3_MULTIPART_PART_SIZE_BYTES = 8 * 1024 * 1024;
+const GCS_RESUMABLE_THRESHOLD_BYTES = 8 * 1024 * 1024;
 
 export interface FieldDefinition {
   name: string;
   type: FieldType;
 }
 
+const TIMESTORE_DEBUG_FLAG = (process.env.TIMESTORE_DEBUG ?? '').toLowerCase();
+export const TIMESTORE_DEBUG_ENABLED = ['1', 'true', 'yes', 'on'].includes(TIMESTORE_DEBUG_FLAG);
+
+export interface PartitionWriteRequest {
+  datasetSlug: string;
+  partitionId: string;
+  partitionKey: Record<string, string>;
+  tableName: string;
+  schema: FieldDefinition[];
+  rows?: Record<string, unknown>[];
+  sourceFilePath?: string;
+  rowCountHint?: number;
+}
+
+export interface PartitionWriteResult {
+  relativePath: string;
+  fileSizeBytes: number;
+  rowCount: number;
+  checksum: string;
+}
+
+export interface StorageDriver {
+  writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult>;
+}
+
+
+type GoogleStorageModule = typeof import('@google-cloud/storage');
+type AzureBlobModule = typeof import('@azure/storage-blob');
+type AwsSdkS3Module = typeof import('@aws-sdk/client-s3');
+type AwsSdkLibStorageModule = typeof import('@aws-sdk/lib-storage');
+
+let cachedGoogleStorageModule: GoogleStorageModule | null = null;
+let cachedAzureBlobModule: AzureBlobModule | null = null;
+let cachedAwsSdkS3Module: AwsSdkS3Module | null = null;
+let cachedAwsSdkLibStorageModule: AwsSdkLibStorageModule | null = null;
+
+type S3ClientConstructor = AwsSdkS3Module['S3Client'];
+type S3ClientInstance = InstanceType<S3ClientConstructor>;
+
+function loadAwsS3Module(): AwsSdkS3Module {
+  if (cachedAwsSdkS3Module) {
+    return cachedAwsSdkS3Module;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const module = require('@aws-sdk/client-s3') as AwsSdkS3Module;
+    cachedAwsSdkS3Module = module;
+    return module;
+  } catch (error) {
+    throw new Error('Missing optional dependency "@aws-sdk/client-s3". Install it or remove S3 storage targets.');
+  }
+}
+
+function loadAwsLibStorageModule(): AwsSdkLibStorageModule {
+  if (cachedAwsSdkLibStorageModule) {
+    return cachedAwsSdkLibStorageModule;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const module = require('@aws-sdk/lib-storage') as AwsSdkLibStorageModule;
+    cachedAwsSdkLibStorageModule = module;
+    return module;
+  } catch (error) {
+    throw new Error('Missing optional dependency "@aws-sdk/lib-storage". Install it or remove S3 storage targets.');
+  }
+}
+
+function loadAwsS3Dependencies() {
+  const s3Module = loadAwsS3Module();
+  const libModule = loadAwsLibStorageModule();
+  return {
+    S3Client: s3Module.S3Client,
+    PutObjectCommand: s3Module.PutObjectCommand,
+    DeleteObjectCommand: s3Module.DeleteObjectCommand,
+    Upload: libModule.Upload
+  };
+}
+
+function loadGoogleStorageModule(): GoogleStorageModule {
+  if (cachedGoogleStorageModule) {
+    return cachedGoogleStorageModule;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const module = require('@google-cloud/storage') as GoogleStorageModule;
+    cachedGoogleStorageModule = module;
+    return module;
+  } catch (error) {
+    throw new Error('Missing optional dependency "@google-cloud/storage". Install it or remove Google Cloud Storage targets.');
+  }
+}
+
+function loadAzureBlobModule(): AzureBlobModule {
+  if (cachedAzureBlobModule) {
+    return cachedAzureBlobModule;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const module = require('@azure/storage-blob') as AzureBlobModule;
+    cachedAzureBlobModule = module;
+    return module;
+  } catch (error) {
+    throw new Error('Missing optional dependency "@azure/storage-blob". Install it or remove Azure storage targets.');
+  }
+}
+
+export function createStorageDriver(
+  config: ServiceConfig,
+  target: StorageTargetRecord
+): StorageDriver {
+  if (target.kind === 'local') {
+    const root = typeof target.config.root === 'string' ? target.config.root : config.storage.root;
+    return new LocalStorageDriver(root);
+  }
+
+  if (target.kind === 's3') {
+    const bucket = typeof target.config.bucket === 'string'
+      ? target.config.bucket
+      : config.storage.s3?.bucket;
+    if (!bucket) {
+      throw new Error('S3 storage target missing bucket configuration');
+    }
+    const accessKeyId = typeof target.config.accessKeyId === 'string'
+      ? target.config.accessKeyId
+      : config.storage.s3?.accessKeyId;
+    const secretAccessKey = typeof target.config.secretAccessKey === 'string'
+      ? target.config.secretAccessKey
+      : config.storage.s3?.secretAccessKey;
+    const sessionToken = typeof target.config.sessionToken === 'string'
+      ? target.config.sessionToken
+      : config.storage.s3?.sessionToken;
+    const forcePathStyle = typeof target.config.forcePathStyle === 'boolean'
+      ? target.config.forcePathStyle
+      : config.storage.s3?.forcePathStyle;
+    return new S3StorageDriver({
+      bucket,
+      endpoint: typeof target.config.endpoint === 'string' ? target.config.endpoint : config.storage.s3?.endpoint,
+      region: typeof target.config.region === 'string' ? target.config.region : config.storage.s3?.region,
+      accessKeyId,
+      secretAccessKey,
+      sessionToken,
+      forcePathStyle
+    });
+  }
+
+  if (target.kind === 'gcs') {
+    const options = resolveGcsDriverOptions(config, target);
+    return new GcsStorageDriver(options);
+  }
+
+  if (target.kind === 'azure_blob') {
+    const options = resolveAzureDriverOptions(config, target);
+    return new AzureBlobStorageDriver(options);
+  }
+
+  throw new Error(`Unsupported storage target kind: ${target.kind}`);
+}
+
+class LocalStorageDriver implements StorageDriver {
+  constructor(private readonly root: string) {}
+
+  async writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult> {
+    const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
+    const absolutePath = path.join(this.root, convertPosixToPlatform(relativePath));
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    console.info('[timestore:storage] writing partition', {
+      datasetSlug: request.datasetSlug,
+      partitionId: request.partitionId,
+      sourceFilePath: request.sourceFilePath ?? null,
+      absolutePath
+    });
+    if (request.sourceFilePath) {
+      await fs.copyFile(request.sourceFilePath, absolutePath);
+      const stats = await fs.stat(absolutePath);
+      const checksum = await computeFileChecksum(absolutePath);
+      console.info('[timestore:storage] partition copy complete', {
+        datasetSlug: request.datasetSlug,
+        partitionId: request.partitionId,
+        fileSize: stats.size
+      });
+      return {
+        relativePath,
+        fileSizeBytes: stats.size,
+        rowCount: request.rowCountHint ?? 0,
+        checksum
+      };
+    }
+
+    if (!request.rows) {
+      throw new Error('writePartition requires rows or a sourceFilePath');
+    }
+
+    const rows = request.rows;
+
+    await writeParquetFile(absolutePath, request.tableName, request.schema, rows);
+    const stats = await fs.stat(absolutePath);
+    const checksum = await computeFileChecksum(absolutePath);
+    return {
+      relativePath,
+      fileSizeBytes: stats.size,
+      rowCount: request.rowCountHint ?? rows.length,
+      checksum
+    };
+  }
+}
+
+interface S3DriverOptions {
+  bucket: string;
+  endpoint?: string;
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+  forcePathStyle?: boolean;
+}
+
+class S3StorageDriver implements StorageDriver {
+  private readonly client: S3ClientInstance;
+
+  constructor(private readonly options: S3DriverOptions) {
+    const { S3Client } = loadAwsS3Dependencies();
+
+    this.client = new S3Client({
+      region: options.region ?? 'us-east-1',
+      endpoint: options.endpoint,
+      forcePathStyle: options.forcePathStyle ?? Boolean(options.endpoint),
+      credentials:
+        options.accessKeyId && options.secretAccessKey
+          ? {
+              accessKeyId: options.accessKeyId,
+              secretAccessKey: options.secretAccessKey,
+              sessionToken: options.sessionToken
+            }
+          : undefined
+    });
+  }
+
+  private logDebug(message: string, details: Record<string, unknown> = {}): void {
+    if (!TIMESTORE_DEBUG_ENABLED) {
+      return;
+    }
+    console.info('[timestore:storage:s3]', message, details);
+  }
+
+  async writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult> {
+    const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
+    if (request.sourceFilePath) {
+      const { Upload, PutObjectCommand } = loadAwsS3Dependencies();
+      const stats = await fs.stat(request.sourceFilePath);
+      const checksum = await computeFileChecksum(request.sourceFilePath);
+
+      this.logDebug('writePartition streaming source file', {
+        datasetSlug: request.datasetSlug,
+        partitionId: request.partitionId,
+        tableName: request.tableName,
+        relativePath,
+        fileSizeBytes: stats.size,
+        hasRows: Boolean(request.rows),
+        sourceFilePath: request.sourceFilePath
+      });
+
+      if (stats.size >= S3_MULTIPART_THRESHOLD_BYTES) {
+        const upload = new Upload({
+          client: this.client,
+          params: {
+            Bucket: this.options.bucket,
+            Key: relativePath,
+            Body: createReadStream(request.sourceFilePath)
+          },
+          queueSize: 4,
+          partSize: S3_MULTIPART_PART_SIZE_BYTES,
+          leavePartsOnError: false
+        });
+        try {
+          await upload.done();
+          this.logDebug('multipart upload completed', {
+            relativePath,
+            bucket: this.options.bucket,
+            bytesUploaded: stats.size
+          });
+        } catch (error) {
+          this.logDebug('multipart upload failed', {
+            relativePath,
+            bucket: this.options.bucket,
+            error: error instanceof Error ? error.message : error
+          });
+          throw error;
+        }
+      } else {
+        const stream = createReadStream(request.sourceFilePath);
+        try {
+          await this.client.send(
+            new PutObjectCommand({
+              Bucket: this.options.bucket,
+              Key: relativePath,
+              Body: stream
+            })
+          );
+          this.logDebug('single-part upload completed', {
+            relativePath,
+            bucket: this.options.bucket,
+            bytesUploaded: stats.size
+          });
+        } catch (error) {
+          this.logDebug('single-part upload failed', {
+            relativePath,
+            bucket: this.options.bucket,
+            error: error instanceof Error ? error.message : error
+          });
+          throw error;
+        }
+      }
+
+      return {
+        relativePath,
+        fileSizeBytes: stats.size,
+        rowCount: request.rowCountHint ?? 0,
+        checksum
+      };
+    }
+
+    if (!request.rows) {
+      throw new Error('writePartition requires rows or a sourceFilePath');
+    }
+
+    const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-s3-'));
+    const tempFile = path.join(tempDir, `${request.partitionId}.parquet`);
+    try {
+      await writeParquetFile(tempFile, request.tableName, request.schema, request.rows);
+      const tempFileStats = await fs.stat(tempFile);
+      this.logDebug('writeParquetFile completed', {
+        datasetSlug: request.datasetSlug,
+        partitionId: request.partitionId,
+        tableName: request.tableName,
+        relativePath,
+        rowCount: request.rows.length,
+        schemaColumns: request.schema.map((field) => `${field.name}:${field.type}`),
+        tempFilePath: tempFile,
+        fileSizeBytes: tempFileStats.size
+      });
+      const { PutObjectCommand } = loadAwsS3Dependencies();
+      const stream = createReadStream(tempFile);
+      try {
+        await this.client.send(
+          new PutObjectCommand({
+            Bucket: this.options.bucket,
+            Key: relativePath,
+            Body: stream
+          })
+        );
+        this.logDebug('parquet upload completed', {
+          relativePath,
+          bucket: this.options.bucket,
+          bytesUploaded: tempFileStats.size
+        });
+      } catch (error) {
+        this.logDebug('parquet upload failed', {
+          relativePath,
+          bucket: this.options.bucket,
+          error: error instanceof Error ? error.message : error
+        });
+        throw error;
+      }
+      const fileBuffer = await fs.readFile(tempFile);
+      const checksum = createHash('sha1').update(fileBuffer).digest('hex');
+      return {
+        relativePath,
+        fileSizeBytes: fileBuffer.length,
+        rowCount: request.rowCountHint ?? request.rows.length,
+        checksum
+      };
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
+interface GcsDriverOptions {
+  bucket: string;
+  projectId?: string;
+  keyFilename?: string;
+  clientEmail?: string;
+  privateKey?: string;
+}
+
+export class GcsStorageDriver implements StorageDriver {
+  private readonly bucket: Bucket;
+
+  constructor(
+    private readonly options: GcsDriverOptions,
+    bucketFactory: (options: GcsDriverOptions) => Bucket = createGcsBucketClient
+  ) {
+    this.bucket = bucketFactory(options);
+  }
+
+  async writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult> {
+    const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
+    const object = this.bucket.file(relativePath);
+
+    if (request.sourceFilePath) {
+      const sourceFilePath = request.sourceFilePath;
+      const stats = await fs.stat(sourceFilePath);
+      const checksum = await computeFileChecksum(sourceFilePath);
+
+      await new Promise<void>((resolve, reject) => {
+        const readStream = createReadStream(sourceFilePath);
+        const writeStream = object.createWriteStream({
+          resumable: stats.size >= GCS_RESUMABLE_THRESHOLD_BYTES,
+          contentType: 'application/octet-stream'
+        });
+        readStream.on('error', reject);
+        writeStream.on('error', reject);
+        writeStream.on('finish', resolve);
+        readStream.pipe(writeStream);
+      });
+
+      return {
+        relativePath,
+        fileSizeBytes: stats.size,
+        rowCount: request.rowCountHint ?? 0,
+        checksum
+      };
+    }
+
+    if (!request.rows) {
+      throw new Error('writePartition requires rows or a sourceFilePath');
+    }
+
+    const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-gcs-'));
+    const tempFile = path.join(tempDir, `${request.partitionId}.parquet`);
+    try {
+      await writeParquetFile(tempFile, request.tableName, request.schema, request.rows);
+      const fileBuffer = await fs.readFile(tempFile);
+      await object.save(fileBuffer, {
+        resumable: false,
+        contentType: 'application/octet-stream'
+      });
+      const checksum = createHash('sha1').update(fileBuffer).digest('hex');
+      return {
+        relativePath,
+        fileSizeBytes: fileBuffer.length,
+        rowCount: request.rowCountHint ?? request.rows.length,
+        checksum
+      };
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
+interface AzureBlobDriverOptions {
+  container: string;
+  connectionString?: string;
+  accountName?: string;
+  accountKey?: string;
+  sasToken?: string;
+  endpoint?: string;
+}
+
+export class AzureBlobStorageDriver implements StorageDriver {
+  private readonly containerClient: ContainerClient;
+
+  constructor(
+    private readonly options: ResolvedAzureOptions,
+    containerFactory: (options: ResolvedAzureOptions) => ContainerClient = createAzureContainerClient
+  ) {
+    this.containerClient = containerFactory(this.options);
+  }
+
+  async writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult> {
+    const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
+    const blobClient = this.containerClient.getBlockBlobClient(relativePath);
+
+    if (request.sourceFilePath) {
+      const stats = await fs.stat(request.sourceFilePath);
+      const checksum = await computeFileChecksum(request.sourceFilePath);
+      await blobClient.uploadFile(request.sourceFilePath, {
+        blobHTTPHeaders: {
+          blobContentType: 'application/octet-stream'
+        }
+      });
+      return {
+        relativePath,
+        fileSizeBytes: stats.size,
+        rowCount: request.rowCountHint ?? 0,
+        checksum
+      };
+    }
+
+    if (!request.rows) {
+      throw new Error('writePartition requires rows or a sourceFilePath');
+    }
+
+    const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-azure-'));
+    const tempFile = path.join(tempDir, `${request.partitionId}.parquet`);
+    try {
+      await writeParquetFile(tempFile, request.tableName, request.schema, request.rows);
+      const fileBuffer = await fs.readFile(tempFile);
+      await blobClient.uploadData(fileBuffer, {
+        blobHTTPHeaders: {
+          blobContentType: 'application/octet-stream'
+        }
+      });
+      const checksum = createHash('sha1').update(fileBuffer).digest('hex');
+      return {
+        relativePath,
+        fileSizeBytes: fileBuffer.length,
+        rowCount: request.rowCountHint ?? request.rows.length,
+        checksum
+      };
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
+function convertPosixToPlatform(input: string): string {
+  return input.split('/').join(path.sep);
+}
+
+function buildPartitionRelativePath(
+  datasetSlug: string,
+  partitionKey: Record<string, string>,
+  partitionId: string
+): string {
+  const safeDataset = sanitizeSegment(datasetSlug);
+  const segments = Object.entries(partitionKey)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${sanitizeSegment(key)}=${sanitizeSegment(value)}`);
+  const fileName = `${partitionId}.parquet`;
+  const posixPath = path.posix;
+  return posixPath.join(safeDataset, ...segments, fileName);
+}
+
+function sanitizeSegment(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[\s/\\]+/g, '_')
+    .replace(/[^a-z0-9._-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'segment';
+}
+
 export function resolvePartitionLocation(
   partition: DatasetPartitionRecord,
-  _target: StorageTargetRecord,
-  _config: ServiceConfig
+  target: StorageTargetRecord,
+  config: ServiceConfig
 ): string {
-  const tableName = typeof partition.metadata?.tableName === 'string'
-    ? partition.metadata.tableName
-    : 'records';
-  return `clickhouse://${partition.datasetId}/${tableName}`;
+  if (target.kind === 'local') {
+    const root = typeof target.config.root === 'string' ? target.config.root : config.storage.root;
+    return path.join(root, convertPosixToPlatform(partition.filePath));
+  }
+
+  if (target.kind === 's3') {
+    const bucket = typeof target.config.bucket === 'string' ? target.config.bucket : config.storage.s3?.bucket;
+    if (!bucket) {
+      throw new Error('S3 storage target missing bucket configuration');
+    }
+    return `s3://${bucket}/${partition.filePath}`;
+  }
+
+  if (target.kind === 'gcs') {
+    const options = resolveGcsDriverOptions(config, target);
+    return `gs://${options.bucket}/${partition.filePath}`;
+  }
+
+  if (target.kind === 'azure_blob') {
+    const options = resolveAzureDriverOptions(config, target);
+    const host = resolveAzureBlobHost(options);
+    return `azure://${host}/${options.container}/${partition.filePath}`;
+  }
+
+  throw new Error(`Unsupported storage target kind: ${target.kind}`);
+}
+
+export async function partitionFileExists(
+  partition: DatasetPartitionRecord,
+  target: StorageTargetRecord,
+  config: ServiceConfig
+): Promise<boolean> {
+  if (target.kind === 'local') {
+    const location = resolvePartitionLocation(partition, target, config);
+    try {
+      await fs.access(location, fsConstants.R_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Remote drivers (s3/gcs/azure) currently assume durable storage; defer to separate health checks.
+  return true;
+}
+
+export async function deletePartitionFile(
+  partition: DatasetPartitionRecord,
+  target: StorageTargetRecord,
+  config: ServiceConfig
+): Promise<void> {
+  if (target.kind === 'local') {
+    const location = resolvePartitionLocation(partition, target, config);
+    await fs.rm(location, { force: true });
+    return;
+  }
+
+  if (target.kind === 'gcs') {
+    const options = resolveGcsDriverOptions(config, target);
+    const bucket = createGcsBucketClient(options);
+    await bucket.file(partition.filePath).delete({ ignoreNotFound: true });
+    return;
+  }
+
+  if (target.kind === 's3') {
+    const bucket = typeof target.config.bucket === 'string' ? target.config.bucket : config.storage.s3?.bucket;
+    if (!bucket) {
+      throw new Error('S3 storage target missing bucket configuration');
+    }
+
+    const region = typeof target.config.region === 'string' ? target.config.region : config.storage.s3?.region ?? 'us-east-1';
+    const endpoint = typeof target.config.endpoint === 'string' ? target.config.endpoint : config.storage.s3?.endpoint;
+    const accessKeyId = typeof target.config.accessKeyId === 'string'
+      ? target.config.accessKeyId
+      : config.storage.s3?.accessKeyId;
+    const secretAccessKey = typeof target.config.secretAccessKey === 'string'
+      ? target.config.secretAccessKey
+      : config.storage.s3?.secretAccessKey;
+    const sessionToken = typeof target.config.sessionToken === 'string'
+      ? target.config.sessionToken
+      : config.storage.s3?.sessionToken;
+    const forcePathStyle = typeof target.config.forcePathStyle === 'boolean'
+      ? target.config.forcePathStyle
+      : config.storage.s3?.forcePathStyle ?? Boolean(endpoint);
+
+    const { S3Client, DeleteObjectCommand } = loadAwsS3Dependencies();
+
+    const client = new S3Client({
+      region,
+      endpoint,
+      forcePathStyle,
+      credentials:
+        accessKeyId && secretAccessKey
+          ? {
+              accessKeyId,
+              secretAccessKey,
+              sessionToken
+            }
+          : undefined
+    });
+
+    await client.send(
+      new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: partition.filePath
+      })
+    );
+    return;
+  }
+
+  if (target.kind === 'azure_blob') {
+    const options = resolveAzureDriverOptions(config, target);
+    const containerClient = createAzureContainerClient(options);
+    const blobClient = containerClient.getBlockBlobClient(partition.filePath);
+    await blobClient.deleteIfExists();
+    return;
+  }
+
+  throw new Error(`Unsupported storage target kind for deletion: ${target.kind}`);
+}
+
+async function writeParquetFile(
+  filePath: string,
+  tableName: string,
+  schema: FieldDefinition[],
+  rows: Record<string, unknown>[]
+): Promise<void> {
+  await fs.rm(filePath, { force: true });
+  const duckdb = loadDuckDb();
+  const db = new duckdb.Database(':memory:');
+  const connection = db.connect();
+
+  try {
+    const safeTableName = quoteIdentifier(tableName || 'records');
+    const columnDefinitions = schema
+      .map((field) => `${quoteIdentifier(field.name)} ${mapDuckDbType(field.type)}`)
+      .join(', ');
+    await run(connection, `CREATE TABLE ${safeTableName} (${columnDefinitions})`);
+
+    if (rows.length === 0) {
+      await run(connection, `COPY ${safeTableName} TO '${filePath.replace(/'/g, "''")}' (FORMAT PARQUET)`);
+      return;
+    }
+
+    const columnNames = schema.map((field) => field.name);
+    const placeholders = columnNames.map(() => '?').join(', ');
+    const insertSql = `INSERT INTO ${safeTableName} (${columnNames.map(quoteIdentifier).join(', ')}) VALUES (${placeholders})`;
+
+    for (const row of rows) {
+      const values = columnNames.map((column, index) =>
+        coerceValue(row[column], schema[index]?.type ?? 'string')
+      );
+      await run(connection, insertSql, ...values);
+    }
+
+    await run(connection, `COPY ${safeTableName} TO '${filePath.replace(/'/g, "''")}' (FORMAT PARQUET)`);
+  } finally {
+    await closeConnection(connection);
+    if (isCloseable(db)) {
+      db.close();
+    }
+  }
+}
+
+function quoteIdentifier(identifier: string): string {
+  const safe = identifier.replace(/"/g, '""');
+  return `"${safe}"`;
+}
+
+function mapDuckDbType(type: FieldType): string {
+  switch (type) {
+    case 'timestamp':
+      return 'TIMESTAMP';
+    case 'double':
+      return 'DOUBLE';
+    case 'integer':
+      return 'BIGINT';
+    case 'boolean':
+      return 'BOOLEAN';
+    case 'string':
+    default:
+      return 'VARCHAR';
+  }
+}
+
+function coerceValue(value: unknown, type: FieldType): unknown {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  switch (type) {
+    case 'timestamp':
+      if (value instanceof Date) {
+        return value.toISOString();
+      }
+      return new Date(String(value)).toISOString();
+    case 'double':
+      return Number(value);
+    case 'integer':
+      return Number.parseInt(String(value), 10);
+    case 'boolean':
+      return typeof value === 'boolean' ? value : String(value).toLowerCase() === 'true';
+    case 'string':
+    default:
+      return String(value);
+  }
+}
+
+function run(connection: any, sql: string, ...params: unknown[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    connection.run(sql, ...params, (err: Error | null) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function closeConnection(connection: any): Promise<void> {
+  return new Promise((resolve, reject) => {
+    connection.close((err: Error | null) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+async function computeFileChecksum(filePath: string): Promise<string> {
+  const hash = createHash('sha1');
+  const data = await fs.readFile(filePath);
+  hash.update(data);
+  return hash.digest('hex');
+}
+
+export interface ResolvedGcsOptions extends GcsDriverOptions {
+  hmacKeyId?: string;
+  hmacSecret?: string;
+}
+
+interface AzureConnectionStringProperties {
+  [key: string]: string;
+}
+
+export interface ResolvedAzureOptions extends AzureBlobDriverOptions {
+  accountName?: string;
+  connectionStringProperties?: AzureConnectionStringProperties;
+}
+
+export function resolveGcsDriverOptions(config: ServiceConfig, target: StorageTargetRecord): ResolvedGcsOptions {
+  const targetConfig = target.config ?? {};
+  const fallback = config.storage.gcs;
+  const bucket = typeof targetConfig.bucket === 'string' ? targetConfig.bucket : fallback?.bucket;
+  if (!bucket) {
+    throw new Error('GCS storage target missing bucket configuration');
+  }
+
+  return {
+    bucket,
+    projectId: typeof targetConfig.projectId === 'string' ? targetConfig.projectId : fallback?.projectId,
+    keyFilename: typeof targetConfig.keyFilename === 'string' ? targetConfig.keyFilename : fallback?.keyFilename,
+    clientEmail: typeof targetConfig.clientEmail === 'string' ? targetConfig.clientEmail : fallback?.clientEmail,
+    privateKey: typeof targetConfig.privateKey === 'string' ? targetConfig.privateKey : fallback?.privateKey,
+    hmacKeyId: typeof targetConfig.hmacKeyId === 'string' ? targetConfig.hmacKeyId : fallback?.hmacKeyId,
+    hmacSecret: typeof targetConfig.hmacSecret === 'string' ? targetConfig.hmacSecret : fallback?.hmacSecret
+  } satisfies ResolvedGcsOptions;
+}
+
+export function resolveAzureDriverOptions(config: ServiceConfig, target: StorageTargetRecord): ResolvedAzureOptions {
+  const targetConfig = target.config ?? {};
+  const fallback = config.storage.azure;
+  const container = typeof targetConfig.container === 'string' ? targetConfig.container : fallback?.container;
+  if (!container) {
+    throw new Error('Azure Blob storage target missing container configuration');
+  }
+
+  const connectionString = typeof targetConfig.connectionString === 'string'
+    ? targetConfig.connectionString
+    : fallback?.connectionString;
+
+  const resolved: ResolvedAzureOptions = {
+    container,
+    connectionString,
+    accountName: typeof targetConfig.accountName === 'string' ? targetConfig.accountName : fallback?.accountName,
+    accountKey: typeof targetConfig.accountKey === 'string' ? targetConfig.accountKey : fallback?.accountKey,
+    sasToken: typeof targetConfig.sasToken === 'string' ? targetConfig.sasToken : fallback?.sasToken,
+    endpoint: typeof targetConfig.endpoint === 'string' ? targetConfig.endpoint : fallback?.endpoint
+  } satisfies ResolvedAzureOptions;
+
+  if (connectionString) {
+    const properties = parseAzureConnectionString(connectionString);
+    resolved.connectionStringProperties = properties;
+    if (!resolved.accountName && properties.accountname) {
+      resolved.accountName = properties.accountname;
+    }
+    if (!resolved.endpoint && properties.blobendpoint) {
+      resolved.endpoint = properties.blobendpoint;
+    }
+    if (!resolved.sasToken && properties.sharedaccesssignature) {
+      resolved.sasToken = properties.sharedaccesssignature;
+    }
+  }
+
+  return resolved;
+}
+
+export function createGcsBucketClient(options: GcsDriverOptions): Bucket {
+  const { Storage } = loadGoogleStorageModule() as { Storage: typeof GoogleStorageCtor };
+  const storageOptions: StorageOptions = {};
+  if (options.projectId) {
+    storageOptions.projectId = options.projectId;
+  }
+  if (options.keyFilename) {
+    storageOptions.keyFilename = options.keyFilename;
+  }
+  if (options.clientEmail && options.privateKey) {
+    storageOptions.credentials = {
+      client_email: options.clientEmail,
+      private_key: normalizePrivateKey(options.privateKey)
+    };
+  }
+  return new Storage(storageOptions).bucket(options.bucket);
+}
+
+export function createAzureContainerClient(options: ResolvedAzureOptions): ContainerClient {
+  const {
+    BlobServiceClient,
+    StorageSharedKeyCredential
+  } = loadAzureBlobModule() as {
+    BlobServiceClient: typeof AzureBlobServiceClientCtor;
+    StorageSharedKeyCredential: typeof AzureStorageSharedKeyCredentialCtor;
+  };
+  if (options.connectionString) {
+    const client = BlobServiceClient.fromConnectionString(options.connectionString);
+    return client.getContainerClient(options.container);
+  }
+
+  const endpoint = buildAzureEndpoint(options);
+
+  if (options.accountName && options.accountKey) {
+    const credential = new StorageSharedKeyCredential(options.accountName, options.accountKey);
+    const client = new BlobServiceClient(endpoint, credential);
+    return client.getContainerClient(options.container);
+  }
+
+  if (options.accountName && options.sasToken) {
+    const sas = options.sasToken.startsWith('?') ? options.sasToken : `?${options.sasToken}`;
+    const client = new BlobServiceClient(`${endpoint}${sas}`);
+    return client.getContainerClient(options.container);
+  }
+
+  throw new Error('Azure Blob storage target missing authentication configuration');
+}
+
+function normalizePrivateKey(input: string): string {
+  return input.includes('\\n') ? input.replace(/\\n/g, '\n') : input;
+}
+
+function parseAzureConnectionString(connectionString: string): AzureConnectionStringProperties {
+  const result: AzureConnectionStringProperties = {};
+  for (const segment of connectionString.split(';')) {
+    if (!segment) {
+      continue;
+    }
+    const [rawKey, ...rest] = segment.split('=');
+    if (!rawKey || rest.length === 0) {
+      continue;
+    }
+    const key = rawKey.trim().toLowerCase();
+    const value = rest.join('=').trim();
+    if (key) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+function buildAzureEndpoint(options: ResolvedAzureOptions): string {
+  const explicit = options.endpoint?.trim();
+  if (explicit) {
+    return removeTrailingSlash(explicit);
+  }
+  if (options.connectionStringProperties?.blobendpoint) {
+    return removeTrailingSlash(options.connectionStringProperties.blobendpoint);
+  }
+  if (options.accountName) {
+    return `https://${options.accountName}.blob.core.windows.net`;
+  }
+  throw new Error('Azure Blob storage target missing endpoint configuration');
+}
+
+function removeTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+export function resolveAzureBlobHost(options: ResolvedAzureOptions): string {
+  if (options.endpoint) {
+    try {
+      const url = new URL(options.endpoint);
+      return url.host;
+    } catch {
+      return removeTrailingSlash(options.endpoint).replace(/^https?:\/\//i, '');
+    }
+  }
+  if (options.connectionStringProperties?.blobendpoint) {
+    try {
+      const url = new URL(options.connectionStringProperties.blobendpoint);
+      return url.host;
+    } catch {
+      return removeTrailingSlash(options.connectionStringProperties.blobendpoint).replace(/^https?:\/\//i, '');
+    }
+  }
+  if (options.accountName) {
+    return `${options.accountName}.blob.core.windows.net`;
+  }
+  throw new Error('Azure Blob storage target missing account information for location resolution');
 }
