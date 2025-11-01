@@ -292,7 +292,7 @@ const DEFAULT_WORKFLOW_FILTERS: WorkflowFilterState = {
   search: '',
   statuses: [],
   triggerTypes: [],
-  kinds: [...WORKFLOW_KIND_OPTIONS]
+  kinds: ['run']
 };
 
 const DEFAULT_JOB_FILTERS: JobFilterState = {
@@ -1001,29 +1001,15 @@ function RunsPageContent() {
       }));
 
       const scopedSlugs = moduleWorkflowSlugs;
-      if (scopedSlugs.length === 0) {
-        setWorkflowState((prev) => ({
-          ...prev,
-          items: [],
-          meta: {
-            limit: WORKFLOW_PAGE_SIZE,
-            offset,
-            hasMore: false,
-            nextOffset: null
-          },
-          loading: false,
-          loadingMore: false,
-          error: null,
-          loaded: true
-        }));
-        return;
+      if (scopedSlugs.length > 0) {
+        queryFilters.workflowSlugs = scopedSlugs;
+      } else {
+        queryFilters.workflowSlugs = undefined;
       }
-
-      queryFilters.workflowSlugs = scopedSlugs;
       if (moduleScopeKind === 'module') {
         queryFilters.moduleId = moduleScope.moduleId ?? undefined;
       } else {
-        delete queryFilters.moduleId;
+        queryFilters.moduleId = undefined;
       }
 
       try {
@@ -1071,29 +1057,15 @@ function RunsPageContent() {
       }));
 
       const scopedSlugs = moduleJobSlugs;
-      if (scopedSlugs.length === 0) {
-        setJobState((prev) => ({
-          ...prev,
-          items: [],
-          meta: {
-            limit: JOB_PAGE_SIZE,
-            offset,
-            hasMore: false,
-            nextOffset: null
-          },
-          loading: false,
-          loadingMore: false,
-          error: null,
-          loaded: true
-        }));
-        return;
+      if (scopedSlugs.length > 0) {
+        queryFilters.jobSlugs = scopedSlugs;
+      } else {
+        queryFilters.jobSlugs = undefined;
       }
-
-      queryFilters.jobSlugs = scopedSlugs;
       if (moduleScopeKind === 'module') {
         queryFilters.moduleId = moduleScope.moduleId ?? undefined;
       } else {
-        delete queryFilters.moduleId;
+        queryFilters.moduleId = undefined;
       }
 
       try {
@@ -1131,7 +1103,7 @@ function RunsPageContent() {
         setActiveTab('workflows');
         const statuses = config.filters.statuses && config.filters.statuses.length > 0 ? config.filters.statuses : record.statusFilters;
         const triggers = config.filters.triggerTypes ?? [];
-        const kinds = config.filters.kinds && config.filters.kinds.length > 0 ? config.filters.kinds : WORKFLOW_KIND_OPTIONS;
+        const kinds = config.filters.kinds && config.filters.kinds.length > 0 ? config.filters.kinds : DEFAULT_WORKFLOW_FILTERS.kinds;
         const nextFilters: WorkflowFilterState = {
           search: config.filters.search ?? record.searchInput ?? '',
           statuses: normalizeWorkflowStatuses(statuses),
@@ -1139,7 +1111,7 @@ function RunsPageContent() {
           kinds: normalizeWorkflowKinds(kinds)
         };
         if (nextFilters.kinds.length === 0) {
-          nextFilters.kinds = [...WORKFLOW_KIND_OPTIONS];
+          nextFilters.kinds = [...DEFAULT_WORKFLOW_FILTERS.kinds];
         }
         workflowFiltersRef.current = nextFilters;
         setWorkflowFilters(nextFilters);
