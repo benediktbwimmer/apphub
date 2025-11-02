@@ -7,7 +7,7 @@ The timestore service exposes a Fastify API that fronts a DuckDB-backed time ser
 - From the monorepo root, run `npm install` once to link dependencies, then start the server with `npm run dev:timestore`.
 - Optional: launch the lifecycle worker placeholder with `npm run dev:timestore:lifecycle` in a separate terminal.
 - Launch the ingestion worker with `npm run dev:timestore:ingest` to process queued ingestion batches (BullMQ + Redis).
-- Launch the partition build worker with `npm run dev:timestore:partition-build` so DuckDB file generation happens off the API node.
+- ClickHouse now handles partition materialization internally; you no longer need to run a dedicated partition build worker.
 
 The service listens on `http://127.0.0.1:4100` by default and exposes `/health` and `/ready` endpoints for smoke tests.
 
@@ -33,7 +33,7 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_PORT` | Port for HTTP traffic. | `4100` |
 | `TIMESTORE_DATABASE_URL` | Connection string; falls back to the core `DATABASE_URL`. | `postgres://apphub:apphub@127.0.0.1:5432/apphub` |
 | `TIMESTORE_PG_SCHEMA` | Dedicated schema within the shared Postgres instance. | `timestore` |
-| `TIMESTORE_STORAGE_DRIVER` | `local`, `s3`, `gcs`, or `azure_blob`, toggles storage adapter. | `local` |
+| `TIMESTORE_STORAGE_DRIVER` | `local`, `s3`, `gcs`, `azure_blob`, or `clickhouse`, toggles storage adapter. | `local` |
 | `TIMESTORE_STORAGE_ROOT` | Local filesystem root for DuckDB partitions. | `<repo>/services/data/timestore` |
 | `TIMESTORE_CLICKHOUSE_HOST` | ClickHouse HTTP hostname. | Defaults to `clickhouse`; override when querying a remote cluster. |
 | `TIMESTORE_CLICKHOUSE_HTTP_PORT` | ClickHouse HTTP port. | Defaults to `8123`. |

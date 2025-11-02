@@ -575,6 +575,20 @@ export function resolvePartitionLocation(
   target: StorageTargetRecord,
   config: ServiceConfig
 ): string {
+  if (target.kind === 'clickhouse') {
+    const filePath = typeof partition.filePath === 'string' && partition.filePath.trim().length > 0
+      ? partition.filePath.trim()
+      : null;
+    if (filePath) {
+      return filePath;
+    }
+    const metadata = (partition.metadata as { tableName?: unknown } | null) ?? null;
+    const tableName = metadata && typeof metadata.tableName === 'string' && metadata.tableName.trim().length > 0
+      ? metadata.tableName.trim()
+      : 'records';
+    return `clickhouse://${target.id}/${tableName}/${partition.id}`;
+  }
+
   if (target.kind === 'local') {
     const root = typeof target.config.root === 'string' ? target.config.root : config.storage.root;
     return path.join(root, convertPosixToPlatform(partition.filePath));
@@ -607,6 +621,10 @@ export async function partitionFileExists(
   target: StorageTargetRecord,
   config: ServiceConfig
 ): Promise<boolean> {
+  if (target.kind === 'clickhouse') {
+    return true;
+  }
+
   if (target.kind === 'local') {
     const location = resolvePartitionLocation(partition, target, config);
     try {
@@ -626,6 +644,10 @@ export async function deletePartitionFile(
   target: StorageTargetRecord,
   config: ServiceConfig
 ): Promise<void> {
+  if (target.kind === 'clickhouse') {
+    return;
+  }
+
   if (target.kind === 'local') {
     const location = resolvePartitionLocation(partition, target, config);
     await fs.rm(location, { force: true });
