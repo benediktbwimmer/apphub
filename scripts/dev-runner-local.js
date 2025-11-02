@@ -9,6 +9,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { concurrently, Logger } = require('concurrently');
 const stripAnsi = require('strip-ansi');
 const { runPreflight } = require('./dev-preflight');
+const { startResourceMonitor } = require('./dev-resource-monitor');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const DEV_LOG_DIR = path.join(ROOT_DIR, 'logs', 'dev');
@@ -27,6 +28,21 @@ const DEFAULT_REDIS_URL = process.env.APPHUB_DEV_REDIS_URL ?? 'redis://127.0.0.1
 const parsePort = (value, fallback) => {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const parseBooleanFlag = (value) => {
+  if (!value || typeof value !== 'string') {
+    return false;
+  }
+  switch (value.trim().toLowerCase()) {
+    case '1':
+    case 'true':
+    case 'yes':
+    case 'on':
+      return true;
+    default:
+      return false;
+  }
 };
 
 const LOCAL_POSTGRES = {
@@ -49,9 +65,32 @@ const LOCAL_STORAGE = {
   buckets: ['apphub-job-bundles', 'apphub-filestore', 'apphub-timestore', 'apphub-flink-checkpoints']
 };
 
-const DEFAULT_DATABASE_URL = `postgres://${LOCAL_POSTGRES.user}:${encodeURIComponent(
-  LOCAL_POSTGRES.password
-)}@${LOCAL_POSTGRES.host}:${LOCAL_POSTGRES.port}/${LOCAL_POSTGRES.database}`;
+const DEFAULT_CLICKHOUSE_IMAGE = process.env.APPHUB_DEV_CLICKHOUSE_IMAGE || 'clickhouse/clickhouse-server:24.11';
+
+function resolveClickhouseConfigDir() {
+  const override = process.env.APPHUB_DEV_CLICKHOUSE_CONFIG_DIR;
+  if (override && override.trim()) {
+    const candidate = override.trim();
+    return path.isAbsolute(candidate) ? candidate : path.join(ROOT_DIR, candidate);
+  }
+  const localConfigDir = path.join(ROOT_DIR, 'docker', 'clickhouse', 'local-config.d');
+  if (fs.existsSync(localConfigDir)) {
+    return localConfigDir;
+  }
+  return path.join(ROOT_DIR, 'docker', 'clickhouse', 'config.d');
+}
+
+const LOCAL_CLICKHOUSE = {
+  host: process.env.APPHUB_DEV_CLICKHOUSE_HOST ?? '127.0.0.1',
+  httpPort: parsePort(process.env.APPHUB_DEV_CLICKHOUSE_HTTP_PORT, 8123),
+  nativePort: parsePort(process.env.APPHUB_DEV_CLICKHOUSE_NATIVE_PORT, 9000),
+  user: process.env.APPHUB_DEV_CLICKHOUSE_USER ?? process.env.TIMESTORE_CLICKHOUSE_USER ?? 'apphub',
+  password: process.env.APPHUB_DEV_CLICKHOUSE_PASSWORD ?? process.env.TIMESTORE_CLICKHOUSE_PASSWORD ?? 'apphub',
+  database: process.env.APPHUB_DEV_CLICKHOUSE_DATABASE ?? process.env.TIMESTORE_CLICKHOUSE_DATABASE ?? 'apphub',
+  containerName: process.env.APPHUB_DEV_CLICKHOUSE_CONTAINER ?? 'apphub-local-clickhouse',
+  dataDir: path.join(LOCAL_DATA_DIR, 'clickhouse'),
+  configDir: resolveClickhouseConfigDir()
+};
 
 function commandExists(command) {
   try {
@@ -73,19 +112,148 @@ async function setupLocalStorage() {
   console.log(`[dev-runner-local] Created local storage directories in ${LOCAL_STORAGE.baseDir}`);
 }
 
-async function setupLocalPostgres() {
-  try {
-    await waitForPort(LOCAL_POSTGRES.host, LOCAL_POSTGRES.port, 1000, 'PostgreSQL');
-    console.log('[dev-runner-local] PostgreSQL already running, skipping local setup');
-    return null;
-  } catch {
-    // PostgreSQL not running, we continue to start it
+function buildDatabaseUrl(config = LOCAL_POSTGRES) {
+  return `postgres://${config.user}:${encodeURIComponent(config.password)}@${config.host}:${config.port}/${config.database}`;
+}
+
+function isPortAvailable(port, host) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => {
+      server.close(() => resolve(false));
+    });
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen({ host, port });
+  });
+}
+
+async function findAvailablePort(startPort, host) {
+  const MIN_PORT = 1025;
+  const MAX_PORT = 65535;
+  const attempts = 20;
+  let candidate = Math.max(MIN_PORT, startPort);
+
+  for (let i = 0; i < attempts && candidate <= MAX_PORT; i += 1, candidate += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const available = await isPortAvailable(candidate, host);
+    if (available) {
+      return candidate;
+    }
   }
 
-  if (!commandExists('postgres')) {
-    console.warn('[dev-runner-local] PostgreSQL not found. The services will use embedded PostgreSQL instances.');
-    console.warn('[dev-runner-local] For better performance, consider installing PostgreSQL and running it on port 5432.');
+  throw new Error(`[dev-runner-local] Unable to find available PostgreSQL port near ${startPort}`);
+}
+
+async function canConnectWithManagedCredentials({ host, port, user, password }) {
+  try {
+    const { Client } = require('pg');
+    const client = new Client({ host, port, user, password, database: 'postgres' });
+    try {
+      await client.connect();
+      await client.end();
+      return true;
+    } catch (err) {
+      await client.end().catch(() => undefined);
+      if (err && err.code === '28P01') {
+        return false;
+      }
+      if (err && err.code === '3D000') {
+        // Database missing but credentials work; we will handle database creation later.
+        return true;
+      }
+      return false;
+    }
+  } catch (err) {
+    console.warn('[dev-runner-local] Unable to verify PostgreSQL credentials:', err?.message ?? err);
+    return false;
+  }
+}
+
+async function startEmbeddedPostgres(port) {
+  let EmbeddedPostgres;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    EmbeddedPostgres = require('embedded-postgres');
+  } catch (err) {
+    console.warn('[dev-runner-local] embedded-postgres module unavailable:', err?.message ?? err);
     return null;
+  }
+
+  const embeddedDataDir = path.join(LOCAL_POSTGRES.dataDir, 'embedded');
+  await fsPromises.mkdir(embeddedDataDir, { recursive: true });
+
+  const instance = new EmbeddedPostgres({
+    port,
+    databaseDir: embeddedDataDir,
+    database: 'postgres',
+    username: 'postgres',
+    persistent: true,
+    postgresFlags: ['-c', 'listen_addresses=127.0.0.1']
+  });
+
+  try {
+    await instance.start();
+    return instance;
+  } catch (err) {
+    console.warn('[dev-runner-local] Failed to start embedded PostgreSQL:', err?.message ?? err);
+    try {
+      await instance.stop();
+    } catch {
+      // ignore cleanup errors
+    }
+    return null;
+  }
+}
+
+async function setupLocalPostgres() {
+  const originalPort = LOCAL_POSTGRES.port;
+  let targetPort = originalPort;
+  const host = LOCAL_POSTGRES.host;
+  const portAvailable = await isPortAvailable(targetPort, host);
+
+  if (!portAvailable) {
+    const credentialsValid = await canConnectWithManagedCredentials(LOCAL_POSTGRES);
+    if (credentialsValid) {
+      console.log('[dev-runner-local] PostgreSQL already running, skipping local setup');
+      return null;
+    }
+
+    console.warn(
+      `[dev-runner-local] Detected PostgreSQL on port ${targetPort} but credentials for apphub/apphub are invalid. Starting managed instance on an alternate port.`
+    );
+    const fallbackStart = targetPort === 5432 ? 5433 : targetPort + 1;
+    targetPort = await findAvailablePort(fallbackStart, host);
+  }
+
+  const canStartNative = commandExists('postgres');
+  LOCAL_POSTGRES.port = targetPort;
+
+  if (!canStartNative) {
+    const embeddedInstance = await startEmbeddedPostgres(targetPort);
+    if (!embeddedInstance) {
+      throw new Error(
+        '[dev-runner-local] Unable to launch embedded PostgreSQL. Install PostgreSQL locally or point APPHUB_DEV_POSTGRES_* at a reachable database.'
+      );
+    }
+
+    if (targetPort !== originalPort) {
+      console.log(`[dev-runner-local] Using embedded PostgreSQL on port ${targetPort} (original ${originalPort}).`);
+    }
+
+    await waitForPort(host, targetPort, 30000, 'PostgreSQL (embedded)');
+    await setupPostgresDatabase();
+
+    return {
+      cleanup: async () => {
+        try {
+          await embeddedInstance.stop();
+        } catch (err) {
+          console.warn('[dev-runner-local] Failed to stop embedded PostgreSQL', err?.message ?? err);
+        }
+      }
+    };
   }
 
   await fsPromises.mkdir(LOCAL_POSTGRES.dataDir, { recursive: true });
@@ -103,7 +271,12 @@ async function setupLocalPostgres() {
     }
   }
 
-  console.log('[dev-runner-local] Starting local PostgreSQL...');
+  if (targetPort !== originalPort) {
+    console.log(`[dev-runner-local] Starting PostgreSQL on port ${targetPort} (original ${originalPort}).`);
+  } else {
+    console.log('[dev-runner-local] Starting local PostgreSQL...');
+  }
+
   const pgProcess = spawn('postgres', [
     '-D', LOCAL_POSTGRES.dataDir,
     '-p', LOCAL_POSTGRES.port.toString(),
@@ -213,6 +386,95 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function setupLocalClickhouse({ dockerAvailable }) {
+  if (parseBooleanFlag(process.env.APPHUB_DEV_CLICKHOUSE_SKIP)) {
+    console.log('[dev-runner-local] Skipping local ClickHouse because APPHUB_DEV_CLICKHOUSE_SKIP is set.');
+    return null;
+  }
+
+  const explicitHost = process.env.TIMESTORE_CLICKHOUSE_HOST?.trim();
+  if (explicitHost && explicitHost !== 'clickhouse' && explicitHost !== LOCAL_CLICKHOUSE.host) {
+    console.log(`[dev-runner-local] Using external ClickHouse at ${explicitHost}.`);
+    return null;
+  }
+
+  const httpAvailable = await isPortAvailable(LOCAL_CLICKHOUSE.httpPort, LOCAL_CLICKHOUSE.host);
+  const nativeAvailable = await isPortAvailable(LOCAL_CLICKHOUSE.nativePort, LOCAL_CLICKHOUSE.host);
+  if (!httpAvailable || !nativeAvailable) {
+    console.log(
+      `[dev-runner-local] Detected ClickHouse on ${LOCAL_CLICKHOUSE.host}:${LOCAL_CLICKHOUSE.httpPort}; skipping bundled container.`
+    );
+    return null;
+  }
+
+  if (!dockerAvailable) {
+    throw new Error(
+      '[dev-runner-local] Docker CLI unavailable. Install Docker or point TIMESTORE_CLICKHOUSE_HOST at an existing ClickHouse endpoint.'
+    );
+  }
+
+  await fsPromises.mkdir(LOCAL_CLICKHOUSE.dataDir, { recursive: true });
+
+  console.log('[dev-runner-local] Starting local ClickHouse container...');
+  spawnSync('docker', ['rm', '-f', LOCAL_CLICKHOUSE.containerName], { stdio: 'ignore' });
+
+  const args = [
+    'run',
+    '--detach',
+    '--name',
+    LOCAL_CLICKHOUSE.containerName,
+    '--pull',
+    'missing',
+    '-p',
+    `${LOCAL_CLICKHOUSE.httpPort}:8123`,
+    '-p',
+    `${LOCAL_CLICKHOUSE.nativePort}:9000`,
+    '-e',
+    `CLICKHOUSE_DB=${LOCAL_CLICKHOUSE.database}`,
+    '-e',
+    `CLICKHOUSE_USER=${LOCAL_CLICKHOUSE.user}`,
+    '-e',
+    `CLICKHOUSE_PASSWORD=${LOCAL_CLICKHOUSE.password}`,
+    '-e',
+    'CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1',
+    '-v',
+    `${LOCAL_CLICKHOUSE.dataDir}:/var/lib/clickhouse`
+  ];
+
+  if (fs.existsSync(LOCAL_CLICKHOUSE.configDir)) {
+    args.push('-v', `${LOCAL_CLICKHOUSE.configDir}:/etc/clickhouse-server/config.d:ro`);
+  }
+
+  args.push(DEFAULT_CLICKHOUSE_IMAGE);
+
+  const run = spawnSync('docker', args, { encoding: 'utf8' });
+  if (typeof run.status !== 'number' || run.status !== 0) {
+    const stderr = run.stderr?.trim();
+    const stdout = run.stdout?.trim();
+    throw new Error(
+      `[dev-runner-local] Failed to start ClickHouse container: ${stderr || stdout || 'unknown error'}`
+    );
+  }
+
+  const containerId = run.stdout?.trim() || LOCAL_CLICKHOUSE.containerName;
+
+  try {
+    await waitForPort(LOCAL_CLICKHOUSE.host, LOCAL_CLICKHOUSE.httpPort, 60000, 'ClickHouse');
+  } catch (err) {
+    spawnSync('docker', ['rm', '-f', LOCAL_CLICKHOUSE.containerName], { stdio: 'ignore' });
+    throw err;
+  }
+
+  console.log(`[dev-runner-local] ClickHouse container ready (${containerId}).`);
+
+  return {
+    cleanup: async () => {
+      spawnSync('docker', ['stop', '-t', '5', LOCAL_CLICKHOUSE.containerName], { stdio: 'ignore' });
+      spawnSync('docker', ['rm', '-f', LOCAL_CLICKHOUSE.containerName], { stdio: 'ignore' });
+    }
+  };
+}
+
 async function waitForPort(host, port, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs;
   while (true) {
@@ -297,10 +559,6 @@ const BASE_COMMANDS = [
     command: 'npm run ingest --workspace @apphub/timestore'
   },
   {
-    name: 'timestore:partition',
-    command: 'npm run partition-build --workspace @apphub/timestore'
-  },
-  {
     name: 'frontend',
     command: 'npm run dev --workspace @apphub/frontend'
   }
@@ -308,6 +566,16 @@ const BASE_COMMANDS = [
 
 async function main() {
   console.log('[dev-runner-local] Starting local development environment...');
+
+  let preflightResult;
+  try {
+    preflightResult = await runPreflight();
+  } catch (err) {
+    console.error('[dev-runner-local] ' + (err?.message ?? err));
+    process.exit(1);
+  }
+  const skipRedis = Boolean(preflightResult?.skipRedis);
+  const dockerAvailable = Boolean(preflightResult?.tooling?.docker?.available);
 
   await fsPromises.mkdir(LOCAL_DATA_DIR, { recursive: true });
   await fsPromises.mkdir(DEV_LOG_DIR, { recursive: true });
@@ -317,14 +585,25 @@ async function main() {
   const localServices = [];
 
   try {
+    const clickhouseService = await setupLocalClickhouse({ dockerAvailable });
+    if (clickhouseService) {
+      localServices.push(clickhouseService);
+    }
+
     const pgService = await setupLocalPostgres();
     if (pgService) {
       localServices.push(pgService);
     }
 
-    const redisService = await setupLocalRedis();
-    if (redisService) {
-      localServices.push(redisService);
+    const defaultDatabaseUrl = buildDatabaseUrl();
+
+    if (skipRedis) {
+      console.log('[dev-runner-local] Detected existing Redis instance; skipping bundled Redis.');
+    } else {
+      const redisService = await setupLocalRedis();
+      if (redisService) {
+        localServices.push(redisService);
+      }
     }
 
     const baseEnv = { ...process.env };
@@ -339,10 +618,10 @@ async function main() {
       baseEnv.APPHUB_SESSION_SECRET = 'dev-session-secret';
     }
 
-    baseEnv.DATABASE_URL = baseEnv.DATABASE_URL ?? DEFAULT_DATABASE_URL;
+    baseEnv.DATABASE_URL = baseEnv.DATABASE_URL ?? defaultDatabaseUrl;
     for (const alias of ['FILESTORE_DATABASE_URL', 'METASTORE_DATABASE_URL', 'TIMESTORE_DATABASE_URL']) {
       if (!baseEnv[alias]) {
-        baseEnv[alias] = baseEnv.DATABASE_URL;
+        baseEnv[alias] = baseEnv.DATABASE_URL ?? defaultDatabaseUrl;
       }
     }
     baseEnv.PGHOST = LOCAL_POSTGRES.host;
@@ -366,9 +645,59 @@ async function main() {
 
     baseEnv.TIMESTORE_STORAGE_DRIVER = 'local';
     baseEnv.TIMESTORE_LOCAL_PATH = path.join(LOCAL_STORAGE.baseDir, 'apphub-timestore');
+    if (!baseEnv.TIMESTORE_CLICKHOUSE_HOST || baseEnv.TIMESTORE_CLICKHOUSE_HOST.trim() === '' || baseEnv.TIMESTORE_CLICKHOUSE_HOST === 'clickhouse') {
+      baseEnv.TIMESTORE_CLICKHOUSE_HOST = LOCAL_CLICKHOUSE.host;
+    }
+    if (!baseEnv.TIMESTORE_CLICKHOUSE_HTTP_PORT || baseEnv.TIMESTORE_CLICKHOUSE_HTTP_PORT.trim() === '') {
+      baseEnv.TIMESTORE_CLICKHOUSE_HTTP_PORT = String(LOCAL_CLICKHOUSE.httpPort);
+    }
+    if (!baseEnv.TIMESTORE_CLICKHOUSE_NATIVE_PORT || baseEnv.TIMESTORE_CLICKHOUSE_NATIVE_PORT.trim() === '') {
+      baseEnv.TIMESTORE_CLICKHOUSE_NATIVE_PORT = String(LOCAL_CLICKHOUSE.nativePort);
+    }
+    if (!baseEnv.TIMESTORE_CLICKHOUSE_USER || baseEnv.TIMESTORE_CLICKHOUSE_USER.trim() === '') {
+      baseEnv.TIMESTORE_CLICKHOUSE_USER = LOCAL_CLICKHOUSE.user;
+    }
+    if (!baseEnv.TIMESTORE_CLICKHOUSE_PASSWORD || baseEnv.TIMESTORE_CLICKHOUSE_PASSWORD.trim() === '') {
+      baseEnv.TIMESTORE_CLICKHOUSE_PASSWORD = LOCAL_CLICKHOUSE.password;
+    }
+    if (!baseEnv.TIMESTORE_CLICKHOUSE_DATABASE || baseEnv.TIMESTORE_CLICKHOUSE_DATABASE.trim() === '') {
+      baseEnv.TIMESTORE_CLICKHOUSE_DATABASE = LOCAL_CLICKHOUSE.database;
+    }
+    if (!baseEnv.TIMESTORE_CLICKHOUSE_SECURE || baseEnv.TIMESTORE_CLICKHOUSE_SECURE.trim() === '') {
+      baseEnv.TIMESTORE_CLICKHOUSE_SECURE = 'false';
+    }
 
-    baseEnv.APPHUB_FILESTORE_BASE_URL = 'http://127.0.0.1:4200';
+    baseEnv.APPHUB_FILESTORE_BASE_URL = 'http://127.0.0.1:4300';
     baseEnv.APPHUB_METASTORE_BASE_URL = 'http://127.0.0.1:4100';
+
+    const filestoreRoot = path.join(LOCAL_STORAGE.baseDir, 'apphub-filestore');
+    if (!baseEnv.OBSERVATORY_FILESTORE_BASE_URL || baseEnv.OBSERVATORY_FILESTORE_BASE_URL.trim() === '') {
+      baseEnv.OBSERVATORY_FILESTORE_BASE_URL = baseEnv.APPHUB_FILESTORE_BASE_URL;
+    }
+    if (!baseEnv.OBSERVATORY_FILESTORE_BACKEND_KEY || baseEnv.OBSERVATORY_FILESTORE_BACKEND_KEY.trim() === '') {
+      baseEnv.OBSERVATORY_FILESTORE_BACKEND_KEY = 'observatory-local';
+    }
+    if (!baseEnv.FILESTORE_AUTOPROVISION_BACKEND_KIND || baseEnv.FILESTORE_AUTOPROVISION_BACKEND_KIND.trim() === '') {
+      baseEnv.FILESTORE_AUTOPROVISION_BACKEND_KIND = 'local';
+    }
+    if (!baseEnv.FILESTORE_AUTOPROVISION_LOCAL_ROOT || baseEnv.FILESTORE_AUTOPROVISION_LOCAL_ROOT.trim() === '') {
+      baseEnv.FILESTORE_AUTOPROVISION_LOCAL_ROOT = filestoreRoot;
+    }
+    if (!baseEnv.OBSERVATORY_FILESTORE_LOCAL_ROOT || baseEnv.OBSERVATORY_FILESTORE_LOCAL_ROOT.trim() === '') {
+      baseEnv.OBSERVATORY_FILESTORE_LOCAL_ROOT = filestoreRoot;
+    }
+    if (!baseEnv.OBSERVATORY_FILESTORE_DEFAULT_KEY || baseEnv.OBSERVATORY_FILESTORE_DEFAULT_KEY.trim() === '') {
+      baseEnv.OBSERVATORY_FILESTORE_DEFAULT_KEY = baseEnv.OBSERVATORY_FILESTORE_BACKEND_KEY;
+    }
+    if (!baseEnv.FILESTORE_AUTOPROVISION_MOUNT_KEY || baseEnv.FILESTORE_AUTOPROVISION_MOUNT_KEY.trim() === '') {
+      baseEnv.FILESTORE_AUTOPROVISION_MOUNT_KEY = baseEnv.OBSERVATORY_FILESTORE_BACKEND_KEY;
+    }
+    if (!baseEnv.FILESTORE_AUTOPROVISION_DISPLAY_NAME || baseEnv.FILESTORE_AUTOPROVISION_DISPLAY_NAME.trim() === '') {
+      baseEnv.FILESTORE_AUTOPROVISION_DISPLAY_NAME = 'Observatory (Local)';
+    }
+    if (!baseEnv.FILESTORE_AUTOPROVISION_DESCRIPTION || baseEnv.FILESTORE_AUTOPROVISION_DESCRIPTION.trim() === '') {
+      baseEnv.FILESTORE_AUTOPROVISION_DESCRIPTION = 'Local filesystem backend for the observatory demo.';
+    }
 
     baseEnv.APPHUB_STREAMING_ENABLED = 'false';
 
@@ -457,6 +786,7 @@ async function main() {
     });
 
     const { commands: spawned, result } = controller;
+    const stopMonitor = startResourceMonitor({ prefix: 'dev-runner-local', commands: spawned });
 
     for (const command of spawned) {
       command.close.subscribe(() => {
@@ -499,6 +829,7 @@ async function main() {
 
     const cleanup = async () => {
       console.log('[dev-runner-local] Cleaning up local services...');
+      stopMonitor();
 
       terminate('SIGTERM');
       await new Promise(resolve => setTimeout(resolve, 2000));

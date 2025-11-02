@@ -52,6 +52,8 @@ npm install
 npm run local-dev
 ```
 
+The local runner performs a preflight check, launches Redis on demand, provisions PostgreSQL—reusing your system install when available or booting an embedded instance on a free port otherwise—and now starts a single-node ClickHouse instance via the Docker CLI (image `clickhouse/clickhouse-server:24.11`; Docker must be installed and running) bound to `127.0.0.1:8123`. Data for the bundled ClickHouse service persists under `data/local/clickhouse`. Set `TIMESTORE_CLICKHOUSE_HOST` if you want to target an external cluster, export `APPHUB_DEV_CLICKHOUSE_SKIP=1` when you manage ClickHouse yourself, or point `APPHUB_DEV_CLICKHOUSE_CONFIG_DIR` at an alternate config bundle if you need custom storage policies. The runner also auto-creates a local filestore backend mounted at `data/local/storage/apphub-filestore` so the observatory module works out of the box. Service logs stream into `logs/dev/`, and a lightweight resource monitor warns when any child process crosses the CPU or memory thresholds (tune it via `APPHUB_DEV_RESOURCE_CPU_THRESHOLD`, `APPHUB_DEV_RESOURCE_MEM_THRESHOLD_MB`, or `APPHUB_DEV_RESOURCE_MONITOR_INTERVAL_MS`).
+
 **Docker-based Development (Uses containers for dependencies)**
 ```bash
 npm install
@@ -65,6 +67,8 @@ Both runners start the core services plus the frontend. Modules are no longer pu
 ```bash
 npm run dev:observatory
 ```
+
+The loader detects the local Redis/Postgres instances and publishes the observatory module with the filesystem-backed filestore mount, so no additional environment variables are required.
 
 Maintenance helpers:
 

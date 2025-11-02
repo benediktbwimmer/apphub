@@ -1,0 +1,18 @@
+<clickhouse>
+  <storage_configuration>
+    <disks>
+      <local_hot>
+        <path>/var/lib/clickhouse/disks/local_hot/</path>
+      </local_hot>
+    </disks>
+    <policies>
+      <timestore_demo>
+        <volumes>
+          <hot>
+            <disk>local_hot</disk>
+          </hot>
+        </volumes>
+      </timestore_demo>
+    </policies>
+  </storage_configuration>
+</clickhouse>

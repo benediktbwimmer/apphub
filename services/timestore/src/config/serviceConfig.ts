@@ -6,7 +6,7 @@ type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
 export type QueryExecutionBackendKind = 'clickhouse';
 
-type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob';
+type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob' | 'clickhouse';
 
 export interface QueryExecutionBackendConfig {
   name: string;
