@@ -22,10 +22,12 @@ import type { ObservatorySecrets, ObservatorySettings } from '../config/settings
 type SelectedTimestore = NonNullable<ReturnType<typeof selectTimestore>>;
 
 const MAX_ROWS = 10_000;
-const DATASET_READY_MAX_ATTEMPTS = 24;
-const DATASET_READY_DELAY_MS = 1_000;
-const FLUSH_CHECK_MAX_ATTEMPTS = 10;
-const FLUSH_CHECK_DELAY_MS = 1_000;
+const DATASET_READY_MAX_ATTEMPTS = 8;
+const DATASET_READY_DELAY_MS = 2_000;
+const DATASET_READY_MAX_DELAY_MS = 30_000;
+const FLUSH_CHECK_MAX_ATTEMPTS = 6;
+const FLUSH_CHECK_DELAY_MS = 2_000;
+const FLUSH_CHECK_MAX_DELAY_MS = 10_000;
 const DEFAULT_SNAPSHOT_FRESHNESS_MS = 60_000;
 
 function sanitizePartitionKey(raw: string | undefined | null): string | null {
@@ -569,12 +571,14 @@ async function waitForDatasetReady(
       return true;
     }
     if (attempt < DATASET_READY_MAX_ATTEMPTS - 1) {
+      const waitMs = Math.min(DATASET_READY_DELAY_MS * 2 ** attempt, DATASET_READY_MAX_DELAY_MS);
       context.logger.warn('Timestore dataset not yet available; retrying', {
         datasetSlug,
         attempt: attempt + 1,
-        remainingAttempts: DATASET_READY_MAX_ATTEMPTS - attempt - 1
+        remainingAttempts: DATASET_READY_MAX_ATTEMPTS - attempt - 1,
+        waitMs
       });
-      await delay(DATASET_READY_DELAY_MS);
+      await delay(waitMs);
     }
   }
   return false;
@@ -607,6 +611,8 @@ async function waitForFlushCompletion(
       return lastSummary;
     }
 
+    let waitReason: 'pending' | 'missing' | null = null;
+
     if (summary) {
       lastSummary = summary;
       const payload = toRecord(summary.payload);
@@ -614,24 +620,29 @@ async function waitForFlushCompletion(
       if (!flushPending) {
         return summary;
       }
-
-      if (attempt < FLUSH_CHECK_MAX_ATTEMPTS - 1) {
-        context.logger.info('Timestore ingestion flush pending; waiting before aggregation', {
-          partitionKey,
-          attempt: attempt + 1,
-          remainingAttempts: FLUSH_CHECK_MAX_ATTEMPTS - attempt - 1
-        });
-      }
-    } else if (attempt < FLUSH_CHECK_MAX_ATTEMPTS - 1) {
-      context.logger.warn('Ingest asset summary not yet available; retrying before aggregation', {
-        partitionKey,
-        attempt: attempt + 1,
-        remainingAttempts: FLUSH_CHECK_MAX_ATTEMPTS - attempt - 1
-      });
+      waitReason = 'pending';
+    } else {
+      waitReason = 'missing';
     }
 
     if (attempt < FLUSH_CHECK_MAX_ATTEMPTS - 1) {
-      await delay(FLUSH_CHECK_DELAY_MS);
+      const waitMs = Math.min(FLUSH_CHECK_DELAY_MS * 2 ** attempt, FLUSH_CHECK_MAX_DELAY_MS);
+      if (waitReason === 'pending') {
+        context.logger.info('Timestore ingestion flush pending; waiting before aggregation', {
+          partitionKey,
+          attempt: attempt + 1,
+          remainingAttempts: FLUSH_CHECK_MAX_ATTEMPTS - attempt - 1,
+          waitMs
+        });
+      } else if (waitReason === 'missing') {
+        context.logger.warn('Ingest asset summary not yet available; retrying before aggregation', {
+          partitionKey,
+          attempt: attempt + 1,
+          remainingAttempts: FLUSH_CHECK_MAX_ATTEMPTS - attempt - 1,
+          waitMs
+        });
+      }
+      await delay(waitMs);
     }
   }
 

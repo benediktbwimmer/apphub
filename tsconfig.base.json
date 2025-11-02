@@ -83,6 +83,9 @@
       ],
       "kafkajs": [
         "types/kafkajs/index"
+      ],
+      "parquetjs-lite": [
+        "types/parquetjs-lite/index"
       ]
     }
   }

@@ -214,6 +214,12 @@ async function handler(context: GeneratorContext): Promise<GeneratorJobResult> {
   let totalRows = 0;
 
   const normalizedInbox = moduleSettings.filestore.inboxPrefix.replace(/\/+$/g, '');
+  const stagingMinuteDirectory = `${normalizedInbox}/${minuteKey}`;
+  await filestore.ensureDirectory({
+    backendMountId,
+    path: stagingMinuteDirectory,
+    principal
+  });
   const generatedAt = new Date().toISOString();
 
   for (let index = 0; index < profiles.length; index += 1) {
@@ -222,7 +228,7 @@ async function handler(context: GeneratorContext): Promise<GeneratorJobResult> {
     const profileRng = createRandom(profileSeed);
     const { content, metrics } = buildCsv(profile, minute, rowsPerInstrument, intervalMinutes, profileRng);
     const fileName = `${profile.instrumentId}_${minuteKey}.csv`;
-    const filestorePath = `${normalizedInbox}/${fileName}`;
+    const filestorePath = `${stagingMinuteDirectory}/${fileName}`;
 
     const result = await uploadTextFile({
       filestore,
@@ -260,7 +266,7 @@ async function handler(context: GeneratorContext): Promise<GeneratorJobResult> {
     summaries.push({
       instrumentId: profile.instrumentId,
       site: profile.site,
-      relativePath: fileName,
+      relativePath: `${minuteKey}/${fileName}`,
       filestorePath,
       rows: metrics.rows,
       firstTimestamp: metrics.firstTimestamp,

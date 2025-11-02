@@ -9,6 +9,7 @@ const { spawnSync } = require('node:child_process');
 const { concurrently, Logger } = require('concurrently');
 const stripAnsi = require('strip-ansi');
 const { runPreflight } = require('./dev-preflight');
+const { startResourceMonitor } = require('./dev-resource-monitor');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const DEV_LOG_DIR = path.join(ROOT_DIR, 'logs', 'dev');
@@ -147,10 +148,6 @@ const BASE_COMMANDS = [
   {
     name: 'timestore:ingest',
     command: 'npm run ingest --workspace @apphub/timestore'
-  },
-  {
-    name: 'timestore:partition',
-    command: 'npm run partition-build --workspace @apphub/timestore'
   },
   {
     name: 'frontend',
@@ -929,6 +926,7 @@ async function main() {
   });
 
   const { commands: spawned, result } = controller;
+  const stopMonitor = startResourceMonitor({ prefix: 'dev-runner', commands: spawned });
 
   for (const command of spawned) {
     command.close.subscribe(() => {
@@ -1014,6 +1012,7 @@ async function main() {
   process.on('SIGTERM', () => handleTerminationRequest('SIGTERM'));
 
   const finalizeAndExit = (code) => {
+    stopMonitor();
     clearTerminationTimers();
     finalizeLogging()
       .catch((err) => {

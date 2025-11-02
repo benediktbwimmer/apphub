@@ -1,9 +1,15 @@
-import { createService, selectFilestore, type ServiceLifecycle } from '@apphub/module-sdk';
+import {
+  createService,
+  selectFilestore,
+  ensureResolvedBackendId,
+  type ServiceLifecycle
+} from '@apphub/module-sdk';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { FilestoreCapability, FilestoreDownloadStream } from '@apphub/module-sdk';
 import type { ObservatorySecrets, ObservatorySettings } from '../config/settings';
 import { defaultSettings } from '../config/settings';
+import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 
 function normalizePath(path: string): string {
   return path.replace(/^\/+/, '').replace(/\/+$/g, '');
@@ -111,18 +117,18 @@ export const dashboardService = createService<
   settings: {
     defaults: defaultSettings()
   },
-  handler: (context) => {
+  handler: async (context) => {
     const filestoreCapabilityCandidate = selectFilestore(context.capabilities);
     if (!filestoreCapabilityCandidate) {
       throw new Error('Filestore capability is required for the observatory dashboard service');
     }
     const filestoreCapability: FilestoreCapability = filestoreCapabilityCandidate;
 
-    const backendMountIdValue = context.settings.filestore.backendId;
-    if (!backendMountIdValue || backendMountIdValue <= 0) {
-      throw new Error('A valid filestore backend id is required for the observatory dashboard service');
-    }
-    const backendMountId = backendMountIdValue;
+    const backendMountId = await ensureResolvedBackendId(filestoreCapability, {
+      filestoreBackendId: context.settings.filestore.backendId,
+      filestoreBackendKey:
+        context.settings.filestore.backendKey ?? DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY
+    });
 
     const filestorePrincipal = context.settings.principals.dashboardAggregator?.trim() || undefined;
     const reportsPrefix = normalizePath(context.settings.filestore.reportsPrefix);

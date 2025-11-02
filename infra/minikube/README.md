@@ -44,7 +44,7 @@ This directory delivers an opinionated Kustomize overlay for spinning up AppHub 
   - *Core API* (2 replicas) plus dedicated Deployments for ingest, build, launch, workflow, asset materializer, example bundle, event ingress, and trigger workers. Build/launch workers use service accounts (`apphub-builder`, `apphub-preview`) and enable `WORKFLOW_SCHEDULER_ADVISORY_LOCKS=1` for the scheduler.
   - *Metastore API* with `/readyz` and `/healthz` probes enabled.
   - *Filestore API* and reconciliation worker, wired to Redis queues and MinIO-backed storage.
-  - *Timestore API* with ingestion, partition build, and lifecycle workers running against the MinIO-backed S3 driver.
+  - *Timestore API* with ingestion and lifecycle workers running against the MinIO-backed S3 driver. Partition materialization is now handled directly by ClickHouse.
   - *Flink* JobManager + TaskManagers for long-running streaming jobs, configured to persist checkpoints in `s3://apphub-flink-checkpoints`.
   - *Frontend* static site served by nginx.
 

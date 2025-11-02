@@ -39,6 +39,25 @@ function run() {
     APPHUB_SCRATCH_PREFIXES: resolveScratchPrefixes(process.env.APPHUB_SCRATCH_PREFIXES, resolvedModuleDir)
   };
 
+  if (!env.REDIS_URL || env.REDIS_URL.trim() === '') {
+    env.REDIS_URL = 'redis://127.0.0.1:6379';
+  }
+  if (!env.DATABASE_URL || env.DATABASE_URL.trim() === '') {
+    env.DATABASE_URL = 'postgres://apphub:apphub@127.0.0.1:5432/apphub';
+  }
+  if (!env.APPHUB_ALLOW_INLINE_MODE || env.APPHUB_ALLOW_INLINE_MODE.trim() === '') {
+    env.APPHUB_ALLOW_INLINE_MODE = '1';
+  }
+  if (!env.OBSERVATORY_FILESTORE_BASE_URL || env.OBSERVATORY_FILESTORE_BASE_URL.trim() === '') {
+    env.OBSERVATORY_FILESTORE_BASE_URL = 'http://127.0.0.1:4300';
+  }
+  if (!env.OBSERVATORY_FILESTORE_BACKEND_KEY || env.OBSERVATORY_FILESTORE_BACKEND_KEY.trim() === '') {
+    env.OBSERVATORY_FILESTORE_BACKEND_KEY = 'observatory-local';
+  }
+  if (!env.OBSERVATORY_FILESTORE_DEFAULT_KEY || env.OBSERVATORY_FILESTORE_DEFAULT_KEY.trim() === '') {
+    env.OBSERVATORY_FILESTORE_DEFAULT_KEY = env.OBSERVATORY_FILESTORE_BACKEND_KEY;
+  }
+
   const label = path.relative(ROOT_DIR, resolvedModuleDir) || resolvedModuleDir;
   console.log(`[dev-load-observatory] Publishing module from ${label}`);
 
