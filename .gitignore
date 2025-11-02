@@ -35,6 +35,9 @@ docker/demo-data/
 docker/demo.env
 .docker-cache/
 
+# Local runtime data
+data/
+
 # Generated bundle artifacts
 apps/frontend/public/examples/job-bundles/*.tgz
 apps/frontend/public/examples/job-bundles/*.tgz.sha256

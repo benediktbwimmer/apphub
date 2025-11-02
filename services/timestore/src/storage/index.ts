@@ -11,9 +11,9 @@ import type {
   StorageSharedKeyCredential as AzureStorageSharedKeyCredentialCtor,
   ContainerClient
 } from '@azure/storage-blob';
-import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { ServiceConfig } from '../config/serviceConfig';
 import type { DatasetPartitionRecord, StorageTargetRecord } from '../db/metadata';
+import type { ParquetWriter as ParquetWriterCtor, ParquetSchema as ParquetSchemaCtor } from 'parquetjs-lite';
 
 export type FieldType = 'timestamp' | 'string' | 'double' | 'integer' | 'boolean';
 
@@ -61,6 +61,7 @@ let cachedGoogleStorageModule: GoogleStorageModule | null = null;
 let cachedAzureBlobModule: AzureBlobModule | null = null;
 let cachedAwsSdkS3Module: AwsSdkS3Module | null = null;
 let cachedAwsSdkLibStorageModule: AwsSdkLibStorageModule | null = null;
+let cachedParquetModule: { ParquetWriter: ParquetWriterCtor; ParquetSchema: ParquetSchemaCtor } | null = null;
 
 type S3ClientConstructor = AwsSdkS3Module['S3Client'];
 type S3ClientInstance = InstanceType<S3ClientConstructor>;
@@ -102,6 +103,23 @@ function loadAwsS3Dependencies() {
     DeleteObjectCommand: s3Module.DeleteObjectCommand,
     Upload: libModule.Upload
   };
+}
+
+function loadParquetModule() {
+  if (cachedParquetModule) {
+    return cachedParquetModule;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const module = require('parquetjs-lite') as {
+      ParquetWriter: ParquetWriterCtor;
+      ParquetSchema: ParquetSchemaCtor;
+    };
+    cachedParquetModule = module;
+    return module;
+  } catch (error) {
+    throw new Error('Missing dependency "parquetjs-lite". Install it to enable Parquet exports.');
+  }
 }
 
 function loadGoogleStorageModule(): GoogleStorageModule {
@@ -720,65 +738,68 @@ export async function deletePartitionFile(
 
 async function writeParquetFile(
   filePath: string,
-  tableName: string,
+  _tableName: string,
   schema: FieldDefinition[],
   rows: Record<string, unknown>[]
 ): Promise<void> {
   await fs.rm(filePath, { force: true });
-  const duckdb = loadDuckDb();
-  const db = new duckdb.Database(':memory:');
-  const connection = db.connect();
+  const { ParquetWriter, ParquetSchema } = loadParquetModule();
+  const parquetSchemaDefinition = buildParquetSchema(schema);
+  const parquetSchema = new ParquetSchema(parquetSchemaDefinition);
+  const writer = await ParquetWriter.openFile(parquetSchema, filePath);
 
   try {
-    const safeTableName = quoteIdentifier(tableName || 'records');
-    const columnDefinitions = schema
-      .map((field) => `${quoteIdentifier(field.name)} ${mapDuckDbType(field.type)}`)
-      .join(', ');
-    await run(connection, `CREATE TABLE ${safeTableName} (${columnDefinitions})`);
-
-    if (rows.length === 0) {
-      await run(connection, `COPY ${safeTableName} TO '${filePath.replace(/'/g, "''")}' (FORMAT PARQUET)`);
+    if (!rows.length) {
       return;
     }
 
-    const columnNames = schema.map((field) => field.name);
-    const placeholders = columnNames.map(() => '?').join(', ');
-    const insertSql = `INSERT INTO ${safeTableName} (${columnNames.map(quoteIdentifier).join(', ')}) VALUES (${placeholders})`;
-
     for (const row of rows) {
-      const values = columnNames.map((column, index) =>
-        coerceValue(row[column], schema[index]?.type ?? 'string')
-      );
-      await run(connection, insertSql, ...values);
+      const record: Record<string, unknown> = {};
+      for (const field of schema) {
+        const value = coerceValue(row[field.name], field.type);
+        if (value !== undefined) {
+          record[field.name] = value;
+        }
+      }
+      await writer.appendRow(record);
     }
-
-    await run(connection, `COPY ${safeTableName} TO '${filePath.replace(/'/g, "''")}' (FORMAT PARQUET)`);
   } finally {
-    await closeConnection(connection);
-    if (isCloseable(db)) {
-      db.close();
-    }
+    await writer.close();
   }
 }
 
-function quoteIdentifier(identifier: string): string {
-  const safe = identifier.replace(/"/g, '""');
-  return `"${safe}"`;
+function buildParquetSchema(fields: FieldDefinition[]) {
+  const schemaDefinition: Record<
+    string,
+    {
+      type: string;
+      optional: boolean;
+    }
+  > = {};
+
+  for (const field of fields) {
+    schemaDefinition[field.name] = {
+      type: mapParquetType(field.type),
+      optional: true
+    };
+  }
+
+  return schemaDefinition;
 }
 
-function mapDuckDbType(type: FieldType): string {
+function mapParquetType(type: FieldType): string {
   switch (type) {
     case 'timestamp':
-      return 'TIMESTAMP';
+      return 'TIMESTAMP_MILLIS';
     case 'double':
       return 'DOUBLE';
     case 'integer':
-      return 'BIGINT';
+      return 'INT64';
     case 'boolean':
       return 'BOOLEAN';
     case 'string':
     default:
-      return 'VARCHAR';
+      return 'UTF8';
   }
 }
 
@@ -790,9 +811,15 @@ function coerceValue(value: unknown, type: FieldType): unknown {
   switch (type) {
     case 'timestamp':
       if (value instanceof Date) {
-        return value.toISOString();
+        return value;
       }
-      return new Date(String(value)).toISOString();
+      {
+        const parsed = new Date(String(value));
+        if (Number.isNaN(parsed.getTime())) {
+          throw new Error(`Invalid timestamp value: ${value}`);
+        }
+        return parsed;
+      }
     case 'double':
       return Number(value);
     case 'integer':
@@ -803,30 +830,6 @@ function coerceValue(value: unknown, type: FieldType): unknown {
     default:
       return String(value);
   }
-}
-
-function run(connection: any, sql: string, ...params: unknown[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    connection.run(sql, ...params, (err: Error | null) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
-function closeConnection(connection: any): Promise<void> {
-  return new Promise((resolve, reject) => {
-    connection.close((err: Error | null) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
-  });
 }
 
 async function computeFileChecksum(filePath: string): Promise<string> {

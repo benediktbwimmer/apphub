@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { mkdir } from 'node:fs/promises';
 import type { FastifyBaseLogger } from 'fastify';
 import { withConnection } from '../db/client';
 import {
@@ -59,8 +61,67 @@ export async function autoProvisionDefaultBackend(context: AutoProvisionContext)
 
   const rawKind = cleanString(env.FILESTORE_AUTOPROVISION_BACKEND_KIND) ?? 's3';
   const backendKind = rawKind.toLowerCase();
+
+  if (backendKind === 'local') {
+    const mountKey = cleanString(env.FILESTORE_AUTOPROVISION_MOUNT_KEY) ?? 'observatory-local';
+    const displayName = cleanString(env.FILESTORE_AUTOPROVISION_DISPLAY_NAME) ?? 'Observatory Filestore (Local)';
+    const description =
+      cleanString(env.FILESTORE_AUTOPROVISION_DESCRIPTION) ??
+      'Auto-provisioned local filesystem mount for the observatory example.';
+
+    const configuredRoot =
+      cleanString(env.FILESTORE_AUTOPROVISION_LOCAL_ROOT) ??
+      cleanString(env.OBSERVATORY_FILESTORE_LOCAL_ROOT) ??
+      path.join(process.cwd(), 'data', 'local', 'storage', 'apphub-filestore');
+    const rootPath = path.isAbsolute(configuredRoot)
+      ? configuredRoot
+      : path.join(process.cwd(), configuredRoot);
+    await mkdir(rootPath, { recursive: true });
+
+    const labels = buildLabels(env.FILESTORE_AUTOPROVISION_LABELS, ['autoprovisioned', 'observatory']);
+
+    const createPayload: CreateBackendMountInput = {
+      mountKey,
+      backendKind: 'local',
+      rootPath,
+      accessMode: 'rw',
+      state: 'active',
+      displayName,
+      description,
+      labels
+    };
+
+    const updatePayload: UpdateBackendMountInput = {
+      rootPath,
+      accessMode: 'rw',
+      state: 'active',
+      displayName,
+      description,
+      labels
+    };
+
+    await withConnection(async (client) => {
+      const existing = await client.query<{ id: number }>(
+        'SELECT id FROM backend_mounts WHERE mount_key = $1 LIMIT 1',
+        [mountKey]
+      );
+
+      if (existing.rowCount === 0) {
+        await createBackendMount(client, createPayload);
+        logger.info({ mountKey, backendKind: 'local', rootPath }, 'auto-provisioned local filestore backend mount');
+        return;
+      }
+
+      const mountId = existing.rows[0].id;
+      await updateBackendMount(client, mountId, updatePayload);
+      logger.info({ mountKey, backendKind: 'local', rootPath }, 'refreshed auto-provisioned local filestore backend');
+    });
+
+    return;
+  }
+
   if (backendKind !== 's3') {
-    logger.warn({ backendKind }, 'filestore auto-provision only supports s3 backends at the moment');
+    logger.warn({ backendKind }, 'filestore auto-provision only supports local and s3 backends');
     return;
   }
 

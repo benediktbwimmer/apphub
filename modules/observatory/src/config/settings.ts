@@ -121,7 +121,7 @@ const FALLBACK_SETTINGS: ObservatorySettings = {
   filestore: {
     baseUrl: 'http://127.0.0.1:4300',
     backendKey: 'observatory-event-driven-s3',
-    backendId: 1,
+    backendId: null,
     inboxPrefix: 'datasets/observatory/raw',
     stagingPrefix: 'datasets/observatory/raw',
     archivePrefix: 'datasets/observatory/raw',
