@@ -13,6 +13,7 @@ dist
 coverage
 infra
 docker/demo-data
+data
 logs
 .dev
 .vscode

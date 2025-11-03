@@ -62,7 +62,8 @@ const LOCAL_REDIS = {
 
 const LOCAL_STORAGE = {
   baseDir: path.join(LOCAL_DATA_DIR, 'storage'),
-  buckets: ['apphub-job-bundles', 'apphub-filestore', 'apphub-timestore', 'apphub-flink-checkpoints']
+  buckets: ['apphub-job-bundles', 'apphub-filestore', 'apphub-timestore', 'apphub-flink-checkpoints'],
+  scratchDir: path.join(LOCAL_DATA_DIR, 'scratch')
 };
 
 const DEFAULT_CLICKHOUSE_IMAGE = process.env.APPHUB_DEV_CLICKHOUSE_IMAGE || 'clickhouse/clickhouse-server:24.11';
@@ -103,6 +104,7 @@ function commandExists(command) {
 
 async function setupLocalStorage() {
   await fsPromises.mkdir(LOCAL_STORAGE.baseDir, { recursive: true });
+  await fsPromises.mkdir(LOCAL_STORAGE.scratchDir, { recursive: true });
 
   for (const bucket of LOCAL_STORAGE.buckets) {
     const bucketDir = path.join(LOCAL_STORAGE.baseDir, bucket);
@@ -636,6 +638,17 @@ async function main() {
         baseEnv[alias] = baseEnv.REDIS_URL;
       }
     }
+
+    if (!baseEnv.APPHUB_SCRATCH_ROOT || baseEnv.APPHUB_SCRATCH_ROOT.trim() === '') {
+      baseEnv.APPHUB_SCRATCH_ROOT = LOCAL_STORAGE.scratchDir;
+    }
+    const scratchPrefixes = new Set(
+      (baseEnv.APPHUB_SCRATCH_PREFIXES ? baseEnv.APPHUB_SCRATCH_PREFIXES.split(':') : [])
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    );
+    scratchPrefixes.add(LOCAL_STORAGE.scratchDir);
+    baseEnv.APPHUB_SCRATCH_PREFIXES = Array.from(scratchPrefixes).join(':');
 
     baseEnv.APPHUB_BUNDLE_STORAGE_BACKEND = 'local';
     baseEnv.APPHUB_BUNDLE_STORAGE_PATH = path.join(LOCAL_STORAGE.baseDir, 'apphub-job-bundles');

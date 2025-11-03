@@ -22,6 +22,7 @@ declare -a TARGETS=(
   "filestore-runtime:filestore"
   "timestore-runtime:timestore"
   "frontend-runtime:frontend"
+  "website-runtime:website"
 )
 
 for descriptor in "${TARGETS[@]}"; do

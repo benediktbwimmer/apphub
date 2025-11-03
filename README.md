@@ -65,7 +65,7 @@ The local runner uses native PostgreSQL and Redis installations when available, 
 Both runners start the core services plus the frontend. Modules are no longer published automatically; load the Environmental Observatory bundle after the stack settles:
 
 ```bash
-npm run dev:observatory
+npm run load:observatory
 ```
 
 The loader detects the local Redis/Postgres instances and publishes the observatory module with the filesystem-backed filestore mount, so no additional environment variables are required.
@@ -718,3 +718,9 @@ Highlighted priorities:
 - Multi-tenancy concerns: should every launch run in isolated namespaces (Kubernetes vs. lightweight Firecracker VMs)?
 - Tag curation: manual only, or automated enrichment via language/framework detection?
 - Governance for community submissions (moderation, abuse prevention, licensing checks?).
+- **GKE Autopilot Overlay** – The manifests under `infra/gke-autopilot` re-use the minikube stack for a
+  Google Kubernetes Engine Autopilot cluster, swap the images to Artifact Registry, and add a
+  ClickHouse StatefulSet with Google Cloud Storage offload. See `infra/gke-autopilot/README.md` and
+  `npm run deploy:gke-autopilot -- --project <id> ...` for an automated workflow that handles image
+  publishing, secrets, and rollout. Provision the supporting GCP resources with
+  `scripts/gke-autopilot-bootstrap.sh --project <id> --region <region> --bucket <name> --service-account <sa>`.

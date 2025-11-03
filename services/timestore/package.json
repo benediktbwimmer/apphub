@@ -5,18 +5,18 @@
   "main": "dist/server.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node --enable-source-maps --import tsx src/server.ts",
     "start": "node dist/server.js",
     "build": "npm run build:ts && npm run build:openapi",
     "build:ts": "tsc -b",
-    "build:openapi": "tsx scripts/generateOpenApi.ts",
+    "build:openapi": "node --enable-source-maps --import tsx scripts/generateOpenApi.ts",
     "lint": "tsc -b --pretty false",
-    "lifecycle": "tsx src/workers/lifecycleWorker.ts",
-    "ingest": "tsx src/workers/ingestionWorker.ts",
-    "partition-build": "tsx src/workers/partitionBuildWorker.ts",
-    "test": "tsx tests/runE2E.ts",
-    "prime-cache": "tsx src/tools/primeManifestCache.ts",
-    "schema-migrate": "tsx src/tools/schemaMigration.ts"
+    "lifecycle": "node --enable-source-maps --import tsx src/workers/lifecycleWorker.ts",
+    "ingest": "node --enable-source-maps --import tsx src/workers/ingestionWorker.ts",
+    "partition-build": "node --enable-source-maps --import tsx src/workers/partitionBuildWorker.ts",
+    "test": "node --enable-source-maps --import tsx tests/runE2E.ts",
+    "prime-cache": "node --enable-source-maps --import tsx src/tools/primeManifestCache.ts",
+    "schema-migrate": "node --enable-source-maps --import tsx src/tools/schemaMigration.ts"
   },
   "dependencies": {
     "@apphub/event-bus": "0.1.0",

@@ -33,6 +33,7 @@ services/core/.env
 dump.rdb
 docker/demo-data/
 docker/demo.env
+.env.gke-autopilot
 .docker-cache/
 
 # Local runtime data

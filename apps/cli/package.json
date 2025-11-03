@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --enable-source-maps --import tsx src/index.ts",
     "lint": "tsc --project tsconfig.json --noEmit",
     "test": "node ../../scripts/bin/tsx-runner.cjs --test tests"
   },

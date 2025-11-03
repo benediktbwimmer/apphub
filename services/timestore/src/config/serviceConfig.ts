@@ -6,7 +6,7 @@ type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
 export type QueryExecutionBackendKind = 'clickhouse';
 
-type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob' | 'clickhouse';
+type StorageDriver = 'clickhouse';
 
 export interface QueryExecutionBackendConfig {
   name: string;
@@ -399,25 +399,6 @@ const auditLogSchema = z.object({
   deleteBatchSize: z.number().int().positive()
 });
 
-const gcsSchema = z.object({
-  bucket: z.string().min(1),
-  projectId: z.string().min(1).optional(),
-  keyFilename: z.string().min(1).optional(),
-  clientEmail: z.string().min(1).optional(),
-  privateKey: z.string().min(1).optional(),
-  hmacKeyId: z.string().min(1).optional(),
-  hmacSecret: z.string().min(1).optional()
-});
-
-const azureSchema = z.object({
-  container: z.string().min(1),
-  connectionString: z.string().min(1).optional(),
-  accountName: z.string().min(1).optional(),
-  accountKey: z.string().min(1).optional(),
-  sasToken: z.string().min(1).optional(),
-  endpoint: z.string().min(1).optional()
-});
-
 const clickhouseSchema = z.object({
   host: z.string().min(1),
   httpPort: z.number().int().positive(),
@@ -447,34 +428,7 @@ const configSchema = z.object({
     connectionTimeoutMs: z.number().int().nonnegative()
   }),
   storage: z.object({
-    driver: z.custom<StorageDriver>((value) => value === 'local' || value === 's3' || value === 'gcs' || value === 'azure_blob'),
-    root: z.string().min(1),
-    s3: z
-      .object({
-        bucket: z.string().min(1),
-        endpoint: z
-          .string()
-          .min(1)
-          .transform((value) => {
-            const trimmed = value.trim();
-            if (!trimmed) {
-              return trimmed;
-            }
-            if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-              return trimmed;
-            }
-            return `http://${trimmed}`;
-          })
-          .optional(),
-        region: z.string().min(1).optional(),
-        accessKeyId: z.string().min(1).optional(),
-        secretAccessKey: z.string().min(1).optional(),
-        sessionToken: z.string().min(1).optional(),
-        forcePathStyle: z.boolean().optional()
-      })
-      .optional(),
-    gcs: gcsSchema.optional(),
-    azure: azureSchema.optional()
+    driver: z.literal('clickhouse')
   }),
   query: z.object({
     cache: cacheSchema,
@@ -536,13 +490,6 @@ function assertInlineAllowed(context: string): void {
   if (!allowInlineMode()) {
     throw new Error(`${context} requested inline mode but APPHUB_ALLOW_INLINE_MODE is not enabled`);
   }
-}
-
-function resolveStorageRoot(envValue: string | undefined): string {
-  if (envValue) {
-    return envValue;
-  }
-  return path.resolve(process.cwd(), 'services', 'data', 'timestore');
 }
 
 function resolveCacheDirectory(envValue: string | undefined): string {
@@ -1012,28 +959,6 @@ export function loadServiceConfig(): ServiceConfig {
     env.TIMESTORE_PGPOOL_CONNECTION_TIMEOUT_MS || env.PGPOOL_CONNECTION_TIMEOUT_MS,
     10_000
   );
-  const storageDriver = (env.TIMESTORE_STORAGE_DRIVER || 'local') as StorageDriver;
-  const storageRoot = resolveStorageRoot(env.TIMESTORE_STORAGE_ROOT);
-  const s3Bucket = env.TIMESTORE_S3_BUCKET;
-  const s3Endpoint = env.TIMESTORE_S3_ENDPOINT;
-  const s3Region = env.TIMESTORE_S3_REGION;
-  const s3AccessKeyId = env.TIMESTORE_S3_ACCESS_KEY_ID;
-  const s3SecretAccessKey = env.TIMESTORE_S3_SECRET_ACCESS_KEY;
-  const s3SessionToken = env.TIMESTORE_S3_SESSION_TOKEN;
-  const s3ForcePathStyle = parseBoolean(env.TIMESTORE_S3_FORCE_PATH_STYLE, false);
-  const gcsBucket = env.TIMESTORE_GCS_BUCKET;
-  const gcsProjectId = env.TIMESTORE_GCS_PROJECT_ID;
-  const gcsKeyFilename = env.TIMESTORE_GCS_KEY_FILENAME;
-  const gcsClientEmail = env.TIMESTORE_GCS_CLIENT_EMAIL;
-  const gcsPrivateKey = env.TIMESTORE_GCS_PRIVATE_KEY;
-  const gcsHmacKeyId = env.TIMESTORE_GCS_HMAC_KEY_ID;
-  const gcsHmacSecret = env.TIMESTORE_GCS_HMAC_SECRET;
-  const azureContainer = env.TIMESTORE_AZURE_CONTAINER;
-  const azureConnectionString = env.TIMESTORE_AZURE_CONNECTION_STRING;
-  const azureAccountName = env.TIMESTORE_AZURE_ACCOUNT_NAME;
-  const azureAccountKey = env.TIMESTORE_AZURE_ACCOUNT_KEY;
-  const azureSasToken = env.TIMESTORE_AZURE_SAS_TOKEN;
-  const azureEndpoint = env.TIMESTORE_AZURE_ENDPOINT;
   const clickhouseHost = env.TIMESTORE_CLICKHOUSE_HOST || 'clickhouse';
   const clickhouseHttpPort = parseNumber(env.TIMESTORE_CLICKHOUSE_HTTP_PORT, 8123);
   const clickhouseNativePort = parseNumber(env.TIMESTORE_CLICKHOUSE_NATIVE_PORT, 9000);
@@ -1202,43 +1127,7 @@ export function loadServiceConfig(): ServiceConfig {
       connectionTimeoutMs
     },
     storage: {
-      driver: storageDriver,
-      root: storageRoot,
-      s3:
-        storageDriver === 's3' || Boolean(s3Bucket)
-          ? {
-              bucket: s3Bucket || 'timestore-data',
-              endpoint: s3Endpoint,
-              region: s3Region,
-              accessKeyId: s3AccessKeyId,
-              secretAccessKey: s3SecretAccessKey,
-              sessionToken: s3SessionToken,
-              forcePathStyle: s3ForcePathStyle ? true : undefined
-            }
-          : undefined,
-      gcs:
-        storageDriver === 'gcs' || Boolean(gcsBucket)
-          ? {
-              bucket: gcsBucket ?? '',
-              projectId: gcsProjectId,
-              keyFilename: gcsKeyFilename,
-              clientEmail: gcsClientEmail,
-              privateKey: gcsPrivateKey,
-              hmacKeyId: gcsHmacKeyId,
-              hmacSecret: gcsHmacSecret
-            }
-          : undefined,
-      azure:
-        storageDriver === 'azure_blob' || Boolean(azureContainer)
-          ? {
-              container: azureContainer ?? '',
-              connectionString: azureConnectionString,
-              accountName: azureAccountName,
-              accountKey: azureAccountKey,
-              sasToken: azureSasToken,
-              endpoint: azureEndpoint
-            }
-          : undefined
+      driver: 'clickhouse' as StorageDriver
     },
     query: {
       cache: {

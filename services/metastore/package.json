@@ -5,17 +5,17 @@
   "main": "dist/server.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node --enable-source-maps --import tsx src/server.ts",
     "build": "npm run build:ts && npm run build:openapi",
     "build:ts": "tsc -b",
-    "build:openapi": "tsx scripts/generateOpenApi.ts",
+    "build:openapi": "node --enable-source-maps --import tsx scripts/generateOpenApi.ts",
     "lint": "tsc -b --pretty false",
     "start": "node dist/server.js",
-    "migrate": "tsx src/scripts/runMigrations.ts",
-    "register-schema": "tsx src/scripts/registerSchema.ts",
+    "migrate": "node --enable-source-maps --import tsx src/scripts/runMigrations.ts",
+    "register-schema": "node --enable-source-maps --import tsx src/scripts/registerSchema.ts",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "node --import tsx --test tests/unit/*.test.ts",
-    "test:integration": "tsx tests/integration/*.test.ts"
+    "test:integration": "node --enable-source-maps --import tsx tests/integration/*.test.ts"
   },
   "dependencies": {
     "@apphub/shared": "0.1.1",

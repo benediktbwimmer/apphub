@@ -10,6 +10,7 @@ COPY tsconfig.json tsconfig.json
 COPY tsconfig.base.json tsconfig.base.json
 
 COPY apps/frontend/package.json apps/frontend/
+COPY apps/website/package.json apps/website/
 COPY apps/cli/package.json apps/cli/
 COPY apps/cli/package-lock.json apps/cli/
 COPY services/core/package.json services/core/
@@ -74,6 +75,7 @@ COPY . .
 RUN npm run build --workspace @apphub/core \
  && npm run build --workspace @apphub/metastore \
  && npm run build:bundle --workspace @apphub/frontend \
+ && npm run build --workspace @apphub/website \
  && npm run build --workspace @apphub/timestore \
  && npm run build --workspace @apphub/filestore \
  && npm run build --workspace @apphub/filestore-client \
@@ -207,3 +209,8 @@ CMD ["services/timestore/dist/server.js"]
 FROM nginx:1.27-alpine AS frontend-runtime
 COPY docker/frontend.nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
+
+# Marketing site static assets served via nginx
+FROM nginx:1.27-alpine AS website-runtime
+COPY docker/website.nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/apps/website/dist /usr/share/nginx/html

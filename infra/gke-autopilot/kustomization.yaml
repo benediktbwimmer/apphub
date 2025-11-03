@@ -1,0 +1,87 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: apphub-system
+
+configMapGenerator:
+  - name: autopilot-settings
+    envs:
+      - autopilot-settings.env
+    options:
+      disableNameSuffixHash: true
+
+vars:
+  - name: PROJECT_ID
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: autopilot-settings
+    fieldref:
+      fieldPath: data.projectId
+  - name: TIMESTORE_BUCKET
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: autopilot-settings
+    fieldref:
+      fieldPath: data.timestoreBucket
+  - name: REGISTRY_PREFIX
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: autopilot-settings
+    fieldref:
+      fieldPath: data.registryPrefix
+  - name: IMAGE_TAG
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: autopilot-settings
+    fieldref:
+      fieldPath: data.imageTag
+
+configurations:
+  - kustomizeconfig.yaml
+
+resources:
+  - ../minikube/namespace.yaml
+  - ../minikube/secrets.yaml
+  - ../minikube/configmap.yaml
+  - ../minikube/rbac.yaml
+  - ../minikube/postgres/statefulset.yaml
+  - ../minikube/postgres/service.yaml
+  - ../minikube/postgres/bootstrap-job.yaml
+  - ../minikube/redis/statefulset.yaml
+  - ../minikube/redis/service.yaml
+  - ../minikube/redpanda/service.yaml
+  - ../minikube/redpanda/statefulset.yaml
+  - ../minikube/flink/configmap.yaml
+  - ../minikube/flink/service.yaml
+  - ../minikube/flink/jobmanager-deployment.yaml
+  - ../minikube/flink/taskmanager-deployment.yaml
+  - ../minikube/core/service.yaml
+  - ../minikube/core/deployments.yaml
+  - ../minikube/metastore/service.yaml
+  - ../minikube/metastore/deployment.yaml
+  - ../minikube/filestore/service.yaml
+  - ../minikube/filestore/deployments.yaml
+  - ../minikube/timestore/service.yaml
+  - ../minikube/timestore/deployments.yaml
+  - ../minikube/frontend/service.yaml
+  - ../minikube/frontend/deployment.yaml
+  - ../minikube/website/service.yaml
+  - ../minikube/website/deployment.yaml
+  - clickhouse/service.yaml
+  - clickhouse/deployment.yaml
+  - clickhouse/configmap.yaml
+  - ingress/managed-certificate.yaml
+  - ingress/frontend-ingress.yaml
+
+patchesStrategicMerge:
+  - patches/service-loadbalancer.yaml
+  - patches/timestore-clickhouse-host.yaml
+  - patches/service-images.yaml
+  - patches/flink-configmap.yaml
+  - patches/flink-credentials.yaml
+  - patches/scale-replicas.yaml
+  - configmap.yaml
+  - secrets.yaml

@@ -8,7 +8,7 @@ metadata:
 spec:
   serviceName: apphub-redpanda-headless
   podManagementPolicy: Parallel
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: redpanda
@@ -24,32 +24,26 @@ spec:
           image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
           imagePullPolicy: IfNotPresent
           command:
-            - bash
+            - /bin/sh
             - -c
           args:
             - |
               set -euo pipefail
               ordinal=${POD_NAME##*-}
-              if [[ "$ordinal" -eq 0 ]]; then
-                SEEDS=""
-              else
-                SEEDS="--seeds apphub-redpanda-0.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local:33145"
-              fi
+              fqdn="${POD_NAME}.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local"
               redpanda start \
+                --node-id="${ordinal}" \
                 --overprovisioned \
-                --smp 1 \
-                --memory 2G \
-                --reserve-memory 0M \
-                --check=false \
-                --node-id "$ordinal" \
+                --smp=1 \
+                --memory=2G \
+                --reserve-memory=0M \
                 --kafka-addr PLAINTEXT://0.0.0.0:9092 \
-                --advertise-kafka-addr PLAINTEXT://apphub-redpanda-${ordinal}.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local:9092 \
+                --advertise-kafka-addr PLAINTEXT://$fqdn:9092 \
                 --rpc-addr 0.0.0.0:33145 \
-                --advertise-rpc-addr apphub-redpanda-${ordinal}.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local:33145 \
+                --advertise-rpc-addr $fqdn:33145 \
                 --pandaproxy-addr 0.0.0.0:8082 \
-                --advertise-pandaproxy-addr apphub-redpanda-${ordinal}.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local:8082 \
-                --dashboard-addr 0.0.0.0:9644 \
-                $SEEDS
+                --advertise-pandaproxy-addr $fqdn:8082 \
+                --check=false
           env:
             - name: POD_NAME
               valueFrom:
@@ -100,4 +94,4 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 10Gi
+            storage: 5Gi
