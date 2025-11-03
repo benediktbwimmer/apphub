@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-timestore-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          env:
+            - name: TIMESTORE_CLICKHOUSE_HOST
+              value: apphub-clickhouse
+            - name: TIMESTORE_CLICKHOUSE_HTTP_PORT
+              value: "8123"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-timestore-ingest
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          env:
+            - name: TIMESTORE_CLICKHOUSE_HOST
+              value: apphub-clickhouse
+            - name: TIMESTORE_CLICKHOUSE_HTTP_PORT
+              value: "8123"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-timestore-lifecycle
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          env:
+            - name: TIMESTORE_CLICKHOUSE_HOST
+              value: apphub-clickhouse
+            - name: TIMESTORE_CLICKHOUSE_HTTP_PORT
+              value: "8123"

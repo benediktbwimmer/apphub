@@ -43,6 +43,46 @@ function exitWithResult(result) {
   process.exit(1);
 }
 
+function readOutput(buffer) {
+  if (!buffer) {
+    return '';
+  }
+  return Buffer.isBuffer(buffer) ? buffer.toString() : String(buffer);
+}
+
+function writeResultOutput(result) {
+  const stdout = readOutput(result.stdout);
+  const stderr = readOutput(result.stderr);
+  if (stdout) {
+    process.stdout.write(stdout);
+  }
+  if (stderr) {
+    process.stderr.write(stderr);
+  }
+}
+
+function shouldFallback(result) {
+  const combined = `${readOutput(result.stderr)}\n${readOutput(result.stdout)}`.toLowerCase();
+  if (!combined) {
+    return false;
+  }
+  return combined.includes('listen eperm') || combined.includes('operation not permitted') || combined.includes('eperm');
+}
+
+function runWithNode(args, env) {
+  const nodeArgs = ['--enable-source-maps', '--import', 'tsx'];
+  let forwarded = args;
+  if (forwarded[0] === 'watch') {
+    nodeArgs.unshift('--watch');
+    forwarded = forwarded.slice(1);
+  }
+  const result = spawnSync(process.execPath, [...nodeArgs, ...forwarded], {
+    stdio: 'inherit',
+    env
+  });
+  exitWithResult(result);
+}
+
 function expandTestDirectory(dirPath) {
   const collected = [];
   function walk(current) {
@@ -128,9 +168,22 @@ function runCli(argv = process.argv.slice(2), initialEnv = process.env) {
   }
 
   const result = spawnSync(process.execPath, [cliEntrypoint, ...adjustedArgs], {
-    stdio: 'inherit',
+    stdio: 'pipe',
     env
   });
+
+  writeResultOutput(result);
+
+  if (result.status === 0) {
+    exitWithResult(result);
+    return;
+  }
+
+  if (shouldFallback(result)) {
+    console.warn('[tsx-shim] CLI failed with EPERM, retrying with node --import tsx fallback.');
+    runWithNode(adjustedArgs, env);
+    return;
+  }
 
   exitWithResult(result);
 }

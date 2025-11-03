@@ -1,0 +1,9 @@
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: apphub-frontend-cert
+spec:
+  domains:
+    - osiris-apphub.com
+    - www.osiris-apphub.com
+    - demo.osiris-apphub.com

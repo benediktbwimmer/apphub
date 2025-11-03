@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "submit:sample": "tsx src/submitSampleJob.ts",
-    "seed:sample": "tsx src/seedSampleData.ts"
+    "submit:sample": "node --enable-source-maps --import tsx src/submitSampleJob.ts",
+    "seed:sample": "node --enable-source-maps --import tsx src/seedSampleData.ts"
   },
   "dependencies": {
     "kafkajs": "^2.2.4"

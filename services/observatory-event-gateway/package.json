@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --enable-source-maps --import tsx src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc --build"
   },

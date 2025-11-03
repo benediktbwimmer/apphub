@@ -158,7 +158,16 @@ function shouldKillProcess(rule, commandLine) {
   if (!commandLine || rule.type === 'redis') {
     return false;
   }
-  return commandLine.includes(REPO_ROOT);
+  if (commandLine.includes(REPO_ROOT)) {
+    return true;
+  }
+  if (commandLine.includes('--import tsx')) {
+    const normalized = commandLine.toLowerCase();
+    if (normalized.includes('src/server.ts') || normalized.includes('src/index.ts') || normalized.includes('src/workers/')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function lookupProcessesForPort(port) {

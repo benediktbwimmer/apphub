@@ -1,0 +1,125 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: apphub-demo-https
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: apphub-frontend-ip
+    networking.gke.io/managed-certificates: apphub-frontend-cert
+    kubernetes.io/ingress.allow-http: "false"
+spec:
+  rules:
+    - host: osiris-apphub.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-core
+                port:
+                  number: 4000
+          - path: /metastore
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-metastore
+                port:
+                  number: 4100
+          - path: /filestore
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-filestore
+                port:
+                  number: 4300
+          - path: /timestore
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-timestore
+                port:
+                  number: 4100
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-website
+                port:
+                  number: 80
+    - host: www.osiris-apphub.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-core
+                port:
+                  number: 4000
+          - path: /metastore
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-metastore
+                port:
+                  number: 4100
+          - path: /filestore
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-filestore
+                port:
+                  number: 4300
+          - path: /timestore
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-timestore
+                port:
+                  number: 4100
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-website
+                port:
+                  number: 80
+    - host: demo.osiris-apphub.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-core
+                port:
+                  number: 4000
+          - path: /metastore
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-metastore
+                port:
+                  number: 4100
+          - path: /filestore
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-filestore
+                port:
+                  number: 4300
+          - path: /timestore
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-timestore
+                port:
+                  number: 4100
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-frontend
+                port:
+                  number: 80

@@ -51,11 +51,12 @@
     "minikube:redeploy": "node scripts/minikube-redeploy.mjs",
     "minikube:down": "node scripts/minikube-down.mjs",
     "minikube:verify": "node scripts/minikube-verify.mjs",
-    "e2e": "tsx tests/e2e/observatory.e2e.ts",
-    "e2e:timestore": "tsx tests/e2e/timestore.e2e.ts",
+    "e2e": "node --enable-source-maps --import tsx tests/e2e/observatory.e2e.ts",
+    "e2e:timestore": "node --enable-source-maps --import tsx tests/e2e/timestore.e2e.ts",
     "module:admin": "npm run module:admin --workspace @apphub/core --",
     "deploy:website": "node scripts/deploy-website.mjs",
-    "deploy:demo": "node scripts/deploy-demo-stack.mjs"
+    "deploy:demo": "node scripts/deploy-demo-stack.mjs",
+    "deploy:gke-autopilot": "node scripts/gke-autopilot-deploy.mjs"
   },
   "devDependencies": {
     "@rolldown/pluginutils": "^1.0.0-beta.35",

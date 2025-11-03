@@ -1,0 +1,186 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-core-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-core-ingest
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-core-builds
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-core-launches
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-core-workflows
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-core-materializer
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-core-events
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-core-triggers
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-metastore-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          image: $(REGISTRY_PREFIX)/metastore:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-filestore-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          image: $(REGISTRY_PREFIX)/filestore:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-filestore-reconcile
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/filestore:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-timestore-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          image: $(REGISTRY_PREFIX)/timestore:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-timestore-ingest
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/timestore:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-timestore-partitions
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/timestore:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-timestore-lifecycle
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: $(REGISTRY_PREFIX)/timestore:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-website
+spec:
+  template:
+    spec:
+      containers:
+        - name: website
+          image: $(REGISTRY_PREFIX)/website:$(IMAGE_TAG)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-frontend
+spec:
+  template:
+    spec:
+      containers:
+        - name: nginx
+          image: $(REGISTRY_PREFIX)/frontend:$(IMAGE_TAG)

@@ -5,15 +5,15 @@
   "main": "dist/index.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node --enable-source-maps --import tsx src/server.ts",
     "start": "node dist/server.js",
     "build": "npm run build:ts && npm run build:openapi",
     "build:ts": "tsc -b",
-    "build:openapi": "tsx scripts/generateOpenApi.ts",
+    "build:openapi": "node --enable-source-maps --import tsx scripts/generateOpenApi.ts",
     "lint": "tsc -b --pretty false",
     "test": "node ../../scripts/bin/tsx-runner.cjs --test-concurrency=1 --require ../../tests/helpers/node-test-force-exit.cjs --test tests",
-    "reconcile": "tsx src/reconciliation/worker.ts",
-    "reconcile:watch": "tsx watch src/reconciliation/worker.ts"
+    "reconcile": "node --enable-source-maps --import tsx src/reconciliation/worker.ts",
+    "reconcile:watch": "node --enable-source-maps --import tsx src/reconciliation/worker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.896.0",

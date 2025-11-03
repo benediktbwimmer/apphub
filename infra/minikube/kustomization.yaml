@@ -32,4 +32,6 @@ resources:
   - timestore/deployments.yaml
   - frontend/service.yaml
   - frontend/deployment.yaml
+  - website/service.yaml
+  - website/deployment.yaml
   - ingress.yaml

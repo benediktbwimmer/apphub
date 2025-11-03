@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apphub-flink-config
+data:
+  flink-conf.yaml: |
+    jobmanager.rpc.address: apphub-flink-jobmanager
+    taskmanager.numberOfTaskSlots: 2
+    parallelism.default: 2
+    state.backend: filesystem
+    state.checkpoints.dir: s3://$(TIMESTORE_BUCKET)/flink/checkpoints
+    execution.checkpointing.interval: 1 min
+    s3.endpoint: https://storage.googleapis.com
+    s3.path.style.access: true
+    metrics.reporters: prom
+    metrics.reporter.prom.class: org.apache.flink.metrics.prometheus.PrometheusReporter
