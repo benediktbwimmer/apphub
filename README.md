@@ -2,6 +2,19 @@
 
 "YouTube of web applications" prototype whose core service indexes container-ready repositories, surfaces searchable metadata, and offers a keyboard-first tag experience.
 
+## Runtime Overview
+
+The execution in all uses below will mean the runtime of `npm run local-dev`.
+
+### Key Performance Observations
+
+1. The execution produces a data folder (or mount) `data` which includes data for both clickhouse database (currently empty), raw observatory filestore datasets and data for their reports and visualisations, and some other (currently empty) data folders. It also writes to 66 PostgreSQL tables over 11 relations.
+2. The execution does not impose exclusive locks on operating system I/O.
+3. It uses (on average):
+    - 0% CPU;
+    - 24.66 MB physical memory;
+    - 1.52 GB virtual memory.
+
 ## Project Layout
 
 ```
@@ -10,13 +23,13 @@ apphub/
 │   ├── architecture.md       # High-level system design + roadmap ideas
 │   └── assets-overview.md    # Auto-materialization events, policies, and worker setup
 ├── modules/
-│   └── observatory/                 # Reference module that ships the observatory jobs, services, and workflows
+│   └── observatory/          # Reference module that ships the observatory jobs, services, and workflows
 ├── packages/
 │   ├── shared/               # Shared types + registries consumed by multiple services
 │   ├── module-registry/      # Catalog + loader utilities for module metadata
 │   └── modules/              # Module bundles and resources
 ├── services/
-│   ├── core/              # Fastify API + background workers
+│   ├── core/                 # Fastify API + background workers
 │   └── metastore/            # Flexible metadata storage + search service
 └── apps/
     ├── cli/                  # Workspace-aware job bundle tooling
@@ -46,6 +59,7 @@ This script will:
 AppHub provides two development modes:
 
 **Local Development (Recommended for development)**
+
 First make sure that you have a Redis server and Postgres installed and enabled on your system. Also, make sure you have a Postgres user `apphub` with the password `apphub`, and a database `apphub` whose owner is `apphub`. Then, run:
 ```bash
 npm install
