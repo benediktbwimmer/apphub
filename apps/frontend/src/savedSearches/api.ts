@@ -21,20 +21,30 @@ type RequestOptions = {
   errorMessage: string;
 };
 
-function ensureToken(input: TokenInput): string {
+type FetchWithMetadata = AuthorizedFetch & {
+  authToken?: string | null | undefined;
+  authOptional?: boolean | null | undefined;
+};
+
+function ensureToken(input: TokenInput): string | undefined {
   if (typeof input === 'string') {
     const trimmed = input.trim();
     if (trimmed.length > 0) {
       return trimmed;
     }
-  } else if (typeof input === 'function') {
-    const candidate = (input as AuthorizedFetch & { authToken?: string | null | undefined }).authToken;
-    if (typeof candidate === 'string') {
-      const trimmed = candidate.trim();
-      if (trimmed.length > 0) {
-        return trimmed;
-      }
+    return undefined;
+  }
+  if (typeof input === 'function') {
+    const fetcher = input as FetchWithMetadata;
+    const candidate = typeof fetcher.authToken === 'string' ? fetcher.authToken.trim() : '';
+    if (candidate.length > 0) {
+      return candidate;
     }
+    if (fetcher.authOptional) {
+      return undefined;
+    }
+  } else if (input === null || input === undefined) {
+    return undefined;
   }
   throw new Error(AUTH_ERROR);
 }
@@ -58,7 +68,8 @@ async function requestJson<T = unknown>(tokenInput: TokenInput, path: string, op
   }
 
   try {
-    return await coreRequest<T>(ensureToken(tokenInput), {
+    const resolvedToken = ensureToken(tokenInput);
+    return await coreRequest<T>(resolvedToken, {
       method,
       url: path,
       query,

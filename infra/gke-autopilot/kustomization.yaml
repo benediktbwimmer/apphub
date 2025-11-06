@@ -70,7 +70,9 @@ resources:
   - ../minikube/frontend/deployment.yaml
   - ../minikube/website/service.yaml
   - ../minikube/website/deployment.yaml
+  - core-internal-service.yaml
   - clickhouse/service.yaml
+  - clickhouse/internal-service.yaml
   - clickhouse/deployment.yaml
   - clickhouse/configmap.yaml
   - ingress/managed-certificate.yaml

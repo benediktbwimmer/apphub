@@ -65,8 +65,16 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
   const { authorizedFetch } = useWorkflowAccess();
   const { selectedSlug } = useWorkflowDefinitions();
   const moduleScope = useModuleScope();
-  const { kind: moduleScopeKind, isResourceInScope } = moduleScope;
+  const { kind: moduleScopeKind, isResourceInScope, getResourceIds, getResourceSlugs } = moduleScope;
   const isModuleScoped = moduleScopeKind === 'module';
+  const hasWorkflowScopeFilters = useMemo(() => {
+    if (!isModuleScoped) {
+      return false;
+    }
+    const ids = getResourceIds('workflow-definition');
+    const slugs = getResourceSlugs('workflow-definition');
+    return ids.length > 0 || slugs.length > 0;
+  }, [getResourceIds, getResourceSlugs, isModuleScoped]);
 
   const [workflowAnalytics, setWorkflowAnalytics] = useState<Record<string, WorkflowAnalyticsState>>({});
   const workflowAnalyticsRef = useRef<Record<string, WorkflowAnalyticsState>>({});
@@ -76,13 +84,13 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
       if (!slug) {
         return;
       }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
+      if (isModuleScoped && hasWorkflowScopeFilters && !isResourceInScope('workflow-definition', slug)) {
         return;
       }
       const existing = workflowAnalyticsRef.current[slug];
       const targetRange = range ?? existing?.rangeKey ?? ANALYTICS_DEFAULT_RANGE;
       const moduleId = isModuleScoped ? moduleScope.moduleId : null;
-      const query: WorkflowAnalyticsQuery = {};
+      const query: WorkflowAnalyticsQuery = { moduleScope: 'global' };
       if (targetRange !== 'custom') {
         query.range = targetRange;
       }
@@ -121,7 +129,7 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
         console.error('workflow.analytics.fetch_failed', { slug, error });
       }
     },
-    [authorizedFetch, isModuleScoped, isResourceInScope, moduleScope.moduleId]
+    [authorizedFetch, hasWorkflowScopeFilters, isModuleScoped, isResourceInScope, moduleScope.moduleId]
   );
 
   const setWorkflowAnalyticsRange = useCallback((slug: string, range: WorkflowAnalyticsRangeKey) => {
@@ -160,7 +168,7 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
     if (!slug) {
       return;
     }
-    if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
+    if (isModuleScoped && hasWorkflowScopeFilters && !isResourceInScope('workflow-definition', slug)) {
       return;
     }
     const stats = record.stats ? normalizeWorkflowRunStats(record.stats) : null;
@@ -192,7 +200,7 @@ export function WorkflowAnalyticsProvider({ children }: { children: ReactNode })
         }
       };
     });
-  }, [isModuleScoped, isResourceInScope]);
+  }, [hasWorkflowScopeFilters, isModuleScoped, isResourceInScope]);
 
   const handleAnalyticsEvent = useCallback(
     (event: Extract<AppHubSocketEvent, { type: typeof WORKFLOW_ANALYTICS_EVENT }>) => {

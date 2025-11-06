@@ -17,12 +17,8 @@ data:
             <path>/var/lib/clickhouse/disks/local_hot/</path>
           </local_hot>
           <gcs_cold>
-            <type>s3</type>
-            <endpoint>https://storage.googleapis.com</endpoint>
-            <access_key_id incl="env">CLICKHOUSE_S3_ACCESS_KEY_ID</access_key_id>
-            <secret_access_key incl="env">CLICKHOUSE_S3_SECRET_ACCESS_KEY</secret_access_key>
-            <bucket>$(TIMESTORE_BUCKET)</bucket>
-            <metadata_path>/var/lib/clickhouse/disks/gcs_cold/</metadata_path>
+            <type>local</type>
+            <path>/var/lib/clickhouse/disks/gcs_cold/</path>
           </gcs_cold>
         </disks>
         <policies>
@@ -40,6 +36,12 @@ data:
         </policies>
       </storage_configuration>
     </clickhouse>
+  ports.xml: |
+    <clickhouse>
+      <listen_host>0.0.0.0</listen_host>
+      <listen_host>::</listen_host>
+      <listen_try>1</listen_try>
+    </clickhouse>
   users.xml: |
     <clickhouse>
       <users>
@@ -47,7 +49,7 @@ data:
           <password></password>
         </default>
         <apphub>
-          <password_sha256_hex></password_sha256_hex>
+          <password_sha256_hex>1b6a1f90f800886d12978b0f867f6d31c3c0707c9e318acca3ccd1464702edd8</password_sha256_hex>
           <profile>default</profile>
           <networks>
             <ip>::/0</ip>

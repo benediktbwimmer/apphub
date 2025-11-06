@@ -70,8 +70,17 @@ export function parseServiceDefinition(record: ServiceManifestStoreRecord): Modu
   const source = value as Record<string, unknown>;
 
   const slug = ensureString(source.slug);
-  const moduleId = ensureString(source.moduleId);
-  const moduleVersion = ensureString(source.moduleVersion);
+  const moduleSource = source.module as Record<string, unknown> | undefined;
+  const moduleId =
+    ensureString(source.moduleId) ??
+    ensureString(moduleSource?.id) ??
+    ensureString(record.moduleId);
+  let moduleVersion =
+    ensureString(source.moduleVersion) ??
+    ensureString(moduleSource?.version);
+  if (!moduleVersion && typeof record.moduleVersion === 'number') {
+    moduleVersion = String(record.moduleVersion);
+  }
   if (!slug || !moduleId || !moduleVersion) {
     logger.warn('[module:services] Service definition missing identifiers', {
       id: record.id,

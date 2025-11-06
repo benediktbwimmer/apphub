@@ -20,6 +20,7 @@
     "event-sampling:worker": "node --enable-source-maps --import tsx src/eventSamplingReplayWorker.ts",
     "event-sampling:replay": "node --enable-source-maps --import tsx src/scripts/replayEventSampling.ts",
     "backfill:service-registry": "node --enable-source-maps --import tsx src/scripts/backfillServiceRegistry.ts",
+    "backfill:module-contexts": "node --enable-source-maps --import tsx src/scripts/backfillModuleContexts.ts",
     "module:publish": "node --enable-source-maps --import tsx src/scripts/publishModule.ts",
     "module:admin": "node --enable-source-maps --import tsx src/scripts/moduleAdmin.ts",
     "module:services": "node --enable-source-maps --import tsx src/moduleServices/runner.ts",

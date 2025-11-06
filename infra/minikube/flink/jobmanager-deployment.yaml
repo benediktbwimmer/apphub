@@ -50,13 +50,13 @@ spec:
               name: rpc
           readinessProbe:
             httpGet:
-              path: /v1/cluster/health
+              path: /overview
               port: web
             initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /v1/cluster/health
+              path: /overview
               port: web
             initialDelaySeconds: 30
             periodSeconds: 20

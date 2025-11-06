@@ -139,6 +139,15 @@ async function main() {
     for (const moduleRecord of modules) {
       await seedModuleWorkflowContexts(moduleRecord.id);
     }
+  } finally {
+    await db.closePool();
+  }
+}
+
+void (async () => {
+  try {
+    await main();
+    process.exit(0);
   } catch (err) {
     console.error('[modules] Failed to backfill module resource contexts');
     if (err instanceof Error) {
@@ -146,10 +155,6 @@ async function main() {
     } else {
       console.error(err);
     }
-    process.exitCode = 1;
-  } finally {
-    await db.closePool();
+    process.exit(1);
   }
-}
-
-void main();
+})();

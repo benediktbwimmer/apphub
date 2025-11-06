@@ -18,6 +18,7 @@ import { ensureFilestoreHierarchy, ensureResolvedBackendId, uploadTextFile } fro
 import { DEFAULT_OBSERVATORY_FILESTORE_BACKEND_KEY } from '../runtime';
 import { createObservatoryEventPublisher } from '../runtime/events';
 import type { ObservatorySecrets, ObservatorySettings } from '../config/settings';
+import { DEFAULT_SCHEMA_FIELDS } from './timestoreLoader';
 
 type SelectedTimestore = NonNullable<ReturnType<typeof selectTimestore>>;
 
@@ -584,6 +585,65 @@ async function waitForDatasetReady(
   return false;
 }
 
+async function bootstrapDatasetIfMissing(
+  context: DashboardAggregatorContext,
+  timestore: SelectedTimestore,
+  params: {
+    datasetSlug: string;
+    datasetName: string;
+    tableName: string;
+    storageTargetId?: string | null;
+    principal?: string;
+  }
+): Promise<void> {
+  const existing = await timestore.getDataset({
+    datasetSlug: params.datasetSlug,
+    principal: params.principal
+  });
+  if (existing) {
+    return;
+  }
+
+  context.logger.warn('Timestore dataset missing; bootstrapping placeholder partition', {
+    datasetSlug: params.datasetSlug
+  });
+
+  try {
+    await timestore.ingestRecords({
+      datasetSlug: params.datasetSlug,
+      datasetName: params.datasetName,
+      tableName: params.tableName,
+      storageTargetId: params.storageTargetId ?? undefined,
+      schema: {
+        fields: DEFAULT_SCHEMA_FIELDS
+      },
+      partition: {
+        key: {
+          dataset: params.datasetSlug,
+          window: 'bootstrap',
+          instrument: 'bootstrap'
+        },
+        attributes: {
+          bootstrap: 'true'
+        },
+        timeRange: {
+          start: '1970-01-01T00:00:00.000Z',
+          end: '1970-01-01T00:00:00.000Z'
+        }
+      },
+      rows: [],
+      idempotencyKey: `observatory-dataset-bootstrap:${params.datasetSlug}`,
+      principal: params.principal
+    });
+  } catch (error) {
+    context.logger.error('Failed to bootstrap timestore dataset', {
+      datasetSlug: params.datasetSlug,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
+}
+
 async function waitForFlushCompletion(
   context: DashboardAggregatorContext,
   coreWorkflows: CoreWorkflowsCapability,
@@ -739,6 +799,9 @@ export const dashboardAggregatorJob = createJobHandler<
       context.parameters.timestoreDatasetSlug ??
       (typeof ingestAssetPayload?.datasetSlug === 'string' ? ingestAssetPayload.datasetSlug : undefined) ??
       context.settings.timestore.datasetSlug;
+    const datasetName = context.settings.timestore.datasetName || datasetSlug;
+    const tableName = context.settings.timestore.tableName || 'observations';
+    const storageTargetId = context.settings.timestore.storageTargetId ?? undefined;
     const burst: BurstContext = {
       reason: context.parameters.burstReason?.trim() || null,
       finishedAt: context.parameters.burstFinishedAt?.trim() || null
@@ -755,6 +818,14 @@ export const dashboardAggregatorJob = createJobHandler<
 
     const timeWindow = resolveTimeWindow(partitionKey, lookbackMinutes);
     const generatedAt = new Date().toISOString();
+
+    await bootstrapDatasetIfMissing(context, timestore, {
+      datasetSlug,
+      datasetName,
+      tableName,
+      storageTargetId,
+      principal
+    });
 
     const datasetReady = await waitForDatasetReady(context, timestore, datasetSlug);
     if (!datasetReady) {

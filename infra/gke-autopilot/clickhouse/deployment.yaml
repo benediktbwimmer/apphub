@@ -18,6 +18,23 @@ spec:
         app.kubernetes.io/name: clickhouse
         app.kubernetes.io/part-of: apphub-runtime
     spec:
+      initContainers:
+        - name: fix-clickhouse-perms
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              chown -R 101:101 /var/lib/clickhouse
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            - name: clickhouse-storage
+              mountPath: /var/lib/clickhouse
       containers:
         - name: clickhouse
           image: clickhouse/clickhouse-server:24.11
@@ -26,6 +43,18 @@ spec:
               containerPort: 8123
             - name: native
               containerPort: 9000
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - >
+                    for i in $(seq 1 30); do
+                      clickhouse-client --user "${CLICKHOUSE_USER:-apphub}" --password "${CLICKHOUSE_PASSWORD:-}" --query "CREATE DATABASE IF NOT EXISTS apphub" && exit 0;
+                      sleep 2;
+                    done;
+                    exit 1
           volumeMounts:
             - name: clickhouse-storage
               mountPath: /var/lib/clickhouse
@@ -41,6 +70,8 @@ spec:
                 secretKeyRef:
                   name: clickhouse-auth
                   key: password
+            - name: CLICKHOUSE_LOG_TO_CONSOLE
+              value: "1"
           envFrom:
             - secretRef:
                 name: clickhouse-s3

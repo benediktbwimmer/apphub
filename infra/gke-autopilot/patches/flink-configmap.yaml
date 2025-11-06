@@ -14,3 +14,5 @@ data:
     s3.path.style.access: true
     metrics.reporters: prom
     metrics.reporter.prom.class: org.apache.flink.metrics.prometheus.PrometheusReporter
+    jobmanager.memory.process.size: 1600m
+    taskmanager.memory.process.size: 2048m

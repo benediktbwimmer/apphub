@@ -23,6 +23,7 @@ data:
   APPHUB_METASTORE_BASE_URL: http://apphub-metastore:4100
   APPHUB_FILESTORE_BASE_URL: http://apphub-filestore:4300
   APPHUB_TIMESTORE_BASE_URL: http://apphub-timestore:4100
+  APPHUB_DISABLE_LOOPBACK_REWRITE: "true"
   APPHUB_STREAMING_ENABLED: "true"
   APPHUB_STREAM_BROKER_URL: apphub-redpanda:9092
   APPHUB_FLINK_REST_URL: http://apphub-flink-jobmanager:8081
@@ -51,5 +52,11 @@ data:
   TIMESTORE_S3_REGION: auto
   TIMESTORE_S3_FORCE_PATH_STYLE: "true"
   TIMESTORE_STORAGE_DRIVER: gcs
+  TIMESTORE_CLICKHOUSE_HOST: apphub-clickhouse-internal.apphub-system.svc.cluster.local
   TIMESTORE_GCS_BUCKET: $(TIMESTORE_BUCKET)
   TIMESTORE_GCS_PROJECT_ID: $(PROJECT_ID)
+  OBSERVATORY_FILESTORE_BASE_URL: http://apphub-filestore:4300
+  OBSERVATORY_TIMESTORE_BASE_URL: http://apphub-timestore:4100
+  OBSERVATORY_METASTORE_BASE_URL: http://apphub-metastore:4100
+  OBSERVATORY_CALIBRATIONS_BASE_URL: http://apphub-metastore:4100
+  OBSERVATORY_CORE_BASE_URL: http://apphub-core-internal.apphub-system.svc.cluster.local:4000

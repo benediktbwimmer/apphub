@@ -15,21 +15,29 @@ type TokenInput = Token | AuthorizedFetch;
 
 const SAVED_VIEWS_ROOT = '/events/saved-views';
 
-function ensureToken(input: TokenInput): string {
+type FetchWithMetadata = AuthorizedFetch & {
+  authToken?: string | null | undefined;
+  authOptional?: boolean | null | undefined;
+};
+
+function ensureToken(input: TokenInput): string | undefined {
   if (typeof input === 'function') {
-    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
-    const candidate = fetcher.authToken;
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
-      return candidate.trim();
-    }
-    if (typeof candidate === 'string') {
+    const fetcher = input as FetchWithMetadata;
+    const candidate = typeof fetcher.authToken === 'string' ? fetcher.authToken.trim() : '';
+    if (candidate.length > 0) {
       return candidate;
+    }
+    if (fetcher.authOptional) {
+      return undefined;
     }
   } else if (typeof input === 'string') {
     const trimmed = input.trim();
     if (trimmed.length > 0) {
       return trimmed;
     }
+    return undefined;
+  } else if (input === null || input === undefined) {
+    return undefined;
   }
   throw new Error('Authentication required for event requests.');
 }
@@ -42,7 +50,9 @@ export async function fetchEventsExplorerPage(
   const normalized = normalizeFilters(filters);
   const prepared = prepareEventFilters(normalized);
   const query: WorkflowEventSampleQuery = buildEventsQuery(normalized, cursor);
-  const response: WorkflowEventSamplesResponse = await listWorkflowEventSamples(token, query);
+  const response: WorkflowEventSamplesResponse = await listWorkflowEventSamples(token, query, {
+    moduleScope: 'global'
+  });
   const filtered = response.samples.filter((event) => matchesEventFilters(event, prepared));
   const limit = response.page?.limit ?? query.limit ?? normalized.limit;
   return {
@@ -73,7 +83,8 @@ function parseSavedViewResponse(payload: unknown): EventSavedViewRecord {
 }
 
 export async function listSavedEventViews(token: TokenInput): Promise<EventSavedViewRecord[]> {
-  const payload = await coreRequest<{ data?: EventSavedViewRecord[] }>(ensureToken(token), {
+  const resolvedToken = ensureToken(token);
+  const payload = await coreRequest<{ data?: EventSavedViewRecord[] }>(resolvedToken, {
     url: SAVED_VIEWS_ROOT
   });
   const records = Array.isArray(payload?.data) ? payload.data : [];
@@ -84,7 +95,8 @@ export async function createSavedEventView(
   token: TokenInput,
   input: EventSavedViewCreateInput
 ): Promise<EventSavedViewRecord> {
-  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(ensureToken(token), {
+  const resolvedToken = ensureToken(token);
+  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(resolvedToken, {
     method: 'POST',
     url: SAVED_VIEWS_ROOT,
     body: input
@@ -97,7 +109,8 @@ export async function updateSavedEventView(
   slug: string,
   updates: EventSavedViewUpdateInput
 ): Promise<EventSavedViewRecord> {
-  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(ensureToken(token), {
+  const resolvedToken = ensureToken(token);
+  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(resolvedToken, {
     method: 'PATCH',
     url: resolveSavedViewUrl(slug),
     body: updates
@@ -107,7 +120,8 @@ export async function updateSavedEventView(
 
 export async function deleteSavedEventView(token: TokenInput, slug: string): Promise<boolean> {
   try {
-    await coreRequest(ensureToken(token), {
+    const resolvedToken = ensureToken(token);
+    await coreRequest(resolvedToken, {
       method: 'DELETE',
       url: resolveSavedViewUrl(slug)
     });
@@ -124,7 +138,8 @@ export async function applySavedEventView(
   token: TokenInput,
   slug: string
 ): Promise<EventSavedViewRecord> {
-  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(ensureToken(token), {
+  const resolvedToken = ensureToken(token);
+  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(resolvedToken, {
     method: 'POST',
     url: `${resolveSavedViewUrl(slug)}/apply`
   });
@@ -135,7 +150,8 @@ export async function shareSavedEventView(
   token: TokenInput,
   slug: string
 ): Promise<EventSavedViewRecord> {
-  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(ensureToken(token), {
+  const resolvedToken = ensureToken(token);
+  const payload = await coreRequest<{ data?: EventSavedViewRecord }>(resolvedToken, {
     method: 'POST',
     url: `${resolveSavedViewUrl(slug)}/share`
   });

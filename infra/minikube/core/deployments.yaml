@@ -58,6 +58,29 @@ spec:
             limits:
               cpu: 500m
               memory: 1Gi
+        - name: module-services
+          image: apphub/core:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            - node
+            - services/core/dist/moduleServices/runner.js
+          envFrom:
+            - configMapRef:
+                name: apphub-core-config
+            - secretRef:
+                name: apphub-core-secrets
+          ports:
+            - containerPort: 4310
+              name: mod-dash
+            - containerPort: 4322
+              name: module-admin
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 400m
+              memory: 512Mi
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: apps/v1

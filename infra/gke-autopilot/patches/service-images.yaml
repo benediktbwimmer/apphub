@@ -8,6 +8,8 @@ spec:
       containers:
         - name: api
           image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
+        - name: module-services
+          image: $(REGISTRY_PREFIX)/core:$(IMAGE_TAG)
 ---
 apiVersion: apps/v1
 kind: Deployment

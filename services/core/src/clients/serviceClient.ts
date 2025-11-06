@@ -95,7 +95,29 @@ function parseRuntimeMetadata(raw: unknown): RuntimeMetadataSnapshot | undefined
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1', '0.0.0.0']);
 
+function envFlagEnabled(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+const LOOPBACK_REWRITE_HOST = (() => {
+  const candidate = process.env.APPHUB_SERVICE_REGISTRY_LOOPBACK_HOST?.trim();
+  if (candidate && candidate.length > 0) {
+    return candidate;
+  }
+  return 'host.docker.internal';
+})();
+
+const LOOPBACK_REWRITE_ENABLED =
+  LOOPBACK_REWRITE_HOST.length > 0 && !envFlagEnabled(process.env.APPHUB_DISABLE_LOOPBACK_REWRITE);
+
 function rewriteLoopbackHost(urlValue: string | null | undefined): string | null {
+  if (!LOOPBACK_REWRITE_ENABLED) {
+    return urlValue ?? null;
+  }
   if (!urlValue) {
     return null;
   }
@@ -105,13 +127,13 @@ function rewriteLoopbackHost(urlValue: string | null | undefined): string | null
     const hostname = parsed.hostname.toLowerCase();
 
     if (LOOPBACK_HOSTS.has(hostname) || hostname.startsWith('127.')) {
-      parsed.hostname = 'host.docker.internal';
+      parsed.hostname = LOOPBACK_REWRITE_HOST;
       return parsed.toString();
     }
     return urlValue;
   } catch {
     if (urlValue.includes('localhost')) {
-      return urlValue.replace(/localhost/gi, 'host.docker.internal');
+      return urlValue.replace(/localhost/gi, LOOPBACK_REWRITE_HOST);
     }
     return urlValue;
   }

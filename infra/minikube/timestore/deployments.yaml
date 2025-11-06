@@ -38,6 +38,11 @@ spec:
               value: "4100"
             - name: TIMESTORE_STORAGE_ROOT
               value: /var/lib/apphub/timestore
+            - name: TIMESTORE_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-auth
+                  key: password
           ports:
             - containerPort: 4100
               name: http
@@ -105,6 +110,11 @@ spec:
           env:
             - name: TIMESTORE_STORAGE_ROOT
               value: /var/lib/apphub/timestore
+            - name: TIMESTORE_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-auth
+                  key: password
           volumeMounts:
             - name: timestore-cache
               mountPath: /var/lib/apphub/timestore
@@ -157,6 +167,11 @@ spec:
           env:
             - name: TIMESTORE_STORAGE_ROOT
               value: /var/lib/apphub/timestore
+            - name: TIMESTORE_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-auth
+                  key: password
           volumeMounts:
             - name: timestore-cache
               mountPath: /var/lib/apphub/timestore
@@ -209,6 +224,11 @@ spec:
           env:
             - name: TIMESTORE_STORAGE_ROOT
               value: /var/lib/apphub/timestore
+            - name: TIMESTORE_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-auth
+                  key: password
           volumeMounts:
             - name: timestore-cache
               mountPath: /var/lib/apphub/timestore
