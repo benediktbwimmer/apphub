@@ -15,6 +15,15 @@ if [[ -n "${VITE_API_BASE_URL:-}" ]]; then
   BUILD_ARGS+=("--build-arg" "VITE_API_BASE_URL=${VITE_API_BASE_URL}")
 fi
 
+# Allow Dockerfile to skip missing optional dependency metadata gracefully.
+# When this flag is unset (default), we pass a build arg that tells the helper
+# script inside docker/Dockerfile.services to ignore missing optional deps
+# instead of failing the build. Opt-in failure behaviour remains available by
+# setting DOCKER_OPTIONAL_DEPS_FAIL=true before invoking this script.
+if [[ "${DOCKER_OPTIONAL_DEPS_FAIL:-false}" != "true" ]]; then
+  BUILD_ARGS+=("--build-arg" "OPTIONAL_DEPS_SHOULD_FAIL=false")
+fi
+
 # target:repo suffix
 declare -a TARGETS=(
   "core-runtime:core"

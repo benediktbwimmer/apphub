@@ -17,14 +17,14 @@ kind: Deployment
 metadata:
   name: apphub-core-events
 spec:
-  replicas: 0
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: apphub-core-ingest
 spec:
-  replicas: 0
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -45,14 +45,14 @@ kind: Deployment
 metadata:
   name: apphub-core-triggers
 spec:
-  replicas: 0
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: apphub-core-workflows
 spec:
-  replicas: 0
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -87,7 +87,7 @@ kind: Deployment
 metadata:
   name: apphub-timestore-ingest
 spec:
-  replicas: 0
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -122,7 +122,7 @@ kind: Deployment
 metadata:
   name: apphub-timestore-partitions
 spec:
-  replicas: 0
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: StatefulSet

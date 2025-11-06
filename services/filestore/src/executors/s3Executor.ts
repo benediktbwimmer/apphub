@@ -679,12 +679,14 @@ export function createS3Executor(options: CreateS3ExecutorOptions = {}): Command
             }
           }
 
+          const fileBuffer = await fs.readFile(command.stagingPath);
+
           const response = await client.send(
             new PutObjectCommand({
               Bucket: bucket,
               Key: targetKey,
-              Body: createReadStream(command.stagingPath),
-              ContentLength: command.sizeBytes ?? stagingStats.size,
+              Body: fileBuffer,
+              ContentLength: command.sizeBytes ?? fileBuffer.length,
               ContentType: command.mimeType ?? undefined
             })
           );
@@ -692,7 +694,7 @@ export function createS3Executor(options: CreateS3ExecutorOptions = {}): Command
           const etag = response.ETag ? response.ETag.replace(/"/g, '') : null;
 
           return {
-            sizeBytes: command.sizeBytes ?? stagingStats.size,
+            sizeBytes: command.sizeBytes ?? fileBuffer.length,
             checksum: command.checksum ?? null,
             contentHash: command.contentHash ?? etag,
             lastModifiedAt: new Date()

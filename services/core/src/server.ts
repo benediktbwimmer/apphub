@@ -95,6 +95,33 @@ export async function buildServer() {
     }
   });
 
+  app.addHook('onRequest', (request, _reply, done) => {
+    const rawUrl = request.raw.url ?? '';
+    if (!rawUrl.startsWith('/api')) {
+      done();
+      return;
+    }
+
+    const rewriteSuffix = rawUrl.slice('/api'.length) || '/';
+    const rewritten = rewriteSuffix.startsWith('/') ? rewriteSuffix : `/${rewriteSuffix}`;
+    request.log.debug({ rawUrl, rewritten }, 'rewriting api-prefixed request');
+
+    request.raw.url = rewritten;
+    // Fastify derives request.url from request.raw.url, but the getter caches the value.
+    const requestWithMeta = request as unknown as { url?: string; originalUrl?: string };
+    try {
+      requestWithMeta.url = rewritten;
+    } catch {
+      // ignore reassignment failures; Fastify will continue using raw.url
+    }
+    // Preserve the original url so downstream logging helpers can reference it.
+    if (requestWithMeta.originalUrl === undefined) {
+      requestWithMeta.originalUrl = rawUrl;
+    }
+
+    done();
+  });
+
   await registerOpenApi(app);
 
   await registerDefaultServices(app.log);
@@ -195,6 +222,52 @@ export async function buildServer() {
   await app.register(async (instance) => registerEventProxyRoutes(instance));
   await app.register(async (instance) => registerAdminRoutes(instance));
   await app.register(async (instance) => registerObservatoryRoutes(instance));
+
+  await app.register(
+    async (instance) => {
+      await registerCoreRoutes(instance, { featureFlags });
+      await registerAuthRoutes(instance);
+      await registerJobRoutes(instance);
+      await registerJobBundleRoutes(instance);
+      await registerJobImportRoutes(instance);
+      await registerModuleRoutes(instance);
+      await registerAiRoutes(instance);
+      await registerWorkflowRoutes(instance);
+      await registerAssetRoutes(instance);
+      await registerServiceRoutes(instance, { registry });
+      await registerServiceProxyRoutes(instance, [
+        {
+          slug: 'metastore',
+          basePath: '/metastore',
+          forwardedScopes: ['metastore:read', 'metastore:write', 'metastore:delete', 'metastore:admin']
+        },
+        {
+          slug: 'timestore',
+          basePath: '/timestore',
+          forwardedScopes: [
+            'timestore:read',
+            'timestore:write',
+            'timestore:admin',
+            'timestore:sql:read',
+            'timestore:sql:exec',
+            'timestore:metrics'
+          ]
+        },
+        {
+          slug: 'filestore',
+          basePath: '/filestore',
+          forwardedScopes: ['filestore:read', 'filestore:write', 'filestore:admin']
+        }
+      ]);
+      await registerRepositoryRoutes(instance);
+      await registerSavedSearchRoutes(instance);
+      await registerEventSavedViewRoutes(instance);
+      await registerEventProxyRoutes(instance);
+      await registerAdminRoutes(instance);
+      await registerObservatoryRoutes(instance);
+    },
+    { prefix: '/api' }
+  );
 
   app.setErrorHandler((error, request, reply) => {
     const explicitStatus = (error as { statusCode?: number }).statusCode;

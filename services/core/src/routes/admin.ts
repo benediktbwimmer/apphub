@@ -1285,7 +1285,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       return handleModuleScopeError(reply, error);
     }
 
-    const moduleEventIds = moduleScope?.hasFilters ? moduleScope.getIds('event') : undefined;
+    const moduleEventIds =
+      moduleScope && moduleScope.hasFilters ? moduleScope.getIds('event') : [];
+    // Only restrict the query when the module actually declares event contexts; empty lists mean no scoping.
+    const filteredEventIds = moduleEventIds.length > 0 ? moduleEventIds : undefined;
 
     const parseTimestamp = (value: unknown, field: string): string | undefined => {
       if (value === undefined || value === null) {
@@ -1336,7 +1339,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         limit,
         jsonPath: jsonPath && jsonPath.length > 0 ? jsonPath : undefined,
         cursor: cursor ?? undefined,
-        eventIds: moduleEventIds ?? undefined
+        eventIds: filteredEventIds
       });
 
       const schema = buildWorkflowEventSchema(result.events);

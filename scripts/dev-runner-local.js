@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const fsPromises = require('node:fs/promises');
 const path = require('node:path');
 const net = require('node:net');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const { concurrently, Logger } = require('concurrently');
 const stripAnsi = require('strip-ansi');
 const { runPreflight } = require('./dev-preflight');
@@ -50,15 +50,19 @@ const LOCAL_POSTGRES = {
   port: parsePort(process.env.APPHUB_DEV_POSTGRES_PORT, 5432),
   user: process.env.APPHUB_DEV_POSTGRES_USER ?? 'apphub',
   password: process.env.APPHUB_DEV_POSTGRES_PASSWORD ?? 'apphub',
-  database: process.env.APPHUB_DEV_POSTGRES_DB ?? 'apphub',
-  dataDir: path.join(LOCAL_DATA_DIR, 'postgres')
+  database: process.env.APPHUB_DEV_POSTGRES_DB ?? 'apphub'
 };
+
+const DEFAULT_POSTGRES_IMAGE = process.env.APPHUB_DEV_POSTGRES_IMAGE || 'postgres:16-alpine';
+const DEFAULT_POSTGRES_CONTAINER = process.env.APPHUB_DEV_POSTGRES_CONTAINER || 'apphub-local-postgres';
 
 const LOCAL_REDIS = {
   host: '127.0.0.1',
-  port: 6379,
-  dataDir: path.join(LOCAL_DATA_DIR, 'redis')
+  port: 6379
 };
+
+const DEFAULT_REDIS_IMAGE = process.env.APPHUB_DEV_REDIS_IMAGE || 'redis:7-alpine';
+const DEFAULT_REDIS_CONTAINER = process.env.APPHUB_DEV_REDIS_CONTAINER || 'apphub-local-redis';
 
 const LOCAL_STORAGE = {
   baseDir: path.join(LOCAL_DATA_DIR, 'storage'),
@@ -92,15 +96,6 @@ const LOCAL_CLICKHOUSE = {
   dataDir: path.join(LOCAL_DATA_DIR, 'clickhouse'),
   configDir: resolveClickhouseConfigDir()
 };
-
-function commandExists(command) {
-  try {
-    const result = spawnSync('which', [command], { stdio: 'ignore' });
-    return result.status === 0;
-  } catch {
-    return false;
-  }
-}
 
 async function setupLocalStorage() {
   await fsPromises.mkdir(LOCAL_STORAGE.baseDir, { recursive: true });
@@ -173,215 +168,117 @@ async function canConnectWithManagedCredentials({ host, port, user, password }) 
   }
 }
 
-async function startEmbeddedPostgres(port) {
-  let EmbeddedPostgres;
+function ensureDockerAvailable() {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    EmbeddedPostgres = require('embedded-postgres');
-  } catch (err) {
-    console.warn('[dev-runner-local] embedded-postgres module unavailable:', err?.message ?? err);
-    return null;
-  }
-
-  const embeddedDataDir = path.join(LOCAL_POSTGRES.dataDir, 'embedded');
-  await fsPromises.mkdir(embeddedDataDir, { recursive: true });
-
-  const instance = new EmbeddedPostgres({
-    port,
-    databaseDir: embeddedDataDir,
-    database: 'postgres',
-    username: 'postgres',
-    persistent: true,
-    postgresFlags: ['-c', 'listen_addresses=127.0.0.1']
-  });
-
-  try {
-    await instance.start();
-    return instance;
-  } catch (err) {
-    console.warn('[dev-runner-local] Failed to start embedded PostgreSQL:', err?.message ?? err);
-    try {
-      await instance.stop();
-    } catch {
-      // ignore cleanup errors
-    }
-    return null;
+    const { status } = spawnSync('docker', ['info'], { stdio: 'ignore' });
+    return status === 0;
+  } catch {
+    return false;
   }
 }
 
-async function setupLocalPostgres() {
-  const originalPort = LOCAL_POSTGRES.port;
-  let targetPort = originalPort;
-  const host = LOCAL_POSTGRES.host;
-  const portAvailable = await isPortAvailable(targetPort, host);
-
-  if (!portAvailable) {
-    const credentialsValid = await canConnectWithManagedCredentials(LOCAL_POSTGRES);
-    if (credentialsValid) {
-      console.log('[dev-runner-local] PostgreSQL already running, skipping local setup');
-      return null;
-    }
-
-    console.warn(
-      `[dev-runner-local] Detected PostgreSQL on port ${targetPort} but credentials for apphub/apphub are invalid. Starting managed instance on an alternate port.`
-    );
-    const fallbackStart = targetPort === 5432 ? 5433 : targetPort + 1;
-    targetPort = await findAvailablePort(fallbackStart, host);
+function startDockerContainer({ name, image, args }) {
+  spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+  const run = spawnSync('docker', ['run', '--detach', '--name', name, ...args, image], { encoding: 'utf8' });
+  if (typeof run.status !== 'number' || run.status !== 0) {
+    const stderr = run.stderr?.trim();
+    const stdout = run.stdout?.trim();
+    throw new Error(stderr || stdout || 'unknown error');
   }
+  return run.stdout?.trim() || name;
+}
 
-  const canStartNative = commandExists('postgres');
-  LOCAL_POSTGRES.port = targetPort;
-
-  if (!canStartNative) {
-    const embeddedInstance = await startEmbeddedPostgres(targetPort);
-    if (!embeddedInstance) {
-      throw new Error(
-        '[dev-runner-local] Unable to launch embedded PostgreSQL. Install PostgreSQL locally or point APPHUB_DEV_POSTGRES_* at a reachable database.'
-      );
-    }
-
-    if (targetPort !== originalPort) {
-      console.log(`[dev-runner-local] Using embedded PostgreSQL on port ${targetPort} (original ${originalPort}).`);
-    }
-
-    await waitForPort(host, targetPort, 30000, 'PostgreSQL (embedded)');
-    await setupPostgresDatabase();
-
-    return {
-      cleanup: async () => {
-        try {
-          await embeddedInstance.stop();
-        } catch (err) {
-          console.warn('[dev-runner-local] Failed to stop embedded PostgreSQL', err?.message ?? err);
-        }
-      }
-    };
-  }
-
-  await fsPromises.mkdir(LOCAL_POSTGRES.dataDir, { recursive: true });
-
-  const pgVersionFile = path.join(LOCAL_POSTGRES.dataDir, 'PG_VERSION');
-  if (!fs.existsSync(pgVersionFile)) {
-    console.log('[dev-runner-local] Initializing PostgreSQL data directory...');
-    const initResult = spawnSync('initdb', ['-D', LOCAL_POSTGRES.dataDir, '-U', LOCAL_POSTGRES.user], {
-      stdio: 'inherit',
-      env: { ...process.env, PGPASSWORD: LOCAL_POSTGRES.password }
-    });
-
-    if (initResult.status !== 0) {
-      throw new Error('[dev-runner-local] Failed to initialize PostgreSQL data directory');
-    }
-  }
-
-  if (targetPort !== originalPort) {
-    console.log(`[dev-runner-local] Starting PostgreSQL on port ${targetPort} (original ${originalPort}).`);
-  } else {
-    console.log('[dev-runner-local] Starting local PostgreSQL...');
-  }
-
-  const pgProcess = spawn('postgres', [
-    '-D', LOCAL_POSTGRES.dataDir,
-    '-p', LOCAL_POSTGRES.port.toString(),
-    '-h', LOCAL_POSTGRES.host
-  ], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PGUSER: LOCAL_POSTGRES.user }
-  });
-
-  await waitForPort(LOCAL_POSTGRES.host, LOCAL_POSTGRES.port, 30000, 'PostgreSQL');
-
-  await setupPostgresDatabase();
-
+async function startDockerPostgres(port) {
+  await fsPromises.mkdir(path.join(LOCAL_DATA_DIR, 'postgres'), { recursive: true });
+  const args = [
+    '--pull', 'missing',
+    '-p', `${port}:5432`,
+    '-e', `POSTGRES_USER=${LOCAL_POSTGRES.user}`,
+    '-e', `POSTGRES_PASSWORD=${LOCAL_POSTGRES.password}`,
+    '-e', `POSTGRES_DB=${LOCAL_POSTGRES.database}`,
+    '-v', `${path.join(LOCAL_DATA_DIR, 'postgres')}:/var/lib/postgresql/data`
+  ];
+  const containerId = startDockerContainer({ name: DEFAULT_POSTGRES_CONTAINER, image: DEFAULT_POSTGRES_IMAGE, args });
+  await waitForPort(LOCAL_POSTGRES.host, port, 60000, 'PostgreSQL (docker)');
+  console.log(`[dev-runner-local] PostgreSQL container ready (${containerId}).`);
+  await sleep(3000);
   return {
-    process: pgProcess,
     cleanup: async () => {
-      if (pgProcess && !pgProcess.killed) {
-        pgProcess.kill('SIGTERM');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        if (!pgProcess.killed) {
-          pgProcess.kill('SIGKILL');
-        }
-      }
+      spawnSync('docker', ['stop', '-t', '5', DEFAULT_POSTGRES_CONTAINER], { stdio: 'ignore' });
+      spawnSync('docker', ['rm', '-f', DEFAULT_POSTGRES_CONTAINER], { stdio: 'ignore' });
     }
   };
 }
 
-async function setupPostgresDatabase() {
+async function startDockerRedis(port) {
+  const args = ['--pull', 'missing', '-p', `${port}:6379`];
+  const containerId = startDockerContainer({ name: DEFAULT_REDIS_CONTAINER, image: DEFAULT_REDIS_IMAGE, args });
+  await waitForPort(LOCAL_REDIS.host, port, 20000, 'Redis (docker)');
+  console.log(`[dev-runner-local] Redis container ready (${containerId}).`);
+  await sleep(1000);
+  return {
+    cleanup: async () => {
+      spawnSync('docker', ['stop', '-t', '5', DEFAULT_REDIS_CONTAINER], { stdio: 'ignore' });
+      spawnSync('docker', ['rm', '-f', DEFAULT_REDIS_CONTAINER], { stdio: 'ignore' });
+    }
+  };
+}
+
+async function setupLocalPostgres({ dockerAvailable }) {
+  const host = LOCAL_POSTGRES.host;
+  const port = LOCAL_POSTGRES.port;
+
+  if (await isPortAvailable(port, host)) {
+    if (dockerAvailable) {
+      console.log(`[dev-runner-local] PostgreSQL not detected on ${host}:${port}; starting local container.`);
+      return startDockerPostgres(port);
+    }
+    throw new Error(
+      `[dev-runner-local] PostgreSQL is not listening on ${host}:${port}. Install and start PostgreSQL (e.g. 'brew services start postgresql@16' or 'docker run -p ${port}:5432 ${DEFAULT_POSTGRES_IMAGE}'), or point APPHUB_DEV_POSTGRES_* at a reachable database.`
+    );
+  }
+
   try {
     const { Client } = require('pg');
-    const client = new Client({
-      host: LOCAL_POSTGRES.host,
-      port: LOCAL_POSTGRES.port,
-      user: 'postgres',
-      database: 'postgres'
-    });
-
-    try {
-      await client.connect();
-
-      await client.query(`
-        DO $$ BEGIN
-          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${LOCAL_POSTGRES.user}') THEN
-            CREATE ROLE "${LOCAL_POSTGRES.user}" LOGIN PASSWORD '${LOCAL_POSTGRES.password}' SUPERUSER CREATEDB CREATEROLE;
-          END IF;
-        END $$;
-      `);
-
-      const { rowCount } = await client.query(`SELECT 1 FROM pg_database WHERE datname = '${LOCAL_POSTGRES.database}'`);
-      if (rowCount === 0) {
-        await client.query(`CREATE DATABASE "${LOCAL_POSTGRES.database}" OWNER "${LOCAL_POSTGRES.user}"`);
-        console.log(`[dev-runner-local] Created database ${LOCAL_POSTGRES.database}`);
-      }
-    } catch (err) {
-      console.warn(`[dev-runner-local] Failed to setup PostgreSQL database: ${err.message}`);
-    } finally {
-      await client.end().catch(() => {});
+    const clientConfig = {
+      host,
+      port,
+      user: LOCAL_POSTGRES.user,
+      database: LOCAL_POSTGRES.database
+    };
+    if (LOCAL_POSTGRES.password) {
+      clientConfig.password = LOCAL_POSTGRES.password;
     }
+    const client = new Client(clientConfig);
+    await client.connect();
+    await client.end();
+    console.log(
+      `[dev-runner-local] Using PostgreSQL at ${host}:${port} (database ${LOCAL_POSTGRES.database}).`
+    );
   } catch (err) {
-    console.warn(`[dev-runner-local] pg module not available, skipping database setup: ${err.message}`);
+    const detail = err && err.message ? err.message : err;
+    throw new Error(
+      `[dev-runner-local] Unable to authenticate with PostgreSQL at ${host}:${port}: ${detail}. Ensure the database/user exist or update APPHUB_DEV_POSTGRES_* environment variables.`
+    );
   }
+
+  return null;
 }
 
-async function setupLocalRedis() {
+async function setupLocalRedis({ dockerAvailable }) {
   try {
     await waitForPort(LOCAL_REDIS.host, LOCAL_REDIS.port, 1000, 'Redis');
-    console.log('[dev-runner-local] Redis already running, skipping local setup');
+    console.log(`[dev-runner-local] Using Redis at ${LOCAL_REDIS.host}:${LOCAL_REDIS.port}.`);
     return null;
   } catch {
-    // Redis not running, we continue to start it
-  }
-
-  if (!commandExists('redis-server')) {
-    throw new Error('[dev-runner-local] Redis not found. Please install Redis or ensure it\'s running on port 6379');
-  }
-
-  await fsPromises.mkdir(LOCAL_REDIS.dataDir, { recursive: true });
-
-  console.log('[dev-runner-local] Starting local Redis...');
-  const redisProcess = spawn('redis-server', [
-    '--dir', LOCAL_REDIS.dataDir,
-    '--port', LOCAL_REDIS.port.toString(),
-    '--bind', LOCAL_REDIS.host,
-    '--save', '""',
-    '--appendonly', 'no'
-  ], {
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  await waitForPort(LOCAL_REDIS.host, LOCAL_REDIS.port, 10000, 'Redis');
-
-  return {
-    process: redisProcess,
-    cleanup: async () => {
-      if (redisProcess && !redisProcess.killed) {
-        redisProcess.kill('SIGTERM');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        if (!redisProcess.killed) {
-          redisProcess.kill('SIGKILL');
-        }
-      }
+    if (dockerAvailable) {
+      console.log(`[dev-runner-local] Redis not detected on ${LOCAL_REDIS.host}:${LOCAL_REDIS.port}; starting local container.`);
+      return startDockerRedis(LOCAL_REDIS.port);
     }
-  };
+    throw new Error(
+      `[dev-runner-local] Redis is not reachable at ${LOCAL_REDIS.host}:${LOCAL_REDIS.port}. Install and start Redis (e.g. 'brew services start redis' or 'docker run -p ${LOCAL_REDIS.port}:6379 ${DEFAULT_REDIS_IMAGE}'), or set APPHUB_DEV_REDIS_URL to a reachable instance.`
+    );
+  }
 }
 
 function sleep(ms) {
@@ -577,7 +474,9 @@ async function main() {
     process.exit(1);
   }
   const skipRedis = Boolean(preflightResult?.skipRedis);
-  const dockerAvailable = Boolean(preflightResult?.tooling?.docker?.available);
+  const dockerAvailable = Boolean(
+    (preflightResult?.tooling?.docker?.available ?? false) || ensureDockerAvailable()
+  );
 
   await fsPromises.mkdir(LOCAL_DATA_DIR, { recursive: true });
   await fsPromises.mkdir(DEV_LOG_DIR, { recursive: true });
@@ -587,26 +486,25 @@ async function main() {
   const localServices = [];
 
   try {
+    const pgService = await setupLocalPostgres({ dockerAvailable });
+    if (pgService) {
+      localServices.push(pgService);
+    }
+
+    if (skipRedis) {
+      console.log('[dev-runner-local] Using Redis detected during preflight.');
+    }
+    const redisService = await setupLocalRedis({ dockerAvailable });
+    if (redisService) {
+      localServices.push(redisService);
+    }
+
     const clickhouseService = await setupLocalClickhouse({ dockerAvailable });
     if (clickhouseService) {
       localServices.push(clickhouseService);
     }
 
-    const pgService = await setupLocalPostgres();
-    if (pgService) {
-      localServices.push(pgService);
-    }
-
     const defaultDatabaseUrl = buildDatabaseUrl();
-
-    if (skipRedis) {
-      console.log('[dev-runner-local] Detected existing Redis instance; skipping bundled Redis.');
-    } else {
-      const redisService = await setupLocalRedis();
-      if (redisService) {
-        localServices.push(redisService);
-      }
-    }
 
     const baseEnv = { ...process.env };
 

@@ -22,6 +22,20 @@ enforceScratchOnlyWrites();
 
 const INGEST_RECORD_TYPE = 'observatory.ingest.file';
 
+function isDirectoryConflictError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  if ((error as { status?: unknown }).status === 409) {
+    return true;
+  }
+  const maybeCode = (error as { code?: unknown }).code;
+  if (typeof maybeCode === 'string' && maybeCode.toUpperCase() === 'NODE_EXISTS') {
+    return true;
+  }
+  return false;
+}
+
 export interface GeneratorJobResult {
   partitions: Array<{
     instrumentId: string;
@@ -215,11 +229,17 @@ async function handler(context: GeneratorContext): Promise<GeneratorJobResult> {
 
   const normalizedInbox = moduleSettings.filestore.inboxPrefix.replace(/\/+$/g, '');
   const stagingMinuteDirectory = `${normalizedInbox}/${minuteKey}`;
-  await filestore.ensureDirectory({
-    backendMountId,
-    path: stagingMinuteDirectory,
-    principal
-  });
+  try {
+    await filestore.ensureDirectory({
+      backendMountId,
+      path: stagingMinuteDirectory,
+      principal
+    });
+  } catch (error) {
+    if (!isDirectoryConflictError(error)) {
+      throw error;
+    }
+  }
   const generatedAt = new Date().toISOString();
 
   for (let index = 0; index < profiles.length; index += 1) {

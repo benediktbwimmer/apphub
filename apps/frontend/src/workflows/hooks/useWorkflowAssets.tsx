@@ -68,9 +68,19 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
   const {
     kind: moduleScopeKind,
     isResourceInScope,
-    moduleId: activeModuleId
+    moduleId: activeModuleId,
+    getResourceIds,
+    getResourceSlugs
   } = moduleScope;
   const isModuleScoped = moduleScopeKind === 'module';
+  const hasWorkflowScopeFilters = useMemo(() => {
+    if (!isModuleScoped) {
+      return false;
+    }
+    const ids = getResourceIds('workflow-definition');
+    const slugs = getResourceSlugs('workflow-definition');
+    return ids.length > 0 || slugs.length > 0;
+  }, [getResourceIds, getResourceSlugs, isModuleScoped]);
 
   const [assetInventories, setAssetInventories] = useState<Record<string, WorkflowAssetInventoryEntry[]>>({});
   const [assetInventoryLoading, setAssetInventoryLoading] = useState(false);
@@ -113,7 +123,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       if (!selectedSlug) {
         return;
       }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
+      if (isModuleScoped && hasWorkflowScopeFilters && !isResourceInScope('workflow-definition', selectedSlug)) {
         return;
       }
       setAssetDetailLoading(true);
@@ -121,8 +131,8 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       try {
         const moduleId = isModuleScoped ? activeModuleId ?? undefined : undefined;
         const historyOptions = moduleId
-          ? { ...options, moduleId }
-          : { ...options };
+          ? { ...options, moduleId, moduleScope: 'global' as const }
+          : { ...options, moduleScope: 'global' as const };
         const detail = await fetchWorkflowAssetHistory(authorizedFetch, selectedSlug, assetId, historyOptions);
         setAssetDetails((previous) => ({
           ...previous,
@@ -141,7 +151,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
         setAssetDetailLoading(false);
       }
     },
-    [activeModuleId, authorizedFetch, isModuleScoped, isResourceInScope, pushToast, selectedSlug]
+    [activeModuleId, authorizedFetch, hasWorkflowScopeFilters, isModuleScoped, isResourceInScope, pushToast, selectedSlug]
   );
 
   const loadAssetPartitions = useCallback(
@@ -149,7 +159,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       if (!selectedSlug) {
         return;
       }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
+      if (isModuleScoped && hasWorkflowScopeFilters && !isResourceInScope('workflow-definition', selectedSlug)) {
         return;
       }
       const cacheKey = `${selectedSlug}:${assetId}`;
@@ -161,8 +171,8 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       try {
         const moduleId = isModuleScoped ? activeModuleId ?? undefined : undefined;
         const partitionOptions = moduleId
-          ? { lookback: options.lookback, moduleId }
-          : { lookback: options.lookback };
+          ? { lookback: options.lookback, moduleId, moduleScope: 'global' as const }
+          : { lookback: options.lookback, moduleScope: 'global' as const };
         const partitions = await fetchWorkflowAssetPartitions(
           authorizedFetch,
           selectedSlug,
@@ -185,7 +195,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
         setAssetPartitionsLoading(false);
       }
     },
-    [activeModuleId, assetPartitionsMap, authorizedFetch, isModuleScoped, isResourceInScope, pushToast, selectedSlug]
+    [activeModuleId, assetPartitionsMap, authorizedFetch, hasWorkflowScopeFilters, isModuleScoped, isResourceInScope, pushToast, selectedSlug]
   );
 
   const selectAsset = useCallback(
@@ -193,7 +203,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       if (!selectedSlug) {
         return;
       }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
+      if (isModuleScoped && hasWorkflowScopeFilters && !isResourceInScope('workflow-definition', selectedSlug)) {
         return;
       }
       const cacheKey = `${selectedSlug}:${assetId}`;
@@ -205,7 +215,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
         void loadAssetPartitions(assetId);
       }
     },
-    [assetDetails, assetPartitionsMap, isModuleScoped, isResourceInScope, loadAssetHistory, loadAssetPartitions, selectedSlug]
+    [assetDetails, assetPartitionsMap, hasWorkflowScopeFilters, isModuleScoped, isResourceInScope, loadAssetHistory, loadAssetPartitions, selectedSlug]
   );
 
   const clearSelectedAsset = useCallback(() => {
@@ -227,7 +237,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       if (!slug) {
         return;
       }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', slug)) {
+      if (isModuleScoped && hasWorkflowScopeFilters && !isResourceInScope('workflow-definition', slug)) {
         return;
       }
       const currentEntry = autoMaterializeStateRef.current[slug];
@@ -249,7 +259,8 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
         const moduleId = isModuleScoped ? activeModuleId ?? undefined : undefined;
         const ops = await getWorkflowAutoMaterializeOps(authorizedFetch, slug, {
           limit: 20,
-          moduleId
+          moduleId,
+          moduleScope: 'global'
         });
         setAutoMaterializeState((current) => ({
           ...current,
@@ -281,7 +292,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [authorizedFetch, activeModuleId, isModuleScoped, isResourceInScope, pushToast]
+    [authorizedFetch, activeModuleId, hasWorkflowScopeFilters, isModuleScoped, isResourceInScope, pushToast]
   );
 
   const refreshAutoMaterializeOps = useCallback(
@@ -296,7 +307,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       if (!selectedSlug) {
         return;
       }
-      if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
+      if (isModuleScoped && hasWorkflowScopeFilters && !isResourceInScope('workflow-definition', selectedSlug)) {
         return;
       }
       setAutoMaterializeUpdating({ assetId, stepId });
@@ -371,7 +382,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [authorizedFetch, isModuleScoped, isResourceInScope, pushToast, refreshAutoMaterializeOps, selectedSlug]
+    [authorizedFetch, hasWorkflowScopeFilters, isModuleScoped, isResourceInScope, pushToast, refreshAutoMaterializeOps, selectedSlug]
   );
 
   useEffect(() => {
@@ -388,7 +399,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
     if (!selectedSlug) {
       return;
     }
-    if (isModuleScoped && !isResourceInScope('workflow-definition', selectedSlug)) {
+    if (isModuleScoped && hasWorkflowScopeFilters && !isResourceInScope('workflow-definition', selectedSlug)) {
       return;
     }
 
@@ -400,8 +411,8 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
       try {
         const moduleId = isModuleScoped ? activeModuleId ?? undefined : undefined;
         const assets = moduleId
-          ? await fetchWorkflowAssets(authorizedFetch, selectedSlug, { moduleId })
-          : await fetchWorkflowAssets(authorizedFetch, selectedSlug);
+          ? await fetchWorkflowAssets(authorizedFetch, selectedSlug, { moduleId, moduleScope: 'global' })
+          : await fetchWorkflowAssets(authorizedFetch, selectedSlug, { moduleScope: 'global' });
         if (cancelled) {
           return;
         }
@@ -429,7 +440,7 @@ export function WorkflowAssetsProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [activeModuleId, authorizedFetch, isModuleScoped, isResourceInScope, pushToast, selectedSlug]);
+  }, [activeModuleId, authorizedFetch, hasWorkflowScopeFilters, isModuleScoped, isResourceInScope, pushToast, selectedSlug]);
 
   useEffect(() => {
     if (selectedSlug) {
