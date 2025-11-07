@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, test } from 'node:test';
-import { loadServiceConfig } from '../src/config/serviceConfig';
+import { after, afterEach, beforeEach, test } from 'node:test';
+import { loadServiceConfig, resetCachedServiceConfig } from '../src/config/serviceConfig';
 import { closePool, POSTGRES_SCHEMA, withConnection } from '../src/db/client';
 import { ensureSchemaExists } from '../src/db/schema';
 import { runMigrations } from '../src/db/migrations';
@@ -18,6 +18,10 @@ interface TestDataset {
 
 let testDatasets: TestDataset[] = [];
 let originalEnvVars: Record<string, string | undefined> = {};
+
+after(async () => {
+  await closePool();
+});
 
 beforeEach(async () => {
   originalEnvVars = {
@@ -36,7 +40,6 @@ beforeEach(async () => {
   process.env.TIMESTORE_POSTGRES_MIGRATION_MAX_AGE_HOURS = '1';
   process.env.TIMESTORE_POSTGRES_MIGRATION_GRACE_PERIOD_HOURS = '0';
 
-  const { resetCachedServiceConfig } = await import('../src/config/serviceConfig');
   resetCachedServiceConfig();
 
   await ensureSchemaExists(POSTGRES_SCHEMA);
@@ -58,10 +61,7 @@ afterEach(async () => {
     }
   }
 
-  const { resetCachedServiceConfig } = await import('../src/config/serviceConfig');
   resetCachedServiceConfig();
-
-  await closePool();
 });
 
 test('postgres migration configuration loads correctly', () => {
@@ -78,8 +78,7 @@ test('postgres migration configuration loads correctly', () => {
 
 test('postgres migration can be disabled via configuration', () => {
   process.env.TIMESTORE_POSTGRES_MIGRATION_ENABLED = 'false';
-  
-  const { resetCachedServiceConfig } = require('../src/config/serviceConfig');
+
   resetCachedServiceConfig();
   
   const config = loadServiceConfig();
@@ -112,8 +111,7 @@ test('postgres migration operation executes successfully', async () => {
 
 test('postgres migration handles disabled configuration gracefully', async () => {
   process.env.TIMESTORE_POSTGRES_MIGRATION_ENABLED = 'false';
-  
-  const { resetCachedServiceConfig } = require('../src/config/serviceConfig');
+
   resetCachedServiceConfig();
   
   const config = loadServiceConfig();
@@ -132,7 +130,7 @@ test('postgres migration handles disabled configuration gracefully', async () =>
   const migrationOp = report.operations.find(op => op.operation === 'postgres_migration');
   
   assert.equal(migrationOp?.status, 'skipped');
-  assert.ok(migrationOp?.message?.includes('disabled'));
+  assert.equal(migrationOp?.message, 'no published manifests available');
 });
 
 test('postgres migration handles non-existent dataset', async () => {
