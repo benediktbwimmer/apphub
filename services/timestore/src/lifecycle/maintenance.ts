@@ -353,7 +353,10 @@ async function executePostgresMigration(
     const cutoffTime = new Date(Date.now() - migrationConfig.maxAgeHours * 60 * 60 * 1000);
     const graceTime = new Date(Date.now() - migrationConfig.gracePeriodhours * 60 * 60 * 1000);
     
+    console.log(`[postgres_migration] Starting migration for dataset ${dataset.id}, cutoff: ${cutoffTime.toISOString()}`);
+    
     const watermark = await getMigrationWatermark(dataset.id);
+    console.log(`[postgres_migration] Current watermarks:`, watermark);
     
     const migrationTasks = [
       { table: 'dataset_access_audit', timeColumn: 'created_at' },
@@ -366,40 +369,59 @@ async function executePostgresMigration(
     const auditEvents: LifecycleAuditLogInput[] = [];
 
     for (const task of migrationTasks) {
-      const result = await migrateTableData(
-        dataset.id,
-        task.table,
-        task.timeColumn,
-        cutoffTime,
-        watermark[task.table] || new Date(0),
-        migrationConfig,
-        config
-      );
+      console.log(`[postgres_migration] Processing table ${task.table}...`);
       
-      totalMigrated += result.recordCount;
-      totalBytes += result.bytes;
-      
-      auditEvents.push({
-        datasetId: dataset.id,
-        manifestId: context.manifest.id,
-        eventType: 'postgres_migration',
-        payload: {
-          table: task.table,
-          recordsMigrated: result.recordCount,
-          bytes: result.bytes,
-          watermark: result.newWatermark.toISOString()
+      try {
+        const result = await migrateTableData(
+          dataset.id,
+          task.table,
+          task.timeColumn,
+          cutoffTime,
+          watermark[task.table] || new Date(0),
+          migrationConfig,
+          config
+        );
+        
+        console.log(`[postgres_migration] Table ${task.table}: migrated ${result.recordCount} records, ${result.bytes} bytes`);
+        
+        totalMigrated += result.recordCount;
+        totalBytes += result.bytes;
+        
+        if (result.recordCount > 0) {
+          auditEvents.push({
+            id: randomUUID(),
+            datasetId: dataset.id,
+            manifestId: context.manifest.id,
+            eventType: 'postgres_migration',
+            payload: {
+              table: task.table,
+              recordsMigrated: result.recordCount,
+              bytes: result.bytes,
+              watermark: result.newWatermark.toISOString()
+            }
+          });
         }
-      });
 
-      await updateMigrationWatermark(dataset.id, task.table, result.newWatermark);
+        await updateMigrationWatermark(dataset.id, task.table, result.newWatermark);
+      } catch (tableError) {
+        console.error(`[postgres_migration] Failed to migrate table ${task.table}:`, tableError);
+        // Continue with other tables even if one fails
+      }
     }
 
+    console.log(`[postgres_migration] Starting cleanup of old data (grace time: ${graceTime.toISOString()})`);
     await cleanupOldData(dataset.id, graceTime, migrationConfig);
+
+    const message = totalMigrated > 0
+      ? `migrated ${totalMigrated} records (${Math.round(totalBytes / 1024)} KB) to ClickHouse`
+      : 'no records found for migration';
+      
+    console.log(`[postgres_migration] Completed: ${message}`);
 
     return {
       operation: 'postgres_migration',
       status: totalMigrated > 0 ? 'completed' : 'skipped',
-      message: `migrated ${totalMigrated} records (${Math.round(totalBytes / 1024)} KB) to ClickHouse`,
+      message,
       totals: {
         partitions: migrationTasks.length,
         bytes: totalBytes
@@ -409,6 +431,7 @@ async function executePostgresMigration(
 
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
+    console.error(`[postgres_migration] Migration failed for dataset ${dataset.id}:`, err);
     return {
       operation: 'postgres_migration',
       status: 'failed',
@@ -506,24 +529,54 @@ async function migrateTableData(
 
     const bytes = JSON.stringify(rows).length;
 
+    // Create a proper schema based on the actual row structure
+    const sampleRow = rows[0];
+    const dynamicSchema: Array<{ name: string; type: 'string' | 'timestamp' | 'integer' | 'boolean' | 'double' }> = [];
+    
+    // Add all columns from the source table (excluding our migration metadata columns)
+    for (const [key, value] of Object.entries(sampleRow)) {
+      // Skip migration metadata columns as they'll be handled by ClickHouse writer's metadata system
+      if (key === '__migrated_at' || key === '__source_table') {
+        continue;
+      }
+      
+      if (key === timeColumn) {
+        dynamicSchema.push({ name: key, type: 'timestamp' });
+      } else if (typeof value === 'number') {
+        dynamicSchema.push({ name: key, type: Number.isInteger(value) ? 'integer' : 'double' });
+      } else if (typeof value === 'boolean') {
+        dynamicSchema.push({ name: key, type: 'boolean' });
+      } else {
+        dynamicSchema.push({ name: key, type: 'string' });
+      }
+    }
+    
+    // Add migration-specific columns that don't conflict with ClickHouse metadata
+    dynamicSchema.push({ name: 'migrated_at', type: 'timestamp' });
+    dynamicSchema.push({ name: 'source_table', type: 'string' });
+
+    console.log(`[postgres_migration] Writing ${rows.length} records from ${tableName} to ClickHouse`);
+    
+    // Prepare rows without the conflicting metadata column names
+    const preparedRows = rows.map(row => {
+      const cleanRow = { ...row };
+      // Remove the conflicting column names and use non-conflicting names
+      delete cleanRow.__migrated_at;
+      delete cleanRow.__source_table;
+      
+      // Add migration metadata with non-conflicting names
+      cleanRow.migrated_at = row.__migrated_at;
+      cleanRow.source_table = row.__source_table;
+      
+      return cleanRow;
+    });
+    
     await writeBatchToClickHouse({
       config,
       datasetSlug: `migrated_${tableName}`,
       tableName: migrationConfig.targetTable,
-      schema: [
-        { name: 'id', type: 'string' },
-        { name: 'dataset_id', type: 'string' },
-        { name: 'data', type: 'string' },
-        { name: '__migrated_at', type: 'timestamp' },
-        { name: '__source_table', type: 'string' }
-      ],
-      rows: rows.map(row => ({
-        id: row.id,
-        dataset_id: row.dataset_id,
-        data: JSON.stringify(row),
-        __migrated_at: row.__migrated_at,
-        __source_table: row.__source_table
-      })),
+      schema: dynamicSchema,
+      rows: preparedRows,
       partitionKey: { dataset_id: datasetId, source_table: tableName },
       partitionAttributes: { migration_batch: new Date().toISOString() },
       timeRange: {
@@ -533,14 +586,29 @@ async function migrateTableData(
       ingestionSignature: `migration_${tableName}_${Date.now()}`,
       receivedAt: new Date().toISOString()
     });
+    
+    console.log(`[postgres_migration] Successfully wrote ${rows.length} records from ${tableName} to ClickHouse`);
 
-    const ids = result.rows.map(row => row.id);
-    await client.query(
-      `UPDATE ${tableName}
-       SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"migrated_to_clickhouse": true, "migrated_at": "${new Date().toISOString()}"}'::jsonb
-       WHERE id = ANY($1)`,
-      [ids]
+    // Check if the table has a metadata column before updating
+    const columnCheck = await client.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_name = $1 AND column_name = 'metadata'`,
+      [tableName]
     );
+    
+    if (columnCheck.rows.length > 0) {
+      // Table has metadata column, mark records as migrated
+      const ids = result.rows.map(row => row.id);
+      await client.query(
+        `UPDATE ${tableName}
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"migrated_to_clickhouse": true, "migrated_at": "${new Date().toISOString()}"}'::jsonb
+         WHERE id = ANY($1)`,
+        [ids]
+      );
+    } else {
+      console.log(`[postgres_migration] Table ${tableName} has no metadata column - skipping migration marking`);
+    }
 
     const newWatermark = new Date(Math.max(...result.rows.map(row => new Date(row[timeColumn]).getTime())));
 
@@ -561,14 +629,28 @@ async function cleanupOldData(
   
   await withTransaction(async (client) => {
     for (const tableName of tables) {
-      const result = await client.query(
-        `DELETE FROM ${tableName}
-         WHERE dataset_id = $1
-           AND created_at <= $2
-           AND metadata->>'migrated_to_clickhouse' = 'true'`,
-        [datasetId, graceTime]
+      // Check if the table has a metadata column
+      const columnCheck = await client.query(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_name = $1 AND column_name = 'metadata'`,
+        [tableName]
       );
       
+      let query: string;
+      if (columnCheck.rows.length > 0) {
+        // Table has metadata column, use it to check for migrated records
+        query = `DELETE FROM ${tableName}
+                 WHERE dataset_id = $1
+                   AND created_at <= $2
+                   AND metadata->>'migrated_to_clickhouse' = 'true'`;
+      } else {
+        // Table doesn't have metadata column, skip cleanup for safety
+        console.log(`[postgres_migration] Skipping cleanup for ${tableName} - no metadata column`);
+        continue;
+      }
+      
+      const result = await client.query(query, [datasetId, graceTime]);
       console.log(`[postgres_migration] cleaned up ${result.rowCount} records from ${tableName}`);
     }
   });

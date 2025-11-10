@@ -416,7 +416,7 @@ describe('useWorkflowsController', () => {
     expect(getWorkflowDetailMock).toHaveBeenCalledWith(
       expect.any(Function),
       'demo-workflow',
-      { moduleId: 'test-module' }
+      { moduleId: 'test-module', moduleScope: 'global' }
     );
 
     await act(async () => {
@@ -502,7 +502,7 @@ describe('useWorkflowsController', () => {
     expect(fetchWorkflowAssetsMock).toHaveBeenCalledWith(
       expect.any(Function),
       'demo-workflow',
-      { moduleId: 'test-module' }
+      { moduleId: 'test-module', moduleScope: 'global' }
     );
     expect(result.current.assetInventory).toEqual(assetInventory);
     expect(result.current.assetInventoryError).toBeNull();

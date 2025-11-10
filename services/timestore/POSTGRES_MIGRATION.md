@@ -2,6 +2,12 @@
 
 This document describes the implementation of periodic data migration from Postgres to ClickHouse in the timestore service.
 
+**Note** that all the bash commands below should be executed from this directory, **not** from the project root:
+
+```bash
+cd services/timestore/
+```
+
 ## Overview
 
 The migration system extends the existing lifecycle management framework to periodically migrate old data from Postgres metadata tables to ClickHouse for long-term storage and analytics. This helps prevent Postgres from overflowing with historical data while maintaining data accessibility.
@@ -15,6 +21,7 @@ The migration system extends the existing lifecycle management framework to peri
 3. **Watermark Tracking**: Uses `migration_watermarks` table to track incremental migration progress
 4. **Configuration**: Environment-based configuration with sensible defaults
 5. **Monitoring**: Integrated with existing lifecycle metrics and observability
+6. **Unit and Integration Tests**: Unit tests (`tests/postgresMigration.test.ts`) and a simulation tool (`src/tools/simulatePostgresMigration.ts`) with extensive command-line options
 
 ### Data Flow
 
@@ -87,10 +94,9 @@ The following Postgres tables are included in the migration:
 ### Data Enrichment
 
 Migrated data includes additional metadata:
-- `__migrated_at`: Migration timestamp
-- `__source_table`: Original Postgres table name
-- `__dataset_slug`: Dataset identifier
-- `__partition_key`: ClickHouse partitioning information
+- `migrated_at`: Migration timestamp
+- `source_table`: Original Postgres table name
+- Standard ClickHouse writer metadata columns (`__dataset_slug`, `__partition_key`, etc.)
 
 ### Error Handling
 
@@ -98,6 +104,8 @@ Migrated data includes additional metadata:
 - **Rollback**: Failed batches are rolled back without affecting watermarks
 - **Retry**: Failed operations are retried on next lifecycle run
 - **Monitoring**: Failures are tracked in lifecycle metrics
+- **Graceful Degradation**: Tables without metadata columns are handled safely
+- **Dynamic Schema**: Automatically adapts to different table structures
 
 ## Scheduling
 
@@ -113,11 +121,11 @@ Migrated data includes additional metadata:
 # Run migration for specific dataset
 tsx src/workers/lifecycleWorker.ts --once --dataset-id=<dataset-id> --operations=postgres_migration
 
-# Test migration (dry run)
-tsx src/tools/testPostgresMigration.ts --dry-run
+# Simulate migration (dry run)
+tsx src/tools/simulatePostgresMigration.ts --dry-run
 
-# Test migration for specific dataset
-tsx src/tools/testPostgresMigration.ts --dataset-id=<dataset-id>
+# Simulate migration migration for specific dataset
+tsx src/tools/simulatePostgresMigration.ts --dataset-id=<dataset-id>
 ```
 
 ## Monitoring and Metrics
@@ -176,39 +184,123 @@ Migration operations are logged in the lifecycle audit system:
 
 ## Testing
 
-### Unit Testing
+The postgres offloading implementation includes two different testing approaches:
+
+### 1. Unit Tests (`tests/postgresMigration.test.ts`)
+Automated tests that run with the test suite using embedded PostgreSQL:
 
 ```bash
-# Test migration logic
-npm test -- --grep "postgres.*migration"
+# Run postgres migration unit tests directly
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true node --enable-source-maps --import tsx tests/postgresMigration.test.ts
 ```
 
-### Integration Testing
+### 2. Integration Test Tool (`src/tools/simulatePostgresMigration.ts`)
+Manual testing tool for real-world scenarios and debugging:
 
 ```bash
-# Test with real database
-tsx src/tools/testPostgresMigration.ts --dataset-id=test-dataset
+# Create simulation data and run migration
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --create-test-data
 
-# Dry run test
-tsx src/tools/testPostgresMigration.ts --dry-run
+# Dry run to see what would be migrated
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --dry-run
+
+# Simulate migration for specific dataset
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --dataset-id=<dataset-id>
+
+# Test with ClickHouse mock mode (recommended for development)
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true TIMESTORE_CLICKHOUSE_MOCK=true node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --create-test-data
+
+# Test with shorter migration window (1 hour instead of 7 days)
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true TIMESTORE_CLICKHOUSE_MOCK=true TIMESTORE_POSTGRES_MIGRATION_MAX_AGE_HOURS=1 node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --create-test-data
 ```
 
 ### Load Testing
 
 ```bash
-# Generate test data and run migration
-tsx src/tools/generateTestData.ts --records=100000
-tsx src/tools/testPostgresMigration.ts --dataset-id=load-test
+# Generate simulation data and run migration with ClickHouse mock
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true TIMESTORE_CLICKHOUSE_MOCK=true node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --create-test-data
+
+# Test with larger batch sizes
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true TIMESTORE_CLICKHOUSE_MOCK=true TIMESTORE_POSTGRES_MIGRATION_BATCH_SIZE=50000 node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --create-test-data
 ```
+
+## ClickHouse Database Access
+
+The migration writes data to ClickHouse with the following default configuration:
+
+### Default ClickHouse Configuration
+- **Host**: `clickhouse` (configurable via `TIMESTORE_CLICKHOUSE_HOST`)
+- **HTTP Port**: `8123` (configurable via `TIMESTORE_CLICKHOUSE_HTTP_PORT`)
+- **Native Port**: `9000` (configurable via `TIMESTORE_CLICKHOUSE_NATIVE_PORT`)
+- **Username**: `apphub` (configurable via `TIMESTORE_CLICKHOUSE_USER`)
+- **Password**: `apphub` (configurable via `TIMESTORE_CLICKHOUSE_PASSWORD`)
+- **Database**: `apphub` (configurable via `TIMESTORE_CLICKHOUSE_DATABASE`)
+
+### Accessing ClickHouse Manually
+
+```bash
+# Connect to ClickHouse using clickhouse-client
+clickhouse-client --host clickhouse --port 9000 --user apphub --password apphub --database apphub
+
+# Or via HTTP interface
+curl "http://clickhouse:8123/?user=apphub&password=apphub&database=apphub" -d "SELECT * FROM migrated_data LIMIT 10"
+
+# Check migrated data
+clickhouse-client --host clickhouse --port 9000 --user apphub --password apphub --database apphub \
+  -q "SELECT count(*) FROM migrated_data WHERE source_table = 'dataset_access_audit'"
+
+# View table structure
+clickhouse-client --host clickhouse --port 9000 --user apphub --password apphub --database apphub \
+  -q "DESCRIBE TABLE migrated_data"
+
+# Check recent migrations
+clickhouse-client --host clickhouse --port 9000 --user apphub --password apphub --database apphub \
+  -q "SELECT source_table, count(*) as records, max(migrated_at) as latest_migration FROM migrated_data GROUP BY source_table"
+```
+
+### Local Development Setup
+
+For local development and testing, you have several options:
+
+#### Option 1: Mock Mode (Recommended for Development)
+```bash
+# Test migration logic without ClickHouse
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true TIMESTORE_CLICKHOUSE_MOCK=true \
+  node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --create-test-data
+```
+
+#### Option 2: Real ClickHouse Instance
+```bash
+# Start ClickHouse with Docker
+docker run -d --name clickhouse-server --ulimit nofile=262144:262144 -p 8123:8123 -p 9000:9000 clickhouse/clickhouse-server
+
+# Then run the migration simulation
+TIMESTORE_CLICKHOUSE_HOST=localhost REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true \
+  node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --create-test-data
+```
+
+#### Option 3: Full Docker Setup
+```bash
+# Start both PostgreSQL and ClickHouse
+docker run -d --name apphub-postgres -p 5432:5432 -e POSTGRES_DB=apphub -e POSTGRES_USER=apphub -e POSTGRES_PASSWORD=apphub postgres:16-alpine
+docker run -d --name clickhouse-server --ulimit nofile=262144:262144 -p 8123:8123 -p 9000:9000 clickhouse/clickhouse-server
+
+# Run migration with real databases
+TIMESTORE_CLICKHOUSE_HOST=localhost REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true \
+  node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --create-test-data
+```
+
+**Note**: Without ClickHouse, migration will fail with connection errors like `getaddrinfo EAI_AGAIN clickhouse`. This indicates the migration logic is working correctly but cannot connect to ClickHouse.
 
 ## Troubleshooting
 
 ### Common Issues
 
 1. **Migration Stuck**: Check watermark timestamps and reset if needed
-2. **ClickHouse Errors**: Verify ClickHouse connectivity and schema
+2. **ClickHouse Connection Errors**: Verify ClickHouse is running and accessible
 3. **High Memory Usage**: Reduce batch size in configuration
 4. **Slow Performance**: Check Postgres indexes on time columns
+5. **No Records Migrated**: Ensure datasets have published manifests
 
 ### Debugging
 
@@ -216,11 +308,28 @@ tsx src/tools/testPostgresMigration.ts --dataset-id=load-test
 # Enable debug logging
 export TIMESTORE_LOG_LEVEL=debug
 
-# Check migration watermarks
+# Check migration watermarks in PostgreSQL
 psql -c "SELECT * FROM migration_watermarks WHERE dataset_id = 'your-dataset';"
 
-# Check migrated data in ClickHouse
-clickhouse-client -q "SELECT count(*) FROM migrated_data WHERE __source_table = 'dataset_access_audit';"
+# Check what data exists to migrate
+psql -c "SELECT dataset_id, count(*) FROM dataset_access_audit WHERE created_at <= NOW() - INTERVAL '7 days' GROUP BY dataset_id;"
+
+# Check migrated data in ClickHouse (if accessible)
+clickhouse-client --host clickhouse --port 9000 --user apphub --password apphub --database apphub \
+  -q "SELECT count(*) FROM migrated_data WHERE source_table = 'dataset_access_audit';"
+
+# Check for datasets with published manifests
+psql -c "SELECT d.id, d.slug, COUNT(dm.id) as manifest_count FROM datasets d LEFT JOIN dataset_manifests dm ON d.id = dm.dataset_id AND dm.status = 'published' GROUP BY d.id, d.slug;"
+```
+
+### Migration Status Verification
+
+```bash
+# Check if migration is finding data to process
+REDIS_URL=inline APPHUB_ALLOW_INLINE_MODE=true node --enable-source-maps --import tsx src/tools/simulatePostgresMigration.ts --dry-run
+
+# Monitor migration progress in logs
+tail -f /path/to/timestore/logs | grep postgres_migration
 ```
 
 ## Future Enhancements
