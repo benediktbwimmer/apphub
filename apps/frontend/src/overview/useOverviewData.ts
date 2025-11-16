@@ -36,7 +36,7 @@ const EMPTY_DATA: OverviewData = {
 };
 
 export function useOverviewData(): LoadState {
-  const { activeToken: authToken } = useAuth();
+  const { activeToken: authToken, identity, identityLoading } = useAuth();
   const moduleScope = useModuleScope();
   const {
     kind: moduleScopeKind,
@@ -58,9 +58,13 @@ export function useOverviewData(): LoadState {
         setLoading(true);
         return;
       }
-      if (!authToken) {
+      if (identityLoading) {
+        return;
+      }
+      const canAccess = identity?.authDisabled || Boolean(authToken);
+      if (!canAccess) {
         setData(EMPTY_DATA);
-        setError(null);
+        setError('Authentication required');
         setLoading(false);
         return;
       }
@@ -78,11 +82,11 @@ export function useOverviewData(): LoadState {
 
       const results = await Promise.allSettled([
         (async () => {
-          const health = await getWorkflowEventHealth(authToken);
+          const health = await getWorkflowEventHealth(canAccess ? authToken : null);
           return health;
         })(),
         (async () => {
-          const services = await listServices(authToken);
+          const services = await listServices(canAccess ? authToken : null);
           if (!isModuleScoped || !serviceScopeAvailable) {
             return services;
           }
@@ -95,7 +99,7 @@ export function useOverviewData(): LoadState {
             workflowSlugs: isModuleScoped && scopedWorkflowSlugs.length > 0 ? scopedWorkflowSlugs : undefined,
             moduleId: isModuleScoped ? moduleScope.moduleId : undefined
           };
-          const { items } = await fetchWorkflowActivity(authToken, {
+          const { items } = await fetchWorkflowActivity(canAccess ? authToken : null, {
             limit: 12,
             filters: workflowFilters
           });
@@ -119,7 +123,7 @@ export function useOverviewData(): LoadState {
                 moduleId: moduleScope.moduleId ?? undefined
               }
             : undefined;
-          const { items } = await fetchJobRuns(authToken, {
+          const { items } = await fetchJobRuns(canAccess ? authToken : null, {
             limit: 5,
             filters: jobFilters
           });
@@ -188,6 +192,8 @@ export function useOverviewData(): LoadState {
     authToken,
     getResourceIds,
     getResourceSlugs,
+    identity?.authDisabled,
+    identityLoading,
     isModuleScoped,
     isResourceInScope,
     moduleLoadingResources,

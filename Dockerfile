@@ -22,11 +22,15 @@ RUN set -eux; \
     install_optional() { \
       parent_pkg="$1"; \
       optional_pkg="$2"; \
-      dest_dir="node_modules/${optional_pkg}"; \
+      dest_dir="${3:-node_modules/${optional_pkg}}"; \
       if [ -d "${dest_dir}" ]; then \
         return 0; \
       fi; \
-      version="$(PARENT_NAME="${parent_pkg}" OPTIONAL_NAME="${optional_pkg}" node -e "const lock = require('./package-lock.json'); const entry = lock.packages['node_modules/' + process.env.PARENT_NAME]; const version = entry && entry.optionalDependencies && entry.optionalDependencies[process.env.OPTIONAL_NAME]; if (!version) { throw new Error('Missing optional dependency metadata for ' + process.env.OPTIONAL_NAME); } process.stdout.write(version);")"; \
+      version="$(PARENT_NAME="${parent_pkg}" OPTIONAL_NAME="${optional_pkg}" node -e "const lock = require('./package-lock.json'); const entry = lock.packages['node_modules/' + process.env.PARENT_NAME]; const version = entry && entry.optionalDependencies && entry.optionalDependencies[process.env.OPTIONAL_NAME]; if (version) { process.stdout.write(version); }")"; \
+      if [ -z "${version}" ]; then \
+        printf 'Skipping optional install for %s (metadata missing for %s)\n' "${optional_pkg}" "${parent_pkg}"; \
+        return 0; \
+      fi; \
       tarball_url="https://registry.npmjs.org/${optional_pkg}/-/$(basename "${optional_pkg}")-${version}.tgz"; \
       temp_dir="$(mktemp -d)"; \
       curl -fsSL "${tarball_url}" | tar -xz -C "${temp_dir}"; \
@@ -39,10 +43,12 @@ RUN set -eux; \
       "linux/arm64") \
         install_optional "rollup" "@rollup/rollup-linux-arm64-gnu"; \
         install_optional "lightningcss" "lightningcss-linux-arm64-gnu"; \
+        install_optional "@tailwindcss/oxide" "@tailwindcss/oxide-linux-arm64-gnu"; \
         ;; \
       "linux/amd64") \
         install_optional "rollup" "@rollup/rollup-linux-x64-gnu"; \
         install_optional "lightningcss" "lightningcss-linux-x64-gnu"; \
+        install_optional "@tailwindcss/oxide" "@tailwindcss/oxide-linux-x64-gnu"; \
         ;; \
     esac
 

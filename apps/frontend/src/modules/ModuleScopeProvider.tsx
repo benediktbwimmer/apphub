@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useAuth } from '../auth/useAuth';
 import { useAppHubEvent, type AppHubSocketEvent } from '../events/context';
 import { ModuleScopeContextProvider, type ModuleScopeContextValue } from './ModuleScopeContext';
 import type { ModuleResourceContext, ModuleResourceType, ModuleSummary } from './types';
@@ -37,6 +38,7 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const authorizedFetch = useAuthorizedFetch();
+  const { identity, identityLoading } = useAuth();
 
   const modulePathPrefix = moduleId ? `/modules/${encodeURIComponent(moduleId)}` : '';
   const relativePath = useMemo(() => stripPrefix(location.pathname, modulePathPrefix), [
@@ -54,9 +56,15 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
 
   // Load module catalog once the user is authenticated
   useEffect(() => {
-    if (!authorizedFetch.authToken) {
+    if (identityLoading) {
+      return;
+    }
+
+    const canAccess = identity?.authDisabled || Boolean(authorizedFetch.authToken);
+    if (!canAccess) {
       setModules([]);
-      setModulesError(null);
+      setModulesError('Authentication required');
+      setLoadingModules(false);
       return;
     }
     const controller = new AbortController();
@@ -82,7 +90,7 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
     return () => {
       controller.abort();
     };
-  }, [authorizedFetch]);
+  }, [authorizedFetch, identity?.authDisabled, identityLoading]);
 
   // Load module resources when moduleId changes
   useEffect(() => {
@@ -93,7 +101,12 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
       return;
     }
 
-    if (!authorizedFetch.authToken) {
+    if (identityLoading) {
+      return;
+    }
+
+    const canAccess = identity?.authDisabled || Boolean(authorizedFetch.authToken);
+    if (!canAccess) {
       setResources(null);
       setResourcesError('Authentication required');
       setLoadingResources(false);
@@ -124,7 +137,7 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
     return () => {
       controller.abort();
     };
-  }, [authorizedFetch, moduleId]);
+  }, [authorizedFetch, identity?.authDisabled, identityLoading, moduleId]);
 
   const moduleVersion = useMemo(() => {
     if (!moduleId || !resources || resources.length === 0) {

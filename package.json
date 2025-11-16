@@ -42,6 +42,7 @@
     "dev:clear:redis": "node scripts/dev-maintenance.mjs redis",
     "dev:clear:minio": "node scripts/dev-maintenance.mjs minio",
     "dev:clear:all": "node scripts/dev-maintenance.mjs all",
+    "clear": "node scripts/dev-clear.mjs",
     "backfill:service-registry": "npm run backfill:service-registry --workspace @apphub/core",
     "module:publish": "npm run module:publish --workspace @apphub/core --",
     "module:services": "npm run module:services --workspace @apphub/core",
@@ -64,12 +65,14 @@
     "@types/pg": "^8.15.6",
     "chokidar": "^3.6.0",
     "concurrently": "^9.2.1",
-    "esbuild": "^0.23.1",
+    "esbuild": "^0.25.11",
     "kafkajs": "^2.2.4",
     "openapi-typescript-codegen": "^0.29.0",
     "typescript": "^5.9.2"
   },
   "dependencies": {
+    "@rollup/rollup-darwin-arm64": "^4.53.2",
+    "@tailwindcss/oxide-darwin-arm64": "^4.1.17",
     "bullmq": "^5.62.2",
     "fastify": "^5.6.1",
     "parquetjs-lite": "^0.8.7",
@@ -78,6 +81,7 @@
     "zod-to-json-schema": "^3.24.6"
   },
   "optionalDependencies": {
+    "@embedded-postgres/darwin-arm64": "^17.6.0-beta.15",
     "lightningcss-darwin-arm64": "^1.30.1",
     "lightningcss-darwin-x64": "^1.30.1",
     "lightningcss-linux-arm64-gnu": "^1.30.1",

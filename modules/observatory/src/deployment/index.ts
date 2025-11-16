@@ -266,10 +266,6 @@ async function ensureObservatoryServices(options: {
 
   const serviceList = Array.isArray(services.data) ? services.data : [];
 
-  const internalFrontendBase = 'http://frontend';
-  const normalizedInternal = stripTrailingSlash(internalFrontendBase);
-  const publicFrontendBase = resolvePublicFrontendBase(options.env);
-
   const adjustments = [
     { slug: 'observatory-dashboard', previewPath: '/observatory/dashboard' },
     { slug: 'observatory-admin', previewPath: '/observatory/admin' }
@@ -281,12 +277,50 @@ async function ensureObservatoryServices(options: {
       continue;
     }
 
+    const existingRuntime = service.metadata?.runtime ?? null;
+    const currentRuntimeBase =
+      typeof existingRuntime?.baseUrl === 'string' ? existingRuntime.baseUrl : null;
+
+    const configRuntimeBase = (() => {
+      const config = (service.metadata as { config?: Record<string, unknown> } | null | undefined)?.config;
+      const runtime = config && typeof config === 'object' ? (config.runtime as Record<string, unknown> | undefined) : undefined;
+      const base = runtime?.baseUrl;
+      return typeof base === 'string' && base.trim().length > 0 ? base : null;
+    })();
+
+    const defaultPort = (() => {
+      const cfg = (service.metadata as { config?: Record<string, unknown> } | null | undefined)?.config;
+      const registration = cfg && typeof cfg === 'object' ? (cfg.registration as Record<string, unknown> | undefined) : undefined;
+      const portValue = registration?.defaultPort;
+      if (typeof portValue === 'number' && Number.isFinite(portValue)) {
+        return portValue;
+      }
+      if (typeof portValue === 'string' && portValue.trim().length > 0) {
+        const parsed = Number.parseInt(portValue, 10);
+        if (Number.isFinite(parsed)) {
+          return parsed;
+        }
+      }
+      return null;
+    })();
+    const runtimeBase =
+      configRuntimeBase ??
+      currentRuntimeBase ??
+      (typeof service.baseUrl === 'string' ? service.baseUrl : null) ??
+      (defaultPort ? `http://127.0.0.1:${defaultPort}` : null);
+
+    if (!runtimeBase) {
+      continue;
+    }
+
+    const normalizedRuntimeBase = stripTrailingSlash(runtimeBase);
+
     const patch: Record<string, unknown> = {};
     const metadataUpdate: Record<string, unknown> = { resourceType: 'service' };
     let metadataChanged = false;
 
-    if (stripTrailingSlash(service.baseUrl ?? '') !== normalizedInternal) {
-      patch.baseUrl = internalFrontendBase;
+    if (stripTrailingSlash(service.baseUrl ?? '') !== normalizedRuntimeBase) {
+      patch.baseUrl = runtimeBase;
     }
 
     const existingManifest = service.metadata?.manifest ?? null;
@@ -299,21 +333,19 @@ async function ensureObservatoryServices(options: {
       metadataChanged = true;
     }
 
-    const existingRuntime = service.metadata?.runtime ?? null;
-    const currentRuntimeBase = typeof existingRuntime?.baseUrl === 'string'
-      ? existingRuntime.baseUrl
-      : null;
     const currentPreviewUrl = typeof existingRuntime?.previewUrl === 'string'
       ? existingRuntime.previewUrl
       : null;
-    const desiredPreviewUrl = `${publicFrontendBase}${adjustment.previewPath}`;
-    const needsRuntimeBaseUpdate = stripTrailingSlash(currentRuntimeBase ?? '') !== normalizedInternal;
+    const desiredPreviewUrl = `${normalizedRuntimeBase}${adjustment.previewPath}`;
+    const needsRuntimeBaseUpdate =
+      stripTrailingSlash(currentRuntimeBase ?? '') !== normalizedRuntimeBase ||
+      stripTrailingSlash(configRuntimeBase ?? '') !== normalizedRuntimeBase;
     const needsPreviewUpdate = currentPreviewUrl !== desiredPreviewUrl;
 
     if (needsRuntimeBaseUpdate || needsPreviewUpdate) {
       const runtimeUpdate = pruneUndefined({
         ...(existingRuntime ?? {}),
-        baseUrl: internalFrontendBase,
+        baseUrl: runtimeBase,
         previewUrl: desiredPreviewUrl
       });
       metadataUpdate.runtime = runtimeUpdate;
@@ -336,7 +368,7 @@ async function ensureObservatoryServices(options: {
     options.logger.info?.('Updated observatory service registration', {
       service: adjustment.slug,
       baseUrl: patch.baseUrl ?? service.baseUrl,
-      previewUrl: `${publicFrontendBase}${adjustment.previewPath}`
+      previewUrl: desiredPreviewUrl
     });
   }
 }
@@ -355,6 +387,17 @@ function resolvePublicFrontendBase(env: NodeJS.ProcessEnv): string {
   }
   const port = env.APPHUB_FRONTEND_PORT ?? '4173';
   return `http://localhost:${port}`;
+}
+
+function resolveInternalFrontendBase(env: NodeJS.ProcessEnv): string | null {
+  const explicit =
+    env.APPHUB_FRONTEND_INTERNAL_URL?.trim() ??
+    env.OBSERVATORY_FRONTEND_INTERNAL_URL?.trim() ??
+    null;
+  if (explicit && explicit.length > 0) {
+    return explicit;
+  }
+  return null;
 }
 
 function pruneUndefined<T>(value: T): T {
