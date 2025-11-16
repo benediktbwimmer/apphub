@@ -71,7 +71,8 @@ export async function deployModule(options: DeployModuleOptions): Promise<Deploy
     logger: options.logger
   });
 
-  const bucketsEnsured = await ensureBuckets(prepared?.buckets ?? [], options.logger);
+  const skipBuckets = (options.env.APPHUB_SKIP_BUCKETS ?? '').trim() === '1';
+  const bucketsEnsured = skipBuckets ? 0 : await ensureBuckets(prepared?.buckets ?? [], options.logger);
 
   let filestorePrefixesEnsured = 0;
   if (prepared?.filestore) {
@@ -194,6 +195,12 @@ function primeScratchPrefixes(env: NodeJS.ProcessEnv): void {
 
   if (prefixes.size > 0) {
     process.env.APPHUB_SCRATCH_PREFIXES = Array.from(prefixes).join(':');
+  }
+
+  const skipBuckets = (env.APPHUB_SKIP_BUCKETS ?? process.env.APPHUB_SKIP_BUCKETS ?? '').trim() === '1';
+  if (skipBuckets) {
+    env.APPHUB_SKIP_BUCKETS = '1';
+    process.env.APPHUB_SKIP_BUCKETS = '1';
   }
 }
 

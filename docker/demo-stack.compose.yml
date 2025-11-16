@@ -333,6 +333,11 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.11
     restart: unless-stopped
+    depends_on:
+      minio:
+        condition: service_healthy
+      apphub-bootstrap:
+        condition: service_completed_successfully
     environment:
       CLICKHOUSE_DB: ${TIMESTORE_CLICKHOUSE_DATABASE:-apphub}
       CLICKHOUSE_USER: ${TIMESTORE_CLICKHOUSE_USER:-apphub}

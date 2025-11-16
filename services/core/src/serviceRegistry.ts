@@ -264,6 +264,11 @@ function rewriteLoopbackHost(urlValue: string | null | undefined): string | null
     return null;
   }
 
+  const rewriteEnabled = envFlagEnabled(process.env.APPHUB_SERVICE_REGISTRY_REWRITE_LOOPBACK);
+  if (!rewriteEnabled) {
+    return urlValue;
+  }
+
   try {
     const parsed = new URL(urlValue);
     const hostname = parsed.hostname.toLowerCase();

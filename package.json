@@ -42,6 +42,7 @@
     "dev:clear:redis": "node scripts/dev-maintenance.mjs redis",
     "dev:clear:minio": "node scripts/dev-maintenance.mjs minio",
     "dev:clear:all": "node scripts/dev-maintenance.mjs all",
+    "clear": "node scripts/dev-clear.mjs",
     "backfill:service-registry": "npm run backfill:service-registry --workspace @apphub/core",
     "module:publish": "npm run module:publish --workspace @apphub/core --",
     "module:services": "npm run module:services --workspace @apphub/core",
@@ -78,6 +79,7 @@
     "zod-to-json-schema": "^3.24.6"
   },
   "optionalDependencies": {
+    "@embedded-postgres/darwin-arm64": "17.6.0-beta.15",
     "@rollup/rollup-darwin-arm64": "^4.52.5",
     "@tailwindcss/oxide-darwin-arm64": "^4.1.16",
     "lightningcss-darwin-arm64": "^1.30.1",

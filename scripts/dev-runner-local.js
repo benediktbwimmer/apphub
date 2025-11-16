@@ -610,7 +610,8 @@ async function main() {
       baseEnv.FILESTORE_AUTOPROVISION_DESCRIPTION = 'Local filesystem backend for the observatory demo.';
     }
 
-    baseEnv.APPHUB_STREAMING_ENABLED = 'false';
+    baseEnv.APPHUB_STREAMING_ENABLED = 'true';
+    setDefaultEnv('APPHUB_STREAM_BROKER_URL', 'redpanda:9092');
 
     baseEnv.APPHUB_BUILD_EXECUTION_MODE = 'local';
     baseEnv.APPHUB_LAUNCH_EXECUTION_MODE = 'local';

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 import {
   S3Client,
@@ -69,16 +70,33 @@ function resolveStorageBackend(env: NodeJS.ProcessEnv): ArtifactStorageBackend {
 }
 
 async function encodeInlineArtifact(options: PrepareArtifactOptions): Promise<InlineArtifactDescriptor> {
-  const data = await readFile(options.moduleEntryPath);
-  const checksum = sha256(data);
-  const contentType = 'application/javascript';
-  const filename = path.basename(options.moduleEntryPath);
+  const raw = await readFile(options.moduleEntryPath);
+  const shouldCompress = (options.env.APPHUB_MODULE_ARTIFACT_COMPRESS ?? '1').trim() !== '0';
+  const compressed = shouldCompress ? gzipSync(raw) : raw;
+  const checksum = sha256(raw);
+  const contentType = shouldCompress ? 'application/javascript+gzip' : 'application/javascript';
+  const filename = shouldCompress
+    ? `${sanitizeFilename(options.moduleEntryPath)}.gz`
+    : sanitizeFilename(options.moduleEntryPath);
+
+  if (compressed.byteLength > raw.byteLength && shouldCompress) {
+    // If compression makes it larger, fall back to raw.
+    return {
+      storage: 'inline',
+      filename: sanitizeFilename(options.moduleEntryPath),
+      contentType: 'application/javascript',
+      data: raw.toString('base64'),
+      size: raw.byteLength,
+      checksum
+    } satisfies InlineArtifactDescriptor;
+  }
+
   return {
     storage: 'inline',
     filename,
     contentType,
-    data: data.toString('base64'),
-    size: data.byteLength,
+    data: compressed.toString('base64'),
+    size: compressed.byteLength,
     checksum
   } satisfies InlineArtifactDescriptor;
 }

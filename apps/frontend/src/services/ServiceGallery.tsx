@@ -255,12 +255,16 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
 }
 
 export default function ServiceGallery() {
-  const { activeToken: authToken } = useAuth();
+  const { activeToken: authToken, identity, identityLoading } = useAuth();
   const { width } = usePreviewLayout();
   const moduleScope = useModuleScope();
   const fetchServices = useCallback(
     async ({ signal }: { authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>; signal: AbortSignal }) => {
-      if (!authToken) {
+      if (identityLoading) {
+        return [];
+      }
+      const canAccess = identity?.authDisabled || Boolean(authToken);
+      if (!canAccess) {
         return [];
       }
       if (moduleScope.kind === 'module') {
@@ -271,10 +275,10 @@ export default function ServiceGallery() {
           return [];
         }
       }
-      const services = await listServices(authToken, { signal });
+      const services = await listServices(canAccess ? authToken : null, { signal });
       return services;
     },
-    [authToken, moduleScope.kind, moduleScope.loadingResources, moduleScope.moduleId]
+    [authToken, identity?.authDisabled, identityLoading, moduleScope.kind, moduleScope.loadingResources, moduleScope.moduleId]
   );
 
   const {
