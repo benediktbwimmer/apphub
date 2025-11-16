@@ -54,16 +54,20 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [loadingResources, setLoadingResources] = useState(false);
 
+  const isAuthDisabled = Boolean(identity?.authDisabled);
+  const hasAuthToken = Boolean(authorizedFetch.authToken);
+  const canAccessModules = hasAuthToken || isAuthDisabled;
+
   // Load module catalog once the user is authenticated
   useEffect(() => {
-    if (identityLoading) {
-      return;
-    }
-
-    const canAccess = identity?.authDisabled || Boolean(authorizedFetch.authToken);
-    if (!canAccess) {
+    if (!canAccessModules) {
+      if (identityLoading) {
+        setLoadingModules(true);
+        setModulesError(null);
+        return;
+      }
       setModules([]);
-      setModulesError('Authentication required');
+      setModulesError(null);
       setLoadingModules(false);
       return;
     }
@@ -90,7 +94,7 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
     return () => {
       controller.abort();
     };
-  }, [authorizedFetch, identity?.authDisabled, identityLoading]);
+  }, [authorizedFetch, canAccessModules, identityLoading]);
 
   // Load module resources when moduleId changes
   useEffect(() => {
@@ -101,12 +105,12 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
       return;
     }
 
-    if (identityLoading) {
-      return;
-    }
-
-    const canAccess = identity?.authDisabled || Boolean(authorizedFetch.authToken);
-    if (!canAccess) {
+    if (!canAccessModules) {
+      if (identityLoading) {
+        setLoadingResources(true);
+        setResourcesError(null);
+        return;
+      }
       setResources(null);
       setResourcesError('Authentication required');
       setLoadingResources(false);
@@ -137,7 +141,7 @@ export function ModuleScopeProvider({ children }: ModuleScopeProviderProps) {
     return () => {
       controller.abort();
     };
-  }, [authorizedFetch, identity?.authDisabled, identityLoading, moduleId]);
+  }, [authorizedFetch, canAccessModules, identityLoading, moduleId]);
 
   const moduleVersion = useMemo(() => {
     if (!moduleId || !resources || resources.length === 0) {

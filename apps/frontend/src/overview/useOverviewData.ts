@@ -59,12 +59,13 @@ export function useOverviewData(): LoadState {
         return;
       }
       if (identityLoading) {
+        setLoading(true);
         return;
       }
-      const canAccess = identity?.authDisabled || Boolean(authToken);
-      if (!canAccess) {
+      const authDisabled = identity?.authDisabled ?? false;
+      if (!authToken && !authDisabled) {
         setData(EMPTY_DATA);
-        setError('Authentication required');
+        setError(null);
         setLoading(false);
         return;
       }
@@ -82,11 +83,11 @@ export function useOverviewData(): LoadState {
 
       const results = await Promise.allSettled([
         (async () => {
-          const health = await getWorkflowEventHealth(canAccess ? authToken : null);
+          const health = await getWorkflowEventHealth(authToken ?? undefined);
           return health;
         })(),
         (async () => {
-          const services = await listServices(canAccess ? authToken : null);
+          const services = await listServices(authToken ?? undefined);
           if (!isModuleScoped || !serviceScopeAvailable) {
             return services;
           }
@@ -99,7 +100,7 @@ export function useOverviewData(): LoadState {
             workflowSlugs: isModuleScoped && scopedWorkflowSlugs.length > 0 ? scopedWorkflowSlugs : undefined,
             moduleId: isModuleScoped ? moduleScope.moduleId : undefined
           };
-          const { items } = await fetchWorkflowActivity(canAccess ? authToken : null, {
+          const { items } = await fetchWorkflowActivity(authToken ?? undefined, {
             limit: 12,
             filters: workflowFilters
           });
@@ -123,7 +124,7 @@ export function useOverviewData(): LoadState {
                 moduleId: moduleScope.moduleId ?? undefined
               }
             : undefined;
-          const { items } = await fetchJobRuns(canAccess ? authToken : null, {
+          const { items } = await fetchJobRuns(authToken ?? undefined, {
             limit: 5,
             filters: jobFilters
           });
@@ -192,12 +193,12 @@ export function useOverviewData(): LoadState {
     authToken,
     getResourceIds,
     getResourceSlugs,
-    identity?.authDisabled,
-    identityLoading,
     isModuleScoped,
     isResourceInScope,
     moduleLoadingResources,
-    moduleScope.moduleId
+    moduleScope.moduleId,
+    identity,
+    identityLoading
   ]);
 
   return useMemo(() => ({ data, loading, error }), [data, loading, error]);

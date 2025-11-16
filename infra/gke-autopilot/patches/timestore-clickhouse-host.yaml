@@ -9,7 +9,7 @@ spec:
         - name: api
           env:
             - name: TIMESTORE_CLICKHOUSE_HOST
-              value: apphub-clickhouse
+              value: apphub-clickhouse-internal.apphub-system.svc.cluster.local
             - name: TIMESTORE_CLICKHOUSE_HTTP_PORT
               value: "8123"
 ---
@@ -24,7 +24,7 @@ spec:
         - name: worker
           env:
             - name: TIMESTORE_CLICKHOUSE_HOST
-              value: apphub-clickhouse
+              value: apphub-clickhouse-internal.apphub-system.svc.cluster.local
             - name: TIMESTORE_CLICKHOUSE_HTTP_PORT
               value: "8123"
 ---
@@ -39,6 +39,6 @@ spec:
         - name: worker
           env:
             - name: TIMESTORE_CLICKHOUSE_HOST
-              value: apphub-clickhouse
+              value: apphub-clickhouse-internal.apphub-system.svc.cluster.local
             - name: TIMESTORE_CLICKHOUSE_HTTP_PORT
               value: "8123"

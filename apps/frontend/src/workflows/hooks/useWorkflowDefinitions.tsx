@@ -70,9 +70,19 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
   const moduleScope = useModuleScope();
   const {
     kind: moduleScopeKind,
-    isResourceInScope
+    isResourceInScope,
+    getResourceIds,
+    getResourceSlugs
   } = moduleScope;
   const isModuleScoped = moduleScopeKind === 'module';
+  const hasWorkflowScopeFilters = useMemo(() => {
+    if (!isModuleScoped) {
+      return false;
+    }
+    const ids = getResourceIds('workflow-definition');
+    const slugs = getResourceSlugs('workflow-definition');
+    return ids.length > 0 || slugs.length > 0;
+  }, [getResourceIds, getResourceSlugs, isModuleScoped]);
 
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
@@ -109,7 +119,7 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
       if (!definition) {
         return false;
       }
-      if (!isModuleScoped) {
+      if (!isModuleScoped || !hasWorkflowScopeFilters) {
         return true;
       }
       if (isResourceInScope('workflow-definition', definition.id)) {
@@ -117,17 +127,17 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
       }
       return isResourceInScope('workflow-definition', definition.slug);
     },
-    [isModuleScoped, isResourceInScope]
+    [hasWorkflowScopeFilters, isModuleScoped, isResourceInScope]
   );
 
   const filterWorkflowsForScope = useCallback(
     (definitions: WorkflowDefinition[]) => {
-      if (!isModuleScoped) {
+      if (!isModuleScoped || !hasWorkflowScopeFilters) {
         return definitions;
       }
       return definitions.filter((definition) => isWorkflowInScope(definition));
     },
-    [isModuleScoped, isWorkflowInScope]
+    [hasWorkflowScopeFilters, isModuleScoped, isWorkflowInScope]
   );
 
   const isServiceInScope = useCallback(
@@ -175,9 +185,15 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
               break;
             }
             try {
-              const runParams: { limit?: number; offset?: number; moduleId?: string | null } = { limit: 1 };
+              const runParams: {
+                limit?: number;
+                offset?: number;
+                moduleId?: string | null;
+                moduleScope?: 'inherit' | 'global';
+              } = { limit: 1 };
               if (isModuleScoped) {
                 runParams.moduleId = moduleScope.moduleId ?? undefined;
+                runParams.moduleScope = 'global';
               }
               const { runs } = await listWorkflowRunsForSlug(authorizedFetch, definition.slug, runParams);
               if (hydrationGenerationRef.current !== generation) {
@@ -267,11 +283,10 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
     setWorkflowsLoading(true);
     setWorkflowsError(null);
     try {
-      const normalized = isModuleScoped
-        ? await listWorkflowDefinitions(authorizedFetch, {
-            moduleId: moduleScope.moduleId ?? undefined
-          })
-        : await listWorkflowDefinitions(authorizedFetch);
+      const normalized = await listWorkflowDefinitions(authorizedFetch, {
+        moduleId: isModuleScoped ? moduleScope.moduleId ?? undefined : undefined,
+        moduleScope: 'global'
+      });
       const scoped = filterWorkflowsForScope(normalized);
       setWorkflows(scoped);
       workflowsRef.current = scoped;

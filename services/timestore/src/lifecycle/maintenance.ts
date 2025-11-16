@@ -387,17 +387,20 @@ async function executePostgresMigration(
         totalMigrated += result.recordCount;
         totalBytes += result.bytes;
         
-        auditEvents.push({
-          datasetId: dataset.id,
-          manifestId: context.manifest.id,
-          eventType: 'postgres_migration',
-          payload: {
-            table: task.table,
-            recordsMigrated: result.recordCount,
-            bytes: result.bytes,
-            watermark: result.newWatermark.toISOString()
-          }
-        });
+        if (result.recordCount > 0) {
+          auditEvents.push({
+            id: randomUUID(),
+            datasetId: dataset.id,
+            manifestId: context.manifest.id,
+            eventType: 'postgres_migration',
+            payload: {
+              table: task.table,
+              recordsMigrated: result.recordCount,
+              bytes: result.bytes,
+              watermark: result.newWatermark.toISOString()
+            }
+          });
+        }
 
         await updateMigrationWatermark(dataset.id, task.table, result.newWatermark);
       } catch (tableError) {
@@ -530,8 +533,13 @@ async function migrateTableData(
     const sampleRow = rows[0];
     const dynamicSchema: Array<{ name: string; type: 'string' | 'timestamp' | 'integer' | 'boolean' | 'double' }> = [];
     
-    // Add all columns from the source table
+    // Add all columns from the source table (excluding our migration metadata columns)
     for (const [key, value] of Object.entries(sampleRow)) {
+      // Skip migration metadata columns as they'll be handled by ClickHouse writer's metadata system
+      if (key === '__migrated_at' || key === '__source_table') {
+        continue;
+      }
+      
       if (key === timeColumn) {
         dynamicSchema.push({ name: key, type: 'timestamp' });
       } else if (typeof value === 'number') {
@@ -543,22 +551,32 @@ async function migrateTableData(
       }
     }
     
-    // Add migration metadata columns
-    dynamicSchema.push({ name: '__migrated_at', type: 'timestamp' });
-    dynamicSchema.push({ name: '__source_table', type: 'string' });
+    // Add migration-specific columns that don't conflict with ClickHouse metadata
+    dynamicSchema.push({ name: 'migrated_at', type: 'timestamp' });
+    dynamicSchema.push({ name: 'source_table', type: 'string' });
 
     console.log(`[postgres_migration] Writing ${rows.length} records from ${tableName} to ClickHouse`);
+    
+    // Prepare rows without the conflicting metadata column names
+    const preparedRows = rows.map(row => {
+      const cleanRow = { ...row };
+      // Remove the conflicting column names and use non-conflicting names
+      delete cleanRow.__migrated_at;
+      delete cleanRow.__source_table;
+      
+      // Add migration metadata with non-conflicting names
+      cleanRow.migrated_at = row.__migrated_at;
+      cleanRow.source_table = row.__source_table;
+      
+      return cleanRow;
+    });
     
     await writeBatchToClickHouse({
       config,
       datasetSlug: `migrated_${tableName}`,
       tableName: migrationConfig.targetTable,
       schema: dynamicSchema,
-      rows: rows.map(row => ({
-        ...row,
-        __migrated_at: row.__migrated_at,
-        __source_table: row.__source_table
-      })),
+      rows: preparedRows,
       partitionKey: { dataset_id: datasetId, source_table: tableName },
       partitionAttributes: { migration_batch: new Date().toISOString() },
       timeRange: {
@@ -571,13 +589,26 @@ async function migrateTableData(
     
     console.log(`[postgres_migration] Successfully wrote ${rows.length} records from ${tableName} to ClickHouse`);
 
-    const ids = result.rows.map(row => row.id);
-    await client.query(
-      `UPDATE ${tableName}
-       SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"migrated_to_clickhouse": true, "migrated_at": "${new Date().toISOString()}"}'::jsonb
-       WHERE id = ANY($1)`,
-      [ids]
+    // Check if the table has a metadata column before updating
+    const columnCheck = await client.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_name = $1 AND column_name = 'metadata'`,
+      [tableName]
     );
+    
+    if (columnCheck.rows.length > 0) {
+      // Table has metadata column, mark records as migrated
+      const ids = result.rows.map(row => row.id);
+      await client.query(
+        `UPDATE ${tableName}
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"migrated_to_clickhouse": true, "migrated_at": "${new Date().toISOString()}"}'::jsonb
+         WHERE id = ANY($1)`,
+        [ids]
+      );
+    } else {
+      console.log(`[postgres_migration] Table ${tableName} has no metadata column - skipping migration marking`);
+    }
 
     const newWatermark = new Date(Math.max(...result.rows.map(row => new Date(row[timeColumn]).getTime())));
 

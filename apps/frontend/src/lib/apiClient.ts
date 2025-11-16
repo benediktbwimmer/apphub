@@ -6,6 +6,7 @@ type FetchInit = FetchArgs[1];
 
 export type AuthorizedFetch = ((input: FetchInput, init?: FetchInit) => Promise<Response>) & {
   authToken?: string | null;
+  authOptional?: boolean;
 };
 
 export type QueryValue =

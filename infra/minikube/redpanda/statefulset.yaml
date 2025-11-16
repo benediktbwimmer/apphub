@@ -19,6 +19,23 @@ spec:
         app.kubernetes.io/name: redpanda
         app.kubernetes.io/part-of: apphub-streaming
     spec:
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              chown -R 101:101 /var/lib/redpanda/data
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
       containers:
         - name: redpanda
           image: docker.redpanda.com/redpandadata/redpanda:v24.2.3
@@ -28,22 +45,22 @@ spec:
             - -c
           args:
             - |
-              set -euo pipefail
+              set -eu
               ordinal=${POD_NAME##*-}
               fqdn="${POD_NAME}.apphub-redpanda-headless.${POD_NAMESPACE}.svc.cluster.local"
-              redpanda start \
-                --node-id="${ordinal}" \
+              rpk redpanda start \
+                --check=false \
+                --node-id ${ordinal} \
                 --overprovisioned \
-                --smp=1 \
-                --memory=2G \
-                --reserve-memory=0M \
+                --smp 1 \
+                --memory 2G \
+                --reserve-memory 0M \
                 --kafka-addr PLAINTEXT://0.0.0.0:9092 \
                 --advertise-kafka-addr PLAINTEXT://$fqdn:9092 \
                 --rpc-addr 0.0.0.0:33145 \
                 --advertise-rpc-addr $fqdn:33145 \
                 --pandaproxy-addr 0.0.0.0:8082 \
-                --advertise-pandaproxy-addr $fqdn:8082 \
-                --check=false
+                --advertise-pandaproxy-addr $fqdn:8082
           env:
             - name: POD_NAME
               valueFrom:
@@ -74,7 +91,7 @@ spec:
               memory: 4Gi
           readinessProbe:
             httpGet:
-              path: /v1/cluster/health
+              path: /v1/cluster/health_overview
               port: admin
             initialDelaySeconds: 15
             periodSeconds: 10

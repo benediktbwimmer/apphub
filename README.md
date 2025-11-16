@@ -66,7 +66,7 @@ npm install
 npm run local-dev
 ```
 
-The local runner performs a preflight check, launches Redis on demand, provisions PostgreSQL—reusing your system install when available or booting an embedded instance on a free port otherwise—and now starts a single-node ClickHouse instance via the Docker CLI (image `clickhouse/clickhouse-server:24.11`; Docker must be installed and running) bound to `127.0.0.1:8123` (native port now binds to `19000` to avoid MinIO). Data for the bundled ClickHouse service persists under `data/local/clickhouse`. Set `TIMESTORE_CLICKHOUSE_HOST` if you want to target an external cluster, export `APPHUB_DEV_CLICKHOUSE_SKIP=1` when you manage ClickHouse yourself, or point `APPHUB_DEV_CLICKHOUSE_CONFIG_DIR` at an alternate config bundle if you need custom storage policies. When Docker is available the runner also launches a MinIO container (`minio/minio:latest`) bound to `127.0.0.1:9000`/`9001`, seeds the `apphub-job-bundles`, `apphub-filestore`, `apphub-timestore`, and `apphub-flink-checkpoints` buckets, and wires the stack to use S3-backed storage; set `APPHUB_DEV_MINIO_SKIP=1` to fall back to the filesystem-backed mounts. Service logs stream into `logs/dev/`, and a lightweight resource monitor warns when any child process crosses the CPU or memory thresholds (tune it via `APPHUB_DEV_RESOURCE_CPU_THRESHOLD`, `APPHUB_DEV_RESOURCE_MEM_THRESHOLD_MB`, or `APPHUB_DEV_RESOURCE_MONITOR_INTERVAL_MS`).
+The local runner expects a real PostgreSQL and Redis instance. It first checks `APPHUB_DEV_POSTGRES_HOST`/`APPHUB_DEV_POSTGRES_PORT` (defaults to `127.0.0.1:5432`) and `APPHUB_DEV_REDIS_URL` (defaults to `redis://127.0.0.1:6379`). If either service is missing and Docker is available, the runner automatically launches disposable `postgres:16-alpine` and/or `redis:7-alpine` containers with the expected credentials; otherwise it exits with a helpful message so you can start them yourself. Once the dependencies are online it brings up a single-node ClickHouse instance via Docker (`clickhouse/clickhouse-server:24.11`), seeds local storage under `data/local/`, and prepares a filesystem-backed filestore mount so the observatory module works out of the box. Set `TIMESTORE_CLICKHOUSE_HOST` if you want to target an external cluster, export `APPHUB_DEV_CLICKHOUSE_SKIP=1` when you manage ClickHouse yourself, or point `APPHUB_DEV_CLICKHOUSE_CONFIG_DIR` at an alternate config bundle if you need custom storage policies. Service logs stream into `logs/dev/`, and a lightweight resource monitor warns when any child process crosses the CPU or memory thresholds (tune it via `APPHUB_DEV_RESOURCE_CPU_THRESHOLD`, `APPHUB_DEV_RESOURCE_MEM_THRESHOLD_MB`, or `APPHUB_DEV_RESOURCE_MONITOR_INTERVAL_MS`).
 
 **Docker-based Development (Uses containers for dependencies)**
 ```bash
@@ -74,7 +74,7 @@ npm install
 npm run docker-dev
 ```
 
-The local runner uses native PostgreSQL and Redis installations when available, or falls back to embedded instances. The docker runner provisions PostgreSQL and MinIO containers, launches Redis, and starts the core services plus the frontend.
+The docker runner provisions PostgreSQL and MinIO containers, launches Redis, and starts the core services plus the frontend; use it when you want the entire stack managed for you. The local runner prefers your local installations but can fall back to Docker containers for PostgreSQL and Redis when they are missing.
 
 Both runners start the core services plus the frontend. Modules are no longer published automatically; load the Environmental Observatory bundle after the stack settles:
 
@@ -610,12 +610,11 @@ npm install
 npm run local-dev
 ```
 
-This mode uses native local services when available:
-- Automatically starts PostgreSQL and Redis if not already running
-- Uses local file storage instead of MinIO
-- Falls back to embedded PostgreSQL instances if native PostgreSQL is not installed
-- Requires `redis-server` binary on your `$PATH` (macOS: `brew install redis`)
-- For best performance, install PostgreSQL locally
+This mode relies on native services that you provision:
+- Requires PostgreSQL reachable at `APPHUB_DEV_POSTGRES_HOST`/`APPHUB_DEV_POSTGRES_PORT` (defaults to `127.0.0.1:5432`). The runner exits if the connection or credentials fail—create the `apphub` role/database before launching, or point the environment variables at an existing cluster.
+- Requires Redis reachable at `APPHUB_DEV_REDIS_URL` (defaults to `redis://127.0.0.1:6379`).
+- Uses local file storage instead of MinIO.
+- Launches a single-node ClickHouse container via Docker for timestore analytics (set `APPHUB_DEV_CLICKHOUSE_SKIP=1` if you operate ClickHouse separately).
 
 **Docker Development Mode**
 ```bash

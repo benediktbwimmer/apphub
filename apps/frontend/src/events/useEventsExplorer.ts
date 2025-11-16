@@ -180,34 +180,94 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
     return slugs;
   }, [getResourceSlugs, isModuleScoped, normalizeId]);
 
+  const moduleWorkflowRunCount = useMemo(() => {
+    if (!isModuleScoped) {
+      return 0;
+    }
+    return getResourceIds('workflow-run').length;
+  }, [getResourceIds, isModuleScoped]);
+
+  const hasScopeFilters = useMemo(() => {
+    if (!isModuleScoped) {
+      return false;
+    }
+    if (moduleEventIds && moduleEventIds.size > 0) {
+      return true;
+    }
+    if (moduleWorkflowDefinitionIds && moduleWorkflowDefinitionIds.size > 0) {
+      return true;
+    }
+    if (moduleWorkflowSlugs && moduleWorkflowSlugs.size > 0) {
+      return true;
+    }
+    return moduleWorkflowRunCount > 0;
+  }, [
+    isModuleScoped,
+    moduleEventIds,
+    moduleWorkflowDefinitionIds,
+    moduleWorkflowSlugs,
+    moduleWorkflowRunCount
+  ]);
+
   const isEventInScope = useCallback(
     (event: WorkflowEventSample) => {
-      if (!isModuleScoped) {
+      if (!isModuleScoped || !hasScopeFilters) {
         return true;
       }
-      const normalizedEventId = normalizeId(event.id);
-      if (moduleEventIds && moduleEventIds.has(normalizedEventId)) {
-        return true;
+
+      let matched = false;
+      let attempted = false;
+
+      if (moduleEventIds && moduleEventIds.size > 0) {
+        attempted = true;
+        const normalizedEventId = normalizeId(event.id);
+        if (moduleEventIds.has(normalizedEventId)) {
+          matched = true;
+        }
       }
-      if (moduleWorkflowDefinitionIds && moduleWorkflowDefinitionIds.size > 0) {
+
+      if (!matched && moduleWorkflowDefinitionIds && moduleWorkflowDefinitionIds.size > 0) {
         const definitionIds = event.links?.workflowDefinitionIds ?? [];
-        if (definitionIds.some((id) => moduleWorkflowDefinitionIds.has(normalizeIdentifier(id)))) {
-          return true;
+        if (definitionIds.length > 0) {
+          attempted = true;
+          if (definitionIds.some((id) => moduleWorkflowDefinitionIds.has(normalizeIdentifier(id)))) {
+            matched = true;
+          }
         }
       }
-      const workflowRunIds = event.links?.workflowRunIds ?? [];
-      if (workflowRunIds.some((id) => isResourceInScope('workflow-run', id))) {
+
+      if (!matched) {
+        const workflowRunIds = event.links?.workflowRunIds ?? [];
+        if (workflowRunIds.length > 0) {
+          attempted = true;
+          if (workflowRunIds.some((id) => isResourceInScope('workflow-run', id))) {
+            matched = true;
+          }
+        }
+      }
+
+      if (!matched && moduleWorkflowSlugs && moduleWorkflowSlugs.size > 0) {
+        const slugMatches = event.links?.workflowIds ?? [];
+        if (slugMatches.length > 0) {
+          attempted = true;
+          if (slugMatches.some((slug) => moduleWorkflowSlugs.has(normalizeId(slug)))) {
+            matched = true;
+          }
+        }
+      }
+
+      if (matched) {
         return true;
       }
-      if (moduleWorkflowSlugs && moduleWorkflowSlugs.size > 0) {
-        const slugMatches = event.links?.workflowIds ?? [];
-        if (slugMatches.some((slug) => moduleWorkflowSlugs.has(normalizeId(slug)))) {
-          return true;
-        }
+
+      if (!attempted) {
+        return true;
       }
+
       return false;
     },
     [
+      hasScopeFilters,
       isModuleScoped,
       isResourceInScope,
       moduleEventIds,
@@ -262,7 +322,7 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
     (incoming: WorkflowEventSample[], mode: LoadMode) => {
       const scoped = filterEventsForScope(incoming);
       if (scoped.length === 0) {
-        if (mode === 'replace') {
+        if (mode === 'replace' && incoming.length === 0) {
           setEvents([]);
           seenIdsRef.current.clear();
         }
@@ -289,6 +349,15 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
     [filterEventsForScope]
   );
 
+  const fetcherMetadata = authorizedFetch as AuthorizedFetch & {
+    authToken?: string | null | undefined;
+    authOptional?: boolean | null | undefined;
+  };
+  const authReady = useMemo(() => {
+    const token = typeof fetcherMetadata.authToken === 'string' ? fetcherMetadata.authToken.trim() : '';
+    return (fetcherMetadata.authOptional ?? false) || token.length > 0;
+  }, [fetcherMetadata.authOptional, fetcherMetadata.authToken]);
+
   const fetchAndUpdate = useCallback(
     async (targetFilters: EventsExplorerFilters, options: LoadOptions = {}) => {
       const { cursor = null, mode = 'replace', background = false } = options;
@@ -299,6 +368,18 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
         setRefreshing(true);
       } else {
         setLoading(true);
+      }
+      if (!authReady) {
+        if (requestId === requestIdRef.current) {
+          if (mode === 'append') {
+            setLoadingMore(false);
+          } else if (background) {
+            setRefreshing(false);
+          } else {
+            setLoading(false);
+          }
+        }
+        return;
       }
       try {
         const page = await fetchEventsExplorerPage(authorizedFetch, targetFilters, cursor);
@@ -338,7 +419,7 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
         }
       }
     },
-    [authorizedFetch, updateEvents]
+    [authReady, authorizedFetch, updateEvents]
   );
 
   const applyFilters = useCallback(
@@ -376,8 +457,11 @@ export function useEventsExplorer(authorizedFetch: AuthorizedFetch): EventsExplo
   }, [fetchAndUpdate, filters, hasMore, loadingMore, nextCursor]);
 
   useEffect(() => {
+    if (!authReady) {
+      return;
+    }
     void fetchAndUpdate(DEFAULT_EVENTS_FILTERS, { mode: 'replace', background: false });
-  }, [fetchAndUpdate]);
+  }, [authReady, fetchAndUpdate]);
 
   useEffect(() => {
     if (scopeKeyRef.current === scopeKey) {

@@ -157,21 +157,29 @@ type CoreJsonOptions = {
   errorMessage: string;
 };
 
-function ensureToken(input: TokenInput): string {
+type FetchWithMetadata = AuthorizedFetch & {
+  authToken?: string | null | undefined;
+  authOptional?: boolean | null | undefined;
+};
+
+function ensureToken(input: TokenInput): string | undefined {
   if (typeof input === 'function') {
-    const fetcher = input as AuthorizedFetch & { authToken?: string | null | undefined };
-    const candidate = fetcher.authToken;
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
-      return candidate.trim();
-    }
-    if (typeof candidate === 'string') {
+    const fetcher = input as FetchWithMetadata;
+    const candidate = typeof fetcher.authToken === 'string' ? fetcher.authToken.trim() : '';
+    if (candidate.length > 0) {
       return candidate;
+    }
+    if (fetcher.authOptional) {
+      return undefined;
     }
   } else if (typeof input === 'string') {
     const trimmed = input.trim();
     if (trimmed.length > 0) {
       return trimmed;
     }
+    return undefined;
+  } else if (input === null || input === undefined) {
+    return undefined;
   }
   throw new Error('Authentication required for runtime scaling requests.');
 }
@@ -195,7 +203,8 @@ async function coreJson<T>(token: TokenInput, options: CoreJsonOptions): Promise
   }
 
   try {
-    return (await coreRequest<T>(ensureToken(token), {
+    const resolvedToken = ensureToken(token);
+    return (await coreRequest<T>(resolvedToken, {
       method: options.method,
       url: options.url,
       body: options.body

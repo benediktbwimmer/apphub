@@ -3,6 +3,7 @@ import { Spinner } from '../components';
 import FormButton from '../components/form/FormButton';
 import { useToasts } from '../components/toast';
 import { useAuth } from '../auth/useAuth';
+import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import {
   createSchedule,
   deleteSchedule,
@@ -56,12 +57,14 @@ type FormState = {
 };
 
 export default function SchedulesPage(): JSX.Element {
-  const { activeToken: authToken } = useAuth();
+  const { activeToken: authToken, identity, identityLoading } = useAuth();
+  const authorizedFetch = useAuthorizedFetch();
   const { pushToast } = useToasts();
   const moduleScope = useModuleScope();
 
   const isModuleScoped = moduleScope.kind === 'module';
   const activeModuleId = isModuleScoped ? moduleScope.moduleId : null;
+  const canAccessSchedules = Boolean(authToken) || Boolean(identity?.authDisabled);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,9 +75,6 @@ export default function SchedulesPage(): JSX.Element {
   const [submitting, setSubmitting] = useState(false);
 
   const loadSchedules = useCallback(async () => {
-    if (!authToken) {
-      return;
-    }
     if (!isModuleScoped) {
       setSchedules([]);
       setError(null);
@@ -88,10 +88,20 @@ export default function SchedulesPage(): JSX.Element {
       setError(null);
       return;
     }
+    if (!canAccessSchedules) {
+      if (identityLoading) {
+        setLoading(true);
+      } else {
+        setLoading(false);
+        setSchedules([]);
+        setError('Authentication required');
+      }
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchSchedules(authToken, { moduleId: activeModuleId ?? undefined });
+      const data = await fetchSchedules(authorizedFetch, { moduleId: activeModuleId ?? undefined });
       setSchedules(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load schedules';
@@ -99,12 +109,16 @@ export default function SchedulesPage(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [authToken, activeModuleId, isModuleScoped, moduleScope.loadingResources]);
+  }, [
+    authorizedFetch,
+    activeModuleId,
+    canAccessSchedules,
+    identityLoading,
+    isModuleScoped,
+    moduleScope.loadingResources
+  ]);
 
   const loadWorkflows = useCallback(async () => {
-    if (!authToken) {
-      return;
-    }
     if (!isModuleScoped) {
       setWorkflows([]);
       return;
@@ -116,9 +130,15 @@ export default function SchedulesPage(): JSX.Element {
       setWorkflows([]);
       return;
     }
+    if (!canAccessSchedules) {
+      if (!identityLoading) {
+        setWorkflows([]);
+      }
+      return;
+    }
     setWorkflowsLoading(true);
     try {
-      const definitions = await fetchWorkflowDefinitions(authToken, { moduleId: activeModuleId ?? undefined });
+      const definitions = await fetchWorkflowDefinitions(authorizedFetch, { moduleId: activeModuleId ?? undefined });
       setWorkflows(definitions);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load workflows';
@@ -130,7 +150,15 @@ export default function SchedulesPage(): JSX.Element {
     } finally {
       setWorkflowsLoading(false);
     }
-  }, [authToken, activeModuleId, isModuleScoped, moduleScope.loadingResources, pushToast]);
+  }, [
+    authorizedFetch,
+    activeModuleId,
+    canAccessSchedules,
+    identityLoading,
+    isModuleScoped,
+    moduleScope.loadingResources,
+    pushToast
+  ]);
 
   useEffect(() => {
     void loadSchedules();
@@ -172,13 +200,13 @@ export default function SchedulesPage(): JSX.Element {
 
   const handleCreate = useCallback(
     async (input: Omit<ScheduleCreateInput, 'workflowSlug'> & { workflowSlug: string }) => {
-      if (!authToken) {
+      if (!canAccessSchedules) {
         pushToast({ tone: 'error', title: 'Failed to create schedule', description: 'Authentication required' });
         return;
       }
       setSubmitting(true);
       try {
-        const summary = await createSchedule(authToken, input);
+        const summary = await createSchedule(authorizedFetch, input);
         setSchedules((current) => {
           const next = current.filter((entry) => entry.schedule.id !== summary.schedule.id);
           next.push(summary);
@@ -197,18 +225,18 @@ export default function SchedulesPage(): JSX.Element {
         setSubmitting(false);
       }
     },
-    [authToken, pushToast]
+    [authorizedFetch, canAccessSchedules, pushToast]
   );
 
   const handleUpdate = useCallback(
     async (input: ScheduleUpdateInput) => {
-      if (!authToken) {
+      if (!canAccessSchedules) {
         pushToast({ tone: 'error', title: 'Failed to update schedule', description: 'Authentication required' });
         return;
       }
       setSubmitting(true);
       try {
-        const summary = await updateSchedule(authToken, input);
+        const summary = await updateSchedule(authorizedFetch, input);
         setSchedules((current) =>
           current
             .map((entry) => (entry.schedule.id === summary.schedule.id ? summary : entry))
@@ -227,7 +255,7 @@ export default function SchedulesPage(): JSX.Element {
         setSubmitting(false);
       }
     },
-    [authToken, pushToast]
+    [authorizedFetch, canAccessSchedules, pushToast]
   );
 
   const handleDelete = useCallback(
@@ -236,12 +264,12 @@ export default function SchedulesPage(): JSX.Element {
       if (!confirmed) {
         return;
       }
-      if (!authToken) {
+      if (!canAccessSchedules) {
         pushToast({ tone: 'error', title: 'Failed to delete schedule', description: 'Authentication required' });
         return;
       }
       try {
-        await deleteSchedule(authToken, summary.schedule.id);
+        await deleteSchedule(authorizedFetch, summary.schedule.id);
         setSchedules((current) => current.filter((entry) => entry.schedule.id !== summary.schedule.id));
         pushToast({
           tone: 'success',
@@ -253,7 +281,7 @@ export default function SchedulesPage(): JSX.Element {
         pushToast({ tone: 'error', title: 'Failed to delete schedule', description: message });
       }
     },
-    [authToken, pushToast]
+    [authorizedFetch, canAccessSchedules, pushToast]
   );
 
   if (shouldShowModuleGate) {

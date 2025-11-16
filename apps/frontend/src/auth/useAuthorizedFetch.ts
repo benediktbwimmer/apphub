@@ -23,14 +23,15 @@ function resolveInput(input: FetchInput): FetchInput {
 }
 
 export function useAuthorizedFetch(): AuthorizedFetch {
-  const { activeToken } = useAuth();
+  const { activeToken, identity } = useAuth();
+  const authDisabled = identity?.authDisabled ?? false;
+  const normalizedToken = activeToken?.trim() ?? null;
 
   const fetcher = useCallback(
     async (input: FetchInput, init?: FetchInit) => {
       const headers = new Headers(init?.headers ?? {});
-      const tokenValue = activeToken?.trim();
-      if (tokenValue && !headers.has('Authorization')) {
-        headers.set('Authorization', `Bearer ${tokenValue}`);
+      if (normalizedToken && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${normalizedToken}`);
       }
       const moduleId =
         typeof globalThis !== 'undefined'
@@ -50,10 +51,11 @@ export function useAuthorizedFetch(): AuthorizedFetch {
         credentials: 'include'
       });
     },
-    [activeToken]
+    [normalizedToken]
   ) as AuthorizedFetch;
 
-  fetcher.authToken = activeToken?.trim() ?? activeToken ?? null;
+  fetcher.authToken = normalizedToken ?? null;
+  fetcher.authOptional = authDisabled;
 
   return fetcher;
 }

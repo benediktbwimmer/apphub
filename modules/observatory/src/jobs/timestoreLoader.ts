@@ -28,7 +28,7 @@ import {
 import { createObservatoryEventPublisher } from '../runtime/events';
 import type { ObservatorySecrets, ObservatorySettings } from '../config/settings';
 
-const DEFAULT_SCHEMA_FIELDS = [
+export const DEFAULT_SCHEMA_FIELDS = [
   { name: 'timestamp', type: 'timestamp' as const },
   { name: 'instrument_id', type: 'string' as const },
   { name: 'site', type: 'string' as const },

@@ -62,7 +62,7 @@ export type UseSavedEventViewsResult = {
 
 export function useSavedEventViews(): UseSavedEventViewsResult {
   const authorizedFetch = useAuthorizedFetch();
-  const { identity } = useAuth();
+  const { identity, identityLoading } = useAuth();
 
   const [savedViews, setSavedViews] = useState<EventSavedViewRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,8 +88,18 @@ export function useSavedEventViews(): UseSavedEventViewsResult {
   }, [authorizedFetch]);
 
   useEffect(() => {
+    if (identityLoading) {
+      setLoading(true);
+      return;
+    }
+    if (identity?.authDisabled) {
+      setSavedViews([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     void refresh();
-  }, [refresh]);
+  }, [identity?.authDisabled, identityLoading, refresh]);
 
   const createSavedViewHandler = useCallback(
     async (input: EventSavedViewCreateInput): Promise<EventSavedViewRecord> => {
