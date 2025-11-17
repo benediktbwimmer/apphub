@@ -166,16 +166,16 @@ async function run() {
     env.OBSERVATORY_FILESTORE_DEFAULT_KEY = env.OBSERVATORY_FILESTORE_BACKEND_KEY;
   }
 
-  if (!env.APPHUB_MODULE_ARTIFACT_STORAGE_BACKEND) {
-    env.APPHUB_MODULE_ARTIFACT_STORAGE_BACKEND = 'inline';
-  }
-  configureArtifactStorage(env);
-  if (env.APPHUB_MODULE_ARTIFACT_STORAGE_BACKEND === 'inline') {
-    env.APPHUB_SKIP_BUCKETS = env.APPHUB_SKIP_BUCKETS ?? '1';
-  }
+  // Force local artifact storage in dev to avoid MinIO/S3 when not available.
+  env.APPHUB_MODULE_ARTIFACT_STORAGE_BACKEND = 'local';
+  env.APPHUB_MODULE_ARTIFACT_PATH = env.APPHUB_MODULE_ARTIFACT_PATH ?? path.join(env.APPHUB_SCRATCH_ROOT, 'modules');
+  env.APPHUB_SKIP_BUCKETS = env.APPHUB_SKIP_BUCKETS ?? '1';
 
   if (!env.APPHUB_AUTH_DISABLED || env.APPHUB_AUTH_DISABLED.trim() === '') {
     env.APPHUB_AUTH_DISABLED = '1';
+  }
+  if (!env.APPHUB_STREAMING_ENABLED || env.APPHUB_STREAMING_ENABLED.trim() === '') {
+    env.APPHUB_STREAMING_ENABLED = 'false';
   }
 
   const waitForPort = async (host, port, timeoutMs = 30_000) => {
@@ -212,17 +212,25 @@ async function run() {
     const port = parsed.port ? Number(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80);
     console.log(`[dev-load-observatory] Waiting for Core API at ${host}:${port}...`);
     await waitForPort(host, port, 60_000);
-    const healthUrl = `${coreUrl.replace(/\/+$/, '')}/health`;
-    try {
-      const res = await fetch(healthUrl, { method: 'GET' });
-      if (!res.ok) {
-        console.warn(`[dev-load-observatory] Core health check returned ${res.status} ${res.statusText}; continuing`);
+    if (process.env.OBSERVATORY_SKIP_CORE_HEALTH !== '1') {
+      const healthUrl = `${coreUrl.replace(/\/+$/, '')}/health`;
+      try {
+        const res = await fetch(healthUrl, { method: 'GET' });
+        if (!res.ok) {
+          console.warn(
+            `[dev-load-observatory] Core health check returned ${res.status} ${res.statusText}; continuing.`
+          );
+        }
+      } catch (err) {
+        console.warn(
+          '[dev-load-observatory] Core health check errored; is npm run local-dev running?',
+          err?.message ?? err
+        );
       }
-    } catch (err) {
-      console.warn('[dev-load-observatory] Core health check failed; is npm run local-dev running?', err?.message ?? err);
     }
   } catch (err) {
-    console.warn('[dev-load-observatory] Unable to verify Core availability before deploy', err?.message ?? err);
+    console.error('[dev-load-observatory] Unable to verify Core availability before deploy', err?.message ?? err);
+    process.exit(1);
   }
 
   const label = path.relative(ROOT_DIR, resolvedModuleDir) || resolvedModuleDir;
