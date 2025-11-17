@@ -212,6 +212,15 @@ async function run() {
     const port = parsed.port ? Number(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80);
     console.log(`[dev-load-observatory] Waiting for Core API at ${host}:${port}...`);
     await waitForPort(host, port, 60_000);
+    const healthUrl = `${coreUrl.replace(/\/+$/, '')}/health`;
+    try {
+      const res = await fetch(healthUrl, { method: 'GET' });
+      if (!res.ok) {
+        console.warn(`[dev-load-observatory] Core health check returned ${res.status} ${res.statusText}; continuing`);
+      }
+    } catch (err) {
+      console.warn('[dev-load-observatory] Core health check failed; is npm run local-dev running?', err?.message ?? err);
+    }
   } catch (err) {
     console.warn('[dev-load-observatory] Unable to verify Core availability before deploy', err?.message ?? err);
   }
