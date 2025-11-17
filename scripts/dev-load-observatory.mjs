@@ -216,17 +216,15 @@ async function run() {
     try {
       const res = await fetch(healthUrl, { method: 'GET' });
       if (!res.ok) {
-        console.error(
-          `[dev-load-observatory] Core health check failed (${res.status} ${res.statusText}). Start the stack (npm run local-dev) and retry.`
+        console.warn(
+          `[dev-load-observatory] Core health check returned ${res.status} ${res.statusText}; continuing.`
         );
-        process.exit(1);
       }
     } catch (err) {
-      console.error(
+      console.warn(
         '[dev-load-observatory] Core health check errored; is npm run local-dev running?',
         err?.message ?? err
       );
-      process.exit(1);
     }
   } catch (err) {
     console.error('[dev-load-observatory] Unable to verify Core availability before deploy', err?.message ?? err);
