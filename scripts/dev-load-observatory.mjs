@@ -177,6 +177,9 @@ async function run() {
   if (!env.APPHUB_AUTH_DISABLED || env.APPHUB_AUTH_DISABLED.trim() === '') {
     env.APPHUB_AUTH_DISABLED = '1';
   }
+  if (!env.APPHUB_STREAMING_ENABLED || env.APPHUB_STREAMING_ENABLED.trim() === '') {
+    env.APPHUB_STREAMING_ENABLED = 'false';
+  }
 
   const waitForPort = async (host, port, timeoutMs = 30_000) => {
     const deadline = Date.now() + timeoutMs;
@@ -212,19 +215,21 @@ async function run() {
     const port = parsed.port ? Number(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80);
     console.log(`[dev-load-observatory] Waiting for Core API at ${host}:${port}...`);
     await waitForPort(host, port, 60_000);
-    const healthUrl = `${coreUrl.replace(/\/+$/, '')}/health`;
-    try {
-      const res = await fetch(healthUrl, { method: 'GET' });
-      if (!res.ok) {
+    if (process.env.OBSERVATORY_SKIP_CORE_HEALTH !== '1') {
+      const healthUrl = `${coreUrl.replace(/\/+$/, '')}/health`;
+      try {
+        const res = await fetch(healthUrl, { method: 'GET' });
+        if (!res.ok) {
+          console.warn(
+            `[dev-load-observatory] Core health check returned ${res.status} ${res.statusText}; continuing.`
+          );
+        }
+      } catch (err) {
         console.warn(
-          `[dev-load-observatory] Core health check returned ${res.status} ${res.statusText}; continuing.`
+          '[dev-load-observatory] Core health check errored; is npm run local-dev running?',
+          err?.message ?? err
         );
       }
-    } catch (err) {
-      console.warn(
-        '[dev-load-observatory] Core health check errored; is npm run local-dev running?',
-        err?.message ?? err
-      );
     }
   } catch (err) {
     console.error('[dev-load-observatory] Unable to verify Core availability before deploy', err?.message ?? err);
