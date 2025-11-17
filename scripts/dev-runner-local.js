@@ -486,6 +486,12 @@ async function main() {
   const localServices = [];
 
   try {
+    const setDefaultEnv = (env, key, value) => {
+      if (typeof env[key] !== 'string' || env[key].trim() === '') {
+        env[key] = value;
+      }
+    };
+
     const pgService = await setupLocalPostgres({ dockerAvailable });
     if (pgService) {
       localServices.push(pgService);
