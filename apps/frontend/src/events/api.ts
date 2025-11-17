@@ -30,6 +30,8 @@ function ensureToken(input: TokenInput): string | undefined {
     if (fetcher.authOptional) {
       return undefined;
     }
+    // In dev/disabled-auth scenarios allow requests to proceed without a token.
+    return undefined;
   } else if (typeof input === 'string') {
     const trimmed = input.trim();
     if (trimmed.length > 0) {

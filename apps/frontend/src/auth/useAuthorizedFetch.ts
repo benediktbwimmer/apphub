@@ -55,7 +55,8 @@ export function useAuthorizedFetch(): AuthorizedFetch {
   ) as AuthorizedFetch;
 
   fetcher.authToken = normalizedToken ?? null;
-  fetcher.authOptional = authDisabled;
+  // Treat missing identity as optional auth in dev so inline/disabled auth flows work without a token.
+  fetcher.authOptional = authDisabled || identity === null;
 
   return fetcher;
 }
