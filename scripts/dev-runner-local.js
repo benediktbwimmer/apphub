@@ -617,7 +617,7 @@ async function main() {
     }
 
     baseEnv.APPHUB_STREAMING_ENABLED = 'true';
-    setDefaultEnv('APPHUB_STREAM_BROKER_URL', 'redpanda:9092');
+    setDefaultEnv(baseEnv, 'APPHUB_STREAM_BROKER_URL', 'redpanda:9092');
 
     baseEnv.APPHUB_BUILD_EXECUTION_MODE = 'local';
     baseEnv.APPHUB_LAUNCH_EXECUTION_MODE = 'local';
