@@ -84,7 +84,7 @@ function configureArtifactStorage(env) {
   }
 }
 
-function run() {
+async function run() {
   if (!fs.existsSync(MODULE_DIR)) {
     console.error('[dev-load-observatory] Module directory not found at', MODULE_DIR);
     process.exitCode = 1;
@@ -233,9 +233,7 @@ function run() {
   }
 }
 
-try {
-  run();
-} catch (err) {
+run().catch((err) => {
   console.error('[dev-load-observatory] Failed to publish module:', err?.message ?? err);
   process.exitCode = 1;
-}
+});
