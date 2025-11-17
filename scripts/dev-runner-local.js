@@ -88,7 +88,7 @@ function resolveClickhouseConfigDir() {
 const LOCAL_CLICKHOUSE = {
   host: process.env.APPHUB_DEV_CLICKHOUSE_HOST ?? '127.0.0.1',
   httpPort: parsePort(process.env.APPHUB_DEV_CLICKHOUSE_HTTP_PORT, 8123),
-  nativePort: parsePort(process.env.APPHUB_DEV_CLICKHOUSE_NATIVE_PORT, 9000),
+  nativePort: parsePort(process.env.APPHUB_DEV_CLICKHOUSE_NATIVE_PORT, 19000),
   user: process.env.APPHUB_DEV_CLICKHOUSE_USER ?? process.env.TIMESTORE_CLICKHOUSE_USER ?? 'apphub',
   password: process.env.APPHUB_DEV_CLICKHOUSE_PASSWORD ?? process.env.TIMESTORE_CLICKHOUSE_PASSWORD ?? 'apphub',
   database: process.env.APPHUB_DEV_CLICKHOUSE_DATABASE ?? process.env.TIMESTORE_CLICKHOUSE_DATABASE ?? 'apphub',
