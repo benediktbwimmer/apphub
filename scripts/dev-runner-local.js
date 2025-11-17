@@ -61,6 +61,26 @@ const LOCAL_REDIS = {
   port: 6379
 };
 
+const LOCAL_MINIO = {
+  host: '127.0.0.1',
+  apiPort: DEFAULT_MINIO_API_PORT,
+  consolePort: DEFAULT_MINIO_CONSOLE_PORT,
+  containerName: DEFAULT_MINIO_CONTAINER,
+  image: DEFAULT_MINIO_IMAGE,
+  mcImage: DEFAULT_MINIO_MC_IMAGE,
+  rootUser: process.env.APPHUB_DEV_MINIO_ROOT_USER ?? 'apphub',
+  rootPassword: process.env.APPHUB_DEV_MINIO_ROOT_PASSWORD ?? 'apphub123',
+  dataDir: process.env.APPHUB_DEV_MINIO_DATA_DIR
+    ? path.resolve(process.env.APPHUB_DEV_MINIO_DATA_DIR)
+    : path.join(LOCAL_DATA_DIR, 'minio'),
+  buckets: (process.env.APPHUB_DEV_MINIO_BUCKETS ?? 'apphub-job-bundles,apphub-filestore,apphub-timestore,apphub-flink-checkpoints')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+};
+
+const MINIO_API_ENDPOINT = `http://${LOCAL_MINIO.host}:${LOCAL_MINIO.apiPort}`;
+
 const DEFAULT_REDIS_IMAGE = process.env.APPHUB_DEV_REDIS_IMAGE || 'redis:7-alpine';
 const DEFAULT_REDIS_CONTAINER = process.env.APPHUB_DEV_REDIS_CONTAINER || 'apphub-local-redis';
 
@@ -71,6 +91,11 @@ const LOCAL_STORAGE = {
 };
 
 const DEFAULT_CLICKHOUSE_IMAGE = process.env.APPHUB_DEV_CLICKHOUSE_IMAGE || 'clickhouse/clickhouse-server:24.11';
+const DEFAULT_MINIO_IMAGE = process.env.APPHUB_DEV_MINIO_IMAGE ?? 'minio/minio:latest';
+const DEFAULT_MINIO_MC_IMAGE = process.env.APPHUB_DEV_MINIO_MC_IMAGE ?? 'minio/mc:latest';
+const DEFAULT_MINIO_CONTAINER = process.env.APPHUB_DEV_MINIO_CONTAINER ?? 'apphub-dev-minio';
+const DEFAULT_MINIO_API_PORT = parsePort(process.env.APPHUB_DEV_MINIO_PORT, 9000);
+const DEFAULT_MINIO_CONSOLE_PORT = parsePort(process.env.APPHUB_DEV_MINIO_CONSOLE_PORT, 9001);
 
 function resolveClickhouseConfigDir() {
   const override = process.env.APPHUB_DEV_CLICKHOUSE_CONFIG_DIR;
@@ -97,6 +122,15 @@ const LOCAL_CLICKHOUSE = {
   configDir: resolveClickhouseConfigDir()
 };
 
+const LOCAL_REDPANDA = {
+  host: '127.0.0.1',
+  kafkaPort: parsePort(process.env.APPHUB_DEV_REDPANDA_PORT, 9092),
+  adminPort: parsePort(process.env.APPHUB_DEV_REDPANDA_ADMIN_PORT, 9644),
+  containerName: process.env.APPHUB_DEV_REDPANDA_CONTAINER ?? 'apphub-dev-redpanda',
+  image: process.env.APPHUB_DEV_REDPANDA_IMAGE ?? 'docker.redpanda.com/redpandadata/redpanda:v24.2.3',
+  dataDir: path.join(LOCAL_DATA_DIR, 'redpanda')
+};
+
 async function setupLocalStorage() {
   await fsPromises.mkdir(LOCAL_STORAGE.baseDir, { recursive: true });
   await fsPromises.mkdir(LOCAL_STORAGE.scratchDir, { recursive: true });
@@ -107,6 +141,173 @@ async function setupLocalStorage() {
   }
 
   console.log(`[dev-runner-local] Created local storage directories in ${LOCAL_STORAGE.baseDir}`);
+}
+
+async function ensureMinioBuckets() {
+  if (LOCAL_MINIO.buckets.length === 0) {
+    return;
+  }
+
+  const containerNetwork = `container:${LOCAL_MINIO.containerName}`;
+  const endpointEnv = `MINIO_SERVER=http://127.0.0.1:${LOCAL_MINIO.apiPort}`;
+
+  for (const bucket of LOCAL_MINIO.buckets) {
+    const make = spawnSync(
+      'docker',
+      [
+        'run',
+        '--rm',
+        '--network',
+        containerNetwork,
+        '-e',
+        endpointEnv,
+        LOCAL_MINIO.mcImage,
+        'mb',
+        '--ignore-existing',
+        `local/${bucket}`
+      ],
+      { stdio: 'ignore' }
+    );
+    if (typeof make.status === 'number' && make.status !== 0) {
+      throw new Error(`[dev-runner-local] Failed to provision MinIO bucket ${bucket}`);
+    }
+  }
+
+  if (LOCAL_MINIO.buckets.includes('apphub-job-bundles')) {
+    const policy = spawnSync(
+      'docker',
+      [
+        'run',
+        '--rm',
+        '--network',
+        containerNetwork,
+        '-e',
+        endpointEnv,
+        LOCAL_MINIO.mcImage,
+        'anonymous',
+        'set',
+        'download',
+        'local/apphub-job-bundles'
+      ],
+      { stdio: 'ignore' }
+    );
+    if (typeof policy.status === 'number' && policy.status !== 0) {
+      console.warn('[dev-runner-local] Failed to enable anonymous download policy for job bundles (non-fatal).');
+    }
+  }
+}
+
+async function setupLocalMinio({ dockerAvailable }) {
+  const skipMinio = parseBooleanFlag(process.env.APPHUB_DEV_MINIO_SKIP);
+  if (skipMinio) {
+    console.log('[dev-runner-local] Skipping MinIO because APPHUB_DEV_MINIO_SKIP is set.');
+    return null;
+  }
+
+  const apiAvailable = await isPortAvailable(LOCAL_MINIO.apiPort, LOCAL_MINIO.host);
+  const consoleAvailable = await isPortAvailable(LOCAL_MINIO.consolePort, LOCAL_MINIO.host);
+
+  if (!apiAvailable || !consoleAvailable) {
+    try {
+      await waitForPort(LOCAL_MINIO.host, LOCAL_MINIO.apiPort, 2000, 'MinIO');
+      console.log(
+        `[dev-runner-local] Detected MinIO on ${LOCAL_MINIO.host}:${LOCAL_MINIO.apiPort}; using existing instance.`
+      );
+      return {
+        endpoint: MINIO_API_ENDPOINT,
+        accessKeyId: LOCAL_MINIO.rootUser,
+        secretAccessKey: LOCAL_MINIO.rootPassword,
+        managed: false,
+        cleanup: async () => {}
+      };
+    } catch (err) {
+      const ports = `${LOCAL_MINIO.apiPort}/${LOCAL_MINIO.consolePort}`;
+      throw new Error(
+        `[dev-runner-local] Ports ${ports} are in use and MinIO is not responding. Free the ports, set APPHUB_DEV_MINIO_PORT/APPHUB_DEV_MINIO_CONSOLE_PORT, or export APPHUB_DEV_MINIO_SKIP=1 to skip MinIO.`
+      );
+    }
+  }
+
+  if (!dockerAvailable) {
+    throw new Error(
+      '[dev-runner-local] Docker CLI unavailable. Install Docker or set APPHUB_DEV_MINIO_SKIP=1 to disable the managed MinIO instance.'
+    );
+  }
+
+  if (!dockerImageExists(LOCAL_MINIO.image)) {
+    throw new Error(
+      `[dev-runner-local] MinIO image ${LOCAL_MINIO.image} not found locally. Run "docker pull ${LOCAL_MINIO.image}" or set APPHUB_DEV_MINIO_SKIP=1 to skip the managed instance.`
+    );
+  }
+
+  await fsPromises.mkdir(LOCAL_MINIO.dataDir, { recursive: true });
+
+  const containerAlreadyRunning = dockerContainerRunning(LOCAL_MINIO.containerName);
+  const containerExists = containerAlreadyRunning || dockerContainerExists(LOCAL_MINIO.containerName);
+  let manageContainer = false;
+
+  if (containerAlreadyRunning) {
+    console.log(`[dev-runner-local] Reusing running MinIO container ${LOCAL_MINIO.containerName}.`);
+  } else if (containerExists) {
+    console.log(`[dev-runner-local] Starting existing MinIO container ${LOCAL_MINIO.containerName}...`);
+    const startResult = spawnSync('docker', ['start', LOCAL_MINIO.containerName], { stdio: 'inherit' });
+    if (typeof startResult.status === 'number' && startResult.status !== 0) {
+      throw new Error(`[dev-runner-local] Failed to start MinIO container ${LOCAL_MINIO.containerName}`);
+    }
+    manageContainer = true;
+  } else {
+    console.log('[dev-runner-local] Launching managed MinIO container...');
+    const runArgs = [
+      'run',
+      '--detach',
+      '--name',
+      LOCAL_MINIO.containerName,
+      '-p',
+      `${LOCAL_MINIO.apiPort}:9000`,
+      '-p',
+      `${LOCAL_MINIO.consolePort}:9001`,
+      '-e',
+      `MINIO_ROOT_USER=${LOCAL_MINIO.rootUser}`,
+      '-e',
+      `MINIO_ROOT_PASSWORD=${LOCAL_MINIO.rootPassword}`,
+      '-v',
+      `${LOCAL_MINIO.dataDir}:/data`,
+      LOCAL_MINIO.image,
+      'server',
+      '/data',
+      '--address',
+      ':9000',
+      '--console-address',
+      ':9001'
+    ];
+    const run = spawnSync('docker', runArgs, { encoding: 'utf8', timeout: 30000 });
+    if (typeof run.status !== 'number' || run.status !== 0) {
+      const stderr = run.stderr?.trim();
+      const stdout = run.stdout?.trim();
+      throw new Error(`[dev-runner-local] Failed to start MinIO container: ${stderr || stdout || 'unknown error'}`);
+    }
+    manageContainer = true;
+  }
+
+  await waitForPort(LOCAL_MINIO.host, LOCAL_MINIO.apiPort, 20000, 'MinIO');
+
+  await ensureMinioBuckets();
+
+  console.log(`[dev-runner-local] MinIO ready at ${MINIO_API_ENDPOINT}.`);
+
+  return {
+    managed: manageContainer,
+    endpoint: MINIO_API_ENDPOINT,
+    accessKeyId: LOCAL_MINIO.rootUser,
+    secretAccessKey: LOCAL_MINIO.rootPassword,
+    cleanup: async () => {
+      if (!manageContainer) {
+        return;
+      }
+      spawnSync('docker', ['stop', '-t', '5', LOCAL_MINIO.containerName], { stdio: 'ignore' });
+      spawnSync('docker', ['rm', '-f', LOCAL_MINIO.containerName], { stdio: 'ignore' });
+    }
+  };
 }
 
 function buildDatabaseUrl(config = LOCAL_POSTGRES) {
@@ -374,6 +575,102 @@ async function setupLocalClickhouse({ dockerAvailable }) {
   };
 }
 
+async function setupLocalRedpanda({ dockerAvailable }) {
+  if (parseBooleanFlag(process.env.APPHUB_DEV_REDPANDA_SKIP)) {
+    console.log('[dev-runner-local] Skipping Redpanda because APPHUB_DEV_REDPANDA_SKIP is set.');
+    return null;
+  }
+
+  const kafkaAvailable = await isPortAvailable(LOCAL_REDPANDA.kafkaPort, LOCAL_REDPANDA.host);
+  const adminAvailable = await isPortAvailable(LOCAL_REDPANDA.adminPort, LOCAL_REDPANDA.host);
+  if (!kafkaAvailable || !adminAvailable) {
+    try {
+      await waitForPort(LOCAL_REDPANDA.host, LOCAL_REDPANDA.kafkaPort, 5000, 'Redpanda');
+      console.log(
+        `[dev-runner-local] Detected Redpanda on ${LOCAL_REDPANDA.host}:${LOCAL_REDPANDA.kafkaPort}; using existing instance.`
+      );
+      return null;
+    } catch {
+      // fall through to managed start
+    }
+  }
+
+  if (!dockerAvailable) {
+    console.warn(
+      '[dev-runner-local] Streaming enabled but Redpanda is not running and Docker is unavailable. Streaming will be disabled.'
+    );
+    return null;
+  }
+
+  if (!dockerImageExists(LOCAL_REDPANDA.image)) {
+    console.warn(
+      `[dev-runner-local] Redpanda image ${LOCAL_REDPANDA.image} not found locally. Pull it manually or disable streaming.`
+    );
+    return null;
+  }
+
+  await fsPromises.mkdir(LOCAL_REDPANDA.dataDir, { recursive: true });
+
+  spawnSync('docker', ['rm', '-f', LOCAL_REDPANDA.containerName], { stdio: 'ignore' });
+  console.log('[dev-runner-local] Starting local Redpanda container...');
+  const run = spawnSync(
+    'docker',
+    [
+      'run',
+      '--detach',
+      '--name',
+      LOCAL_REDPANDA.containerName,
+      '-p',
+      `${LOCAL_REDPANDA.kafkaPort}:9092`,
+      '-p',
+      `${LOCAL_REDPANDA.adminPort}:9644`,
+      '-v',
+      `${LOCAL_REDPANDA.dataDir}:/var/lib/redpanda/data`,
+      LOCAL_REDPANDA.image,
+      'redpanda',
+      'start',
+      '--overprovisioned',
+      '--smp',
+      '1',
+      '--memory',
+      '1G',
+      '--reserve-memory',
+      '0M',
+      '--node-id',
+      '0',
+      '--check=false',
+      '--kafka-addr',
+      'PLAINTEXT://0.0.0.0:9092',
+      '--advertise-kafka-addr',
+      `PLAINTEXT://${LOCAL_REDPANDA.host}:${LOCAL_REDPANDA.kafkaPort}`,
+      '--pandaproxy-addr',
+      '0.0.0.0:8082',
+      '--advertise-pandaproxy-addr',
+      `${LOCAL_REDPANDA.host}:8082`,
+      '--rpc-addr',
+      '0.0.0.0:33145',
+      '--advertise-rpc-addr',
+      `${LOCAL_REDPANDA.host}:33145`
+    ],
+    { stdio: 'ignore' }
+  );
+  if (typeof run.status !== 'number' || run.status !== 0) {
+    console.warn('[dev-runner-local] Failed to start Redpanda container; streaming will be disabled.');
+    return null;
+  }
+
+  await waitForPort(LOCAL_REDPANDA.host, LOCAL_REDPANDA.kafkaPort, 20000, 'Redpanda');
+  console.log('[dev-runner-local] Redpanda ready.');
+
+  return {
+    managed: true,
+    cleanup: async () => {
+      spawnSync('docker', ['stop', '-t', '5', LOCAL_REDPANDA.containerName], { stdio: 'ignore' });
+      spawnSync('docker', ['rm', '-f', LOCAL_REDPANDA.containerName], { stdio: 'ignore' });
+    }
+  };
+}
+
 async function waitForPort(host, port, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs;
   while (true) {
@@ -492,6 +789,16 @@ async function main() {
       }
     };
 
+    // Optional managed services (start before core services so env can use them)
+    const minioService = await setupLocalMinio({ dockerAvailable });
+    if (minioService) {
+      localServices.push(minioService);
+    }
+    const redpandaService = await setupLocalRedpanda({ dockerAvailable });
+    if (redpandaService) {
+      localServices.push(redpandaService);
+    }
+
     const pgService = await setupLocalPostgres({ dockerAvailable });
     if (pgService) {
       localServices.push(pgService);
@@ -554,14 +861,41 @@ async function main() {
     scratchPrefixes.add(LOCAL_STORAGE.scratchDir);
     baseEnv.APPHUB_SCRATCH_PREFIXES = Array.from(scratchPrefixes).join(':');
 
-    baseEnv.APPHUB_BUNDLE_STORAGE_BACKEND = 'local';
-    baseEnv.APPHUB_BUNDLE_STORAGE_PATH = path.join(LOCAL_STORAGE.baseDir, 'apphub-job-bundles');
+    if (minioService) {
+      setDefaultEnv(baseEnv, 'APPHUB_FILESTORE_BASE_URL', 'http://127.0.0.1:4300');
+      setDefaultEnv(baseEnv, 'APPHUB_BUNDLE_STORAGE_BACKEND', 's3');
+      setDefaultEnv(baseEnv, 'APPHUB_BUNDLE_STORAGE_BUCKET', 'apphub-job-bundles');
+      setDefaultEnv(baseEnv, 'APPHUB_BUNDLE_STORAGE_ENDPOINT', minioService.endpoint);
+      setDefaultEnv(baseEnv, 'APPHUB_BUNDLE_STORAGE_REGION', 'us-east-1');
+      setDefaultEnv(baseEnv, 'APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE', 'true');
+      setDefaultEnv(baseEnv, 'APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID', minioService.accessKeyId);
+      setDefaultEnv(baseEnv, 'APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY', minioService.secretAccessKey);
 
-    baseEnv.APPHUB_JOB_BUNDLE_STORAGE_BACKEND = 'local';
-    baseEnv.APPHUB_JOB_BUNDLE_LOCAL_PATH = path.join(LOCAL_STORAGE.baseDir, 'apphub-job-bundles');
+      setDefaultEnv(baseEnv, 'APPHUB_JOB_BUNDLE_STORAGE_BACKEND', 's3');
+      setDefaultEnv(baseEnv, 'APPHUB_JOB_BUNDLE_S3_BUCKET', 'apphub-job-bundles');
+      setDefaultEnv(baseEnv, 'APPHUB_JOB_BUNDLE_S3_ENDPOINT', minioService.endpoint);
+      setDefaultEnv(baseEnv, 'APPHUB_JOB_BUNDLE_S3_REGION', 'us-east-1');
+      setDefaultEnv(baseEnv, 'APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE', 'true');
+      setDefaultEnv(baseEnv, 'APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID', minioService.accessKeyId);
+      setDefaultEnv(baseEnv, 'APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY', minioService.secretAccessKey);
 
-    baseEnv.TIMESTORE_STORAGE_DRIVER = 'local';
-    baseEnv.TIMESTORE_LOCAL_PATH = path.join(LOCAL_STORAGE.baseDir, 'apphub-timestore');
+      setDefaultEnv(baseEnv, 'TIMESTORE_STORAGE_DRIVER', 's3');
+      setDefaultEnv(baseEnv, 'TIMESTORE_S3_BUCKET', 'apphub-timestore');
+      setDefaultEnv(baseEnv, 'TIMESTORE_S3_ENDPOINT', minioService.endpoint);
+      setDefaultEnv(baseEnv, 'TIMESTORE_S3_REGION', 'us-east-1');
+      setDefaultEnv(baseEnv, 'TIMESTORE_S3_FORCE_PATH_STYLE', 'true');
+      setDefaultEnv(baseEnv, 'TIMESTORE_S3_ACCESS_KEY_ID', minioService.accessKeyId);
+      setDefaultEnv(baseEnv, 'TIMESTORE_S3_SECRET_ACCESS_KEY', minioService.secretAccessKey);
+    } else {
+      baseEnv.APPHUB_BUNDLE_STORAGE_BACKEND = 'local';
+      baseEnv.APPHUB_BUNDLE_STORAGE_PATH = path.join(LOCAL_STORAGE.baseDir, 'apphub-job-bundles');
+
+      baseEnv.APPHUB_JOB_BUNDLE_STORAGE_BACKEND = 'local';
+      baseEnv.APPHUB_JOB_BUNDLE_LOCAL_PATH = path.join(LOCAL_STORAGE.baseDir, 'apphub-job-bundles');
+
+      baseEnv.TIMESTORE_STORAGE_DRIVER = 'local';
+      baseEnv.TIMESTORE_LOCAL_PATH = path.join(LOCAL_STORAGE.baseDir, 'apphub-timestore');
+    }
     if (!baseEnv.TIMESTORE_CLICKHOUSE_HOST || baseEnv.TIMESTORE_CLICKHOUSE_HOST.trim() === '' || baseEnv.TIMESTORE_CLICKHOUSE_HOST === 'clickhouse') {
       baseEnv.TIMESTORE_CLICKHOUSE_HOST = LOCAL_CLICKHOUSE.host;
     }
@@ -617,29 +951,19 @@ async function main() {
     }
 
     baseEnv.APPHUB_STREAMING_ENABLED = 'true';
-    setDefaultEnv(baseEnv, 'APPHUB_STREAM_BROKER_URL', 'redpanda:9092');
-    // If the broker isn't reachable, disable streaming so timestore doesn't crash the dev stack.
-    const brokerUrl = (baseEnv.APPHUB_STREAM_BROKER_URL || '').trim() || 'redpanda:9092';
-    const parseHostPort = (input) => {
+    setDefaultEnv(baseEnv, 'APPHUB_STREAM_BROKER_URL', '127.0.0.1:9092');
+    // If Redpanda is managed, keep streaming on; if not, we already tried existing broker before.
+    if (!redpandaService) {
+      const brokerUrl = (baseEnv.APPHUB_STREAM_BROKER_URL || '').trim() || '127.0.0.1:9092';
       try {
-        const url = new URL(input.startsWith('http') ? input : `tcp://${input}`);
-        const portNum = url.port ? Number(url.port) : 9092;
-        return { host: url.hostname || 'redpanda', port: Number.isFinite(portNum) ? portNum : 9092 };
-      } catch {
-        const [hostPart, portPart] = input.split(':');
-        const portNum = Number.parseInt(portPart ?? '9092', 10);
-        return { host: hostPart || 'redpanda', port: Number.isFinite(portNum) ? portNum : 9092 };
+        const url = new URL(brokerUrl.startsWith('http') ? brokerUrl : `tcp://${brokerUrl}`);
+        await waitForPort(url.hostname || '127.0.0.1', url.port ? Number(url.port) : 9092, 4000, 'Streaming broker');
+      } catch (err) {
+        console.warn(
+          `[dev-runner-local] Streaming broker unreachable; disabling streaming for dev. (${err?.message ?? err})`
+        );
+        baseEnv.APPHUB_STREAMING_ENABLED = 'false';
       }
-    };
-    const { host: brokerHost, port: brokerPort } = parseHostPort(brokerUrl);
-    try {
-      await waitForPort(brokerHost, brokerPort, 4000, 'Streaming broker');
-      console.log(`[dev-runner-local] Streaming broker reachable at ${brokerHost}:${brokerPort}; streaming enabled.`);
-    } catch (err) {
-      console.warn(
-        `[dev-runner-local] Streaming broker ${brokerHost}:${brokerPort} unreachable; disabling streaming for dev. (${err?.message ?? err})`
-      );
-      baseEnv.APPHUB_STREAMING_ENABLED = 'false';
     }
 
     baseEnv.APPHUB_BUILD_EXECUTION_MODE = 'local';
