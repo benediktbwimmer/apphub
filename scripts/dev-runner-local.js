@@ -61,6 +61,13 @@ const LOCAL_REDIS = {
   port: 6379
 };
 
+const DEFAULT_CLICKHOUSE_IMAGE = process.env.APPHUB_DEV_CLICKHOUSE_IMAGE || 'clickhouse/clickhouse-server:24.11';
+const DEFAULT_MINIO_IMAGE = process.env.APPHUB_DEV_MINIO_IMAGE ?? 'minio/minio:latest';
+const DEFAULT_MINIO_MC_IMAGE = process.env.APPHUB_DEV_MINIO_MC_IMAGE ?? 'minio/mc:latest';
+const DEFAULT_MINIO_CONTAINER = process.env.APPHUB_DEV_MINIO_CONTAINER ?? 'apphub-dev-minio';
+const DEFAULT_MINIO_API_PORT = parsePort(process.env.APPHUB_DEV_MINIO_PORT, 9000);
+const DEFAULT_MINIO_CONSOLE_PORT = parsePort(process.env.APPHUB_DEV_MINIO_CONSOLE_PORT, 9001);
+
 const LOCAL_MINIO = {
   host: '127.0.0.1',
   apiPort: DEFAULT_MINIO_API_PORT,
@@ -89,13 +96,6 @@ const LOCAL_STORAGE = {
   buckets: ['apphub-job-bundles', 'apphub-filestore', 'apphub-timestore', 'apphub-flink-checkpoints'],
   scratchDir: path.join(LOCAL_DATA_DIR, 'scratch')
 };
-
-const DEFAULT_CLICKHOUSE_IMAGE = process.env.APPHUB_DEV_CLICKHOUSE_IMAGE || 'clickhouse/clickhouse-server:24.11';
-const DEFAULT_MINIO_IMAGE = process.env.APPHUB_DEV_MINIO_IMAGE ?? 'minio/minio:latest';
-const DEFAULT_MINIO_MC_IMAGE = process.env.APPHUB_DEV_MINIO_MC_IMAGE ?? 'minio/mc:latest';
-const DEFAULT_MINIO_CONTAINER = process.env.APPHUB_DEV_MINIO_CONTAINER ?? 'apphub-dev-minio';
-const DEFAULT_MINIO_API_PORT = parsePort(process.env.APPHUB_DEV_MINIO_PORT, 9000);
-const DEFAULT_MINIO_CONSOLE_PORT = parsePort(process.env.APPHUB_DEV_MINIO_CONSOLE_PORT, 9001);
 
 function resolveClickhouseConfigDir() {
   const override = process.env.APPHUB_DEV_CLICKHOUSE_CONFIG_DIR;
@@ -149,7 +149,7 @@ async function ensureMinioBuckets() {
   }
 
   const containerNetwork = `container:${LOCAL_MINIO.containerName}`;
-  const endpointEnv = `MINIO_SERVER=http://127.0.0.1:${LOCAL_MINIO.apiPort}`;
+  const endpointEnv = `MC_HOST_local=http://${LOCAL_MINIO.rootUser}:${LOCAL_MINIO.rootPassword}@${LOCAL_MINIO.host}:${LOCAL_MINIO.apiPort}`;
 
   for (const bucket of LOCAL_MINIO.buckets) {
     const make = spawnSync(
@@ -373,6 +373,33 @@ function ensureDockerAvailable() {
   try {
     const { status } = spawnSync('docker', ['info'], { stdio: 'ignore' });
     return status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function dockerImageExists(image) {
+  try {
+    const { status } = spawnSync('docker', ['image', 'inspect', image], { stdio: 'ignore' });
+    return status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function dockerContainerExists(name) {
+  try {
+    const { status } = spawnSync('docker', ['container', 'inspect', name], { stdio: 'ignore' });
+    return status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function dockerContainerRunning(name) {
+  try {
+    const result = spawnSync('docker', ['inspect', '-f', '{{.State.Running}}', name], { encoding: 'utf8' });
+    return typeof result.status === 'number' && result.status === 0 && result.stdout.trim() === 'true';
   } catch {
     return false;
   }
