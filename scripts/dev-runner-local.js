@@ -618,6 +618,29 @@ async function main() {
 
     baseEnv.APPHUB_STREAMING_ENABLED = 'true';
     setDefaultEnv(baseEnv, 'APPHUB_STREAM_BROKER_URL', 'redpanda:9092');
+    // If the broker isn't reachable, disable streaming so timestore doesn't crash the dev stack.
+    const brokerUrl = (baseEnv.APPHUB_STREAM_BROKER_URL || '').trim() || 'redpanda:9092';
+    const parseHostPort = (input) => {
+      try {
+        const url = new URL(input.startsWith('http') ? input : `tcp://${input}`);
+        const portNum = url.port ? Number(url.port) : 9092;
+        return { host: url.hostname || 'redpanda', port: Number.isFinite(portNum) ? portNum : 9092 };
+      } catch {
+        const [hostPart, portPart] = input.split(':');
+        const portNum = Number.parseInt(portPart ?? '9092', 10);
+        return { host: hostPart || 'redpanda', port: Number.isFinite(portNum) ? portNum : 9092 };
+      }
+    };
+    const { host: brokerHost, port: brokerPort } = parseHostPort(brokerUrl);
+    try {
+      await waitForPort(brokerHost, brokerPort, 4000, 'Streaming broker');
+      console.log(`[dev-runner-local] Streaming broker reachable at ${brokerHost}:${brokerPort}; streaming enabled.`);
+    } catch (err) {
+      console.warn(
+        `[dev-runner-local] Streaming broker ${brokerHost}:${brokerPort} unreachable; disabling streaming for dev. (${err?.message ?? err})`
+      );
+      baseEnv.APPHUB_STREAMING_ENABLED = 'false';
+    }
 
     baseEnv.APPHUB_BUILD_EXECUTION_MODE = 'local';
     baseEnv.APPHUB_LAUNCH_EXECUTION_MODE = 'local';
