@@ -166,13 +166,10 @@ async function run() {
     env.OBSERVATORY_FILESTORE_DEFAULT_KEY = env.OBSERVATORY_FILESTORE_BACKEND_KEY;
   }
 
-  if (!env.APPHUB_MODULE_ARTIFACT_STORAGE_BACKEND) {
-    env.APPHUB_MODULE_ARTIFACT_STORAGE_BACKEND = 'inline';
-  }
-  configureArtifactStorage(env);
-  if (env.APPHUB_MODULE_ARTIFACT_STORAGE_BACKEND === 'inline') {
-    env.APPHUB_SKIP_BUCKETS = env.APPHUB_SKIP_BUCKETS ?? '1';
-  }
+  // Force local artifact storage in dev to avoid MinIO/S3 when not available.
+  env.APPHUB_MODULE_ARTIFACT_STORAGE_BACKEND = 'local';
+  env.APPHUB_MODULE_ARTIFACT_PATH = env.APPHUB_MODULE_ARTIFACT_PATH ?? path.join(env.APPHUB_SCRATCH_ROOT, 'modules');
+  env.APPHUB_SKIP_BUCKETS = env.APPHUB_SKIP_BUCKETS ?? '1';
 
   if (!env.APPHUB_AUTH_DISABLED || env.APPHUB_AUTH_DISABLED.trim() === '') {
     env.APPHUB_AUTH_DISABLED = '1';
