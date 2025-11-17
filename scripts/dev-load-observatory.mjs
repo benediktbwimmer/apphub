@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import net from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -171,6 +172,48 @@ function run() {
   configureArtifactStorage(env);
   if (env.APPHUB_MODULE_ARTIFACT_STORAGE_BACKEND === 'inline') {
     env.APPHUB_SKIP_BUCKETS = env.APPHUB_SKIP_BUCKETS ?? '1';
+  }
+
+  if (!env.APPHUB_AUTH_DISABLED || env.APPHUB_AUTH_DISABLED.trim() === '') {
+    env.APPHUB_AUTH_DISABLED = '1';
+  }
+
+  const waitForPort = async (host, port, timeoutMs = 30_000) => {
+    const deadline = Date.now() + timeoutMs;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const ok = await new Promise((resolve) => {
+        const socket = net.createConnection({ host, port }, () => {
+          socket.destroy();
+          resolve(true);
+        });
+        socket.on('error', () => {
+          socket.destroy();
+          resolve(false);
+        });
+        socket.setTimeout(2000, () => {
+          socket.destroy();
+          resolve(false);
+        });
+      });
+      if (ok) {
+        return;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(`Timed out waiting for ${host}:${port}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  };
+
+  try {
+    const parsed = new URL(coreUrl);
+    const host = parsed.hostname || '127.0.0.1';
+    const port = parsed.port ? Number(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80);
+    console.log(`[dev-load-observatory] Waiting for Core API at ${host}:${port}...`);
+    await waitForPort(host, port, 60_000);
+  } catch (err) {
+    console.warn('[dev-load-observatory] Unable to verify Core availability before deploy', err?.message ?? err);
   }
 
   const label = path.relative(ROOT_DIR, resolvedModuleDir) || resolvedModuleDir;
