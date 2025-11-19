@@ -180,6 +180,18 @@ async function ensureDatabaseAndTable(
     .catch(() => undefined);
 }
 
+export async function ensureClickHouseTable(
+  params: {
+    config: ServiceConfig;
+    datasetSlug: string;
+    tableName: string;
+    schema: FieldDefinition[];
+  }
+): Promise<void> {
+  const { config, datasetSlug, tableName, schema } = params;
+  await ensureDatabaseAndTable(config, datasetSlug, tableName, schema);
+}
+
 export async function writeBatchToClickHouse(params: InsertBatchParams): Promise<void> {
   const { config, datasetSlug, tableName, schema, rows, partitionKey, partitionAttributes, timeRange, ingestionSignature, receivedAt } = params;
   if (rows.length === 0 || schema.length === 0) {

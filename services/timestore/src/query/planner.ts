@@ -94,6 +94,16 @@ export async function buildQueryPlan(
     throw new Error(`Dataset ${datasetSlug} not found`);
   }
 
+  const datasetMetadata = (dataset.metadata as Record<string, unknown>) ?? {};
+
+  let timestampColumn = request.timestampColumn;
+  const metadataTimestamp = typeof datasetMetadata.timestampColumn === 'string'
+    ? datasetMetadata.timestampColumn.trim()
+    : '';
+  if ((!timestampColumn || timestampColumn === 'timestamp') && metadataTimestamp) {
+    timestampColumn = metadataTimestamp;
+  }
+
   const rangeStart = new Date(request.timeRange.start);
   const rangeEnd = new Date(request.timeRange.end);
   if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
@@ -141,7 +151,7 @@ export async function buildQueryPlan(
     dataset,
     datasetId: dataset.id,
     datasetSlug,
-    timestampColumn: request.timestampColumn,
+    timestampColumn,
     columns: request.columns,
     limit: request.limit,
     partitions: planPartitions,

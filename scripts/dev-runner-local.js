@@ -131,6 +131,25 @@ const LOCAL_REDPANDA = {
   dataDir: path.join(LOCAL_DATA_DIR, 'redpanda')
 };
 
+const DEFAULT_REDPANDA_CONSOLE_IMAGE =
+  process.env.APPHUB_DEV_REDPANDA_CONSOLE_IMAGE ?? 'docker.redpanda.com/redpandadata/console:v2.6.1';
+const DEFAULT_REDPANDA_CONSOLE_CONTAINER =
+  process.env.APPHUB_DEV_REDPANDA_CONSOLE_CONTAINER ?? 'apphub-dev-redpanda-console';
+const DEFAULT_REDPANDA_CONSOLE_PORT = parsePort(
+  process.env.APPHUB_REDPANDA_CONSOLE_PORT ?? process.env.APPHUB_DEV_REDPANDA_CONSOLE_PORT,
+  28000
+);
+const LOCAL_REDPANDA_CONSOLE = {
+  host: '127.0.0.1',
+  port: DEFAULT_REDPANDA_CONSOLE_PORT,
+  containerName: DEFAULT_REDPANDA_CONSOLE_CONTAINER,
+  image: DEFAULT_REDPANDA_CONSOLE_IMAGE
+};
+
+const DEFAULT_REDPANDA_TOPICS =
+  process.env.APPHUB_DEV_REDPANDA_TOPICS ??
+  'apphub.core.events,apphub.ingestion.telemetry,apphub.workflows.events,apphub.workflows.runs,apphub.jobs.runs,apphub.streaming.input,apphub.streaming.aggregates';
+
 async function setupLocalStorage() {
   await fsPromises.mkdir(LOCAL_STORAGE.baseDir, { recursive: true });
   await fsPromises.mkdir(LOCAL_STORAGE.scratchDir, { recursive: true });
@@ -602,6 +621,31 @@ async function setupLocalClickhouse({ dockerAvailable }) {
   };
 }
 
+async function ensureRedpandaTopics() {
+  const topics = DEFAULT_REDPANDA_TOPICS.split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (topics.length === 0) {
+    return;
+  }
+  const network = `container:${LOCAL_REDPANDA.containerName}`;
+  const baseArgs = ['run', '--rm', '--network', network, LOCAL_REDPANDA.image, 'rpk'];
+
+  for (const topic of topics) {
+    const create = spawnSync(
+      'docker',
+      [...baseArgs, 'topic', 'create', topic, '--brokers', '127.0.0.1:9092', '--partitions', '6', '--replicas', '1'],
+      { stdio: 'ignore' }
+    );
+    if (typeof create.status === 'number' && create.status !== 0) {
+      // Fall back to describe in case the topic already exists or creation failed due to a race.
+      spawnSync('docker', [...baseArgs, 'topic', 'describe', topic, '--brokers', '127.0.0.1:9092'], {
+        stdio: 'ignore'
+      });
+    }
+  }
+}
+
 async function setupLocalRedpanda({ dockerAvailable }) {
   if (parseBooleanFlag(process.env.APPHUB_DEV_REDPANDA_SKIP)) {
     console.log('[dev-runner-local] Skipping Redpanda because APPHUB_DEV_REDPANDA_SKIP is set.');
@@ -687,6 +731,7 @@ async function setupLocalRedpanda({ dockerAvailable }) {
   }
 
   await waitForPort(LOCAL_REDPANDA.host, LOCAL_REDPANDA.kafkaPort, 20000, 'Redpanda');
+  await ensureRedpandaTopics();
   console.log('[dev-runner-local] Redpanda ready.');
 
   return {
@@ -695,6 +740,83 @@ async function setupLocalRedpanda({ dockerAvailable }) {
       spawnSync('docker', ['stop', '-t', '5', LOCAL_REDPANDA.containerName], { stdio: 'ignore' });
       spawnSync('docker', ['rm', '-f', LOCAL_REDPANDA.containerName], { stdio: 'ignore' });
     }
+  };
+}
+
+async function setupRedpandaConsole({ dockerAvailable }) {
+  if (parseBooleanFlag(process.env.APPHUB_DEV_REDPANDA_CONSOLE_SKIP)) {
+    console.log('[dev-runner-local] Skipping Redpanda Console because APPHUB_DEV_REDPANDA_CONSOLE_SKIP is set.');
+    return null;
+  }
+  if (!dockerAvailable) {
+    console.warn('[dev-runner-local] Docker unavailable; Redpanda Console will not be started.');
+    return null;
+  }
+
+  const portAvailable = await isPortAvailable(LOCAL_REDPANDA_CONSOLE.port, LOCAL_REDPANDA_CONSOLE.host);
+  if (!portAvailable) {
+    try {
+      await waitForPort(LOCAL_REDPANDA_CONSOLE.host, LOCAL_REDPANDA_CONSOLE.port, 2000, 'Redpanda Console');
+      console.log(
+        `[dev-runner-local] Detected Redpanda Console on ${LOCAL_REDPANDA_CONSOLE.host}:${LOCAL_REDPANDA_CONSOLE.port}; using existing instance.`
+      );
+      return null;
+    } catch (err) {
+      throw new Error(
+        `[dev-runner-local] Port ${LOCAL_REDPANDA_CONSOLE.port} is in use and Redpanda Console is not responding. Free the port or set APPHUB_DEV_REDPANDA_CONSOLE_SKIP=1.`
+      );
+    }
+  }
+
+  if (!dockerImageExists(LOCAL_REDPANDA_CONSOLE.image)) {
+    console.warn(
+      `[dev-runner-local] Redpanda Console image ${LOCAL_REDPANDA_CONSOLE.image} not found locally. Pull it manually or set APPHUB_DEV_REDPANDA_CONSOLE_SKIP=1 to skip.`
+    );
+    return null;
+  }
+
+  spawnSync('docker', ['rm', '-f', LOCAL_REDPANDA_CONSOLE.containerName], { stdio: 'ignore' });
+  console.log('[dev-runner-local] Starting Redpanda Console container...');
+  const run = spawnSync(
+    'docker',
+    [
+      'run',
+      '--detach',
+      '--name',
+      LOCAL_REDPANDA_CONSOLE.containerName,
+      '--add-host',
+      'host.docker.internal:host-gateway',
+      '-p',
+      `${LOCAL_REDPANDA_CONSOLE.port}:8080`,
+      '-e',
+      `KAFKA_BROKERS=host.docker.internal:${LOCAL_REDPANDA.kafkaPort}`,
+      '-e',
+      'KAFKA_TLS_ENABLED=false',
+      '-e',
+      'SERVER_LISTEN_ADDRESS=0.0.0.0:8080',
+      '-e',
+      'CONSOLE_BASEPATH=/',
+      LOCAL_REDPANDA_CONSOLE.image
+    ],
+    { stdio: 'ignore' }
+  );
+  if (typeof run.status !== 'number' || run.status !== 0) {
+    console.warn('[dev-runner-local] Failed to start Redpanda Console container.');
+    return null;
+  }
+
+  await waitForPort(LOCAL_REDPANDA_CONSOLE.host, LOCAL_REDPANDA_CONSOLE.port, 15000, 'Redpanda Console');
+  console.log(
+    `[dev-runner-local] Redpanda Console ready at http://${LOCAL_REDPANDA_CONSOLE.host}:${LOCAL_REDPANDA_CONSOLE.port}.`
+  );
+
+  return {
+    managed: true,
+    cleanup: async () => {
+      spawnSync('docker', ['stop', '-t', '5', LOCAL_REDPANDA_CONSOLE.containerName], { stdio: 'ignore' });
+      spawnSync('docker', ['rm', '-f', LOCAL_REDPANDA_CONSOLE.containerName], { stdio: 'ignore' });
+    },
+    url: `http://${LOCAL_REDPANDA_CONSOLE.host}:${LOCAL_REDPANDA_CONSOLE.port}`
   };
 }
 
@@ -824,6 +946,10 @@ async function main() {
     const redpandaService = await setupLocalRedpanda({ dockerAvailable });
     if (redpandaService) {
       localServices.push(redpandaService);
+    }
+    const redpandaConsoleService = await setupRedpandaConsole({ dockerAvailable });
+    if (redpandaConsoleService) {
+      localServices.push(redpandaConsoleService);
     }
 
     const pgService = await setupLocalPostgres({ dockerAvailable });
@@ -979,6 +1105,15 @@ async function main() {
 
     baseEnv.APPHUB_STREAMING_ENABLED = 'true';
     setDefaultEnv(baseEnv, 'APPHUB_STREAM_BROKER_URL', '127.0.0.1:9092');
+    const consoleUrl = `http://${LOCAL_REDPANDA_CONSOLE.host}:${LOCAL_REDPANDA_CONSOLE.port}`;
+    setDefaultEnv(baseEnv, 'APPHUB_REDPANDA_CONSOLE_URL', consoleUrl);
+    setDefaultEnv(baseEnv, 'VITE_STREAMING_CONSOLE_URL', baseEnv.APPHUB_REDPANDA_CONSOLE_URL);
+    // Mirror all core/workflow/job/ingestion events in local dev so streaming datasets populate.
+    setDefaultEnv(baseEnv, 'APPHUB_STREAM_MIRROR_CORE_EVENTS', 'true');
+    setDefaultEnv(baseEnv, 'APPHUB_STREAM_MIRROR_WORKFLOW_RUNS', 'true');
+    setDefaultEnv(baseEnv, 'APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS', 'true');
+    setDefaultEnv(baseEnv, 'APPHUB_STREAM_MIRROR_JOB_RUNS', 'true');
+    setDefaultEnv(baseEnv, 'APPHUB_STREAM_MIRROR_INGESTION', 'true');
     // If Redpanda is managed, keep streaming on; if not, we already tried existing broker before.
     if (!redpandaService) {
       const brokerUrl = (baseEnv.APPHUB_STREAM_BROKER_URL || '').trim() || '127.0.0.1:9092';
