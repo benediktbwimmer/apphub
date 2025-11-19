@@ -126,6 +126,7 @@ export interface UploadTextFileOptions {
   principal?: string;
   idempotencyKey?: string;
   metadata?: Record<string, unknown>;
+  overwrite?: boolean;
 }
 
 export async function uploadTextFile(options: UploadTextFileOptions): Promise<UploadFileResult> {
@@ -148,7 +149,7 @@ export async function uploadTextFile(options: UploadTextFileOptions): Promise<Up
     content: options.content,
     contentType: options.contentType ?? 'text/plain; charset=utf-8',
     principal: options.principal,
-    overwrite: true,
+    overwrite: options.overwrite ?? true,
     metadata: options.metadata,
     idempotencyKey: options.idempotencyKey
   });

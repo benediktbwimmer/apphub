@@ -36,6 +36,10 @@ type AssetDeclarationRowInput = {
   asset: WorkflowAssetDeclaration;
 };
 
+export type WorkflowAssetPartitionKeyFilter =
+  | { type: 'raw'; value: string | null }
+  | { type: 'window'; value: string };
+
 export function normalizePartitionKeyValue(
   partitionKey: string | null | undefined
 ): { raw: string | null; normalized: string } {
@@ -46,6 +50,10 @@ export function normalizePartitionKeyValue(
     }
   }
   return { raw: null, normalized: '' };
+}
+
+function normalizeWindowSegment(value: string): string {
+  return value.replace(/[:\s]+/g, '-');
 }
 
 function extractStepAssetDeclarations(
@@ -328,15 +336,24 @@ async function fetchWorkflowAssetStalePartitions(
 async function fetchWorkflowAssetStalePartitionsForAsset(
   client: PoolClient,
   workflowDefinitionId: string,
-  assetId: string
+  assetId: string,
+  options: { partitionKey?: string | null } = {}
 ): Promise<WorkflowAssetStalePartitionRecord[]> {
+  const params: unknown[] = [workflowDefinitionId, assetId];
+  let partitionClause = '';
+  if (Object.prototype.hasOwnProperty.call(options, 'partitionKey')) {
+    const { normalized } = normalizePartitionKeyValue(options.partitionKey ?? null);
+    params.push(normalized);
+    partitionClause = `
+        AND partition_key_normalized = $${params.length}`;
+  }
   const { rows } = await client.query<WorkflowAssetStalePartitionRow>(
     `SELECT *
        FROM workflow_asset_stale_partitions
       WHERE workflow_definition_id = $1
-        AND asset_id = $2
+        AND asset_id = $2${partitionClause}
       ORDER BY requested_at DESC`,
-    [workflowDefinitionId, assetId]
+    params
   );
   return rows.map(mapWorkflowAssetStalePartitionRow);
 }
@@ -344,15 +361,24 @@ async function fetchWorkflowAssetStalePartitionsForAsset(
 async function fetchWorkflowAssetPartitionParameters(
   client: PoolClient,
   workflowDefinitionId: string,
-  assetId: string
+  assetId: string,
+  options: { partitionKey?: string | null } = {}
 ): Promise<WorkflowAssetPartitionParametersRecord[]> {
+  const params: unknown[] = [workflowDefinitionId, assetId];
+  let partitionClause = '';
+  if (Object.prototype.hasOwnProperty.call(options, 'partitionKey')) {
+    const { normalized } = normalizePartitionKeyValue(options.partitionKey ?? null);
+    params.push(normalized);
+    partitionClause = `
+        AND partition_key_normalized = $${params.length}`;
+  }
   const { rows } = await client.query<WorkflowAssetPartitionParametersRow>(
     `SELECT *
        FROM workflow_asset_partition_parameters
       WHERE workflow_definition_id = $1
-        AND asset_id = $2
+        AND asset_id = $2${partitionClause}
       ORDER BY updated_at DESC`,
-    [workflowDefinitionId, assetId]
+    params
   );
   return rows.map(mapWorkflowAssetPartitionParametersRow);
 }
@@ -429,11 +455,13 @@ async function fetchWorkflowAssetPartitions(
   client: PoolClient,
   workflowDefinitionId: string,
   assetId: string,
-  options: { moduleIds?: string[] | null } = {}
+  options: { moduleIds?: string[] | null; partitionKeyFilter?: WorkflowAssetPartitionKeyFilter } = {}
 ): Promise<WorkflowAssetPartitionSummary[]> {
   const moduleIds = normalizeModuleIds(options.moduleIds ?? null);
   const params: unknown[] = [workflowDefinitionId, assetId];
   let moduleClause = '';
+  let partitionClause = '';
+  const partitionFilter = options.partitionKeyFilter;
 
   if (moduleIds && moduleIds.length > 0) {
     params.push(moduleIds);
@@ -442,9 +470,27 @@ async function fetchWorkflowAssetPartitions(
           SELECT 1
             FROM module_resource_contexts mrc
            WHERE mrc.resource_type = 'workflow-run'
-             AND mrc.resource_id = run.id
+         AND mrc.resource_id = run.id
              AND mrc.module_id = ANY($${params.length}::text[])
         )`;
+  }
+
+  if (partitionFilter) {
+    if (partitionFilter.type === 'raw') {
+      if (partitionFilter.value === null) {
+        partitionClause = `
+        AND asset.partition_key IS NULL`;
+      } else {
+        params.push(partitionFilter.value);
+        partitionClause = `
+        AND asset.partition_key = $${params.length}`;
+      }
+    } else if (partitionFilter.type === 'window') {
+      const normalizedWindow = normalizeWindowSegment(partitionFilter.value);
+      params.push(`window=${normalizedWindow}`);
+      partitionClause = `
+        AND asset.partition_key LIKE '%' || $${params.length} || '%'`;
+    }
   }
 
   const { rows } = await client.query<WorkflowAssetSnapshotRow>(
@@ -457,7 +503,7 @@ async function fetchWorkflowAssetPartitions(
        JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
        JOIN workflow_runs run ON run.id = asset.workflow_run_id
       WHERE asset.workflow_definition_id = $1
-        AND asset.asset_id = $2
+        AND asset.asset_id = $2${partitionClause}
         ${moduleClause}
      ORDER BY COALESCE(asset.partition_key, ''),
               asset.produced_at DESC,
@@ -468,12 +514,18 @@ async function fetchWorkflowAssetPartitions(
   const staleRecords = await fetchWorkflowAssetStalePartitionsForAsset(
     client,
     workflowDefinitionId,
-    assetId
+    assetId,
+    partitionFilter && partitionFilter.type === 'raw'
+      ? { partitionKey: partitionFilter.value ?? null }
+      : {}
   );
   const parameterRecords = await fetchWorkflowAssetPartitionParameters(
     client,
     workflowDefinitionId,
-    assetId
+    assetId,
+    partitionFilter && partitionFilter.type === 'raw'
+      ? { partitionKey: partitionFilter.value ?? null }
+      : {}
   );
   const staleByNormalized = new Map<string, WorkflowAssetStalePartitionRecord>();
   for (const record of staleRecords) {
@@ -720,7 +772,7 @@ export async function listWorkflowAssetHistory(
 export async function listWorkflowAssetPartitions(
   workflowDefinitionId: string,
   assetId: string,
-  options: { moduleIds?: string[] | null } = {}
+  options: { moduleIds?: string[] | null; partitionKeyFilter?: WorkflowAssetPartitionKeyFilter } = {}
 ): Promise<WorkflowAssetPartitionSummary[]> {
   return useConnection((client) => fetchWorkflowAssetPartitions(client, workflowDefinitionId, assetId, options));
 }

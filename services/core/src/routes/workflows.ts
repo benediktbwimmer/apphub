@@ -45,7 +45,7 @@ import {
   listWorkflowRunProducedAssets,
   appendWorkflowExecutionHistory
 } from '../db/index';
-import type { WorkflowRunStepUpdateSpec } from '../db/index';
+import type { WorkflowRunStepUpdateSpec, WorkflowAssetPartitionKeyFilter } from '../db/index';
 import type {
   JsonValue,
   WorkflowAssetDeclaration,
@@ -434,7 +434,8 @@ const workflowAssetPartitionsQuerySchema = z
   .object({
     lookback: z
       .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(10_000).optional()),
-    moduleId: z.union([z.string(), z.array(z.string())]).optional()
+    moduleId: z.union([z.string(), z.array(z.string())]).optional(),
+    partitionKey: z.string().max(200).optional()
   })
   .partial();
 
@@ -2139,7 +2140,36 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     const partitioningSpec = assetMatches.find((declaration) => declaration.partitioning)?.partitioning ?? null;
-    const partitions = await listWorkflowAssetPartitions(workflow.id, parseParams.data.assetId, { moduleIds });
+    let partitionKeyFilterResponseValue: string | null = null;
+    let partitionKeyFilter: WorkflowAssetPartitionKeyFilter | undefined;
+    if (Object.prototype.hasOwnProperty.call(parseQuery.data, 'partitionKey')) {
+      const rawPartitionKey = parseQuery.data.partitionKey;
+      if (rawPartitionKey === undefined || rawPartitionKey === null) {
+        partitionKeyFilter = { type: 'raw', value: null };
+        partitionKeyFilterResponseValue = null;
+      } else {
+        const trimmed = rawPartitionKey.trim();
+        if (!trimmed) {
+          partitionKeyFilter = { type: 'raw', value: null };
+          partitionKeyFilterResponseValue = null;
+        } else if (trimmed.includes('=') || trimmed.includes('|')) {
+          partitionKeyFilter = { type: 'raw', value: trimmed };
+          partitionKeyFilterResponseValue = trimmed;
+        } else {
+          const validation = validatePartitionKey(partitioningSpec ?? null, trimmed);
+          if (!validation.ok) {
+            reply.status(400);
+            return { error: validation.error };
+          }
+          partitionKeyFilter = { type: 'window', value: validation.key };
+          partitionKeyFilterResponseValue = validation.key;
+        }
+      }
+    }
+    const partitions = await listWorkflowAssetPartitions(workflow.id, parseParams.data.assetId, {
+      moduleIds,
+      partitionKeyFilter
+    });
     const partitionMap = new Map<string, typeof partitions[number]>();
 
     for (const entry of partitions) {
@@ -2147,7 +2177,13 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       partitionMap.set(key, entry);
     }
 
-    if (partitioningSpec && (partitioningSpec.type === 'static' || partitioningSpec.type === 'timeWindow')) {
+    const shouldEnumeratePartitions = partitionKeyFilter === undefined;
+
+    if (
+      shouldEnumeratePartitions &&
+      partitioningSpec &&
+      (partitioningSpec.type === 'static' || partitioningSpec.type === 'timeWindow')
+    ) {
       const enumerated = enumeratePartitionKeys(partitioningSpec, {
         lookback: parseQuery.data.lookback,
         now: new Date()
@@ -2169,7 +2205,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
           });
         }
       }
-    } else if (!partitioningSpec && partitionMap.size === 0) {
+    } else if (shouldEnumeratePartitions && !partitioningSpec && partitionMap.size === 0) {
       partitionMap.set('', {
         assetId: parseParams.data.assetId,
         partitionKey: null,
@@ -2237,7 +2273,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       data: {
         assetId: parseParams.data.assetId,
         partitioning: partitioningSpec ?? null,
-        partitions: partitionSummaries
+        partitions: partitionSummaries,
+        partitionKey: partitionKeyFilterResponseValue
       }
     };
   });

@@ -264,16 +264,24 @@ export function createLocalExecutor(): CommandExecutor {
             });
           }
 
-          const targetStats = await statOptional(resolved);
-          if (command.type === 'uploadFile' && targetStats) {
-            throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
-              path: command.path
-            });
-          }
+          let targetStats = await statOptional(resolved);
           if (targetStats && targetStats.isDirectory()) {
             throw new FilestoreError('Cannot overwrite directory with file', 'NOT_A_DIRECTORY', {
               path: command.path
             });
+          }
+          if (command.type === 'uploadFile' && targetStats) {
+            if (!command.overwrite) {
+              throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
+                path: command.path
+              });
+            }
+            await fs.unlink(resolved).catch((err: NodeJS.ErrnoException) => {
+              if (err.code !== 'ENOENT') {
+                throw err;
+              }
+            });
+            targetStats = null;
           }
 
           await fs.mkdir(path.dirname(resolved), { recursive: true });

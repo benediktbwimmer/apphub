@@ -154,6 +154,10 @@ const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_HOUR_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}$/;
 const DATE_MINUTE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
+function looksLikeCompositePartitionKey(key: string): boolean {
+  return key.includes('=') || key.includes('|');
+}
+
 function validateTimeWindowKey(
   partitioning: Extract<WorkflowAssetPartitioning, { type: 'timeWindow' }>,
   key: string
@@ -202,6 +206,10 @@ export function validatePartitionKey(
 ): PartitionValidationResult {
   const key = typeof rawKey === 'string' ? rawKey.trim() : '';
   if (!partitioning) {
+    return { ok: true, key };
+  }
+
+  if (partitioning.type === 'timeWindow' && looksLikeCompositePartitionKey(key)) {
     return { ok: true, key };
   }
 

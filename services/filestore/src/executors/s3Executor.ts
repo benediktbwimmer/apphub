@@ -662,20 +662,27 @@ export function createS3Executor(options: CreateS3ExecutorOptions = {}): Command
             throw new FilestoreError('Target path must not resolve to root', 'INVALID_PATH');
           }
 
+          const directoryExists = await pathRepresentsDirectory(client, bucket, targetKey);
+          if (directoryExists) {
+            throw new FilestoreError('Cannot overwrite directory placeholder with file', 'NOT_A_DIRECTORY', {
+              path: command.path
+            });
+          }
+
           if (command.type === 'uploadFile') {
             const objectExists = await keyExists(client, bucket, targetKey);
-            const directoryExists = await pathRepresentsDirectory(client, bucket, targetKey);
-            if (objectExists || directoryExists) {
-              throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
-                targetPath: command.path
-              });
-            }
-          } else {
-            const directoryExists = await pathRepresentsDirectory(client, bucket, targetKey);
-            if (directoryExists) {
-              throw new FilestoreError('Cannot overwrite directory placeholder with file', 'NOT_A_DIRECTORY', {
-                path: command.path
-              });
+            if (objectExists) {
+              if (!command.overwrite) {
+                throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
+                  targetPath: command.path
+                });
+              }
+              await client.send(
+                new DeleteObjectCommand({
+                  Bucket: bucket,
+                  Key: targetKey
+                })
+              );
             }
           }
 
