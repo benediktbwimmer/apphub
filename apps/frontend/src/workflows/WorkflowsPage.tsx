@@ -25,7 +25,11 @@ import { ModuleScopeGate } from '../modules/ModuleScopeGate';
 export default function WorkflowsPage() {
   const moduleScope = useModuleScope();
 
-  if (moduleScope.kind !== 'module' || moduleScope.loadingResources) {
+  const shouldShowModuleGate =
+    moduleScope.kind === 'module' &&
+    (moduleScope.loadingResources || Boolean(moduleScope.resourcesError));
+
+  if (shouldShowModuleGate) {
     return <ModuleScopeGate resourceName="workflows" />;
   }
 

@@ -214,6 +214,7 @@ function ModuleSwitcher({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const previousModuleIdRef = useRef<string | null>(moduleId);
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
 
   const handleToggle = useCallback(() => {
     if (loadingModules) {
@@ -265,6 +266,27 @@ function ModuleSwitcher({
     }
   }, [moduleId, closePopover]);
 
+  useEffect(() => {
+    if (!(open && variant === 'sidebar')) {
+      setTriggerRect(null);
+      return;
+    }
+    const updateRect = () => {
+      if (!triggerRef.current) {
+        setTriggerRect(null);
+        return;
+      }
+      setTriggerRect(triggerRef.current.getBoundingClientRect());
+    };
+    updateRect();
+    window.addEventListener('resize', updateRect);
+    window.addEventListener('scroll', updateRect, true);
+    return () => {
+      window.removeEventListener('resize', updateRect);
+      window.removeEventListener('scroll', updateRect, true);
+    };
+  }, [open, variant]);
+
   const activeModule = useMemo(() => {
     if (!moduleId) {
       return null;
@@ -311,6 +333,7 @@ function ModuleSwitcher({
         <ModuleScopePopover
           ref={popoverRef}
           variant={variant}
+          anchorRect={triggerRect}
           modules={modules}
           moduleId={moduleId}
           moduleVersion={moduleVersion}
@@ -329,6 +352,7 @@ function ModuleSwitcher({
 
 type ModuleScopePopoverProps = {
   variant: 'sidebar' | 'overlay';
+  anchorRect: DOMRect | null;
   modules: ModuleSummary[];
   moduleId: string | null;
   moduleVersion: string | null;
@@ -340,7 +364,7 @@ type ModuleScopePopoverProps = {
 
 const ModuleScopePopover = forwardRef<HTMLDivElement, ModuleScopePopoverProps>(
   function ModuleScopePopover(
-    { variant, modules, moduleId, moduleVersion, loadingModules, modulesError, onSelect, onDismiss },
+    { variant, anchorRect, modules, moduleId, moduleVersion, loadingModules, modulesError, onSelect, onDismiss },
     ref
   ) {
     const activeModule = moduleId ? modules.find((entry) => entry.id === moduleId) ?? null : null;
@@ -390,7 +414,7 @@ const ModuleScopePopover = forwardRef<HTMLDivElement, ModuleScopePopoverProps>(
 
     if (variant === 'overlay') {
       const overlayContent = (
-        <div className="fixed inset-0 z-[80] flex items-start justify-center px-4 py-16">
+        <div className="fixed inset-0 z-[9999] flex items-start justify-center px-4 py-16">
           <div
             className="absolute inset-0 bg-surface-sunken/60 backdrop-blur-sm"
             aria-hidden="true"
@@ -401,7 +425,8 @@ const ModuleScopePopover = forwardRef<HTMLDivElement, ModuleScopePopoverProps>(
             role="dialog"
             aria-modal="true"
             aria-label="Select module scope"
-            className="relative z-10 w-full max-w-lg rounded-3xl border border-subtle bg-surface-base p-6 text-left shadow-elevation-2xl"
+            className="relative z-10 w-full max-w-lg rounded-3xl border border-subtle bg-surface-contrast p-6 text-left shadow-elevation-2xl"
+            style={{ backgroundColor: 'var(--color-surface-contrast, #05060f)' }}
           >
             <header className="mb-4 flex items-start justify-between gap-4">
               <div>
@@ -433,12 +458,21 @@ const ModuleScopePopover = forwardRef<HTMLDivElement, ModuleScopePopoverProps>(
       return overlayContent;
     }
 
-    return (
+    if (!anchorRect) {
+      return null;
+    }
+    const sidebarContent = (
       <div
         ref={ref}
         role="dialog"
         aria-label="Module scope options"
-        className="absolute left-full top-1/2 z-20 ml-4 w-72 max-w-[18rem] -translate-y-1/2 rounded-2xl border border-subtle bg-surface-base p-4 text-left shadow-elevation-xl"
+        className="fixed z-[2147483647] w-72 max-w-[18rem] rounded-2xl border border-subtle bg-surface-contrast p-4 text-left shadow-elevation-2xl"
+        style={{
+          backgroundColor: 'var(--color-surface-contrast, #05060f)',
+          top: anchorRect.top + anchorRect.height / 2,
+          left: anchorRect.right + 16,
+          transform: 'translateY(-50%)'
+        }}
       >
         <div className="flex flex-col gap-1 border-b border-subtle pb-3">
           <span className="text-scale-2xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
@@ -457,6 +491,10 @@ const ModuleScopePopover = forwardRef<HTMLDivElement, ModuleScopePopoverProps>(
         <div className="mt-3 max-h-72 overflow-y-auto pr-1">{renderOptions()}</div>
       </div>
     );
+    if (typeof document !== 'undefined') {
+      return createPortal(sidebarContent, document.body);
+    }
+    return sidebarContent;
   }
 );
 
