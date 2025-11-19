@@ -798,7 +798,12 @@ function ConnectionBadge({
 
 export default function EventsExplorerPage() {
   const moduleScope = useModuleScope();
-  if (moduleScope.kind !== 'module' || moduleScope.loadingResources) {
+
+  const shouldShowModuleGate =
+    moduleScope.kind === 'module' &&
+    (moduleScope.loadingResources || Boolean(moduleScope.resourcesError));
+
+  if (shouldShowModuleGate) {
     return <ModuleScopeGate resourceName="events" />;
   }
   return <EventsExplorerPageContent />;

@@ -75,11 +75,6 @@ export default function SchedulesPage(): JSX.Element {
   const [submitting, setSubmitting] = useState(false);
 
   const loadSchedules = useCallback(async () => {
-    if (!isModuleScoped) {
-      setSchedules([]);
-      setError(null);
-      return;
-    }
     if (isModuleScoped && moduleScope.loadingResources) {
       return;
     }
@@ -101,7 +96,9 @@ export default function SchedulesPage(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchSchedules(authorizedFetch, { moduleId: activeModuleId ?? undefined });
+      const data = await fetchSchedules(authorizedFetch, {
+        moduleId: isModuleScoped ? activeModuleId ?? undefined : undefined
+      });
       setSchedules(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load schedules';
@@ -119,10 +116,6 @@ export default function SchedulesPage(): JSX.Element {
   ]);
 
   const loadWorkflows = useCallback(async () => {
-    if (!isModuleScoped) {
-      setWorkflows([]);
-      return;
-    }
     if (isModuleScoped && moduleScope.loadingResources) {
       return;
     }
@@ -138,7 +131,9 @@ export default function SchedulesPage(): JSX.Element {
     }
     setWorkflowsLoading(true);
     try {
-      const definitions = await fetchWorkflowDefinitions(authorizedFetch, { moduleId: activeModuleId ?? undefined });
+      const definitions = await fetchWorkflowDefinitions(authorizedFetch, {
+        moduleId: isModuleScoped ? activeModuleId ?? undefined : undefined
+      });
       setWorkflows(definitions);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load workflows';
@@ -165,7 +160,9 @@ export default function SchedulesPage(): JSX.Element {
     void loadWorkflows();
   }, [loadSchedules, loadWorkflows]);
 
-  const shouldShowModuleGate = moduleScope.kind !== 'module' || moduleScope.loadingResources;
+  const shouldShowModuleGate =
+    moduleScope.kind === 'module' &&
+    (moduleScope.loadingResources || Boolean(moduleScope.resourcesError));
 
   const workflowOptions = useMemo(() => {
     return workflows

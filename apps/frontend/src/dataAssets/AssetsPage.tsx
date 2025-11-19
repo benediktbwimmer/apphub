@@ -638,7 +638,12 @@ function AssetsPageContent() {
 
 export default function AssetsPage() {
   const moduleScope = useModuleScope();
-  if (moduleScope.kind !== 'module' || moduleScope.loadingResources) {
+
+  const shouldShowModuleGate =
+    moduleScope.kind === 'module' &&
+    (moduleScope.loadingResources || Boolean(moduleScope.resourcesError));
+
+  if (shouldShowModuleGate) {
     return <ModuleScopeGate resourceName="assets" />;
   }
   return <AssetsPageContent />;

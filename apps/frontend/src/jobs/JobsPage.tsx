@@ -329,9 +329,10 @@ export default function JobsPage() {
     error: jobsError
   } = useJobsList();
   const moduleScope = useModuleScope();
+  const isModuleScoped = moduleScope.kind === 'module';
 
   const moduleJobIdSet = useMemo(() => {
-    if (moduleScope.kind !== 'module' || !moduleScope.resources) {
+    if (!isModuleScoped || !moduleScope.resources) {
       return null;
     }
     return new Set(
@@ -339,7 +340,7 @@ export default function JobsPage() {
         .filter((context) => context.resourceType === 'job-definition')
         .map((context) => context.resourceId)
     );
-  }, [moduleScope.kind, moduleScope.resources]);
+  }, [isModuleScoped, moduleScope.resources]);
 
   const moduleJobs = useMemo(
     () =>
@@ -347,12 +348,12 @@ export default function JobsPage() {
         if (job.runtime !== 'module') {
           return false;
         }
-        if (moduleScope.kind !== 'module') {
+        if (!isModuleScoped) {
           return true;
         }
         return moduleJobIdSet ? moduleJobIdSet.has(job.id) : false;
       }),
-    [moduleJobIdSet, moduleScope.kind, sortedJobs]
+    [moduleJobIdSet, isModuleScoped, sortedJobs]
   );
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -391,9 +392,14 @@ export default function JobsPage() {
 
   const jobSnapshot = useJobSnapshot(selectedSlug);
   const moduleInfo = moduleScope.modules.find((module) => module.id === moduleScope.moduleId) ?? null;
-  const moduleTitle = moduleInfo?.displayName ?? moduleScope.moduleId ?? 'Module';
+  const moduleTitle = isModuleScoped
+    ? moduleInfo?.displayName ?? moduleScope.moduleId ?? 'Module'
+    : 'All modules';
 
-  if (moduleScope.kind !== 'module' || moduleScope.loadingResources) {
+  const shouldShowModuleGate =
+    isModuleScoped && (moduleScope.loadingResources || Boolean(moduleScope.resourcesError));
+
+  if (shouldShowModuleGate) {
     return <ModuleScopeGate resourceName="jobs" />;
   }
 
@@ -402,7 +408,9 @@ export default function JobsPage() {
       <div className="flex flex-col gap-2">
         <h1 className="text-scale-xl font-weight-semibold text-primary">{moduleTitle} jobs</h1>
         <p className="text-scale-sm text-secondary">
-          Inspect module jobs, review their bindings, and check recent activity.
+          {isModuleScoped
+            ? 'Inspect module jobs, review their bindings, and check recent activity.'
+            : 'Inspect module jobs across all modules, review their bindings, and check recent activity.'}
         </p>
       </div>
       <div className="flex flex-col gap-6 lg:flex-row">
