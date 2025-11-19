@@ -11,7 +11,7 @@ import { registerAdminRoutes } from './routes/admin';
 import { registerSqlRoutes } from './routes/sql';
 import { registerStreamingRoutes } from './routes/streaming';
 import { registerTestHarnessRoutes } from './routes/testHarness';
-import { ensureDefaultStorageTarget } from './service/bootstrap';
+import { ensureDefaultStorageTarget, ensureStreamingDatasets } from './service/bootstrap';
 import { closeLifecycleQueue, verifyLifecycleQueueConnection } from './lifecycle/queue';
 import { timestoreMetricsPlugin } from './observability/metricsPlugin';
 import { setupTracing } from './observability/tracing';
@@ -128,7 +128,8 @@ async function start(): Promise<void> {
 
   await ensureSchemaExists(POSTGRES_SCHEMA);
   await runMigrations();
-  await ensureDefaultStorageTarget();
+  const storageTarget = await ensureDefaultStorageTarget();
+  await ensureStreamingDatasets(config, storageTarget);
   await verifyLifecycleQueueConnection();
   await initializeFilestoreActivity({ config, logger: app.log });
   await initializeIngestionConnectors({ config, logger: app.log });

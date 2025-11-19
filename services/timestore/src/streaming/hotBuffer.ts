@@ -11,6 +11,21 @@ import {
   type StreamingHotBufferDatasetState
 } from '../observability/metrics';
 
+async function retryAsync<T>(fn: () => Promise<T>, attempts = 5, delayMs = 500): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 export interface HotBufferQueryOptions {
   rangeStart: Date;
   rangeEnd: Date;
@@ -296,8 +311,8 @@ class StreamingHotBufferManager {
     for (const batcher of this.batchers) {
       try {
         const consumer = this.kafka.consumer({ groupId: `timestore-hot-buffer-${batcher.id}` });
-        await consumer.connect();
-        await consumer.subscribe({ topic: batcher.topic, fromBeginning: batcher.startFromEarliest });
+        await retryAsync(() => consumer.connect());
+        await retryAsync(() => consumer.subscribe({ topic: batcher.topic, fromBeginning: batcher.startFromEarliest }));
         const datasetSlug = batcher.datasetSlug;
         const timeField = batcher.timeField;
         consumer
@@ -317,6 +332,7 @@ class StreamingHotBufferManager {
                   return;
                 }
                 this.store.ingest(datasetSlug, payload as Record<string, unknown>, timestamp);
+                this.healthy = true;
                 this.lastIngestAtMs = Date.now();
                 this.publishMetrics();
               } catch (error) {
@@ -450,6 +466,7 @@ class StreamingHotBufferManager {
       }
       this.store.setWatermark(record.datasetSlug, parsed);
     }
+    this.healthy = true;
     this.lastRefreshAtMs = Date.now();
     this.publishMetrics();
   }
