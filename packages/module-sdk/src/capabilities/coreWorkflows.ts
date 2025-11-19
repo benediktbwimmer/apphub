@@ -82,11 +82,18 @@ export function createCoreWorkflowsCapability(
   async function listAssetPartitions(
     input: ListWorkflowAssetPartitionsInput
   ): Promise<ListWorkflowAssetPartitionsResponse> {
+    const query: Record<string, string | number> = {};
+    if (input.lookback !== undefined) {
+      query.lookback = input.lookback;
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'partitionKey')) {
+      query.partitionKey = input.partitionKey ?? '';
+    }
     const response = await httpRequest<ListWorkflowAssetPartitionsResponse>({
       baseUrl: config.baseUrl,
       path: `/workflows/${encodeURIComponent(input.workflowSlug)}/assets/${encodeURIComponent(input.assetId)}/partitions`,
       method: 'GET',
-      query: input.lookback !== undefined ? { lookback: input.lookback } : undefined,
+      query: Object.keys(query).length > 0 ? query : undefined,
       authToken: config.token,
       principal: input.principal,
       fetchImpl: config.fetchImpl
@@ -153,6 +160,20 @@ export function createCoreWorkflowsCapability(
     }
 
     const { partitionKey } = input;
+    const normalizeWindow = (value: string): string => value.replace(/[:\s]+/g, '-');
+    const partitionKeyMatches = (requested: string, candidate: string | null): boolean => {
+      if (!candidate) {
+        return false;
+      }
+      if (candidate === requested) {
+        return true;
+      }
+      if (!requested.includes('=') && candidate.includes('window=')) {
+        const normalized = normalizeWindow(requested);
+        return candidate.includes(`window=${normalized}`);
+      }
+      return false;
+    };
     const lookback = input.lookback ?? 10;
     const response = await listAssetPartitions({
       ...input,
@@ -177,7 +198,7 @@ export function createCoreWorkflowsCapability(
             : typeof asset.partition_key === 'string'
               ? asset.partition_key
               : null;
-        if (partitionKey && entryPartitionKey !== partitionKey) {
+        if (partitionKey && !partitionKeyMatches(partitionKey, entryPartitionKey)) {
           continue;
         }
         latest = {

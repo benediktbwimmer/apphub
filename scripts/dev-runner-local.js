@@ -53,9 +53,6 @@ const LOCAL_POSTGRES = {
   database: process.env.APPHUB_DEV_POSTGRES_DB ?? 'apphub'
 };
 
-const DEFAULT_POSTGRES_IMAGE = process.env.APPHUB_DEV_POSTGRES_IMAGE || 'postgres:16-alpine';
-const DEFAULT_POSTGRES_CONTAINER = process.env.APPHUB_DEV_POSTGRES_CONTAINER || 'apphub-local-postgres';
-
 const LOCAL_REDIS = {
   host: '127.0.0.1',
   port: 6379
@@ -435,28 +432,6 @@ function startDockerContainer({ name, image, args }) {
   return run.stdout?.trim() || name;
 }
 
-async function startDockerPostgres(port) {
-  await fsPromises.mkdir(path.join(LOCAL_DATA_DIR, 'postgres'), { recursive: true });
-  const args = [
-    '--pull', 'missing',
-    '-p', `${port}:5432`,
-    '-e', `POSTGRES_USER=${LOCAL_POSTGRES.user}`,
-    '-e', `POSTGRES_PASSWORD=${LOCAL_POSTGRES.password}`,
-    '-e', `POSTGRES_DB=${LOCAL_POSTGRES.database}`,
-    '-v', `${path.join(LOCAL_DATA_DIR, 'postgres')}:/var/lib/postgresql/data`
-  ];
-  const containerId = startDockerContainer({ name: DEFAULT_POSTGRES_CONTAINER, image: DEFAULT_POSTGRES_IMAGE, args });
-  await waitForPort(LOCAL_POSTGRES.host, port, 60000, 'PostgreSQL (docker)');
-  console.log(`[dev-runner-local] PostgreSQL container ready (${containerId}).`);
-  await sleep(3000);
-  return {
-    cleanup: async () => {
-      spawnSync('docker', ['stop', '-t', '5', DEFAULT_POSTGRES_CONTAINER], { stdio: 'ignore' });
-      spawnSync('docker', ['rm', '-f', DEFAULT_POSTGRES_CONTAINER], { stdio: 'ignore' });
-    }
-  };
-}
-
 async function startDockerRedis(port) {
   const args = ['--pull', 'missing', '-p', `${port}:6379`];
   const containerId = startDockerContainer({ name: DEFAULT_REDIS_CONTAINER, image: DEFAULT_REDIS_IMAGE, args });
@@ -471,17 +446,13 @@ async function startDockerRedis(port) {
   };
 }
 
-async function setupLocalPostgres({ dockerAvailable }) {
+async function setupLocalPostgres() {
   const host = LOCAL_POSTGRES.host;
   const port = LOCAL_POSTGRES.port;
 
   if (await isPortAvailable(port, host)) {
-    if (dockerAvailable) {
-      console.log(`[dev-runner-local] PostgreSQL not detected on ${host}:${port}; starting local container.`);
-      return startDockerPostgres(port);
-    }
     throw new Error(
-      `[dev-runner-local] PostgreSQL is not listening on ${host}:${port}. Install and start PostgreSQL (e.g. 'brew services start postgresql@16' or 'docker run -p ${port}:5432 ${DEFAULT_POSTGRES_IMAGE}'), or point APPHUB_DEV_POSTGRES_* at a reachable database.`
+      `[dev-runner-local] PostgreSQL is not listening on ${host}:${port}. Start your local Postgres instance (for example via 'brew services start postgresql@16') or update APPHUB_DEV_POSTGRES_* to point at a reachable database.`
     );
   }
 
@@ -952,10 +923,7 @@ async function main() {
       localServices.push(redpandaConsoleService);
     }
 
-    const pgService = await setupLocalPostgres({ dockerAvailable });
-    if (pgService) {
-      localServices.push(pgService);
-    }
+    await setupLocalPostgres();
 
     if (skipRedis) {
       console.log('[dev-runner-local] Using Redis detected during preflight.');

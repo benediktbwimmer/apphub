@@ -30,6 +30,7 @@ const FLUSH_CHECK_MAX_ATTEMPTS = 6;
 const FLUSH_CHECK_DELAY_MS = 2_000;
 const FLUSH_CHECK_MAX_DELAY_MS = 10_000;
 const DEFAULT_SNAPSHOT_FRESHNESS_MS = 60_000;
+const FLUSH_LOOKBACK_MAX = 10_000;
 
 function sanitizePartitionKey(raw: string | undefined | null): string | null {
   if (!raw) {
@@ -45,6 +46,21 @@ function sanitizePartitionKey(raw: string | undefined | null): string | null {
   }
   const isoCandidate = trimmed.endsWith(':00Z') ? trimmed.slice(0, 16) : trimmed;
   return isoCandidate.length === 16 ? isoCandidate : null;
+}
+
+function computePartitionLookbackMinutes(partitionKey: string | undefined): number {
+  if (!partitionKey) {
+    return FLUSH_LOOKBACK_MAX;
+  }
+  const candidate = `${partitionKey}:00Z`;
+  const parsed = new Date(candidate);
+  if (Number.isNaN(parsed.getTime())) {
+    return FLUSH_LOOKBACK_MAX;
+  }
+  const diffMs = Date.now() - parsed.getTime();
+  const diffMinutes = Math.max(0, Math.ceil(diffMs / 60000));
+  const buffered = diffMinutes + 5;
+  return Math.min(Math.max(buffered, 1), FLUSH_LOOKBACK_MAX);
 }
 
 const parametersSchema = z
@@ -653,6 +669,7 @@ async function waitForFlushCompletion(
   const ingestWorkflowSlug = context.settings.reprocess.ingestWorkflowSlug;
   const ingestAssetId = context.settings.reprocess.ingestAssetId;
   let lastSummary: WorkflowAssetSummary | null = null;
+  const lookback = computePartitionLookbackMinutes(partitionKey);
 
   for (let attempt = 0; attempt < FLUSH_CHECK_MAX_ATTEMPTS; attempt += 1) {
     let summary: WorkflowAssetSummary | null = null;
@@ -661,6 +678,7 @@ async function waitForFlushCompletion(
         workflowSlug: ingestWorkflowSlug,
         assetId: ingestAssetId,
         partitionKey,
+        lookback,
         principal
       });
     } catch (error) {
@@ -896,6 +914,7 @@ export const dashboardAggregatorJob = createJobHandler<
         contentType: 'application/json',
         principal,
         idempotencyKey: `dashboard-json-${idempotencySuffix}`,
+        overwrite: true,
         metadata: {
           partitionKey,
           lookbackMinutes,
@@ -912,6 +931,7 @@ export const dashboardAggregatorJob = createJobHandler<
         contentType: 'text/html; charset=utf-8',
         principal,
         idempotencyKey: `dashboard-html-${idempotencySuffix}`,
+        overwrite: true,
         metadata: {
           partitionKey,
           lookbackMinutes,
