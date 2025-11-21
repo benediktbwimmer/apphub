@@ -337,11 +337,15 @@ async function fetchWorkflowAssetStalePartitionsForAsset(
   client: PoolClient,
   workflowDefinitionId: string,
   assetId: string,
-  options: { partitionKey?: string | null } = {}
+  options: { partitionKey?: string | null; normalizedPartitionKeys?: string[] } = {}
 ): Promise<WorkflowAssetStalePartitionRecord[]> {
   const params: unknown[] = [workflowDefinitionId, assetId];
   let partitionClause = '';
-  if (Object.prototype.hasOwnProperty.call(options, 'partitionKey')) {
+  if (options.normalizedPartitionKeys && options.normalizedPartitionKeys.length > 0) {
+    params.push(options.normalizedPartitionKeys);
+    partitionClause = `
+        AND partition_key_normalized = ANY($${params.length}::text[])`;
+  } else if (Object.prototype.hasOwnProperty.call(options, 'partitionKey')) {
     const { normalized } = normalizePartitionKeyValue(options.partitionKey ?? null);
     params.push(normalized);
     partitionClause = `
@@ -362,11 +366,15 @@ async function fetchWorkflowAssetPartitionParameters(
   client: PoolClient,
   workflowDefinitionId: string,
   assetId: string,
-  options: { partitionKey?: string | null } = {}
+  options: { partitionKey?: string | null; normalizedPartitionKeys?: string[] } = {}
 ): Promise<WorkflowAssetPartitionParametersRecord[]> {
   const params: unknown[] = [workflowDefinitionId, assetId];
   let partitionClause = '';
-  if (Object.prototype.hasOwnProperty.call(options, 'partitionKey')) {
+  if (options.normalizedPartitionKeys && options.normalizedPartitionKeys.length > 0) {
+    params.push(options.normalizedPartitionKeys);
+    partitionClause = `
+        AND partition_key_normalized = ANY($${params.length}::text[])`;
+  } else if (Object.prototype.hasOwnProperty.call(options, 'partitionKey')) {
     const { normalized } = normalizePartitionKeyValue(options.partitionKey ?? null);
     params.push(normalized);
     partitionClause = `
@@ -455,13 +463,20 @@ async function fetchWorkflowAssetPartitions(
   client: PoolClient,
   workflowDefinitionId: string,
   assetId: string,
-  options: { moduleIds?: string[] | null; partitionKeyFilter?: WorkflowAssetPartitionKeyFilter } = {}
-): Promise<WorkflowAssetPartitionSummary[]> {
+  options: {
+    moduleIds?: string[] | null;
+    partitionKeyFilter?: WorkflowAssetPartitionKeyFilter;
+    limit?: number;
+    offset?: number;
+  } = {}
+): Promise<{ partitions: WorkflowAssetPartitionSummary[]; totalCount: number }> {
   const moduleIds = normalizeModuleIds(options.moduleIds ?? null);
   const params: unknown[] = [workflowDefinitionId, assetId];
   let moduleClause = '';
   let partitionClause = '';
   const partitionFilter = options.partitionKeyFilter;
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  const offset = Math.max(options.offset ?? 0, 0);
 
   if (moduleIds && moduleIds.length > 0) {
     params.push(moduleIds);
@@ -470,7 +485,7 @@ async function fetchWorkflowAssetPartitions(
           SELECT 1
             FROM module_resource_contexts mrc
            WHERE mrc.resource_type = 'workflow-run'
-         AND mrc.resource_id = run.id
+             AND mrc.resource_id = run.id
              AND mrc.module_id = ANY($${params.length}::text[])
         )`;
   }
@@ -493,31 +508,73 @@ async function fetchWorkflowAssetPartitions(
     }
   }
 
-  const { rows } = await client.query<WorkflowAssetSnapshotRow>(
-    `SELECT asset.*,
-            step.status AS step_status,
-            run.status AS run_status,
-            run.started_at AS run_started_at,
-            run.completed_at AS run_completed_at
-       FROM workflow_run_step_assets asset
-       JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
-       JOIN workflow_runs run ON run.id = asset.workflow_run_id
-      WHERE asset.workflow_definition_id = $1
-        AND asset.asset_id = $2${partitionClause}
-        ${moduleClause}
-     ORDER BY COALESCE(asset.partition_key, ''),
-              asset.produced_at DESC,
-              asset.created_at DESC,
-              asset.id DESC`,
+  const countResult = await client.query<{ total: string }>(
+    `SELECT COUNT(*) AS total
+       FROM (
+         SELECT 1
+           FROM workflow_run_step_assets asset
+           JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
+           JOIN workflow_runs run ON run.id = asset.workflow_run_id
+          WHERE asset.workflow_definition_id = $1
+            AND asset.asset_id = $2${partitionClause}
+            ${moduleClause}
+          GROUP BY COALESCE(asset.partition_key, '')
+       ) partition_groups`,
     params
   );
+  const totalCount = Number(countResult.rows[0]?.total ?? 0);
+
+  const dataParams = [...params];
+  dataParams.push(offset);
+  const offsetParamIndex = dataParams.length;
+  dataParams.push(limit);
+  const limitParamIndex = dataParams.length;
+
+  const { rows } = await client.query<
+    WorkflowAssetSnapshotRow & {
+      partition_key_normalized: string;
+      materialization_count: string | null;
+    }
+  >(
+    `WITH ranked AS (
+        SELECT asset.*,
+               step.status AS step_status,
+               run.status AS run_status,
+               run.started_at AS run_started_at,
+               run.completed_at AS run_completed_at,
+               COALESCE(asset.partition_key, '') AS partition_key_normalized,
+               ROW_NUMBER() OVER (
+                 PARTITION BY COALESCE(asset.partition_key, '')
+                 ORDER BY asset.produced_at DESC NULLS LAST,
+                          asset.created_at DESC,
+                          asset.id DESC
+               ) AS partition_rank,
+               COUNT(*) OVER (PARTITION BY COALESCE(asset.partition_key, '')) AS materialization_count
+          FROM workflow_run_step_assets asset
+          JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
+          JOIN workflow_runs run ON run.id = asset.workflow_run_id
+         WHERE asset.workflow_definition_id = $1
+           AND asset.asset_id = $2${partitionClause}
+           ${moduleClause}
+       )
+       SELECT ranked.*
+         FROM ranked
+        WHERE partition_rank = 1
+        ORDER BY ranked.produced_at DESC NULLS LAST,
+                 ranked.partition_key_normalized,
+                 ranked.created_at DESC
+        OFFSET $${offsetParamIndex}
+        LIMIT $${limitParamIndex}`,
+    dataParams
+  );
+  const normalizedKeys = rows.map((row) => row.partition_key_normalized);
   const staleRecords = await fetchWorkflowAssetStalePartitionsForAsset(
     client,
     workflowDefinitionId,
     assetId,
     partitionFilter && partitionFilter.type === 'raw'
       ? { partitionKey: partitionFilter.value ?? null }
-      : {}
+      : { normalizedPartitionKeys: normalizedKeys }
   );
   const parameterRecords = await fetchWorkflowAssetPartitionParameters(
     client,
@@ -525,7 +582,7 @@ async function fetchWorkflowAssetPartitions(
     assetId,
     partitionFilter && partitionFilter.type === 'raw'
       ? { partitionKey: partitionFilter.value ?? null }
-      : {}
+      : { normalizedPartitionKeys: normalizedKeys }
   );
   const staleByNormalized = new Map<string, WorkflowAssetStalePartitionRecord>();
   for (const record of staleRecords) {
@@ -549,17 +606,11 @@ async function fetchWorkflowAssetPartitions(
 
   for (const row of rows) {
     const snapshot = mapWorkflowAssetSnapshotRow(row);
-    const { raw, normalized } = normalizePartitionKeyValue(row.partition_key);
-    const existing = partitions.get(normalized);
-    if (existing) {
-      existing.materializationCount += 1;
-      continue;
-    }
-
+    const normalized = row.partition_key_normalized ?? '';
     partitions.set(normalized, {
-      partitionKey: raw,
+      partitionKey: row.partition_key,
       latest: snapshot,
-      materializationCount: 1,
+      materializationCount: Number(row.materialization_count ?? '1'),
       stale: staleByNormalized.get(normalized) ?? null,
       parameters: parametersByNormalized.get(normalized) ?? null
     });
@@ -589,7 +640,7 @@ async function fetchWorkflowAssetPartitions(
     }
   }
 
-  return Array.from(partitions.values()).map((entry) => ({
+  const partitionSummaries = Array.from(partitions.values()).map((entry) => ({
     assetId,
     partitionKey: entry.partitionKey,
     latest: entry.latest,
@@ -607,6 +658,11 @@ async function fetchWorkflowAssetPartitions(
     parametersCapturedAt: entry.parameters ? entry.parameters.capturedAt : null,
     parametersUpdatedAt: entry.parameters ? entry.parameters.updatedAt : null
   } satisfies WorkflowAssetPartitionSummary));
+
+  return {
+    partitions: partitionSummaries,
+    totalCount
+  };
 }
 
 export async function listWorkflowAssetDeclarations(
@@ -772,8 +828,13 @@ export async function listWorkflowAssetHistory(
 export async function listWorkflowAssetPartitions(
   workflowDefinitionId: string,
   assetId: string,
-  options: { moduleIds?: string[] | null; partitionKeyFilter?: WorkflowAssetPartitionKeyFilter } = {}
-): Promise<WorkflowAssetPartitionSummary[]> {
+  options: {
+    moduleIds?: string[] | null;
+    partitionKeyFilter?: WorkflowAssetPartitionKeyFilter;
+    limit?: number;
+    offset?: number;
+  } = {}
+): Promise<{ partitions: WorkflowAssetPartitionSummary[]; totalCount: number }> {
   return useConnection((client) => fetchWorkflowAssetPartitions(client, workflowDefinitionId, assetId, options));
 }
 

@@ -361,15 +361,26 @@ export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
           moduleIds: moduleScope?.hasFilters ? moduleScope.moduleIds : undefined
         });
         const moduleIds = moduleScope?.hasFilters ? moduleScope.moduleIds : undefined;
+        const workflowSnapshots = await Promise.all(
+          workflows.map(async (workflow) => {
+            const [declarations, latestSnapshots, stalePartitions] = await Promise.all([
+              listWorkflowAssetDeclarations(workflow.id),
+              listLatestWorkflowAssetSnapshots(workflow.id, { moduleIds }),
+              listWorkflowAssetStalePartitions(workflow.id)
+            ]);
+            return { workflow, declarations, latestSnapshots, stalePartitions };
+          })
+        );
         const aggregates = new Map<string, AssetGraphNode>();
         const edges: AssetGraphEdge[] = [];
         const edgeKeys = new Set<string>();
 
-        for (const workflow of workflows) {
+        for (const entry of workflowSnapshots) {
+          const workflow = entry.workflow;
+          const declarations = entry.declarations;
+          const latestSnapshots = entry.latestSnapshots;
+          const stalePartitions = entry.stalePartitions;
           const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
-          const declarations = await listWorkflowAssetDeclarations(workflow.id);
-          const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id, { moduleIds });
-          const stalePartitions = await listWorkflowAssetStalePartitions(workflow.id);
           const rolesByStep = buildStepAssetRoles(declarations);
 
           for (const declaration of declarations) {

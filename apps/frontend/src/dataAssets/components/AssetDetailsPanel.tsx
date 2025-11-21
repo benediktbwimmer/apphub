@@ -41,6 +41,9 @@ type AssetDetailsPanelProps = {
   onClearStale: (partitionKey: string | null) => void;
   onTriggerRun: (partition: WorkflowAssetPartitions['partitions'][number]) => void;
   pendingActionKeys: Set<string>;
+  onLoadMorePartitions?: () => void;
+  hasMorePartitions?: boolean;
+  loadingMorePartitions?: boolean;
 };
 
 function buildActionKey(action: string, partitionKey: string | null): string {
@@ -57,7 +60,10 @@ export function AssetDetailsPanel({
   onMarkStale,
   onClearStale,
   onTriggerRun,
-  pendingActionKeys
+  pendingActionKeys,
+  onLoadMorePartitions,
+  hasMorePartitions,
+  loadingMorePartitions
 }: AssetDetailsPanelProps) {
   if (!asset) {
     return (
@@ -303,6 +309,23 @@ export function AssetDetailsPanel({
                   })}
                 </tbody>
               </table>
+            </div>
+          ) : null}
+          {partitions && partitions.pagination ? (
+            <div className="flex flex-col items-center gap-2 pt-3">
+              <span className={DATA_ASSET_PARTITION_META}>
+                Showing {partitions.partitions.length} of {partitions.pagination.total} partitions
+              </span>
+              {hasMorePartitions ? (
+                <button
+                  type="button"
+                  className={DATA_ASSET_ACTION_PILL_ACCENT}
+                  onClick={onLoadMorePartitions}
+                  disabled={loadingMorePartitions || !onLoadMorePartitions}
+                >
+                  {loadingMorePartitions ? 'Loading…' : 'Load more'}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </section>

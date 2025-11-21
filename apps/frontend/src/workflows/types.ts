@@ -608,6 +608,12 @@ export type WorkflowAssetPartitions = {
   assetId: string;
   partitioning: WorkflowAssetPartitioning | null;
   partitions: WorkflowAssetPartitionSummary[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    nextOffset: number | null;
+  };
 };
 
 export type WorkflowFiltersState = {

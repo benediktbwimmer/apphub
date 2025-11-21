@@ -435,7 +435,10 @@ const workflowAssetPartitionsQuerySchema = z
     lookback: z
       .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(10_000).optional()),
     moduleId: z.union([z.string(), z.array(z.string())]).optional(),
-    partitionKey: z.string().max(200).optional()
+    partitionKey: z.string().max(200).optional(),
+    limit: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(200).optional()),
+    offset: z.preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(0).optional())
   })
   .partial();
 
@@ -2140,6 +2143,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     const partitioningSpec = assetMatches.find((declaration) => declaration.partitioning)?.partitioning ?? null;
+    const limit = Math.min(Math.max(parseQuery.data.limit ?? 50, 1), 200);
+    const offset = Math.max(parseQuery.data.offset ?? 0, 0);
     let partitionKeyFilterResponseValue: string | null = null;
     let partitionKeyFilter: WorkflowAssetPartitionKeyFilter | undefined;
     if (Object.prototype.hasOwnProperty.call(parseQuery.data, 'partitionKey')) {
@@ -2166,10 +2171,13 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         }
       }
     }
-    const partitions = await listWorkflowAssetPartitions(workflow.id, parseParams.data.assetId, {
+    const partitionResult = await listWorkflowAssetPartitions(workflow.id, parseParams.data.assetId, {
       moduleIds,
-      partitionKeyFilter
+      partitionKeyFilter,
+      limit,
+      offset
     });
+    const partitions = partitionResult.partitions;
     const partitionMap = new Map<string, typeof partitions[number]>();
 
     for (const entry of partitions) {
@@ -2177,7 +2185,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       partitionMap.set(key, entry);
     }
 
-    const shouldEnumeratePartitions = partitionKeyFilter === undefined;
+    const shouldEnumeratePartitions = partitionKeyFilter === undefined && offset === 0;
 
     if (
       shouldEnumeratePartitions &&
@@ -2267,6 +2275,12 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       const bKey = b.partitionKey ?? '';
       return aKey.localeCompare(bKey);
     });
+    if (partitionSummaries.length > limit) {
+      partitionSummaries.length = limit;
+    }
+
+    const totalCount = partitionResult.totalCount;
+    const nextOffset = offset + partitions.length < totalCount ? offset + partitions.length : null;
 
     reply.status(200);
     return {
@@ -2274,7 +2288,13 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         assetId: parseParams.data.assetId,
         partitioning: partitioningSpec ?? null,
         partitions: partitionSummaries,
-        partitionKey: partitionKeyFilterResponseValue
+        partitionKey: partitionKeyFilterResponseValue,
+        pagination: {
+          limit,
+          offset,
+          total: totalCount,
+          nextOffset
+        }
       }
     };
   });

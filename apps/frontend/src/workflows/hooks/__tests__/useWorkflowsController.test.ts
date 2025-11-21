@@ -615,7 +615,13 @@ describe('useWorkflowsController', () => {
           parametersCapturedAt: null,
           parametersUpdatedAt: null
         }
-      ]
+      ],
+      pagination: {
+        limit: 50,
+        offset: 0,
+        total: 1,
+        nextOffset: null
+      }
     };
     fetchWorkflowAssetPartitionsMock.mockResolvedValue(partitions);
 

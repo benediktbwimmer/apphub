@@ -1953,10 +1953,38 @@ export function normalizeWorkflowAssetPartitionsResponse(payload: unknown): Work
     })
     .filter((value): value is WorkflowAssetPartitions['partitions'][number] => Boolean(value));
 
+  const paginationRecord = toRecord(data.pagination);
+  const pagination = paginationRecord
+    ? {
+        limit:
+          typeof paginationRecord.limit === 'number' && Number.isFinite(paginationRecord.limit)
+            ? paginationRecord.limit
+            : partitions.length,
+        offset:
+          typeof paginationRecord.offset === 'number' && Number.isFinite(paginationRecord.offset)
+            ? paginationRecord.offset
+            : 0,
+        total:
+          typeof paginationRecord.total === 'number' && Number.isFinite(paginationRecord.total)
+            ? paginationRecord.total
+            : partitions.length,
+        nextOffset:
+          typeof paginationRecord.nextOffset === 'number' && Number.isFinite(paginationRecord.nextOffset)
+            ? paginationRecord.nextOffset
+            : null
+      }
+    : {
+        limit: partitions.length,
+        offset: 0,
+        total: partitions.length,
+        nextOffset: null
+      };
+
   return {
     assetId,
     partitioning,
-    partitions
+    partitions,
+    pagination
   };
 }
 

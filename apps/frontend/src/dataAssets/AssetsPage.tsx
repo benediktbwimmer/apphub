@@ -30,6 +30,8 @@ function buildPendingKey(action: string, slug: string, partitionKey: string | nu
   return `${action}:${slug}:${partitionKey ?? '::default::'}`;
 }
 
+const PARTITION_PAGE_SIZE = 50;
+
 function AssetsPageContent() {
   const { activeToken: authToken } = useAuth();
   const { showSuccess, showError, showDestructiveSuccess, showDestructiveError } = useToastHelpers();
@@ -52,6 +54,7 @@ function AssetsPageContent() {
   const [partitions, setPartitions] = useState<WorkflowAssetPartitions | null>(null);
   const [partitionsLoading, setPartitionsLoading] = useState(false);
   const [partitionsError, setPartitionsError] = useState<string | null>(null);
+  const [partitionsLoadingMore, setPartitionsLoadingMore] = useState(false);
   const [pendingActionKeys, setPendingActionKeys] = useState<Set<string>>(new Set());
   const [pendingRunPartition, setPendingRunPartition] = useState<WorkflowAssetPartitionSummary | null>(null);
   const [workflowInputsBySlug, setWorkflowInputsBySlug] = useState<Record<
@@ -145,13 +148,10 @@ function AssetsPageContent() {
   );
 
   const refreshGraph = useCallback(async () => {
-    if (!authToken) {
-      throw new ApiError('Authentication required', 401);
-    }
     const moduleId = isModuleScoped ? activeModuleId ?? undefined : undefined;
     const data = moduleId
-      ? await fetchAssetGraph(authToken, { moduleId })
-      : await fetchAssetGraph(authToken);
+      ? await fetchAssetGraph(authToken ?? undefined, { moduleId })
+      : await fetchAssetGraph(authToken ?? undefined);
     setRawGraph(data);
     const scoped = filterGraphForScope(data);
     setGraph(scoped);
@@ -159,9 +159,6 @@ function AssetsPageContent() {
   }, [activeModuleId, authToken, filterGraphForScope, isModuleScoped]);
 
   useEffect(() => {
-    if (!authToken) {
-      return;
-    }
     if (isModuleScoped && moduleLoadingResources) {
       return;
     }
@@ -232,30 +229,69 @@ function AssetsPageContent() {
   }, [selectedAsset, selectedWorkflowSlug]);
 
   const loadPartitions = useCallback(
-    async (assetNode: AssetGraphNode, workflowSlug: string) => {
-      if (!authToken) {
-        throw new ApiError('Authentication required', 401);
+    async (assetNode: AssetGraphNode, workflowSlug: string, options?: { offset?: number; append?: boolean }) => {
+      const targetOffset = options?.offset ?? 0;
+      const append = Boolean(options?.append);
+      if (append) {
+        setPartitionsLoadingMore(true);
+      } else {
+        setPartitionsLoading(true);
+        setPartitionsError(null);
       }
-      setPartitionsLoading(true);
-      setPartitionsError(null);
       if (isModuleScoped && !isResourceInScope('workflow-definition', workflowSlug)) {
         setPartitions(null);
         setPartitionsError('Workflow not available in current module');
-        setPartitionsLoading(false);
+        if (append) {
+          setPartitionsLoadingMore(false);
+        } else {
+          setPartitionsLoading(false);
+        }
         return;
       }
       try {
         const moduleId = isModuleScoped ? activeModuleId ?? undefined : undefined;
         const data = moduleId
-          ? await fetchWorkflowAssetPartitions(authToken, workflowSlug, assetNode.assetId, { moduleId })
-          : await fetchWorkflowAssetPartitions(authToken, workflowSlug, assetNode.assetId, {});
-        setPartitions(data);
+          ? await fetchWorkflowAssetPartitions(authToken ?? undefined, workflowSlug, assetNode.assetId, {
+              moduleId,
+              offset: targetOffset,
+              limit: PARTITION_PAGE_SIZE
+            })
+          : await fetchWorkflowAssetPartitions(authToken ?? undefined, workflowSlug, assetNode.assetId, {
+              offset: targetOffset,
+              limit: PARTITION_PAGE_SIZE
+            });
+        if (!data) {
+          setPartitions(null);
+          return;
+        }
+        setPartitions((current) => {
+          if (append && current) {
+            const merged = [...current.partitions, ...data.partitions];
+            return {
+              ...data,
+              partitions: merged,
+              pagination: {
+                limit: data.pagination.limit,
+                offset: current.pagination?.offset ?? 0,
+                total: data.pagination.total,
+                nextOffset: data.pagination.nextOffset
+              }
+            };
+          }
+          return data;
+        });
       } catch (err) {
         const message = err instanceof ApiError ? err.message : 'Failed to load partitions';
         setPartitionsError(message);
-        setPartitions(null);
+        if (!append) {
+          setPartitions(null);
+        }
       } finally {
-        setPartitionsLoading(false);
+        if (append) {
+          setPartitionsLoadingMore(false);
+        } else {
+          setPartitionsLoading(false);
+        }
       }
     },
     [activeModuleId, authToken, isModuleScoped, isResourceInScope]
@@ -289,6 +325,21 @@ function AssetsPageContent() {
   const handleSelectWorkflow = useCallback((workflowSlug: string) => {
     setSelectedWorkflowSlug(workflowSlug);
   }, []);
+
+  const handleLoadMorePartitions = useCallback(async () => {
+    if (!selectedAsset || !selectedWorkflowSlug) {
+      return;
+    }
+    const nextOffset = partitions?.pagination?.nextOffset;
+    if (nextOffset === null || nextOffset === undefined) {
+      return;
+    }
+    try {
+      await loadPartitions(selectedAsset, selectedWorkflowSlug, { offset: nextOffset, append: true });
+    } catch {
+      // errors handled via setPartitionsError
+    }
+  }, [loadPartitions, partitions?.pagination?.nextOffset, selectedAsset, selectedWorkflowSlug]);
 
   const withPendingAction = useCallback(
     async (actionKey: string, task: () => Promise<void>) => {
@@ -581,6 +632,9 @@ function AssetsPageContent() {
     ]
   );
 
+  const hasMorePartitions =
+    partitions?.pagination?.nextOffset !== null && partitions?.pagination?.nextOffset !== undefined;
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -609,12 +663,15 @@ function AssetsPageContent() {
             onSelectWorkflow={handleSelectWorkflow}
             partitions={partitions}
             partitionsLoading={partitionsLoading}
-            partitionsError={partitionsError}
-            onMarkStale={handleMarkStale}
-            onClearStale={handleClearStale}
-            onTriggerRun={handleRequestRun}
-            pendingActionKeys={pendingActionKeys}
-          />
+          partitionsError={partitionsError}
+          onMarkStale={handleMarkStale}
+          onClearStale={handleClearStale}
+          onTriggerRun={handleRequestRun}
+          pendingActionKeys={pendingActionKeys}
+          hasMorePartitions={hasMorePartitions}
+          onLoadMorePartitions={hasMorePartitions ? handleLoadMorePartitions : undefined}
+          loadingMorePartitions={partitionsLoadingMore}
+        />
         </div>
       )}
       <AssetRecomputeDialog
