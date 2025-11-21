@@ -1412,7 +1412,14 @@ export async function fetchWorkflowAssetPartitions(
   token: TokenInput,
   slug: string,
   assetId: string,
-  options: { lookback?: number; moduleId?: string | null; moduleScope?: ModuleScopeOption } = {}
+  options: {
+    lookback?: number;
+    moduleId?: string | null;
+    moduleScope?: ModuleScopeOption;
+    limit?: number;
+    offset?: number;
+    partitionKey?: string | null;
+  } = {}
 ): Promise<WorkflowAssetPartitions | null> {
   const params = new URLSearchParams();
   if (options.lookback !== undefined) {
@@ -1420,6 +1427,15 @@ export async function fetchWorkflowAssetPartitions(
   }
   if (options.moduleId && options.moduleScope !== 'global') {
     params.set('moduleId', options.moduleId);
+  }
+  if (options.limit !== undefined) {
+    params.set('limit', String(options.limit));
+  }
+  if (options.offset !== undefined) {
+    params.set('offset', String(options.offset));
+  }
+  if (options.partitionKey) {
+    params.set('partitionKey', options.partitionKey);
   }
   const query = params.toString();
   try {
