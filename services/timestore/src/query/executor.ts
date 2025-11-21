@@ -135,14 +135,16 @@ async function executeClickHouseRawPlan(
         format: 'JSONEachRow'
       });
       const tableRows = await result.json<Record<string, unknown>>();
-      if (tableRows.length > 0) {
-        rows.push(...tableRows);
+      for (const row of tableRows) {
+        rows.push(row);
       }
     } catch (error) {
       console.warn('[timestore] clickhouse query failed', {
         datasetSlug: plan.datasetSlug,
         tableName,
-        error: error instanceof Error ? error.message : error
+        error: error instanceof Error ? error.message : error,
+        errorName: error instanceof Error ? error.name : undefined,
+        stack: error instanceof Error ? error.stack : undefined
       });
       warnings.push(`Failed to read ClickHouse table '${tableName}'.`);
     }
