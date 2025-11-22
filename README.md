@@ -233,6 +233,14 @@ Use the "Environmental observatory" entry in the Import wizard to pull the curat
 
 The end-to-end walkthrough lives in `docs/environmental-observatory-workflows.md` and covers bootstrap scripts, trigger wiring, and validation steps once synthetic minute-level data begins to flow.
 
+### Module catalog configuration
+
+You can choose which modules surface via `/modules/catalog` at runtime. Set `APPHUB_MODULE_CATALOG` (inline JSON or a comma/newline list of `id=/absolute/path/to/module`) or `APPHUB_MODULE_CATALOG_FILE` (path to a JSON file with catalog entries) before running `npm run local-dev` or `docker compose -f docker/demo-stack.compose.yml up`. Example:
+
+```bash
+APPHUB_MODULE_CATALOG='[{"id":"foodbike-route","displayName":"Foodbike Route","description":"Route planning demo","workspacePath":"/opt/modules/foodbike-route","workspaceName":"@apphub/foodbike-route-module"}]' npm run local-dev
+```
+
 ### Frontend
 
 ```bash
