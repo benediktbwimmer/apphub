@@ -45,7 +45,7 @@ export async function syncServices(options: SyncServicesOptions): Promise<number
     }
 
     const basePath = normalizeBasePath(typeof registration.basePath === 'string' ? registration.basePath : undefined);
-    const host = '127.0.0.1';
+    const host = options.env.MODULE_SERVICE_HOST?.trim() || '127.0.0.1';
     const baseUrl = buildBaseUrl(host, declaredDefaultPort, basePath);
 
     const healthEndpoint = normalizePathSegment(

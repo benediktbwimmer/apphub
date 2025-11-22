@@ -12,6 +12,7 @@ import {
   setServiceStatus,
   upsertService,
   upsertModuleResourceContext,
+  replaceModuleManifests,
   type JsonValue,
   type ServiceRecord,
   type ServiceStatusUpdate,
@@ -40,7 +41,7 @@ import {
   buildBootstrapContext,
   updatePlaceholderSummaries
 } from '../serviceManifestHelpers';
-import { getServiceHealthSnapshot, getServiceHealthSnapshots } from '../serviceRegistry';
+import { getServiceHealthSnapshot, getServiceHealthSnapshots, resetServiceManifestState } from '../serviceRegistry';
 import { schemaRef } from '../openapi/definitions';
 import { handleModuleScopeError, resolveModuleScope } from './shared/moduleScope';
 import type {
@@ -94,6 +95,116 @@ function normalizeVariables(input?: Record<string, string> | null): Record<strin
     normalized[key] = value;
   }
   return normalized;
+}
+
+function parseBaseUrl(input: string | null | undefined): { host: string | null; port: number | null } {
+  if (!input) {
+    return { host: null, port: null };
+  }
+  try {
+    const url = new URL(input);
+    const port =
+      url.port && Number.isFinite(Number.parseInt(url.port, 10))
+        ? Number.parseInt(url.port, 10)
+        : url.protocol === 'https:'
+          ? 443
+          : url.protocol === 'http:'
+            ? 80
+            : null;
+    return { host: url.hostname, port };
+  } catch {
+    return { host: null, port: null };
+  }
+}
+
+function normalizeBasePath(basePath?: string): string {
+  if (!basePath) {
+    return '/';
+  }
+  let normalized = basePath.trim();
+  if (!normalized) {
+    return '/';
+  }
+  if (!normalized.startsWith('/')) {
+    normalized = `/${normalized}`;
+  }
+  if (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized || '/';
+}
+
+function normalizePathSegment(value?: string): string {
+  const normalized = value?.trim() ?? '';
+  if (!normalized) {
+    return '/';
+  }
+  if (!normalized.startsWith('/')) {
+    return `/${normalized}`;
+  }
+  return normalized;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asStringMap(value: unknown): Record<string, string> | undefined {
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (typeof entry === 'string') {
+      result[key] = entry;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function substituteEnvPlaceholders(
+  value: string,
+  context: { port: number; host: string; baseUrl: string; origin: string }
+): string {
+  let output = value;
+  const replacements: Record<string, string> = {
+    port: String(context.port),
+    host: context.host,
+    baseurl: context.baseUrl,
+    'base-url': context.baseUrl,
+    origin: context.origin
+  };
+  for (const [token, replacement] of Object.entries(replacements)) {
+    const pattern = new RegExp(`\\{\\{\\s*${token}\\s*\\}\\}`, 'gi');
+    output = output.replace(pattern, replacement);
+  }
+  output = output.replace(/\$\{([A-Z0-9_:-]+)}/g, (_match, name: string) => process.env[name] ?? '');
+  return output;
+}
+
+function resolveServiceEnvTemplate(
+  envTemplate: Record<string, string> | undefined,
+  context: { port: number; host: string; baseUrl: string }
+): Record<string, string> {
+  const resolved: Record<string, string> = {};
+  const origin = (() => {
+    try {
+      return new URL(context.baseUrl).origin;
+    } catch {
+      return context.baseUrl;
+    }
+  })();
+  const replacements = { ...context, origin };
+  if (envTemplate) {
+    for (const [key, value] of Object.entries(envTemplate)) {
+      resolved[key] = substituteEnvPlaceholders(value, replacements);
+    }
+  }
+  return resolved;
 }
 
 function sanitizeForPathSegment(value: string): string {
@@ -193,11 +304,160 @@ function buildS3ArtifactPath(bucket: string, key: string): string {
   return `${normalizedBucket}/${normalizedKey}`;
 }
 
+async function ensureServiceManifestsFromArtifact(params: {
+  moduleId: string;
+  moduleVersion: string;
+  manifest: ModuleManifest;
+  artifactPath: string;
+  artifactStorage: 'filesystem' | 's3';
+  artifactChecksum: string;
+  logger: FastifyBaseLogger;
+}): Promise<void> {
+  const serviceTargets = params.manifest.targets.filter((target) => target.kind === 'service');
+  if (serviceTargets.length === 0) {
+    return;
+  }
+
+  const entries = [];
+  const defaultHost = process.env.MODULE_SERVICE_HOST?.trim() || '127.0.0.1';
+
+  for (const target of serviceTargets) {
+    const registrationValue = asRecord(target.service?.registration);
+    const slugRaw = typeof registrationValue?.slug === 'string' ? registrationValue.slug.trim() : '';
+    const slug = slugRaw.toLowerCase();
+    if (!slug) {
+      params.logger.warn({ target: target.name }, 'Skipping service manifest; missing slug');
+      continue;
+    }
+
+    const serviceRecord = await getServiceBySlug(slug);
+
+    const basePath = normalizeBasePath(
+      typeof registrationValue?.basePath === 'string' ? registrationValue.basePath : undefined
+    );
+    const healthEndpoint = normalizePathSegment(
+      typeof registrationValue?.healthEndpoint === 'string' ? registrationValue.healthEndpoint : '/'
+    );
+    const defaultPort =
+      typeof registrationValue?.defaultPort === 'number' && Number.isFinite(registrationValue.defaultPort)
+        ? Math.trunc(registrationValue.defaultPort)
+        : null;
+
+    const { host: parsedHost, port: parsedPort } = parseBaseUrl(serviceRecord?.baseUrl);
+    const host = parsedHost ?? defaultHost;
+    const port = parsedPort ?? defaultPort ?? 0;
+    const baseUrl =
+      serviceRecord?.baseUrl || `http://${host}:${port}${basePath === '/' ? '' : basePath}`;
+
+    const envTemplate = asStringMap(
+      registrationValue?.env ?? (registrationValue?.envTemplate as Record<string, string> | undefined)
+    );
+    const runtimeEnvFromMetadata = (() => {
+      const metadata = asRecord(serviceRecord?.metadata as Record<string, unknown> | null | undefined);
+      const config = asRecord(metadata?.config);
+      const runtime = asRecord(config?.runtime);
+      const env = asRecord(runtime?.env);
+      if (!env) {
+        return null;
+      }
+      const result: Record<string, string> = {};
+      for (const [key, value] of Object.entries(env)) {
+        if (value === undefined || value === null) {
+          continue;
+        }
+        result[key] = String(value);
+      }
+      return Object.keys(result).length > 0 ? result : null;
+    })();
+
+    const resolvedEnv =
+      runtimeEnvFromMetadata ?? resolveServiceEnvTemplate(envTemplate, { port, host, baseUrl });
+    if (!resolvedEnv.PORT) {
+      resolvedEnv.PORT = String(port);
+    }
+    if (!resolvedEnv.HOST) {
+      resolvedEnv.HOST = host;
+    }
+    if (!resolvedEnv.BASE_URL) {
+      resolvedEnv.BASE_URL = baseUrl;
+    }
+
+    const tags = Array.isArray(registrationValue?.tags)
+      ? Array.from(
+          new Set(
+            registrationValue.tags
+              .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+              .filter((tag) => !!tag)
+          )
+        )
+      : [];
+
+    const registration = {
+      basePath,
+      tags: tags.length > 0 ? tags : undefined,
+      defaultPort: defaultPort ?? undefined,
+      metadata: asRecord(registrationValue?.metadata),
+      ui: asRecord(registrationValue?.ui),
+      envTemplate: envTemplate ?? undefined,
+      healthEndpoint
+    };
+
+    const displayName =
+      serviceRecord?.displayName ??
+      (typeof registrationValue?.displayName === 'string' && registrationValue.displayName.trim()
+        ? registrationValue.displayName.trim()
+        : target.displayName ?? target.name);
+    const kind =
+      serviceRecord?.kind ??
+      (typeof registrationValue?.kind === 'string' && registrationValue.kind.trim()
+        ? registrationValue.kind.trim()
+        : 'module-service');
+
+    const definition = {
+      slug,
+      displayName,
+      kind,
+      moduleId: params.moduleId,
+      moduleVersion: params.moduleVersion,
+      target: {
+        name: target.name,
+        version: target.version ?? params.moduleVersion,
+        fingerprint: target.fingerprint ?? null
+      },
+      artifact: {
+        path: params.artifactPath,
+        storage: params.artifactStorage,
+        checksum: params.artifactChecksum
+      },
+      runtime: {
+        host,
+        port,
+        baseUrl,
+        healthEndpoint,
+        env: resolvedEnv
+      },
+      registration
+    };
+
+    const checksum = createHash('sha256').update(JSON.stringify(definition)).digest('hex');
+    entries.push({ serviceSlug: slug, definition: definition as JsonValue, checksum });
+  }
+
+  if (entries.length === 0) {
+    return;
+  }
+
+  await replaceModuleManifests(params.moduleId, entries);
+  resetServiceManifestState();
+  params.logger.info({ moduleId: params.moduleId, services: entries.length }, 'Stored module service manifests');
+}
+
 async function handleInlineModuleArtifact(params: {
   payload: ModuleArtifactUploadPayload;
   artifact: InlineModuleArtifactPayload;
   directory: string;
   manifestPath: string;
+  logger: FastifyBaseLogger;
 }): Promise<{ data: { module: unknown; artifact: { id: string; version: string } } }> {
   const normalized = normalizeInlineArtifact(params.artifact);
   const artifactPath = resolveArtifactPath(params.directory, normalized.filename);
@@ -219,6 +479,16 @@ async function handleInlineModuleArtifact(params: {
     artifactSize: normalized.size
   });
 
+  await ensureServiceManifestsFromArtifact({
+    moduleId: params.payload.moduleId,
+    moduleVersion: params.payload.moduleVersion,
+    manifest: params.payload.manifest as ModuleManifest,
+    artifactPath,
+    artifactStorage: 'filesystem',
+    artifactChecksum: checksum,
+    logger: params.logger
+  });
+
   return {
     data: {
       module: result.module,
@@ -234,6 +504,7 @@ async function handleS3ModuleArtifact(params: {
   payload: ModuleArtifactUploadPayload;
   artifact: S3ModuleArtifactPayload;
   manifestPath: string;
+  logger: FastifyBaseLogger;
 }): Promise<{ data: { module: unknown; artifact: { id: string; version: string } } }> {
   const bucket = params.artifact.bucket.trim();
   const key = params.artifact.key.replace(/^\/+/, '');
@@ -268,6 +539,16 @@ async function handleS3ModuleArtifact(params: {
     artifactStorage: 's3',
     artifactContentType: params.artifact.contentType ?? null,
     artifactSize: params.artifact.size
+  });
+
+  await ensureServiceManifestsFromArtifact({
+    moduleId: params.payload.moduleId,
+    moduleVersion: params.payload.moduleVersion,
+    manifest: params.payload.manifest as ModuleManifest,
+    artifactPath,
+    artifactStorage: 's3',
+    artifactChecksum: params.artifact.checksum,
+    logger: params.logger
   });
 
   return {
@@ -1207,13 +1488,15 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
             ? await handleS3ModuleArtifact({
                 payload,
                 artifact: payload.artifact,
-                manifestPath
+                manifestPath,
+                logger: request.log
               })
             : await handleInlineModuleArtifact({
                 payload,
                 artifact: payload.artifact,
                 directory,
-                manifestPath
+                manifestPath,
+                logger: request.log
               });
 
         reply.status(201);
