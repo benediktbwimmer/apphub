@@ -50,7 +50,8 @@ function coerceEntry(raw: unknown, index: number): ModuleCatalogEntry | null {
   const fallbackId = toNonEmptyString(source.id) ?? `module-${index + 1}`;
   const normalizedId = fallbackId.trim().toLowerCase();
   const workspaceName =
-    toNonEmptyString(source.workspaceName) ?? path.basename(workspacePath) || normalizedId;
+    toNonEmptyString(source.workspaceName) ??
+    (path.basename(workspacePath) || normalizedId);
   const displayName =
     toNonEmptyString(source.displayName) ?? titleize(normalizedId) ?? 'AppHub module';
 
