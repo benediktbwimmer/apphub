@@ -10,6 +10,7 @@ import {
 } from '../db/metadata';
 import type { ServiceConfig } from '../config/serviceConfig';
 import { ensureClickHouseTable } from '../clickhouse/writer';
+import type { FieldDefinition } from '../ingestion/types';
 
 const DEFAULT_STORAGE_TARGET_NAME = 'timestore-clickhouse';
 const DEFAULT_STORAGE_TARGET_ID = `st-${DEFAULT_STORAGE_TARGET_NAME}`;
@@ -33,7 +34,7 @@ async function ensureClickHouseTableWithRetry(params: {
   config: ServiceConfig;
   datasetSlug: string;
   tableName: string;
-  schema: { name: string; type: string }[];
+  schema: FieldDefinition[];
 }): Promise<void> {
   const maxAttempts = 5;
   const delayMs = 2000;
