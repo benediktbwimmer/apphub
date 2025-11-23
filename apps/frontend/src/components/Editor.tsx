@@ -24,7 +24,6 @@ export type EditorProps = BaseEditorProps;
 
 const BASE_OPTIONS: MonacoEditorProps['options'] = {
   minimap: { enabled: false },
-  renderOverviewRuler: false,
   scrollBeyondLastLine: false,
   fontSize: 13,
   fontLigatures: true,

@@ -2,7 +2,6 @@ import type { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import type { ThemeDefinition } from '@apphub/shared/designTokens';
 import { withAlpha } from './color';
-import type { ITokenThemeRule } from 'monaco-editor';
 
 export interface MonacoThemeSpec {
   readonly id: string;
@@ -131,7 +130,7 @@ function createThemeColors(theme: ThemeDefinition): Record<string, string> {
 export function createMonacoTheme(theme: ThemeDefinition): MonacoThemeSpec {
   const base = theme.scheme === 'dark' ? 'vs-dark' : 'vs';
   const colors = createThemeColors(theme);
-  const rules: ITokenThemeRule[] = [];
+  const rules: editor.ITokenThemeRule[] = [];
 
   const keywordColor = toMonacoHex(theme.semantics.accent.emphasis);
   if (keywordColor) {
