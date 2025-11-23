@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WorkflowEventSchedulerHealth } from '../workflows/types';
 import { getWorkflowEventHealth } from '../workflows/api';
-import { useAuth } from '../auth/useAuth';
+import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 
 const REFRESH_INTERVAL_MS = 30_000;
 
@@ -15,7 +15,7 @@ export type EventHealthSnapshotState = {
 };
 
 export function useEventHealthSnapshot(): EventHealthSnapshotState {
-  const { activeToken: authToken } = useAuth();
+  const authorizedFetch = useAuthorizedFetch();
   const [health, setHealth] = useState<WorkflowEventSchedulerHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -25,15 +25,6 @@ export function useEventHealthSnapshot(): EventHealthSnapshotState {
 
   const fetchSnapshot = useCallback(
     async (background: boolean) => {
-      if (!authToken) {
-        if (background) {
-          setRefreshing(false);
-        } else {
-          setLoading(false);
-        }
-        setError(null);
-        return;
-      }
       if (background) {
         setRefreshing(true);
       } else {
@@ -41,7 +32,7 @@ export function useEventHealthSnapshot(): EventHealthSnapshotState {
       }
       setError(null);
       try {
-        const snapshot = await getWorkflowEventHealth(authToken);
+        const snapshot = await getWorkflowEventHealth(authorizedFetch);
         setHealth(snapshot);
         setLastUpdatedAt(new Date().toISOString());
       } catch (err) {
@@ -54,7 +45,7 @@ export function useEventHealthSnapshot(): EventHealthSnapshotState {
         }
       }
     },
-    [authToken]
+    [authorizedFetch]
   );
 
   useEffect(() => {
