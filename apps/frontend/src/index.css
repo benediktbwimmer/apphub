@@ -42,6 +42,33 @@
     --accent-surface-strong: color-mix(in srgb, var(--color-accent-default) 36%, transparent);
     --accent-shadow-soft: 0 22px 48px -28px color-mix(in srgb, var(--color-accent-default) 48%, transparent);
     --border-accent-soft: color-mix(in srgb, var(--color-border-accent, var(--color-accent-default)) 65%, transparent);
+
+    /* Monaco CSS variable overrides so selections never inherit system red. */
+    --vscode-editor-selectionBackground: color-mix(
+      in srgb,
+      var(--color-accent-emphasis, var(--color-accent-default)) 28%,
+      transparent
+    );
+    --vscode-editor-selectionHighlightBackground: color-mix(
+      in srgb,
+      var(--color-accent-muted, var(--color-accent-default)) 32%,
+      transparent
+    );
+    --vscode-editor-inactiveSelectionBackground: color-mix(
+      in srgb,
+      var(--color-accent-muted, var(--color-accent-default)) 30%,
+      transparent
+    );
+    --vscode-editor-wordHighlightBackground: color-mix(
+      in srgb,
+      var(--color-accent-muted, var(--color-accent-default)) 30%,
+      transparent
+    );
+    --vscode-editor-wordHighlightStrongBackground: color-mix(
+      in srgb,
+      var(--color-accent-emphasis, var(--color-accent-default)) 24%,
+      transparent
+    );
   }
 
   :root[data-theme='apphub-dark'],
@@ -101,6 +128,113 @@
 }
 
 @layer utilities {
+  /* Monaco tweak: enforce accent-based selections/markers so the editor never falls back to harsh red. */
+  .monaco-editor,
+  .monaco-diff-editor {
+    --monaco-selection-strong: color-mix(
+      in srgb,
+      var(--color-accent-emphasis, var(--color-accent-default)) 28%,
+      transparent
+    ) !important;
+    --monaco-selection-soft: color-mix(
+      in srgb,
+      var(--color-accent-muted, var(--color-accent-default)) 30%,
+      transparent
+    ) !important;
+    --monaco-marker-soft: color-mix(
+      in srgb,
+      var(--color-accent-muted, var(--color-accent-default)) 26%,
+      transparent
+    ) !important;
+    --monaco-surface: var(--color-surface-sunken, #0f0a1a);
+    --monaco-gutter: var(--color-surface-canvas-muted, #111827);
+    --monaco-line-highlight: color-mix(
+      in srgb,
+      var(--color-accent-muted, var(--color-accent-default)) 34%,
+      transparent
+    );
+    --vscode-editor-selectionBackground: var(--monaco-selection-strong) !important;
+    --vscode-editor-selectionHighlightBackground: var(--monaco-selection-soft) !important;
+    --vscode-editor-inactiveSelectionBackground: var(--monaco-selection-soft) !important;
+    --vscode-editor-rangeHighlightBackground: var(--monaco-selection-soft) !important;
+    --vscode-editor-background: var(--monaco-surface) !important;
+    --vscode-editorGutter-background: var(--monaco-gutter) !important;
+    --vscode-editor-lineHighlightBackground: var(--monaco-line-highlight) !important;
+    --vscode-editor-lineHighlightBorder: transparent !important;
+    --vscode-editorLineNumber-foreground: color-mix(
+      in srgb,
+      var(--color-text-muted, #94a3b8) 90%,
+      transparent
+    ) !important;
+    --vscode-editorLineNumber-activeForeground: var(--color-accent-default, #7c3aed) !important;
+    --vscode-editorError-foreground: var(--monaco-selection-strong) !important;
+    --vscode-editorError-background: var(--monaco-marker-soft) !important;
+    --vscode-editorError-border: var(--monaco-selection-strong) !important;
+    --vscode-editorGutter-errorBackground: var(--monaco-marker-soft) !important;
+    --vscode-editorGutter-errorForeground: var(--monaco-selection-strong) !important;
+    --vscode-editorMarkerNavigationError-background: var(--monaco-marker-soft) !important;
+    --vscode-editorOverviewRuler-errorForeground: var(--monaco-marker-soft) !important;
+    background-color: var(--monaco-surface) !important;
+  }
+
+  .monaco-editor .selected-text {
+    background-color: var(--monaco-selection-strong, rgba(124, 58, 237, 0.32)) !important;
+    color: var(--color-text-primary, #e2e8f0) !important;
+  }
+
+  .monaco-editor .view-lines *::selection,
+  .monaco-editor .view-lines *::-moz-selection {
+    background: var(--monaco-selection-strong, rgba(124, 58, 237, 0.32)) !important;
+    color: var(--color-text-primary, #e2e8f0) !important;
+  }
+
+  .monaco-editor ::selection,
+  .monaco-editor ::-moz-selection {
+    background: var(--monaco-selection-strong, rgba(124, 58, 237, 0.32)) !important;
+    color: var(--color-text-primary, #e2e8f0) !important;
+  }
+
+  .monaco-editor .selectionHighlight,
+  .monaco-editor .selected-text,
+  .monaco-editor .wordHighlight,
+  .monaco-editor .wordHighlightStrong,
+  .monaco-editor .findMatch,
+  .monaco-editor .findMatchHighlight {
+    background-color: var(--monaco-selection-strong, rgba(124, 58, 237, 0.32)) !important;
+    color: var(--color-text-primary, #e2e8f0) !important;
+    border-color: transparent !important;
+  }
+
+  .monaco-editor .margin,
+  .monaco-editor .margin-view-overlays,
+  .monaco-editor .glyph-margin {
+    background-color: var(--monaco-gutter, #111827) !important;
+  }
+
+  .monaco-editor .monaco-editor-background,
+  .monaco-editor .monaco-editor .inputarea,
+  .monaco-editor .monaco-editor .scroll-decoration {
+    background-color: var(--monaco-surface, #0f0a1a) !important;
+  }
+
+  .monaco-editor .view-overlays .current-line,
+  .monaco-editor .margin-view-overlays .current-line {
+    background-color: var(--monaco-line-highlight) !important;
+    border: none !important;
+  }
+
+  .monaco-editor .margin-view-overlays .current-line .line-numbers {
+    background-color: transparent !important;
+  }
+
+  .monaco-editor .decorationsOverviewRuler,
+  .monaco-editor .overviewRuler {
+    background: transparent !important;
+    border-color: transparent !important;
+    display: none !important;
+    width: 0 !important;
+  }
+
   .text-primary {
     color: var(--color-text-primary);
   }
