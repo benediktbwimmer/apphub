@@ -73,11 +73,72 @@ CREATE TABLE migration_watermarks (
 
 ## Migrated Tables
 
-The following Postgres tables are included in the migration:
+The migration system **dynamically discovers all tables** that meet the following criteria:
 
-1. **dataset_access_audit** - Access audit logs
-2. **lifecycle_audit_log** - Lifecycle operation audit logs  
-3. **lifecycle_job_runs** - Job execution history
+1. **Has a `dataset_id` column** - Links the data to a specific dataset
+2. **Has a timestamp column** - One of: `created_at`, `updated_at`, or `started_at`
+3. **Is not a system table** - Excludes `migration_watermarks` and `schema_migrations`
+
+### Currently Discovered Tables
+
+Based on the current schema, the following tables are automatically included:
+
+1. **dataset_access_audit** - Access audit logs (`created_at`)
+2. **lifecycle_audit_log** - Lifecycle operation audit logs (`created_at`)
+3. **lifecycle_job_runs** - Job execution history (`created_at`)
+4. **dataset_manifests** - Dataset manifest records (`created_at`)
+5. **dataset_partitions** - Dataset partition metadata (`created_at`)
+6. **dataset_schema_versions** - Schema version history (`created_at`)
+7. **ingestion_batches** - Ingestion batch tracking (`created_at`)
+8. **compaction_checkpoints** - Compaction progress tracking (`created_at`)
+9. **streaming_watermarks** - Streaming connector watermarks (`updated_at`)
+
+### Dynamic Discovery
+
+The system automatically discovers tables using this SQL query:
+
+```sql
+SELECT DISTINCT
+  t.table_name,
+  CASE
+    WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_name = t.table_name
+                AND column_name = 'created_at'
+                AND data_type IN ('timestamp with time zone', 'timestamp without time zone'))
+    THEN 'created_at'
+    WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_name = t.table_name
+                AND column_name = 'updated_at'
+                AND data_type IN ('timestamp with time zone', 'timestamp without time zone'))
+    THEN 'updated_at'
+    WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_name = t.table_name
+                AND column_name = 'started_at'
+                AND data_type IN ('timestamp with time zone', 'timestamp without time zone'))
+    THEN 'started_at'
+    ELSE NULL
+  END as time_column
+FROM information_schema.tables t
+WHERE t.table_schema = CURRENT_SCHEMA()
+  AND t.table_type = 'BASE TABLE'
+  AND EXISTS (
+    SELECT 1 FROM information_schema.columns c
+    WHERE c.table_name = t.table_name
+      AND c.column_name = 'dataset_id'
+      AND c.table_schema = t.table_schema
+  )
+  AND EXISTS (
+    SELECT 1 FROM information_schema.columns c
+    WHERE c.table_name = t.table_name
+      AND c.column_name IN ('created_at', 'updated_at', 'started_at')
+      AND c.data_type IN ('timestamp with time zone', 'timestamp without time zone')
+      AND c.table_schema = t.table_schema
+  )
+  AND t.table_name NOT IN ('migration_watermarks', 'schema_migrations')
+ORDER BY t.table_name;
+```
+
+This means that **any new table** added to the schema that has both a `dataset_id` column and a timestamp column will automatically be included in future migrations without requiring code changes.
 
 ## Implementation Details
 
@@ -106,6 +167,14 @@ Migrated data includes additional metadata:
 - **Monitoring**: Failures are tracked in lifecycle metrics
 - **Graceful Degradation**: Tables without metadata columns are handled safely
 - **Dynamic Schema**: Automatically adapts to different table structures
+
+### Data Cleanup Behavior
+
+- **Behavior**: Deletes ALL records older than the grace period for the dataset
+- **Safety**: Uses the same grace period mechanism to ensure data is safely stored in ClickHouse before deletion
+- **Scope**: Applies to all dynamically discovered tables with `dataset_id` and timestamp columns
+
+This ensures that Postgres storage is fully reclaimed after migration, preventing database growth over time.
 
 ## Scheduling
 
@@ -180,7 +249,7 @@ Migration operations are logged in the lifecycle audit system:
 
 - **Read Load**: Migration queries use time-based indexes
 - **Lock Duration**: Short transaction locks due to batch processing
-- **Cleanup**: Gradual cleanup reduces impact on active workloads
+- **Cleanup**: **Complete data removal** - All migrated data is permanently deleted from Postgres after the grace period, fully reclaiming storage space
 
 ## Testing
 

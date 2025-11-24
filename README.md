@@ -79,7 +79,7 @@ The docker runner provisions PostgreSQL and MinIO containers, launches Redis, an
 Both runners start the core services plus the frontend. Modules are no longer published automatically; load the Environmental Observatory bundle after the stack settles:
 
 ```bash
-npm run load:observatory
+npm run dev:observatory
 ```
 
 The loader detects the local Redis/Postgres instances and publishes the observatory module with the filesystem-backed filestore mount, so no additional environment variables are required.
