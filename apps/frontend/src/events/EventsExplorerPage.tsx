@@ -89,7 +89,7 @@ const SEVERITY_BADGE_CLASSES: Record<string, string> = {
   critical: 'bg-status-danger text-status-danger-on',
   error: 'bg-status-danger text-status-danger-on',
   warning: 'bg-status-warning text-status-warning-on',
-  info: 'bg-status-info text-status-info-on',
+  info: 'border border-status-info bg-status-info-soft text-status-info shadow-elevation-sm',
   debug: 'bg-status-neutral text-status-neutral-on'
 };
 const CONNECTION_BADGE_CLASSES: Record<AppHubConnectionStatus, string> = {
