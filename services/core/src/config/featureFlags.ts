@@ -25,21 +25,27 @@ const featureFlagEnvSchema = z
     APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS: booleanVar({ defaultValue: false }),
     APPHUB_STREAM_MIRROR_JOB_RUNS: booleanVar({ defaultValue: false }),
     APPHUB_STREAM_MIRROR_INGESTION: booleanVar({ defaultValue: false }),
-    APPHUB_STREAM_MIRROR_CORE_EVENTS: booleanVar({ defaultValue: false })
+    APPHUB_STREAM_MIRROR_CORE_EVENTS: booleanVar({ defaultValue: false }),
+    APPHUB_STREAM_BROKER_URL: z.string().optional()
   })
   .passthrough()
-  .transform((env) => ({
-    streaming: {
-      enabled: env.APPHUB_STREAMING_ENABLED ?? false,
-      mirrors: {
-        workflowRuns: env.APPHUB_STREAM_MIRROR_WORKFLOW_RUNS ?? false,
-        workflowEvents: env.APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS ?? false,
-        jobRuns: env.APPHUB_STREAM_MIRROR_JOB_RUNS ?? false,
-        ingestion: env.APPHUB_STREAM_MIRROR_INGESTION ?? false,
-        coreEvents: env.APPHUB_STREAM_MIRROR_CORE_EVENTS ?? false
+  .transform((env) => {
+    const brokerPresent = Boolean((env.APPHUB_STREAM_BROKER_URL ?? process.env.APPHUB_STREAM_BROKER_URL ?? '').trim());
+    const streamingEnabled = env.APPHUB_STREAMING_ENABLED ?? brokerPresent;
+
+    return {
+      streaming: {
+        enabled: streamingEnabled,
+        mirrors: {
+          workflowRuns: env.APPHUB_STREAM_MIRROR_WORKFLOW_RUNS ?? streamingEnabled,
+          workflowEvents: env.APPHUB_STREAM_MIRROR_WORKFLOW_EVENTS ?? streamingEnabled,
+          jobRuns: env.APPHUB_STREAM_MIRROR_JOB_RUNS ?? streamingEnabled,
+          ingestion: env.APPHUB_STREAM_MIRROR_INGESTION ?? false,
+          coreEvents: env.APPHUB_STREAM_MIRROR_CORE_EVENTS ?? false
+        }
       }
-    }
-  }) satisfies FeatureFlags);
+    } satisfies FeatureFlags;
+  });
 
 export function getFeatureFlags(): FeatureFlags {
   if (!cachedFlags) {

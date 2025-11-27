@@ -1056,7 +1056,7 @@ export function loadServiceConfig(): ServiceConfig {
   const executionBackends = parseExecutionBackendList(env.TIMESTORE_QUERY_EXECUTION_BACKENDS);
   const executionConfig = normalizeExecutionConfig(executionBackends, executionDefaultBackend);
 
-  const streamingFeatureEnabled = parseBoolean(env.APPHUB_STREAMING_ENABLED, false);
+  const streamingFeatureEnabled = parseBoolean(env.APPHUB_STREAMING_ENABLED, Boolean(env.APPHUB_STREAM_BROKER_URL));
   const streamingConnectors = parseStreamingConnectors(env.TIMESTORE_STREAMING_CONNECTORS);
   const bulkConnectors = parseBulkConnectors(env.TIMESTORE_BULK_CONNECTORS);
   const streamingBatchers = (() => {
