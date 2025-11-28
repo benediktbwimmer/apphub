@@ -48,16 +48,7 @@ export type JobManifestTemplate = {
   metadata?: JsonValue;
 };
 
-export type ModuleJobSlug =
-  | 'observatory-data-generator'
-  | 'observatory-minute-preprocessor'
-  | 'observatory-timestore-loader'
-  | 'observatory-visualization-runner'
-  | 'observatory-dashboard-aggregator'
-  | 'observatory-report-publisher'
-  | 'observatory-calibration-importer'
-  | 'observatory-calibration-planner'
-  | 'observatory-calibration-reprocessor';
+export type ModuleJobSlug = string;
 
 export type ModuleJobBundle = {
   slug: ModuleJobSlug;
@@ -254,13 +245,7 @@ export type WorkflowProvisioningPlanTemplate = {
   eventTriggers?: WorkflowProvisioningEventTriggerTemplate[];
 };
 
-export type ModuleWorkflowSlug =
-  | 'observatory-minute-data-generator'
-  | 'observatory-minute-ingest'
-  | 'observatory-daily-publication'
-  | 'observatory-dashboard-aggregate'
-  | 'observatory-calibration-import'
-  | 'observatory-calibration-reprocess';
+export type ModuleWorkflowSlug = string;
 
 export type ModuleWorkflow = {
   slug: ModuleWorkflowSlug;

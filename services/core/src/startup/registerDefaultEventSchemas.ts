@@ -90,6 +90,7 @@ const defaultSchemas: Array<{
   metadata: null;
   author: string | null;
 }> = [
+  // Core asset lifecycle events
   {
     eventType: 'asset.produced',
     schema: assetProducedSchema,
@@ -99,6 +100,71 @@ const defaultSchemas: Array<{
   {
     eventType: 'asset.expired',
     schema: assetExpiredSchema,
+    metadata: null,
+    author: 'apphub-core'
+  },
+  // Observatory module events (permissive payloads so the demo module keeps working during prototyping)
+  {
+    eventType: 'observatory.minute.partition-ready',
+    schema: {
+      type: 'object',
+      required: ['payload'],
+      properties: {
+        payload: {
+          type: 'object',
+          additionalProperties: true
+        }
+      },
+      additionalProperties: false
+    },
+    metadata: null,
+    author: 'apphub-core'
+  },
+  {
+    eventType: 'observatory.dashboard.updated',
+    schema: {
+      type: 'object',
+      required: ['payload'],
+      properties: {
+        payload: {
+          type: 'object',
+          additionalProperties: true
+        }
+      },
+      additionalProperties: false
+    },
+    metadata: null,
+    author: 'apphub-core'
+  },
+  {
+    eventType: 'observatory.calibration.updated',
+    schema: {
+      type: 'object',
+      required: ['payload'],
+      properties: {
+        payload: {
+          type: 'object',
+          additionalProperties: true
+        }
+      },
+      additionalProperties: false
+    },
+    metadata: null,
+    author: 'apphub-core'
+  },
+  {
+    eventType: 'observatory.burst.finished',
+    schema: {
+      type: 'object',
+      required: ['payload'],
+      properties: {
+        payload: {
+          type: 'object',
+          additionalProperties: true
+        }
+      },
+      additionalProperties: false
+    },
     metadata: null,
     author: 'apphub-core'
   }

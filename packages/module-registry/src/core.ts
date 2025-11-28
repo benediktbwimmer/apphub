@@ -241,32 +241,9 @@ function resolveWorkflowDefinition(
 }
 
 function isModuleJobSlugValue(value: string): value is ModuleJobSlug {
-  switch (value) {
-    case 'observatory-data-generator':
-    case 'observatory-minute-preprocessor':
-    case 'observatory-timestore-loader':
-    case 'observatory-visualization-runner':
-    case 'observatory-dashboard-aggregator':
-    case 'observatory-report-publisher':
-    case 'observatory-calibration-importer':
-    case 'observatory-calibration-planner':
-    case 'observatory-calibration-reprocessor':
-      return true;
-    default:
-      return false;
-  }
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function isModuleWorkflowSlugValue(value: string): value is ModuleWorkflowSlug {
-  switch (value) {
-    case 'observatory-minute-data-generator':
-    case 'observatory-minute-ingest':
-    case 'observatory-daily-publication':
-    case 'observatory-dashboard-aggregate':
-    case 'observatory-calibration-import':
-    case 'observatory-calibration-reprocess':
-      return true;
-    default:
-      return false;
-  }
+  return typeof value === 'string' && value.trim().length > 0;
 }
