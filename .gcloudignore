@@ -1,0 +1,3 @@
+# Keep deployments from inheriting .gitignore; only exclude VCS metadata.
+.git/
+.gitignore

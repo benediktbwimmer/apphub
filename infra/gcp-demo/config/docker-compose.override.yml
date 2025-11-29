@@ -1,0 +1,11 @@
+services:
+  core-api:
+    ports:
+      - "${APPHUB_CORE_PORT_EXTERNAL:-4000}:4000"
+  frontend:
+    ports:
+      - "${APPHUB_FRONTEND_PORT_EXTERNAL:-4173}:80"
+  demo-bootstrap:
+    environment:
+      APPHUB_DEMO_SERVICE_TOKEN: ${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}
+      OBSERVATORY_CORE_TOKEN: ${APPHUB_DEMO_ADMIN_TOKEN:-demo-admin-token}

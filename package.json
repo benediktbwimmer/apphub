@@ -56,7 +56,9 @@
     "e2e:timestore": "node --enable-source-maps --import tsx tests/e2e/timestore.e2e.ts",
     "module:admin": "npm run module:admin --workspace @apphub/core --",
     "deploy:website": "node scripts/deploy-website.mjs",
+    "deploy:website:gcp": "node scripts/deploy-website-gcp.mjs",
     "deploy:demo": "node scripts/deploy-demo-stack.mjs",
+    "deploy:demo:gcp": "node scripts/deploy-demo-stack-gcp.mjs",
     "deploy:gke-autopilot": "node scripts/gke-autopilot-deploy.mjs"
   },
   "devDependencies": {
