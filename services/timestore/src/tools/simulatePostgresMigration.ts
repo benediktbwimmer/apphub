@@ -103,7 +103,7 @@ async function createTestData(datasetId?: string): Promise<void> {
             [
               `audit-log-${randomUUID()}`,
               testDatasetId,
-              null,
+              manifestId,
               ['compaction', 'retention', 'export'][Math.floor(Math.random() * 3)],
               JSON.stringify({ test: true, iteration: i, records: Math.floor(Math.random() * 1000) }),
               createdAt
@@ -145,32 +145,79 @@ async function performDryRun(datasetId?: string): Promise<void> {
     for (const dataset of datasets) {
       console.log(`[test-postgres-migration] Checking dataset ${dataset.id}:`);
       
-      const tables = ['dataset_access_audit', 'lifecycle_audit_log', 'lifecycle_job_runs'];
+      // Query all tables that would be discovered by the dynamic migration
+      const discoveryResult = await client.query(`
+        SELECT DISTINCT
+          t.table_name,
+          CASE
+            WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_name = t.table_name
+                        AND column_name = 'created_at'
+                        AND data_type IN ('timestamp with time zone', 'timestamp without time zone'))
+            THEN 'created_at'
+            WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_name = t.table_name
+                        AND column_name = 'updated_at'
+                        AND data_type IN ('timestamp with time zone', 'timestamp without time zone'))
+            THEN 'updated_at'
+            WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_name = t.table_name
+                        AND column_name = 'started_at'
+                        AND data_type IN ('timestamp with time zone', 'timestamp without time zone'))
+            THEN 'started_at'
+            ELSE NULL
+          END as time_column
+        FROM information_schema.tables t
+        WHERE t.table_schema = CURRENT_SCHEMA()
+          AND t.table_type = 'BASE TABLE'
+          AND EXISTS (
+            SELECT 1 FROM information_schema.columns c
+            WHERE c.table_name = t.table_name
+              AND c.column_name = 'dataset_id'
+              AND c.table_schema = t.table_schema
+          )
+          AND EXISTS (
+            SELECT 1 FROM information_schema.columns c
+            WHERE c.table_name = t.table_name
+              AND c.column_name IN ('created_at', 'updated_at', 'started_at')
+              AND c.data_type IN ('timestamp with time zone', 'timestamp without time zone')
+              AND c.table_schema = t.table_schema
+          )
+          AND t.table_name NOT IN ('migration_watermarks', 'schema_migrations')
+        ORDER BY t.table_name
+      `);
       
-      for (const tableName of tables) {
+      console.log(`  Discovered ${discoveryResult.rows.length} tables for migration:`);
+      
+      for (const discoveredTable of discoveryResult.rows) {
+        if (!discoveredTable.time_column) continue;
+        
+        const tableName = discoveredTable.table_name;
+        const timeColumn = discoveredTable.time_column;
+        
         const result = await client.query(
-          `SELECT COUNT(*) as count, 
-                  MIN(created_at) as oldest, 
-                  MAX(created_at) as newest
-           FROM ${tableName} 
+          `SELECT COUNT(*) as count,
+                  MIN(${timeColumn}) as oldest,
+                  MAX(${timeColumn}) as newest
+           FROM ${tableName}
            WHERE dataset_id = $1`,
           [dataset.id]
         );
         
         const row = result.rows[0];
-        console.log(`  ${tableName}: ${row.count} records (${row.oldest} to ${row.newest})`);
+        console.log(`    ${tableName} (${timeColumn}): ${row.count} records (${row.oldest} to ${row.newest})`);
         
         if (parseInt(row.count) > 0) {
           // Check what would be migrated (older than 7 days)
           const cutoffTime = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
           const migrateResult = await client.query(
             `SELECT COUNT(*) as migrate_count
-             FROM ${tableName} 
-             WHERE dataset_id = $1 AND created_at <= $2`,
+             FROM ${tableName}
+             WHERE dataset_id = $1 AND ${timeColumn} <= $2`,
             [dataset.id, cutoffTime]
           );
           
-          console.log(`    Would migrate: ${migrateResult.rows[0].migrate_count} records (older than ${cutoffTime.toISOString()})`);
+          console.log(`      Would migrate: ${migrateResult.rows[0].migrate_count} records (older than ${cutoffTime.toISOString()})`);
         }
       }
     }

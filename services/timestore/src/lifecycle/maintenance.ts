@@ -358,11 +358,9 @@ async function executePostgresMigration(
     const watermark = await getMigrationWatermark(dataset.id);
     console.log(`[postgres_migration] Current watermarks:`, watermark);
     
-    const migrationTasks = [
-      { table: 'dataset_access_audit', timeColumn: 'created_at' },
-      { table: 'lifecycle_audit_log', timeColumn: 'created_at' },
-      { table: 'lifecycle_job_runs', timeColumn: 'created_at' }
-    ];
+    // Dynamically discover all tables that have dataset_id and a timestamp column
+    const migrationTasks = await discoverMigrationTables(dataset.id);
+    console.log(`[postgres_migration] Discovered ${migrationTasks.length} tables for migration:`, migrationTasks.map(t => t.table));
 
     let totalMigrated = 0;
     let totalBytes = 0;
@@ -410,7 +408,7 @@ async function executePostgresMigration(
     }
 
     console.log(`[postgres_migration] Starting cleanup of old data (grace time: ${graceTime.toISOString()})`);
-    await cleanupOldData(dataset.id, graceTime, migrationConfig);
+    await cleanupOldData(dataset.id, graceTime, migrationConfig, jobRun.id, context.manifest.id);
 
     const message = totalMigrated > 0
       ? `migrated ${totalMigrated} records (${Math.round(totalBytes / 1024)} KB) to ClickHouse`
@@ -452,6 +450,71 @@ interface MigrationResult {
   recordCount: number;
   bytes: number;
   newWatermark: Date;
+}
+
+interface MigrationTask {
+  table: string;
+  timeColumn: string;
+}
+
+async function discoverMigrationTables(datasetId: string): Promise<MigrationTask[]> {
+  return await withConnection(async (client) => {
+    // Query to find all tables that have both dataset_id and a timestamp column
+    const result = await client.query(`
+      SELECT DISTINCT
+        t.table_name,
+        CASE
+          WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                      WHERE table_name = t.table_name
+                      AND column_name = 'created_at'
+                      AND data_type IN ('timestamp with time zone', 'timestamp without time zone'))
+          THEN 'created_at'
+          WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                      WHERE table_name = t.table_name
+                      AND column_name = 'updated_at'
+                      AND data_type IN ('timestamp with time zone', 'timestamp without time zone'))
+          THEN 'updated_at'
+          WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                      WHERE table_name = t.table_name
+                      AND column_name = 'started_at'
+                      AND data_type IN ('timestamp with time zone', 'timestamp without time zone'))
+          THEN 'started_at'
+          ELSE NULL
+        END as time_column
+      FROM information_schema.tables t
+      WHERE t.table_schema = CURRENT_SCHEMA()
+        AND t.table_type = 'BASE TABLE'
+        AND EXISTS (
+          SELECT 1 FROM information_schema.columns c
+          WHERE c.table_name = t.table_name
+            AND c.column_name = 'dataset_id'
+            AND c.table_schema = t.table_schema
+        )
+        AND EXISTS (
+          SELECT 1 FROM information_schema.columns c
+          WHERE c.table_name = t.table_name
+            AND c.column_name IN ('created_at', 'updated_at', 'started_at')
+            AND c.data_type IN ('timestamp with time zone', 'timestamp without time zone')
+            AND c.table_schema = t.table_schema
+        )
+        -- Exclude system tables and the migration watermarks table itself
+        AND t.table_name NOT IN ('migration_watermarks', 'schema_migrations')
+      ORDER BY t.table_name
+    `);
+
+    const tasks: MigrationTask[] = [];
+    for (const row of result.rows) {
+      if (row.time_column) {
+        tasks.push({
+          table: row.table_name,
+          timeColumn: row.time_column
+        });
+      }
+    }
+
+    console.log(`[postgres_migration] Discovered tables for migration:`, tasks);
+    return tasks;
+  });
 }
 
 async function getMigrationWatermark(datasetId: string): Promise<MigrationWatermark> {
@@ -623,35 +686,51 @@ async function migrateTableData(
 async function cleanupOldData(
   datasetId: string,
   graceTime: Date,
-  migrationConfig: any
+  migrationConfig: any,
+  currentJobRunId?: string,
+  currentManifestId?: string
 ): Promise<void> {
-  const tables = ['dataset_access_audit', 'lifecycle_audit_log', 'lifecycle_job_runs'];
+  // Discover all tables that were migrated
+  const migrationTasks = await discoverMigrationTables(datasetId);
   
   await withTransaction(async (client) => {
-    for (const tableName of tables) {
-      // Check if the table has a metadata column
-      const columnCheck = await client.query(
-        `SELECT column_name
-         FROM information_schema.columns
-         WHERE table_name = $1 AND column_name = 'metadata'`,
-        [tableName]
-      );
+    for (const task of migrationTasks) {
+      const { table: tableName, timeColumn } = task;
       
+      console.log(`[postgres_migration] Cleaning up migrated data from ${tableName}...`);
+      
+      // Delete ALL data older than grace time, regardless of metadata column
+      // This is the new behavior: remove all migrated data from Postgres
+      // Special handling for certain tables to avoid deleting records that are still referenced
       let query: string;
-      if (columnCheck.rows.length > 0) {
-        // Table has metadata column, use it to check for migrated records
+      let params: any[];
+      
+      if (tableName === 'lifecycle_job_runs' && currentJobRunId) {
         query = `DELETE FROM ${tableName}
                  WHERE dataset_id = $1
-                   AND created_at <= $2
-                   AND metadata->>'migrated_to_clickhouse' = 'true'`;
+                   AND ${timeColumn} <= $2
+                   AND id != $3`;
+        params = [datasetId, graceTime, currentJobRunId];
+      } else if (tableName === 'dataset_manifests' && currentManifestId) {
+        query = `DELETE FROM ${tableName}
+                 WHERE dataset_id = $1
+                   AND ${timeColumn} <= $2
+                   AND id != $3`;
+        params = [datasetId, graceTime, currentManifestId];
       } else {
-        // Table doesn't have metadata column, skip cleanup for safety
-        console.log(`[postgres_migration] Skipping cleanup for ${tableName} - no metadata column`);
-        continue;
+        query = `DELETE FROM ${tableName}
+                 WHERE dataset_id = $1
+                   AND ${timeColumn} <= $2`;
+        params = [datasetId, graceTime];
       }
       
-      const result = await client.query(query, [datasetId, graceTime]);
-      console.log(`[postgres_migration] cleaned up ${result.rowCount} records from ${tableName}`);
+      try {
+        const result = await client.query(query, params);
+        console.log(`[postgres_migration] Cleaned up ${result.rowCount} records from ${tableName} (all data older than ${graceTime.toISOString()})`);
+      } catch (error) {
+        console.error(`[postgres_migration] Failed to cleanup ${tableName}:`, error);
+        // Continue with other tables even if one fails
+      }
     }
   });
 }

@@ -29,6 +29,7 @@ beforeEach(async () => {
     TIMESTORE_POSTGRES_MIGRATION_BATCH_SIZE: process.env.TIMESTORE_POSTGRES_MIGRATION_BATCH_SIZE,
     TIMESTORE_POSTGRES_MIGRATION_MAX_AGE_HOURS: process.env.TIMESTORE_POSTGRES_MIGRATION_MAX_AGE_HOURS,
     TIMESTORE_POSTGRES_MIGRATION_GRACE_PERIOD_HOURS: process.env.TIMESTORE_POSTGRES_MIGRATION_GRACE_PERIOD_HOURS,
+    TIMESTORE_CLICKHOUSE_MOCK: process.env.TIMESTORE_CLICKHOUSE_MOCK,
     REDIS_URL: process.env.REDIS_URL,
     APPHUB_ALLOW_INLINE_MODE: process.env.APPHUB_ALLOW_INLINE_MODE
   };
@@ -39,6 +40,7 @@ beforeEach(async () => {
   process.env.TIMESTORE_POSTGRES_MIGRATION_BATCH_SIZE = '100';
   process.env.TIMESTORE_POSTGRES_MIGRATION_MAX_AGE_HOURS = '1';
   process.env.TIMESTORE_POSTGRES_MIGRATION_GRACE_PERIOD_HOURS = '0';
+  process.env.TIMESTORE_CLICKHOUSE_MOCK = 'true';
 
   resetCachedServiceConfig();
 
@@ -110,16 +112,21 @@ test('postgres migration operation executes successfully', async () => {
 });
 
 test('postgres migration handles disabled configuration gracefully', async () => {
+  // First create a dataset with published manifest to ensure we reach the postgres_migration operation
+  const testDataset = testDatasets[0];
+  
+  // Disable migration after dataset is created
   process.env.TIMESTORE_POSTGRES_MIGRATION_ENABLED = 'false';
-
   resetCachedServiceConfig();
   
   const config = loadServiceConfig();
-  const dataset = testDatasets[0];
+  
+  // Verify the config is actually disabled
+  assert.equal(config.lifecycle.postgresMigration?.enabled, false, 'Migration should be disabled in config');
 
   const payload: LifecycleJobPayload = {
-    datasetId: dataset.id,
-    datasetSlug: dataset.slug,
+    datasetId: testDataset.id,
+    datasetSlug: testDataset.slug,
     operations: ['postgres_migration'],
     trigger: 'manual',
     requestId: randomUUID(),
@@ -127,10 +134,16 @@ test('postgres migration handles disabled configuration gracefully', async () =>
   };
 
   const report = await runLifecycleJob(config, payload);
+  
   const migrationOp = report.operations.find(op => op.operation === 'postgres_migration');
   
-  assert.equal(migrationOp?.status, 'skipped');
-  assert.equal(migrationOp?.message, 'no published manifests available');
+  assert.ok(migrationOp, 'Migration operation should be present in results');
+  assert.equal(migrationOp.status, 'skipped');
+  
+  // The message is stored in the shard details when the operation is disabled
+  const shardDetails = migrationOp.details?.shards?.[0];
+  assert.ok(shardDetails, 'Should have shard details');
+  assert.equal(shardDetails.message, 'postgres migration is disabled in configuration');
 });
 
 test('postgres migration handles non-existent dataset', async () => {
@@ -229,24 +242,72 @@ async function createTestDatasets(count: number): Promise<TestDataset[]> {
         [dataset.id, dataset.slug, dataset.name]
       );
 
-      for (let j = 0; j < 10; j++) {
-        const createdAt = new Date(Date.now() - (Math.random() * 2 * 24 * 60 * 60 * 1000));
-        
-        await client.query(
-          `INSERT INTO dataset_access_audit (id, dataset_id, dataset_slug, actor_id, actor_scopes, action, success, metadata, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [
-            `audit-${randomUUID()}`,
-            dataset.id,
-            dataset.slug,
-            `test-user-${Math.floor(Math.random() * 10)}`,
-            ['read'],
-            'query',
-            true,
-            JSON.stringify({ test: true, iteration: j }),
-            createdAt
-          ]
-        );
+      // Create a published manifest for the test dataset
+      const manifestId = `manifest-${randomUUID()}`;
+      await client.query(
+        `INSERT INTO dataset_manifests (id, dataset_id, version, status, manifest_shard, created_at, updated_at, published_at)
+         VALUES ($1, $2, 1, 'published', 'root', NOW(), NOW(), NOW())`,
+        [manifestId, dataset.id]
+      );
+
+      // Create test data in multiple tables that will be discovered by the dynamic migration
+      const testTables = [
+        { name: 'dataset_access_audit', columns: 'id, dataset_id, dataset_slug, actor_id, actor_scopes, action, success, metadata, created_at' },
+        { name: 'lifecycle_audit_log', columns: 'id, dataset_id, manifest_id, event_type, payload, created_at' },
+        { name: 'lifecycle_job_runs', columns: 'id, job_kind, dataset_id, operations, trigger_source, status, started_at, created_at, updated_at' }
+      ];
+
+      for (const table of testTables) {
+        for (let j = 0; j < 10; j++) {
+          const createdAt = new Date(Date.now() - (Math.random() * 2 * 24 * 60 * 60 * 1000));
+          
+          if (table.name === 'dataset_access_audit') {
+            await client.query(
+              `INSERT INTO dataset_access_audit (id, dataset_id, dataset_slug, actor_id, actor_scopes, action, success, metadata, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              [
+                `audit-${randomUUID()}`,
+                dataset.id,
+                dataset.slug,
+                `test-user-${Math.floor(Math.random() * 10)}`,
+                ['read'],
+                'query',
+                true,
+                JSON.stringify({ test: true, iteration: j }),
+                createdAt
+              ]
+            );
+          } else if (table.name === 'lifecycle_audit_log') {
+            await client.query(
+              `INSERT INTO lifecycle_audit_log (id, dataset_id, manifest_id, event_type, payload, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [
+                `audit-log-${randomUUID()}`,
+                dataset.id,
+                manifestId,
+                'test_event',
+                JSON.stringify({ test: true, iteration: j }),
+                createdAt
+              ]
+            );
+          } else if (table.name === 'lifecycle_job_runs') {
+            await client.query(
+              `INSERT INTO lifecycle_job_runs (id, job_kind, dataset_id, operations, trigger_source, status, started_at, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              [
+                `job-run-${randomUUID()}`,
+                'dataset-maintenance',
+                dataset.id,
+                ['compaction'],
+                'test',
+                'completed',
+                createdAt,
+                createdAt,
+                createdAt
+              ]
+            );
+          }
+        }
       }
 
       datasets.push(dataset);
@@ -261,8 +322,12 @@ async function cleanupTestData(): Promise<void> {
   
   await withConnection(async (client) => {
     for (const dataset of testDatasets) {
+      // Clean up all tables that might have test data
       await client.query('DELETE FROM dataset_access_audit WHERE dataset_id = $1', [dataset.id]);
+      await client.query('DELETE FROM lifecycle_audit_log WHERE dataset_id = $1', [dataset.id]);
+      await client.query('DELETE FROM lifecycle_job_runs WHERE dataset_id = $1', [dataset.id]);
       await client.query('DELETE FROM migration_watermarks WHERE dataset_id = $1', [dataset.id]);
+      await client.query('DELETE FROM dataset_manifests WHERE dataset_id = $1', [dataset.id]);
       await client.query('DELETE FROM datasets WHERE id = $1', [dataset.id]);
     }
   });
