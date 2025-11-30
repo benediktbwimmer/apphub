@@ -108,14 +108,7 @@ const defaultSchemas: Array<{
     eventType: 'observatory.minute.partition-ready',
     schema: {
       type: 'object',
-      required: ['payload'],
-      properties: {
-        payload: {
-          type: 'object',
-          additionalProperties: true
-        }
-      },
-      additionalProperties: false
+      additionalProperties: true
     },
     metadata: null,
     author: 'apphub-core'
@@ -124,14 +117,7 @@ const defaultSchemas: Array<{
     eventType: 'observatory.dashboard.updated',
     schema: {
       type: 'object',
-      required: ['payload'],
-      properties: {
-        payload: {
-          type: 'object',
-          additionalProperties: true
-        }
-      },
-      additionalProperties: false
+      additionalProperties: true
     },
     metadata: null,
     author: 'apphub-core'
@@ -156,14 +142,7 @@ const defaultSchemas: Array<{
     eventType: 'observatory.burst.finished',
     schema: {
       type: 'object',
-      required: ['payload'],
-      properties: {
-        payload: {
-          type: 'object',
-          additionalProperties: true
-        }
-      },
-      additionalProperties: false
+      additionalProperties: true
     },
     metadata: null,
     author: 'apphub-core'

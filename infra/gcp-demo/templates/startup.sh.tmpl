@@ -1,0 +1,192 @@
+#!/bin/bash
+set -xeuo pipefail
+
+PROJECT_ID="${project_id}"
+REGION="${region}"
+DEMO_FQDN="${demo_fqdn}"
+GIT_REPO="${apphub_git_repo}"
+GIT_REF="${apphub_git_ref}"
+CONTACT_EMAIL="${contact_email}"
+
+LOG_FILE="/var/log/apphub-startup.log"
+exec > >(tee -a "$${LOG_FILE}") 2>&1
+
+apt-get update
+apt-get -y upgrade
+apt-get install -y curl ca-certificates gnupg lsb-release jq git docker.io
+
+curl -sS https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh | bash
+apt-get update
+apt-get install -y google-cloud-ops-agent
+systemctl enable --now google-cloud-ops-agent
+
+install -d -m 0755 /usr/libexec/docker/cli-plugins
+curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64" \
+  -o /usr/libexec/docker/cli-plugins/docker-compose
+chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+%{ if enable_managed_dns }
+CADDY_VERSION="2.8.4"
+apt-get install -y libcap2-bin tar
+curl -fsSL "https://github.com/caddyserver/caddy/releases/download/v$${CADDY_VERSION}/caddy_$${CADDY_VERSION}_linux_amd64.tar.gz" -o /tmp/caddy.tar.gz
+tar -xzf /tmp/caddy.tar.gz -C /tmp caddy
+install -m 0755 /tmp/caddy /usr/local/bin/caddy
+rm -f /tmp/caddy /tmp/caddy.tar.gz
+setcap "cap_net_bind_service=+ep" /usr/local/bin/caddy
+id -u caddy >/dev/null 2>&1 || useradd --system --home /var/lib/caddy --shell /usr/sbin/nologin caddy
+install -d -m 0750 -o caddy -g caddy /var/lib/caddy
+install -d -m 0755 -o caddy -g caddy /etc/caddy
+install -d -m 0755 -o caddy -g caddy /var/log/caddy
+cat <<'CADDYSVC' >/etc/systemd/system/caddy.service
+[Unit]
+Description=Caddy web server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=caddy
+Group=caddy
+ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
+Restart=on-failure
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+LimitNPROC=512
+PrivateTmp=true
+ProtectSystem=full
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target
+CADDYSVC
+%{ else }
+apt-get install -y nginx
+%{ endif }
+
+systemctl enable docker
+systemctl start docker
+
+id -u apphub >/dev/null 2>&1 || useradd -m -s /bin/bash apphub
+usermod -aG docker apphub || true
+
+install -d -o apphub -g apphub /opt/apphub
+install -d -o apphub -g apphub /opt/apphub/data/{postgres,redis,minio,redpanda,sequencer,clickhouse,scratch}
+install -d -o apphub -g apphub /opt/apphub/data/flink/checkpoints
+chown -R 101:101 /opt/apphub/data/redpanda
+install -d -o apphub -g apphub /opt/apphub/website
+
+cat <<'ENVEOF' >/opt/apphub/.env
+${env_base}
+ENVEOF
+
+ACCESS_TOKEN="$(curl -s -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -r '.access_token')"
+
+fetch_secret() {
+  local resource="$1"
+  local key="$2"
+  local value
+  value="$(curl -s -H "Authorization: Bearer $${ACCESS_TOKEN}" "https://secretmanager.googleapis.com/v1/$${resource}/versions/latest:access" | jq -r '.payload.data' | base64 -d)"
+  echo "$${key}=$${value}" >>/opt/apphub/.env
+}
+
+fetch_secret "${session_secret}" "APPHUB_SESSION_SECRET"
+fetch_secret "${admin_token}" "APPHUB_DEMO_ADMIN_TOKEN"
+fetch_secret "${service_token}" "APPHUB_DEMO_SERVICE_TOKEN"
+fetch_secret "${viewer_token}" "APPHUB_DEMO_VIEWER_TOKEN"
+
+chown apphub:apphub /opt/apphub/.env
+chmod 600 /opt/apphub/.env
+
+%{ if enable_managed_dns }
+cat <<'CADDY' >/etc/caddy/Caddyfile
+${caddyfile}
+CADDY
+chown caddy:caddy /etc/caddy/Caddyfile
+systemctl enable caddy
+systemctl restart caddy
+%{ else }
+cat <<'NGINX' >/etc/nginx/sites-available/apphub.conf
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    root /opt/apphub/website/dist;
+    index index.html;
+
+    access_log /var/log/nginx/apphub-website.access.log;
+    error_log /var/log/nginx/apphub-website.error.log;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+NGINX
+
+rm -f /etc/nginx/sites-enabled/default || true
+ln -sf /etc/nginx/sites-available/apphub.conf /etc/nginx/sites-enabled/apphub.conf
+systemctl enable nginx
+systemctl restart nginx
+%{ endif }
+
+cat <<'OVERRIDE' >/opt/apphub/docker-compose.override.yml
+${compose_override}
+OVERRIDE
+chown apphub:apphub /opt/apphub/docker-compose.override.yml
+
+if [ ! -d /opt/apphub/source ]; then
+  git clone "$${GIT_REPO}" /opt/apphub/source
+fi
+
+cd /opt/apphub/source
+git fetch --all --tags || true
+git checkout "$${GIT_REF}"
+git pull --ff-only origin "$${GIT_REF}" || true
+chown -R apphub:apphub /opt/apphub/source
+
+cat <<'SERVICEF' >/etc/systemd/system/apphub-demo.service
+[Unit]
+Description=AppHub demo stack
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=apphub
+Group=apphub
+WorkingDirectory=/opt/apphub/source
+EnvironmentFile=/opt/apphub/.env
+ExecStart=/usr/bin/docker compose --file docker/demo-stack.compose.yml --file /opt/apphub/docker-compose.override.yml --env-file /opt/apphub/.env up -d --remove-orphans --build
+ExecStop=/usr/bin/docker compose --file docker/demo-stack.compose.yml --file /opt/apphub/docker-compose.override.yml --env-file /opt/apphub/.env down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+SERVICEF
+
+systemctl daemon-reload
+systemctl enable apphub-demo.service
+systemctl start apphub-demo.service || true
+
+cat <<'LOGROT' >/etc/logrotate.d/docker-containers
+/var/lib/docker/containers/*/*.log {
+  rotate 7
+  daily
+  compress
+  missingok
+  delaycompress
+  copytruncate
+}
+LOGROT
+
+echo "Bootstrap complete"

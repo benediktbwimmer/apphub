@@ -1,0 +1,24 @@
+{
+  email ${contact_email}
+  acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+${demo_fqdn} {
+  encode zstd gzip
+  log {
+    output file /var/log/caddy/apphub-demo.log
+    format console
+  }
+
+  handle_path /api/* {
+    reverse_proxy 127.0.0.1:4000 {
+      flush_interval 10ms
+    }
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:4173 {
+      flush_interval 10ms
+    }
+  }
+}
