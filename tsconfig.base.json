@@ -51,6 +51,12 @@
       "@apphub/module-registry/*": [
         "packages/module-registry/dist/*"
       ],
+      "@apphub/module-sdk": [
+        "packages/module-sdk/dist/index.d.ts"
+      ],
+      "@apphub/module-sdk/*": [
+        "packages/module-sdk/dist/*"
+      ],
       "@apphub/event-bus": [
         "packages/event-bus/src/index.ts"
       ],

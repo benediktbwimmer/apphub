@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   getDatasetBySlug,
   getSchemaVersionById,
+  getLatestSchemaVersion,
   type DatasetRecord,
   type DatasetManifestRecord,
   type StorageTargetRecord,
@@ -117,11 +118,22 @@ export async function buildQueryPlan(
 
   const config = loadServiceConfig();
   const filters = request.filters ?? {};
+
+  if (shouldBypassManifestPlanner(config)) {
+    return buildClickHouseDirectPlan({
+      dataset,
+      datasetSlug,
+      request,
+      timestampColumn,
+      rangeStart,
+      rangeEnd,
+      filters,
+      config
+    });
+  }
+
   const cacheResult = await loadManifestPartitionsForQuery(dataset, rangeStart, rangeEnd, filters);
   const manifests = cacheResult.manifests;
-  const shardKeys = cacheResult.shards.length > 0
-    ? cacheResult.shards
-    : Array.from(new Set(manifests.map((manifest) => manifest.manifestShard)));
   const partitions = cacheResult.partitions;
 
   const planPartitions = partitions.map((partition, index) =>
@@ -231,6 +243,14 @@ async function resolveSchemaFieldsForPlan(
     }
   }
 
+  const latestSchemaVersion = await getLatestSchemaVersion(dataset.id);
+  if (latestSchemaVersion) {
+    const fields = normalizeFieldDefinitions(extractFieldDefinitions(latestSchemaVersion.schema));
+    if (fields.length > 0) {
+      return fields;
+    }
+  }
+
   return [];
 }
 
@@ -327,6 +347,114 @@ function resolveAggregationExpression(aggregation: DownsampleAggregationInput): 
 function createIntervalLiteral(size: number, unit: DownsampleInput['intervalUnit']): string {
   const unitSuffix = size === 1 ? unit : `${unit}s`;
   return `${size} ${unitSuffix}`;
+}
+
+function shouldBypassManifestPlanner(config: ServiceConfig): boolean {
+  return config.storage.driver === 'clickhouse';
+}
+
+function buildClickHouseLocation(config: ServiceConfig): string {
+  const host = config.clickhouse.host ?? 'clickhouse';
+  const port = config.clickhouse.httpPort ?? 8123;
+  const database = config.clickhouse.database ?? 'default';
+  return `clickhouse://${host}:${port}/${database}`;
+}
+
+function resolveDatasetTableName(dataset: DatasetRecord): string {
+  const metadata = (dataset.metadata ?? {}) as Record<string, unknown>;
+  const tableName = typeof metadata.tableName === 'string' ? metadata.tableName.trim() : '';
+  if (tableName.length > 0) {
+    return tableName;
+  }
+  return 'records';
+}
+
+function createClickHouseStorageTarget(config: ServiceConfig): StorageTargetRecord {
+  const nowIso = new Date(0).toISOString();
+  return {
+    id: 'clickhouse-default',
+    name: 'clickhouse',
+    kind: 'clickhouse',
+    description: null,
+    config: {
+      host: config.clickhouse.host,
+      httpPort: config.clickhouse.httpPort,
+      nativePort: config.clickhouse.nativePort,
+      database: config.clickhouse.database,
+      secure: config.clickhouse.secure
+    },
+    createdAt: nowIso,
+    updatedAt: nowIso
+  };
+}
+
+function buildClickHouseDirectPartition(
+  dataset: DatasetRecord,
+  rangeStart: Date,
+  rangeEnd: Date,
+  config: ServiceConfig
+): QueryPlanPartition {
+  return {
+    id: 'clickhouse-direct',
+    alias: 'clickhouse_direct',
+    tableName: resolveDatasetTableName(dataset),
+    location: buildClickHouseLocation(config),
+    startTime: rangeStart,
+    endTime: rangeEnd,
+    storageTarget: createClickHouseStorageTarget(config),
+    fileSizeBytes: null
+  };
+}
+
+function resolveDownsamplePlan(request: QueryRequest): DownsamplePlan | undefined {
+  if (!request.downsample) {
+    return undefined;
+  }
+  const { intervalUnit, intervalSize, aggregations } = request.downsample;
+  return buildDownsamplePlan(intervalUnit, intervalSize, aggregations);
+}
+
+async function buildClickHouseDirectPlan(input: {
+  dataset: DatasetRecord;
+  datasetSlug: string;
+  request: QueryRequest;
+  timestampColumn: string;
+  rangeStart: Date;
+  rangeEnd: Date;
+  filters: QueryRequest['filters'];
+  config: ServiceConfig;
+}): Promise<QueryPlan> {
+  const { dataset, datasetSlug, request, timestampColumn, rangeStart, rangeEnd, filters, config } = input;
+  const columnFilters = filters?.columns ?? {};
+  const hasColumnFilters = Object.keys(columnFilters).length > 0;
+
+  const downsamplePlan = resolveDownsamplePlan(request);
+  const mode = downsamplePlan ? 'downsampled' : 'raw';
+  const partition = buildClickHouseDirectPartition(dataset, rangeStart, rangeEnd, config);
+  const schemaFields = await resolveSchemaFieldsForPlan(dataset, [], config);
+  const execution = resolveExecutionPlan(dataset, config);
+
+  return {
+    dataset,
+    datasetId: dataset.id,
+    datasetSlug,
+    timestampColumn,
+    columns: request.columns,
+    limit: request.limit,
+    partitions: [partition],
+    downsample: downsamplePlan,
+    mode,
+    rangeStart,
+    rangeEnd,
+    schemaFields,
+    columnFilters: hasColumnFilters ? columnFilters : undefined,
+    partitionSelection: {
+      total: 1,
+      selected: 1,
+      pruned: 0
+    },
+    execution
+  } satisfies QueryPlan;
 }
 
 function quoteIdentifier(identifier: string): string {
