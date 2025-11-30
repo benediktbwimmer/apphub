@@ -1834,6 +1834,25 @@ export async function getSchemaVersionById(id: string): Promise<DatasetSchemaVer
   });
 }
 
+export async function getLatestSchemaVersion(
+  datasetId: string
+): Promise<DatasetSchemaVersionRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetSchemaVersionRow>(
+      `SELECT *
+         FROM dataset_schema_versions
+        WHERE dataset_id = $1
+        ORDER BY version DESC
+        LIMIT 1`,
+      [datasetId]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapSchemaVersion(rows[0]);
+  });
+}
+
 export async function getNextManifestVersion(datasetId: string): Promise<number> {
   return withConnection(async (client) => {
     const { rows } = await client.query<{ max_version: number | null }>(
